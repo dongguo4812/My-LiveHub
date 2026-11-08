@@ -1,0 +1,31 @@
+version: '3'
+
+info:
+  companyName: "My-LiveHub"
+  productName: "My-LiveHub"
+  productIdentifier: "com.dongguo4812.mylivehub"
+  description: "多平台综合直播互动辅助平台"
+  copyright: "(c) 2026 My-LiveHub"
+  version: "0.1.0"
+
+dev_mode:
+  root_path: .
+  log_level: info
+  debounce: 800
+  ignore:
+    dir:
+      - .git
+      - node_modules
+      - frontend
+      - bin
+    file:
+      - .DS_Store
+      - .gitignore
+      - "*_test.go"
+    git_ignore: true
+  executes:
+    - cmd: npm --prefix frontend run dev -- --host 127.0.0.1 --port 9246
+      type: background
+    - cmd: go run .
+      type: primary
+      exit_policy: shutdown
