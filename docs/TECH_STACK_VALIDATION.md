@@ -10,7 +10,11 @@
 
 本阶段只验证技术可行性，不迁移旧项目业务功能，不提前设计完整扩展 SDK，也不将候选技术栈视为不可更改的最终决定。
 
-## 2. 开发环境前置要求\n\n当前 Wails v3 稳定版要求 Go 1.26 或更新版本；Windows 需要 WebView2 Runtime，前端模板通常还需要 Node.js 与 npm。开始原型前应记录实际版本，并运行 `wails3 doctor` 检查环境。Windows 10/11 通常已预装 WebView2 Runtime。\n\n## 3. 候选技术路线
+## 2. 开发环境前置要求
+
+当前 Wails v3 稳定版要求 Go 1.26 或更新版本；Windows 需要 WebView2 Runtime，前端模板通常还需要 Node.js 与 npm。开始原型前应记录实际版本，并运行 `wails3 doctor` 检查环境。Windows 10/11 通常已预装 WebView2 Runtime。
+
+## 3. 候选技术路线
 
 | 层次 | 候选方案 | 验证重点 |
 |---|---|---|
