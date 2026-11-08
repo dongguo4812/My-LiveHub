@@ -37,9 +37,22 @@ func main() {
 	})
 	windowService.app = app
 
-	// Stop background work as soon as the application begins shutting down.
+	displayServer, err := startDisplayServer()
+	if err != nil {
+		log.Fatalf("start OBS display server on %s: %v", displayServerAddress, err)
+	}
+
+	// Stop background work and the standalone OBS HTTP server during shutdown.
 	ctx, cancel := context.WithCancel(context.Background())
-	app.OnShutdown(cancel)
+	app.OnShutdown(func() {
+		cancel()
+
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		if err := displayServer.Shutdown(shutdownCtx); err != nil {
+			log.Printf("shutdown OBS display server: %v", err)
+		}
+	})
 
 	mainWindow := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:             "main-window",
