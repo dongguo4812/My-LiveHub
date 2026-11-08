@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>My-LiveHub OBS 展示验证</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: transparent;
+      color: #f2f4fa;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      min-height: 100%;
+      margin: 0;
+      background: transparent !important;
+    }
+    body {
+      padding: 24px;
+      display: grid;
+      place-items: center;
+    }
+    main {
+      width: min(720px, 100%);
+      padding: 28px 32px;
+      border: 1px solid rgba(141, 156, 255, .35);
+      border-radius: 16px;
+      background: rgba(18, 20, 30, .88);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, .24);
+    }
+    .eyebrow {
+      margin: 0 0 12px;
+      color: #9eacff;
+      font-size: 12px;
+      letter-spacing: .14em;
+    }
+    h1 { margin: 0 0 12px; font-size: clamp(22px, 4vw, 32px); }
+    p { color: #c3c9dc; line-height: 1.7; }
+    .status { display: flex; align-items: center; gap: 9px; margin-top: 20px; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #43d69a; }
+    #status { color: #8ce5bd; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">MY-LIVEHUB · OBS BROWSER SOURCE</p>
+    <h1>独立展示页面运行正常</h1>
+    <p>此页面由 My-LiveHub Go 本地 HTTP 服务提供，不依赖桌面管理窗口，也不依赖 Wails WebView。</p>
+    <div class="status">
+      <span class="dot" aria-hidden="true"></span>
+      <span id="status">展示服务已连接</span>
+    </div>
+  </main>
+  <script>
+    fetch('/healthz', { cache: 'no-store' })
+      .then(response => {
+        if (!response.ok) throw new Error('HTTP ' + response.status)
+        return response.json()
+      })
+      .then(data => {
+        document.getElementById('status').textContent =
+          data.status === 'ok' ? '本地展示服务正常' : '展示服务状态异常'
+      })
+      .catch(() => {
+        document.getElementById('status').textContent = '无法连接本地展示服务'
+      })
+  </script>
+</body>
+</html>
