@@ -1,16 +1,21 @@
 package main
 
 import (
-	"embed"
 	"context"
+	"embed"
 	"log"
+	"sync/atomic"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
+
+//go:embed build/appicon.png
+var trayIcon []byte
 
 func init() {
 	application.RegisterEvent[string]("time")
@@ -29,9 +34,6 @@ func main() {
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
 		},
-		Mac: application.MacOptions{
-			ApplicationShouldTerminateAfterLastWindowClosed: true,
-		},
 	})
 	windowService.app = app
 
@@ -39,7 +41,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	app.OnShutdown(cancel)
 
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
+	mainWindow := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:             "main-window",
 		Title:            "My-LiveHub 桌面验证",
 		Width:            1000,
@@ -47,6 +49,37 @@ func main() {
 		BackgroundColour: application.NewRGB(6, 7, 15),
 		URL:              "/",
 	})
+
+	// Closing the main window hides it instead of terminating the app.
+	// The tray's Quit action explicitly bypasses this behaviour.
+	var quitting atomic.Bool
+	mainWindow.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
+		if quitting.Load() {
+			return
+		}
+		mainWindow.Hide()
+		event.Cancel()
+	})
+
+	tray := app.SystemTray.New()
+	tray.SetIcon(trayIcon)
+	tray.SetTooltip("My-LiveHub 桌面验证")
+	tray.OnClick(func() {
+		mainWindow.Show()
+		mainWindow.Focus()
+	})
+
+	trayMenu := app.NewMenu()
+	trayMenu.Add("打开主窗口").OnClick(func(ctx *application.Context) {
+		mainWindow.Show()
+		mainWindow.Focus()
+	})
+	trayMenu.AddSeparator()
+	trayMenu.Add("退出程序").OnClick(func(ctx *application.Context) {
+		quitting.Store(true)
+		app.Quit()
+	})
+	tray.SetMenu(trayMenu)
 
 	go func() {
 		ticker := time.NewTicker(time.Second)
