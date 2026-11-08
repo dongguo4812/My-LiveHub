@@ -1,0 +1,22 @@
+version: '3'
+
+vars:
+  VITE_PORT: '{{.WAILS_VITE_PORT | default "9246"}}'
+
+tasks:
+  dev:
+    summary: 启动 My-LiveHub 桌面开发环境
+    cmds:
+      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+  frontend:install:
+    summary: 安装管理端前端依赖
+    cmds:
+      - npm --prefix frontend install
+  frontend:build:
+    summary: 构建管理端前端
+    cmds:
+      - npm --prefix frontend run build
+  test:
+    summary: 运行 Go 测试
+    cmds:
+      - go test ./...
