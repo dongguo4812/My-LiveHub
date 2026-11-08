@@ -52,6 +52,10 @@ jobs:
         shell: pwsh
         run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
 
+      - name: Generate frontend bindings
+        shell: pwsh
+        run: wails3 generate bindings -ts
+
       - name: Install frontend dependencies
         working-directory: prototype/desktop-validation/My-LiveHub-Desktop-Validation/frontend
         run: npm ci
