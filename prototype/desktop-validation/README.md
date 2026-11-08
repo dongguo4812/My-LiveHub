@@ -29,7 +29,7 @@ wails3 version
 wails3 doctor
 ```
 
-如果 `wails3` 命令无法识别，请确认 Go 的 bin 目录（通常为 `%USERPROFILE%\\go\\bin`）已加入 PATH，并重新打开终端。
+如果 `wails3` 命令无法识别，请确认 Go 的 bin 目录（通常为 `%USERPROFILE%\go\bin`）已加入 PATH，并重新打开终端。
 
 ## 初始化 Wails + Vue + TypeScript
 
