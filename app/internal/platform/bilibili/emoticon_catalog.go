@@ -35,15 +35,44 @@ type roomEmoticonResponse struct {
 	} `json:"data"`
 }
 
-func emoticonSourceID(roomID int, unique string) string {
+func emoticonSourceIDForPackage(roomID int, unique string, packageType int) string {
 	value := strings.TrimSpace(unique)
-	if strings.HasPrefix(value, "room_") || value == "" {
+	switch {
+	case strings.HasPrefix(value, "room_"):
+		return strconv.Itoa(roomID)
+	case strings.HasPrefix(value, "emoji_"), strings.HasPrefix(value, "official_"):
+		return "common"
+	}
+
+	// GetEmoticons currently identifies general packages with pkg_type=1
+	// and room-specific packages with pkg_type=2. Keep unknown types room-scoped
+	// rather than accidentally sharing a room-only emoticon globally.
+	switch packageType {
+	case 1:
+		return "common"
+	case 2:
+		return strconv.Itoa(roomID)
+	default:
 		return strconv.Itoa(roomID)
 	}
-	if _, err := strconv.Atoi(value); err == nil {
-		return strconv.Itoa(roomID)
+}
+
+// emoticonSourceID is used for live danmaku payloads, which may not contain
+// package metadata. Unknown identities are conservatively kept room-scoped.
+func emoticonSourceID(roomID int, unique string) string {
+	return emoticonSourceIDForPackage(roomID, unique, 0)
+}
+
+func emoticonResourceID(unique string, packageID, emoticonID int, imageURL string) string {
+	if value := strings.TrimSpace(unique); value != "" {
+		return value
 	}
-	return "common"
+	if packageID > 0 && emoticonID > 0 {
+		return fmt.Sprintf("pkg_%d_emoticon_%d", packageID, emoticonID)
+	}
+	// Without the official unique key or both numeric identifiers, URL is the
+	// only stable fallback available from the catalog response.
+	return imageURL
 }
 
 func fetchRoomEmoticonResources(ctx context.Context, httpClient *http.Client, roomID int, cookie string) ([]resource.Resource, error) {
@@ -98,20 +127,14 @@ func fetchRoomEmoticonResources(ctx context.Context, httpClient *http.Client, ro
 			if imageURL == "" {
 				continue
 			}
-			id := strings.TrimSpace(emoticon.Unique)
-			if id == "" && emoticon.ID > 0 {
-				id = strconv.Itoa(emoticon.ID)
-			}
-			if id == "" {
-				id = imageURL
-			}
+			id := emoticonResourceID(emoticon.Unique, pkg.PackageID, emoticon.ID, imageURL)
 			name := strings.TrimSpace(emoticon.Emoji)
 			if name == "" {
 				name = id
 			}
 			items = append(items, resource.Resource{
 				PlatformID: "bilibili",
-				SourceID:   emoticonSourceID(roomID, emoticon.Unique),
+				SourceID:   emoticonSourceIDForPackage(roomID, emoticon.Unique, pkg.PackageType),
 				Type:       resource.TypeEmoticon,
 				ID:         id,
 				Name:       name,
