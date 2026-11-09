@@ -37,9 +37,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("initialize configuration manager: %v", err)
 	}
-	if _, err := configManager.Load("app.json"); err != nil {
+	appConfig, err := config.LoadTyped[config.AppConfig](configManager, "app.json", config.CurrentAppConfigVersion, config.AppConfigMigrations, func(value config.AppConfig) error {
+		return value.Validate()
+	})
+	if err != nil {
 		log.Fatalf("load application configuration: %v", err)
 	}
+	_ = appConfig // Retained for injection into application services as they are introduced.
 
 	app := application.New(application.Options{
 		Name:        "My-LiveHub",
