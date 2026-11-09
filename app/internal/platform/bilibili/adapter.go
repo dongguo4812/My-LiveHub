@@ -318,6 +318,12 @@ func (a *Adapter) Connect(ctx context.Context) error {
 		for i := range emoticons {
 			rawResourceID := emoticons[i].ResourceID
 			sourceID := emoticonSourceID(roomID, rawResourceID)
+			if rawResourceID == "" && a.mediaCatalog != nil {
+				if known, ok := a.mediaCatalog.FindByImageURL("bilibili", resource.TypeEmoticon, emoticons[i].URL); ok {
+					rawResourceID = known.ID
+					sourceID = known.SourceID
+				}
+			}
 			if a.mediaCatalog != nil && rawResourceID != "" {
 				a.mediaCatalog.Register(resource.Resource{
 					PlatformID: "bilibili", SourceID: sourceID,
@@ -326,6 +332,8 @@ func (a *Adapter) Connect(ctx context.Context) error {
 				})
 			}
 			if rawResourceID == "" {
+				// Keep an event-local fallback until a later catalog refresh can
+				// resolve the URL; do not persist this temporary identity.
 				emoticons[i].ResourceID = sourceID + ":" + emoticons[i].URL
 			} else {
 				emoticons[i].ResourceID = sourceID + ":" + rawResourceID
