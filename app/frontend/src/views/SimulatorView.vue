@@ -47,7 +47,11 @@ const error = ref('')
 let refreshTimer: ReturnType<typeof setInterval> | undefined
 
 const currentEventLabel = computed(() => eventLabels[eventType.value])
-const selectedGift = computed(() => mediaResources.value.find(item => item.resource_id === selectedGiftID.value))
+const selectedGift = computed(() => mediaResources.value.find(item => (item.resource_id ?? '') === selectedGiftID.value))
+
+function resourceID(item: MediaResource): string { return item.resource_id ?? '' }
+function resourceName(item: MediaResource): string { return item.name ?? '' }
+function resourceImageURL(item: MediaResource): string { return item.image_url ?? '' }
 const currentPlatformName = computed(() => platforms.value.find(item => item.platform_id === platformID.value)?.platform_id ?? platformID.value)
 
 async function refreshEvents() {
@@ -81,12 +85,15 @@ async function loadMediaResources() {
 function selectGift(resourceID: string) {
   selectedGiftID.value = resourceID
   const item = mediaResources.value.find(resource => resource.resource_id === resourceID)
-  if (item) { giftName.value = item.name; giftImageURL.value = item.image_url }
+  if (item) { giftName.value = resourceName(item); giftImageURL.value = resourceImageURL(item) }
 }
 
 function insertEmoticon(item: MediaResource) {
-  if (!selectedEmoticonIDs.value.includes(item.resource_id)) selectedEmoticonIDs.value.push(item.resource_id)
-  content.value = content.value ? `${content.value}${item.name}` : item.name
+  const id = resourceID(item)
+  const name = resourceName(item)
+  if (!id) return
+  if (!selectedEmoticonIDs.value.includes(id)) selectedEmoticonIDs.value.push(id)
+  content.value = content.value ? `${content.value}${name}` : name
 }
 
 async function sendEvent() {
@@ -198,11 +205,11 @@ onUnmounted(() => {
               <el-form-item label="选择直播间礼物">
                 <el-input v-model="resourceKeyword" placeholder="搜索礼物名称或 ID" clearable><template #append><el-button :loading="resourcesBusy" @click="loadMediaResources">刷新</el-button></template></el-input>
                 <el-select v-model="selectedGiftID" class="full-width" filterable @change="selectGift">
-                  <el-option v-for="item in mediaResources" :key="item.resource_id" :label="item.name" :value="item.resource_id">
-                    <div class="gift-option"><img :src="item.image_url" :alt="item.name" loading="lazy" /><span>{{ item.name }}</span><small>#{{ item.resource_id }}</small></div>
+                  <el-option v-for="item in mediaResources" :key="resourceID(item)" :label="resourceName(item)" :value="resourceID(item)">
+                    <div class="gift-option"><img :src="resourceImageURL(item)" :alt="resourceName(item)" loading="lazy" /><span>{{ resourceName(item) }}</span><small>#{{ resourceID(item) }}</small></div>
                   </el-option>
                 </el-select>
-                <div v-if="selectedGift" class="selected-gift"><img :src="selectedGift.image_url" :alt="selectedGift.name" /><span>{{ selectedGift.name }}（ID：{{ selectedGift.resource_id }}）</span></div>
+                <div v-if="selectedGift" class="selected-gift"><img :src="resourceImageURL(selectedGift)" :alt="resourceName(selectedGift)" /><span>{{ resourceName(selectedGift) }}（ID：{{ resourceID(selectedGift) }}）</span></div>
                 <el-empty v-else-if="!resourcesBusy && mediaResources.length === 0" description="暂无礼物目录；连接平台后会自动获取直播间礼物列表" :image-size="64" />
               </el-form-item>
               <div class="field-grid">
