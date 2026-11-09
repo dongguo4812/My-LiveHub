@@ -6,18 +6,19 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 )
 
-// LoadTyped loads, merges, decodes, and validates a configuration. After the
-// effective configuration passes validation, it persists the complete result
-// to the local file so newly introduced default fields are added immediately.
+// LoadTyped loads, merges, decodes, and validates a configuration. It creates
+// the local file on first launch and persists it again only when default fields
+// have been added to an existing local configuration.
 func LoadTyped[T any](manager *Manager, name string, validate func(T) error) (T, error) {
 	var zero T
 	if manager == nil {
 		return zero, errors.New("configuration manager is required")
 	}
 
-	defaults, local, _, err := manager.LoadParts(name)
+	defaults, local, localExists, err := manager.LoadParts(name)
 	if err != nil {
 		return zero, err
 	}
@@ -45,10 +46,12 @@ func LoadTyped[T any](manager *Manager, name string, validate func(T) error) (T,
 		}
 	}
 
-	// Persist only after decoding and validation succeed. This creates the local
-	// file on first launch and fills newly added default fields on later launches.
-	if err := manager.Save(name, merged); err != nil {
-		return zero, fmt.Errorf("persist configuration %q: %w", name, err)
+	// Avoid disk writes when the local file already contains every effective
+	// field. A missing file or newly added default fields require persistence.
+	if !localExists || !reflect.DeepEqual(local, merged) {
+		if err := manager.Save(name, merged); err != nil {
+			return zero, fmt.Errorf("persist configuration %q: %w", name, err)
+		}
 	}
 	return value, nil
 }

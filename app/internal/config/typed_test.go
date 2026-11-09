@@ -73,6 +73,32 @@ func TestLoadTypedAddsNewDefaultFieldsAndPreservesLocalValues(t *testing.T) {
 	}
 }
 
+func TestLoadTypedDoesNotRewriteUnchangedLocalFile(t *testing.T) {
+	localDir := t.TempDir()
+	manager := newTestTypedManager(t, localDir, `{"config_version":1,"default_only":"from-default","local_only":"default"}`)
+	localPath := filepath.Join(localDir, "app.json")
+	original := []byte("{\n  \"config_version\": 1,\n  \"default_only\": \"from-default\",\n  \"local_only\": \"user-value\"\n}\n")
+	if err := os.WriteFile(localPath, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := LoadTyped[testTypedConfig](manager, "app.json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LocalOnly != "user-value" {
+		t.Fatalf("local value was not preserved: %#v", got)
+	}
+
+	after, err := os.ReadFile(localPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(original) {
+		t.Fatalf("unchanged local file was rewritten: %s", after)
+	}
+}
+
 func TestLoadTypedDoesNotPersistInvalidConfiguration(t *testing.T) {
 	localDir := t.TempDir()
 	manager := newTestTypedManager(t, localDir, `{"config_version":1,"unexpected_setting":true}`)
