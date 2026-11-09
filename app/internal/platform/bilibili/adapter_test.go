@@ -298,9 +298,12 @@ func TestGiftCatalogUses24HourTTL(t *testing.T) {
 }
 
 func TestAdapterSkipsFreshPersistedCatalogRefreshes(t *testing.T) {
-	requests := 0
+	requests := make(chan struct{}, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests++
+		select {
+		case requests <- struct{}{}:
+		default:
+		}
 		_, _ = w.Write([]byte(`{"code":0,"data":{"gift_config":{"base_config":{"list":[{"id":30607,"name":"小心心","price":1000,"img_basic":"https://i0.hdslb.com/bfs/live/gift.png"}]}}}}`))
 	}))
 	defer server.Close()
@@ -328,8 +331,10 @@ func TestAdapterSkipsFreshPersistedCatalogRefreshes(t *testing.T) {
 		t.Fatal(err)
 	}
 	time.Sleep(50 * time.Millisecond)
-	if requests != 0 {
-		t.Fatalf("fresh persisted gift catalog triggered %d network requests, want 0", requests)
+	select {
+	case <-requests:
+		t.Fatal("fresh persisted gift catalog triggered a network request")
+	default:
 	}
 
 	fake.emitGift(&message.Gift{GiftId: 30607, GiftName: "小心心", Num: 1, Uid: 7, Uname: "viewer"})
