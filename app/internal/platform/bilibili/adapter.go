@@ -389,8 +389,9 @@ func (a *Adapter) Connect(ctx context.Context) error {
 	}
 	a.client, a.cancel = stream, cancel
 	a.mu.Unlock()
-	if a.mediaCatalog != nil && (!a.mediaCatalog.IsFresh("bilibili", "common", resource.TypeEmoticon, 24*time.Hour) ||
-		!a.mediaCatalog.IsFresh("bilibili", strconv.Itoa(roomID), resource.TypeEmoticon, 6*time.Hour)) {
+	refreshCommonEmoticons := a.mediaCatalog != nil && !a.mediaCatalog.IsFresh("bilibili", "common", resource.TypeEmoticon, 24*time.Hour)
+	refreshRoomEmoticons := a.mediaCatalog != nil && !a.mediaCatalog.IsFresh("bilibili", strconv.Itoa(roomID), resource.TypeEmoticon, 6*time.Hour)
+	if a.mediaCatalog != nil && (refreshCommonEmoticons || refreshRoomEmoticons) {
 		go func() {
 			catalogCtx, catalogCancel := context.WithTimeout(runCtx, 8*time.Second)
 			defer catalogCancel()
@@ -403,8 +404,12 @@ func (a *Adapter) Connect(ctx context.Context) error {
 				a.mediaCatalog.Register(item)
 			}
 			refreshedAt := time.Now()
-			a.mediaCatalog.MarkRefreshed("bilibili", "common", resource.TypeEmoticon, refreshedAt)
-			a.mediaCatalog.MarkRefreshed("bilibili", strconv.Itoa(roomID), resource.TypeEmoticon, refreshedAt)
+			if refreshCommonEmoticons {
+				a.mediaCatalog.MarkRefreshed("bilibili", "common", resource.TypeEmoticon, refreshedAt)
+			}
+			if refreshRoomEmoticons {
+				a.mediaCatalog.MarkRefreshed("bilibili", strconv.Itoa(roomID), resource.TypeEmoticon, refreshedAt)
+			}
 		}()
 	}
 	if a.giftCatalog != nil && (a.mediaCatalog == nil ||
