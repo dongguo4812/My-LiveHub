@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestPersistentCatalogRestoresResourcesAndSeparatesSources(t *testing.T) {
@@ -102,5 +103,60 @@ func TestPersistentCatalogToleratesMissingAndInvalidFiles(t *testing.T) {
 	}
 	if err := catalog.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+
+func TestPersistentCatalogRestoresRefreshTimestamps(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "catalog.json")
+	catalog, err := NewPersistentCatalog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refreshedAt := time.Now().Add(-time.Hour)
+	if !catalog.MarkRefreshed("bilibili", "common", TypeEmoticon, refreshedAt) {
+		t.Fatal("marking successful refresh should work")
+	}
+	if !catalog.MarkRefreshed("bilibili", "12345", TypeEmoticon, refreshedAt) {
+		t.Fatal("marking room refresh should work")
+	}
+	if !catalog.MarkRefreshed("bilibili", "12345", TypeGift, refreshedAt) {
+		t.Fatal("marking gift refresh should work")
+	}
+	if err := catalog.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	restored, err := NewPersistentCatalog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Close()
+	if !restored.IsFresh("bilibili", "common", TypeEmoticon, 24*time.Hour) {
+		t.Fatal("common emoticon refresh timestamp was not restored")
+	}
+	if !restored.IsFresh("bilibili", "12345", TypeEmoticon, 6*time.Hour) {
+		t.Fatal("room emoticon refresh timestamp was not restored")
+	}
+	if !restored.IsFresh("bilibili", "12345", TypeGift, 24*time.Hour) {
+		t.Fatal("gift refresh timestamp was not restored")
+	}
+	if restored.IsFresh("bilibili", "common", TypeEmoticon, 30*time.Minute) {
+		t.Fatal("refresh older than TTL must be stale")
+	}
+}
+
+func TestPersistentCatalogOldFormatWithoutRefreshesRemainsReadable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "catalog.json")
+	if err := os.WriteFile(path, []byte(`{"version":1,"resources":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := NewPersistentCatalog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer catalog.Close()
+	if catalog.IsFresh("bilibili", "common", TypeEmoticon, 24*time.Hour) {
+		t.Fatal("catalog without refresh metadata must be treated as stale")
 	}
 }
