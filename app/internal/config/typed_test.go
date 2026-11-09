@@ -50,6 +50,20 @@ func TestLoadTypedMergesDefaultsAndLocalOverrides(t *testing.T) {
 	}
 }
 
+func TestLoadTypedRejectsUnknownFields(t *testing.T) {
+	manager, err := NewManager(fstest.MapFS{
+		"app.json": {Data: []byte(`{"config_version":1,"unexpected_setting":true}`)},
+	}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadTyped[AppConfig](manager, "app.json", func(value AppConfig) error {
+		return value.Validate()
+	}); err == nil {
+		t.Fatal("expected unknown configuration field to be rejected")
+	}
+}
+
 func TestLoadTypedValidatesEffectiveConfiguration(t *testing.T) {
 	manager, err := NewManager(fstest.MapFS{
 		"app.json": {Data: []byte(`{"config_version":1}`)},
