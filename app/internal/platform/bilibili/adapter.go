@@ -301,7 +301,7 @@ func (a *Adapter) Connect(ctx context.Context) error {
 			PlatformID: "bilibili", Source: "live", Type: "gift", RoomID: roomID,
 			UserID: g.Uid, UserName: g.Uname, Avatar: g.Face,
 			Content: fmt.Sprintf("赠送了 %s × %d", g.GiftName, count),
-			Timestamp: timestamp, GiftID: g.GiftId, GiftName: g.GiftName,
+			Timestamp: timestamp, GiftID: g.GiftId, GiftResourceID: strconv.Itoa(g.GiftId), GiftName: g.GiftName,
 			GiftCount: count, UnitPrice: unitPrice, TotalPrice: totalPrice,
 			GiftImageURL: giftImageURL,
 		})
