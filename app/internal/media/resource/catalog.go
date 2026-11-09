@@ -137,6 +137,31 @@ func (c *Catalog) MarkRefreshed(platformID, sourceID string, kind Type, at time.
 	return true
 }
 
+// FindByImageURL resolves an event's URL to an already-known resource identity.
+// Shared resources are preferred when the same image URL appears in multiple scopes.
+func (c *Catalog) FindByImageURL(platformID string, kind Type, imageURL string) (Resource, bool) {
+	if c == nil || strings.TrimSpace(imageURL) == "" {
+		return Resource{}, false
+	}
+	platformID = strings.TrimSpace(platformID)
+	imageURL = strings.TrimSpace(imageURL)
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	var match Resource
+	found := false
+	for _, item := range c.items {
+		if (platformID != "" && item.PlatformID != platformID) || (kind != "" && item.Type != kind) || item.ImageURL != imageURL {
+			continue
+		}
+		if !found || (item.SourceID == "common" && match.SourceID != "common") ||
+			(item.SourceID == match.SourceID && item.ID < match.ID) {
+			match = item
+			found = true
+		}
+	}
+	return match, found
+}
+
 func (c *Catalog) List(platformID, sourceID string, kind Type) []Resource {
 	if c == nil {
 		return nil
