@@ -110,9 +110,7 @@ onUnmounted(() => {
           </div>
           <div class="message-content">{{ item.event.content }}</div>
         </div>
-      </article>
-      <div v-if="visibleItems.length === 0" class="empty-state">等待直播互动消息…</div>
-    </div>
+      </article>\n</div>
     <div class="resize-handle" title="拖动调整窗口大小" @pointerdown="beginResize"></div>
   </main>
 </template>
