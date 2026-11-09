@@ -39,7 +39,7 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
   <section class="platform-page">
     <div class="page-heading">
       <div><p class="eyebrow">LIVE PLATFORM ACCESS</p><h2>平台连接</h2><p class="muted">先完成平台账号授权，再连接直播间。</p></div>
-      <el-button :icon="Refresh" @click="refreshPlatforms">刷新状态</el-button>
+      <el-button class="platform-action-button" :icon="Refresh" @click="refreshPlatforms">刷新状态</el-button>
     </div>
 
     <el-alert v-if="platformsError" :title="`平台状态读取失败：${platformsError}`" type="error" :closable="false" show-icon />
@@ -51,20 +51,20 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
       <div v-if="bilibiliAccount?.is_login" class="account-row">
         <el-avatar :size="52" :src="bilibiliAccount.avatar || undefined" />
         <div class="account-info"><strong>{{ bilibiliAccount.name }}</strong><span>UID：{{ bilibiliAccount.uid }}</span></div>
-        <el-button type="danger" plain :loading="bilibiliAuthBusy" @click="logoutBilibili">退出登录</el-button>
+        <el-button class="platform-action-button" :loading="bilibiliAuthBusy" @click="logoutBilibili">退出登录</el-button>
       </div>
       <div v-else class="login-area">
         <div v-if="bilibiliLoginSession" class="qr-panel">
           <img :src="bilibiliLoginSession.qr_code_data_url" alt="B站登录二维码" />
-          <div><strong>{{ bilibiliLoginStatus?.message || '请使用哔哩哔哩手机客户端扫码' }}</strong><p>二维码有效期约 3 分钟，过期后请重新生成。</p><el-button v-if="bilibiliLoginStatus?.status === 'expired'" @click="startBilibiliLogin">重新生成二维码</el-button></div>
+          <div><strong>{{ bilibiliLoginStatus?.message || '请使用哔哩哔哩手机客户端扫码' }}</strong><p>二维码有效期约 3 分钟，过期后请重新生成。</p><el-button v-if="bilibiliLoginStatus?.status === 'expired'" class="platform-action-button" @click="startBilibiliLogin">重新生成二维码</el-button></div>
         </div>
-        <div v-else class="login-prompt"><p>连接 B 站直播间前，需要先完成账号登录。</p><el-button type="primary" :loading="bilibiliAuthBusy" @click="startBilibiliLogin">扫码登录 B 站</el-button></div>
+        <div v-else class="login-prompt"><p>连接 B 站直播间前，需要先完成账号登录。</p><el-button class="platform-action-button" :loading="bilibiliAuthBusy" @click="startBilibiliLogin">扫码登录 B 站</el-button></div>
         <el-divider>或使用浏览器 Cookie 登录</el-divider>
         <div class="cookie-login">
           <el-input v-model="browserCookie" type="password" show-password autocomplete="off" placeholder="粘贴浏览器中 bilibili.com 的 Cookie 请求头（包含 SESSDATA）" />
           <div class="cookie-actions">
             <span>仅提取登录验证所需字段；验证成功后使用 Windows DPAPI 加密保存。</span>
-            <el-button type="primary" plain :loading="bilibiliCookieBusy" :disabled="!browserCookie.trim()" @click="submitBrowserCookie">使用 Cookie 登录</el-button>
+            <el-button class="platform-action-button" :loading="bilibiliCookieBusy" :disabled="!browserCookie.trim()" @click="submitBrowserCookie">使用 Cookie 登录</el-button>
           </div>
         </div>
       </div>
@@ -78,8 +78,8 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
         <el-table-column label="连接状态" width="140"><template #default="{ row }"><el-tag :type="statusTypes[row.status] ?? 'info'" effect="light">{{ statusLabels[row.status] ?? row.status }}</el-tag></template></el-table-column>
         <el-table-column prop="error" label="错误信息" min-width="220" show-overflow-tooltip />
         <el-table-column label="操作" width="180" fixed="right"><template #default="{ row }">
-          <el-button v-if="row.status === 'disconnected' || row.status === 'failed'" size="small" type="primary" :loading="busyPlatformID === row.platform_id" :disabled="!!busyPlatformID" @click="runAction(row.platform_id, 'connect')">连接</el-button>
-          <el-button v-else-if="row.status === 'connected'" size="small" type="danger" plain :loading="busyPlatformID === row.platform_id" :disabled="!!busyPlatformID" @click="runAction(row.platform_id, 'disconnect')">断开连接</el-button>
+          <el-button v-if="row.status === 'disconnected' || row.status === 'failed'" class="platform-action-button" size="small" :loading="busyPlatformID === row.platform_id" :disabled="!!busyPlatformID" @click="runAction(row.platform_id, 'connect')">连接</el-button>
+          <el-button v-else-if="row.status === 'connected'" class="platform-action-button" size="small" :loading="busyPlatformID === row.platform_id" :disabled="!!busyPlatformID" @click="runAction(row.platform_id, 'disconnect')">断开连接</el-button>
           <el-button v-else size="small" disabled>处理中</el-button>
         </template></el-table-column>
       </el-table>
@@ -89,4 +89,5 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
 
 <style scoped>
 .platform-page{display:flex;flex-direction:column;gap:20px}.page-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}.eyebrow{margin:0 0 9px;color:var(--el-color-primary);font-size:11px;letter-spacing:.16em}h2{margin:0;font-size:25px;font-weight:650}.muted{margin:9px 0 0;color:var(--el-text-color-secondary)}.card-heading{display:flex;align-items:center;justify-content:space-between;font-weight:600}.empty-note{color:var(--el-text-color-secondary);font-size:13px}.account-row{display:flex;align-items:center;gap:16px}.account-info{display:flex;flex:1;flex-direction:column;gap:6px}.account-info span,.login-prompt p,.qr-panel p{color:var(--el-text-color-secondary);font-size:13px}.login-prompt{display:flex;align-items:center;justify-content:space-between;gap:20px}.qr-panel{display:flex;align-items:center;gap:24px}.qr-panel img{width:180px;height:180px;image-rendering:auto}.qr-panel p{margin:8px 0 0}.cookie-login{display:flex;flex-direction:column;gap:10px}.cookie-actions{display:flex;align-items:center;justify-content:space-between;gap:16px}.cookie-actions span{color:var(--el-text-color-secondary);font-size:12px}
+.platform-page :deep(.platform-action-button){--el-button-bg-color:#252a37;--el-button-border-color:#3a4152;--el-button-text-color:#d8deeb;--el-button-hover-bg-color:#30384a;--el-button-hover-border-color:#6575c8;--el-button-hover-text-color:#c5ceff;--el-button-active-bg-color:#202532;--el-button-active-border-color:#6575c8;--el-button-active-text-color:#c5ceff}.platform-page :deep(.platform-action-button.is-disabled){--el-button-disabled-bg-color:#202430;--el-button-disabled-border-color:#303544;--el-button-disabled-text-color:#697287}
 </style>

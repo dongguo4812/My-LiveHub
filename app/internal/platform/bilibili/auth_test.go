@@ -104,6 +104,26 @@ func TestCurrentAccountClearsExpiredCredentials(t *testing.T) {
 	if err!=nil || account!=nil || len(store.data)!=0 {t.Fatalf("expected expired credentials to be cleared, got %#v, %v",account,err)}
 }
 
+
+func TestLogoutDeletesCredentialsAndPendingSessions(t *testing.T) {
+	store := &memoryStore{data: []byte(`{"cookie":"session-secret","uid":"123"}`)}
+	manager, err := NewAuthManager(store, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.pending["active"] = pendingLogin{key: "qr-key", expiresAt: time.Now().Add(time.Minute)}
+
+	if err := manager.Logout(); err != nil {
+		t.Fatalf("logout failed: %v", err)
+	}
+	if _, err := store.Load(); err != ErrCredentialNotFound {
+		t.Fatalf("expected credentials to be deleted, got error: %v", err)
+	}
+	if len(manager.pending) != 0 {
+		t.Fatalf("expected pending QR sessions to be cleared, got %d", len(manager.pending))
+	}
+}
+
 func TestMissingCredentials(t *testing.T) {
 	manager,_:=NewAuthManager(&memoryStore{},nil)
 	account,err:=manager.CurrentAccount(context.Background())
