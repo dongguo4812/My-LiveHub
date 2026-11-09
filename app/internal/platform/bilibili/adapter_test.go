@@ -18,6 +18,7 @@ type fakeStreamClient struct {
 	mu sync.Mutex
 	cookie string
 	handler func(*message.Danmaku)
+	giftHandler func(*message.Gift)
 	started bool
 	stopCalls int
 	done chan struct{}
@@ -31,6 +32,7 @@ type fakeStreamClient struct {
 func newFakeStreamClient(_ int) *fakeStreamClient { return &fakeStreamClient{done: make(chan struct{}), startEntered: make(chan struct{})} }
 func (f *fakeStreamClient) SetCookie(cookie string) { f.mu.Lock(); f.cookie = cookie; f.mu.Unlock() }
 func (f *fakeStreamClient) OnDanmaku(handler func(*message.Danmaku)) { f.mu.Lock(); f.handler = handler; f.mu.Unlock() }
+func (f *fakeStreamClient) OnGift(handler func(*message.Gift)) { f.mu.Lock(); f.giftHandler = handler; f.mu.Unlock() }
 func (f *fakeStreamClient) StartContext(ctx context.Context) error {
 	f.startOnce.Do(func(){ close(f.startEntered) })
 	if f.startGate != nil { select { case <-f.startGate: case <-ctx.Done(): return ctx.Err() } }
@@ -41,6 +43,7 @@ func (f *fakeStreamClient) Stop() { f.mu.Lock(); f.stopCalls++; f.mu.Unlock(); f
 func (f *fakeStreamClient) Wait() { <-f.done }
 func (f *fakeStreamClient) Done() <-chan struct{} { return f.done }
 func (f *fakeStreamClient) emit(d *message.Danmaku) { f.mu.Lock(); handler := f.handler; f.mu.Unlock(); if handler != nil { handler(d) } }
+func (f *fakeStreamClient) emitGift(g *message.Gift) { f.mu.Lock(); handler := f.giftHandler; f.mu.Unlock(); if handler != nil { handler(g) } }
 
 func newAdapterTestAuth(t *testing.T) *AuthManager {
 	t.Helper()
@@ -61,9 +64,66 @@ func newAdapterTestAuth(t *testing.T) *AuthManager {
 	return manager
 }
 
+
+func TestGiftCatalogRefreshCachesByRoomAndNormalizesImageURL(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.URL.Query().Get("platform") != "pc" || r.URL.Query().Get("room_id") == "" {
+			t.Errorf("unexpected gift catalog query: %s", r.URL.RawQuery)
+		}
+		_, _ = w.Write([]byte(`{"code":0,"message":"0","data":{"gift_config":{"base_config":{"list":[{"id":30607,"img_basic":"http://i0.hdslb.com/bfs/live/gift.png"}]}}}}`))
+	}))
+	defer server.Close()
+	catalog := newGiftCatalog(server.Client())
+	catalog.endpoint = server.URL
+	if err := catalog.Refresh(context.Background(), 12345); err != nil { t.Fatal(err) }
+	if got := catalog.ImageURL(12345, 30607); got != "https://i0.hdslb.com/bfs/live/gift.png" {
+		t.Fatalf("unexpected gift image URL: %q", got)
+	}
+	if err := catalog.Refresh(context.Background(), 12345); err != nil { t.Fatal(err) }
+	if requests != 1 { t.Fatalf("same room refresh made %d requests, want 1", requests) }
+	if err := catalog.Refresh(context.Background(), 54321); err != nil { t.Fatal(err) }
+	if requests != 2 { t.Fatalf("different room refresh made %d requests, want 2", requests) }
+	if got := catalog.ImageURL(54321, 30607); got == "" { t.Fatal("gift image should be cached independently for the second room") }
+}
+
+func TestAdapterReceivesGiftWithResolvedImage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"code":0,"message":"0","data":{"gift_config":{"base_config":{"list":[{"id":30607,"img_basic":"https://i0.hdslb.com/bfs/live/gift.png"}]}}}}`))
+	}))
+	defer server.Close()
+
+	a, err := NewAdapter(newAdapterTestAuth(t), 12345, eventstream.NewBuffer())
+	if err != nil { t.Fatal(err) }
+	a.giftCatalog = newGiftCatalog(server.Client())
+	a.giftCatalog.endpoint = server.URL
+	fake := newFakeStreamClient(12345)
+	a.newStream = func(int) streamClient { return fake }
+	if err := a.Connect(context.Background()); err != nil { t.Fatal(err) }
+	fake.emitGift(&message.Gift{
+		GiftId: 30607, GiftName: "小心心", Num: 2, Price: 50, TotalCoin: 100,
+		Uid: 7, Uname: "viewer", Face: "https://i0.hdslb.com/bfs/face/viewer.png", Timestamp: 1_700_000_000,
+	})
+	got := a.events.Snapshot()
+	if len(got) != 1 { t.Fatalf("got %d events, want 1: %+v", len(got), got) }
+	event := got[0]
+	if event.Type != "gift" || event.GiftID != 30607 || event.GiftName != "小心心" || event.GiftCount != 2 {
+		t.Fatalf("unexpected gift event fields: %+v", event)
+	}
+	if event.GiftImageURL != "https://i0.hdslb.com/bfs/live/gift.png" {
+		t.Fatalf("gift image URL was not resolved: %+v", event)
+	}
+	if event.UserID != 7 || event.UserName != "viewer" || event.Avatar == "" {
+		t.Fatalf("gift sender metadata missing: %+v", event)
+	}
+	if err := a.Disconnect(context.Background()); err != nil { t.Fatal(err) }
+}
+
 func TestAdapterConnectStartsAuthenticatedStreamAndReceivesDanmaku(t *testing.T) {
 	a, err := NewAdapter(newAdapterTestAuth(t), 12345, eventstream.NewBuffer())
 	if err != nil { t.Fatal(err) }
+	a.giftCatalog = nil
 	fake := newFakeStreamClient(12345)
 	a.newStream = func(int) streamClient { return fake }
 	if err := a.Connect(context.Background()); err != nil { t.Fatal(err) }
