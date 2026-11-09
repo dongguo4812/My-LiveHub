@@ -3,14 +3,14 @@ package bilibili
 import (
 	"context"
 	"encoding/json"
-	"io"
-	"net/http"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"net/url"
-	"strings"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -268,7 +268,7 @@ func (a *Adapter) Connect(ctx context.Context) error {
 	if err != nil { return err }
 	if a.giftCatalog != nil {
 		catalogCtx, catalogCancel := context.WithTimeout(ctx, 3*time.Second)
-		_ = a.giftCatalog.Refresh(catalogCtx, roomID) // Gift metadata is optional; never block live connection on API failure.
+		_ = a.giftCatalog.Refresh(catalogCtx, roomID) // Gift metadata is optional; API failures must not prevent the live connection.
 		catalogCancel()
 	}
 	stream := a.newStream(roomID)
