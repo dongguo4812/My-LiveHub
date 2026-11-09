@@ -2,14 +2,15 @@ package config
 
 import "fmt"
 
-// DanmakuWindowConfig stores the independent overlay's last normal frame.
+// DanmakuWindowConfig stores the independent overlay's last frame and startup preferences.
 type DanmakuWindowConfig struct {
-	X            int  `json:"x"`
-	Y            int  `json:"y"`
-	Width        int  `json:"width"`
-	Height       int  `json:"height"`
+	X             int  `json:"x"`
+	Y             int  `json:"y"`
+	Width         int  `json:"width"`
+	Height        int  `json:"height"`
 	PositionSaved bool `json:"position_saved"`
 	OpenOnStartup bool `json:"open_on_startup"`
+	Pinned        bool `json:"pinned"`
 }
 
 func DefaultDanmakuWindowConfig() DanmakuWindowConfig {

@@ -129,7 +129,11 @@ func (s *DanmakuDisplayService) OpenWindow() error {
 		options.X = cfg.X
 		options.Y = cfg.Y
 	}
-	s.pinned = false
+	s.pinned = cfg.Pinned
+	if cfg.Pinned {
+		options.AlwaysOnTop = true
+		options.IgnoreMouseEvents = true
+	}
 	window := s.app.Window.NewWithOptions(options)
 	s.window = window
 	window.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
@@ -303,6 +307,16 @@ func (s *DanmakuDisplayService) SetWindowPinned(pinned bool) error {
 	if s.window == nil {
 		return errors.New("请先打开弹幕展示窗口")
 	}
+	if s.manager == nil {
+		return errors.New("弹幕窗口配置服务不可用")
+	}
+	next := s.windowCfg
+	next.Pinned = pinned
+	if err := config.SaveTyped(s.manager, "danmaku_window.json", next, func(value config.DanmakuWindowConfig) error {
+		return value.Validate()
+	}); err != nil {
+		return err
+	}
 	if pinned {
 		s.window.SetAlwaysOnTop(true)
 		s.window.SetIgnoreMouseEvents(true)
@@ -310,6 +324,7 @@ func (s *DanmakuDisplayService) SetWindowPinned(pinned bool) error {
 		s.window.SetIgnoreMouseEvents(false)
 		s.window.SetAlwaysOnTop(false)
 	}
+	s.windowCfg = next
 	s.pinned = pinned
 	return nil
 }
