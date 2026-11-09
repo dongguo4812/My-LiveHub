@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as PlatformService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/platformservice.js'
 
 type EventItem = Awaited<ReturnType<typeof PlatformService.GetEvents>>[number]
+type MediaResource = Awaited<ReturnType<typeof PlatformService.GetMediaResources>>[number]
+type PlatformItem = Awaited<ReturnType<typeof PlatformService.GetPlatforms>>[number]
 type EventType = 'danmaku' | 'gift' | 'super_chat' | 'guard' | 'follow' | 'like' | 'welcome'
 
 const eventTypes: { label: string; value: EventType }[] = [
@@ -17,6 +19,15 @@ const eventTypes: { label: string; value: EventType }[] = [
 ]
 const eventLabels = Object.fromEntries(eventTypes.map(item => [item.value, item.label])) as Record<EventType, string>
 const eventType = ref<EventType>('danmaku')
+const platforms = ref<PlatformItem[]>([])
+const platformID = ref('bilibili')
+const mediaResources = ref<MediaResource[]>([])
+const resourceKeyword = ref('')
+const selectedGiftID = ref('')
+const giftImageURL = ref('')
+const resourcesBusy = ref(false)
+let resourceSearchTimer: ReturnType<typeof setTimeout> | undefined
+let resourceRequestID = 0
 const userID = ref(10001)
 const userName = ref('模拟观众')
 const content = ref('这是一条模拟弹幕')
@@ -33,22 +44,51 @@ const error = ref('')
 let refreshTimer: ReturnType<typeof setInterval> | undefined
 
 const currentEventLabel = computed(() => eventLabels[eventType.value])
+const selectedGift = computed(() => mediaResources.value.find(item => item.resource_id === selectedGiftID.value))
+const currentPlatformName = computed(() => platforms.value.find(item => item.platform_id === platformID.value)?.platform_id ?? platformID.value)
 
 async function refreshEvents() {
   try {
-    events.value = (await PlatformService.GetEvents()).filter(event => event.platform_id === 'bilibili')
+    events.value = (await PlatformService.GetEvents()).filter(event => event.platform_id === platformID.value)
     error.value = ''
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : String(cause)
   }
 }
 
+async function loadPlatforms() {
+  try {
+    platforms.value = await PlatformService.GetPlatforms()
+    if (platforms.value.length && !platforms.value.some(item => item.platform_id === platformID.value)) platformID.value = platforms.value[0].platform_id
+  } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) }
+}
+
+async function loadMediaResources() {
+  const requestID = ++resourceRequestID
+  const kind = eventType.value === 'gift' ? 'gift' : eventType.value === 'danmaku' ? 'emoticon' : ''
+  if (!kind) { mediaResources.value = []; return }
+  resourcesBusy.value = true
+  try {
+    const items = await PlatformService.GetMediaResources(platformID.value, kind, resourceKeyword.value, 100)
+    if (requestID === resourceRequestID) mediaResources.value = items
+  } catch (cause) { if (requestID === resourceRequestID) error.value = cause instanceof Error ? cause.message : String(cause) }
+  finally { if (requestID === resourceRequestID) resourcesBusy.value = false }
+}
+
+function selectGift(resourceID: string) {
+  selectedGiftID.value = resourceID
+  const item = mediaResources.value.find(resource => resource.resource_id === resourceID)
+  if (item) { giftName.value = item.name; giftImageURL.value = item.image_url }
+}
+
+function insertEmoticon(item: MediaResource) { content.value = content.value ? `${content.value}${item.name}` : item.name }
+
 async function sendEvent() {
   busy.value = true
   error.value = ''
   try {
-    await PlatformService.SimulatePlatformEvent(
-      'bilibili',
+    await PlatformService.SimulatePlatformEventWithResource(
+      platformID.value,
       eventType.value,
       userID.value,
       userName.value,
@@ -60,6 +100,8 @@ async function sendEvent() {
       duration.value,
       guardLevel.value,
       months.value,
+      Number(selectedGiftID.value) || 0,
+      giftImageURL.value,
     )
     await refreshEvents()
     ElMessage.success(`已发送模拟${currentEventLabel.value}事件`)
@@ -74,12 +116,18 @@ function formatTime(timestamp: number) {
   return new Date(timestamp).toLocaleTimeString()
 }
 
+watch([platformID, eventType], () => { resourceKeyword.value = ''; selectedGiftID.value = ''; giftImageURL.value = ''; void loadMediaResources() })
+watch(resourceKeyword, () => { if (resourceSearchTimer) clearTimeout(resourceSearchTimer); resourceSearchTimer = setTimeout(() => void loadMediaResources(), 250) })
+
 onMounted(() => {
+  void loadPlatforms()
+  void loadMediaResources()
   void refreshEvents()
   refreshTimer = setInterval(() => void refreshEvents(), 1000)
 })
 onUnmounted(() => {
   if (refreshTimer) clearInterval(refreshTimer)
+  if (resourceSearchTimer) clearTimeout(resourceSearchTimer)
 })
 </script>
 
@@ -88,7 +136,7 @@ onUnmounted(() => {
     <header class="simulator-heading">
       <div>
         <p class="eyebrow">PLATFORM EVENT TESTER</p>
-        <h1>B 站互动模拟器</h1>
+        <h1>{{ currentPlatformName }} 互动模拟器</h1>
         <p class="subtitle">生成本地模拟事件，验证 My-LiveHub 的事件接收与后续处理。无需登录或连接真实直播间。</p>
       </div>
       <el-tag type="warning" effect="plain">仅本地模拟</el-tag>
@@ -112,6 +160,7 @@ onUnmounted(() => {
           </template>
 
           <el-form label-position="top" @submit.prevent="sendEvent">
+            <el-form-item label="直播平台"><el-select v-model="platformID" class="full-width"><el-option v-for="item in platforms" :key="item.platform_id" :label="item.platform_id" :value="item.platform_id" /></el-select></el-form-item>
             <el-form-item label="事件类型">
               <el-select v-model="eventType" class="full-width">
                 <el-option v-for="item in eventTypes" :key="item.value" :label="item.label" :value="item.value" />
@@ -125,13 +174,27 @@ onUnmounted(() => {
               <el-input v-model="userName" maxlength="40" />
             </el-form-item>
 
-            <el-form-item v-if="eventType === 'danmaku'" label="弹幕内容">
-              <el-input v-model="content" type="textarea" :rows="3" maxlength="500" show-word-limit />
-            </el-form-item>
+            <template v-if="eventType === 'danmaku'">
+              <el-form-item label="弹幕内容"><el-input v-model="content" type="textarea" :rows="3" maxlength="500" show-word-limit /></el-form-item>
+              <el-form-item label="插入直播间表情">
+                <el-input v-model="resourceKeyword" placeholder="搜索表情名称或 ID" clearable />
+                <div v-if="mediaResources.length" class="resource-picker">
+                  <el-button v-for="item in mediaResources" :key="item.resource_id" class="emoticon-option" text @click="insertEmoticon(item)"><img :src="item.image_url" :alt="item.name" /><span>{{ item.name }}</span></el-button>
+                </div>
+                <el-empty v-else-if="!resourcesBusy" description="暂无已发现的表情；连接平台并收到表情弹幕后可自动收录" :image-size="64" />
+              </el-form-item>
+            </template>
 
             <template v-else-if="eventType === 'gift'">
-              <el-form-item label="礼物名称">
-                <el-input v-model="giftName" maxlength="40" />
+              <el-form-item label="选择直播间礼物">
+                <el-input v-model="resourceKeyword" placeholder="搜索礼物名称或 ID" clearable />
+                <el-select v-model="selectedGiftID" class="full-width" filterable @change="selectGift">
+                  <el-option v-for="item in mediaResources" :key="item.resource_id" :label="item.name" :value="item.resource_id">
+                    <div class="gift-option"><img :src="item.image_url" :alt="item.name" /><span>{{ item.name }}</span><small>#{{ item.resource_id }}</small></div>
+                  </el-option>
+                </el-select>
+                <div v-if="selectedGift" class="selected-gift"><img :src="selectedGift.image_url" :alt="selectedGift.name" /><span>{{ selectedGift.name }}（ID：{{ selectedGift.resource_id }}）</span></div>
+                <el-empty v-else-if="!resourcesBusy && mediaResources.length === 0" description="暂无礼物目录；连接平台后会自动获取直播间礼物列表" :image-size="64" />
               </el-form-item>
               <div class="field-grid">
                 <el-form-item label="赠送数量">
@@ -237,7 +300,7 @@ h1{margin:0;font-size:24px;font-weight:650}
 .field-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .full-width{width:100%}
 .send-button{width:100%;margin-top:8px}
-.simple-event-hint{padding:12px 14px;border-radius:7px;background:var(--app-bg-control);color:var(--app-text-secondary);font-size:13px}
+.resource-picker{display:flex;flex-wrap:wrap;gap:6px;max-height:190px;overflow:auto;margin-top:10px}.emoticon-option{display:flex;align-items:center;gap:6px;height:34px;padding:4px 7px}.emoticon-option img,.gift-option img,.selected-gift img{width:24px;height:24px;object-fit:contain}.gift-option,.selected-gift{display:flex;align-items:center;gap:9px}.gift-option small{margin-left:auto;color:var(--app-text-secondary)}.selected-gift{margin-top:10px;color:var(--app-text-secondary);font-size:12px}.simple-event-hint{padding:12px 14px;border-radius:7px;background:var(--app-bg-control);color:var(--app-text-secondary);font-size:13px}
 .form-error{margin-top:12px}
 .history-card{min-height:100%}
 @media(max-width:700px){.simulator-page{padding:18px}.field-grid{grid-template-columns:1fr}.simulator-heading{flex-direction:column}}
