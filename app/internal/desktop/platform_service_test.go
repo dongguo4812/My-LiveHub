@@ -7,6 +7,15 @@ import (
 	"github.com/dongguo4812/My-LiveHub/app/internal/media/resource"
 )
 
+func TestSimulatePlatformEventWithResourceKeepsGiftMetadata(t *testing.T) {
+	service := NewPlatformService(nil, eventstream.NewBuffer())
+	event, err := service.SimulatePlatformEventWithResource("bilibili", "gift", 7, "viewer", "", "小心心", 2, 0.1, 0, 0, 0, 0, 30607, "https://img.test/gift.png", "30607")
+	if err != nil { t.Fatal(err) }
+	if event.GiftID != 30607 || event.GiftResourceID != "30607" || event.GiftImageURL != "https://img.test/gift.png" {
+		t.Fatalf("simulation did not preserve selected gift: %+v", event)
+	}
+}
+
 func TestGetMediaResourcesFiltersPlatformTypeAndKeyword(t *testing.T) {
 	catalog := resource.NewCatalog()
 	for _, item := range []resource.Resource{
