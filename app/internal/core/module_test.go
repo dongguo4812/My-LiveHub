@@ -1,0 +1,109 @@
+package core
+
+import (
+	"context"
+	"errors"
+	"reflect"
+	"testing"
+)
+
+type testModule struct {
+	name  string
+	calls *[]string
+	fail  error
+}
+
+func (m testModule) Start(context.Context) error {
+	*m.calls = append(*m.calls, "start:"+m.name)
+	return m.fail
+}
+
+func (m testModule) Stop(context.Context) error {
+	*m.calls = append(*m.calls, "stop:"+m.name)
+	return nil
+}
+
+func TestModuleManagerStartsInOrderAndStopsInReverse(t *testing.T) {
+	manager := NewModuleManager()
+	var calls []string
+	for _, name := range []string{"first", "second", "third"} {
+		if err := manager.Register(name, testModule{name: name, calls: &calls}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := manager.StartAll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.StopAll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"start:first", "start:second", "start:third", "stop:third", "stop:second", "stop:first"}
+	if !reflect.DeepEqual(calls, want) {
+		t.Fatalf("calls = %v, want %v", calls, want)
+	}
+	for _, item := range manager.Snapshot() {
+		if item.Status != ModuleStopped {
+			t.Errorf("module %q status = %q, want stopped", item.Name, item.Status)
+		}
+	}
+}
+
+func TestModuleManagerRollsBackAfterStartupFailure(t *testing.T) {
+	manager := NewModuleManager()
+	var calls []string
+	startFailure := errors.New("startup failed")
+	_ = manager.Register("first", testModule{name: "first", calls: &calls})
+	_ = manager.Register("second", testModule{name: "second", calls: &calls, fail: startFailure})
+	_ = manager.Register("third", testModule{name: "third", calls: &calls})
+
+	err := manager.StartAll(context.Background())
+	if !errors.Is(err, startFailure) {
+		t.Fatalf("StartAll error = %v, want wrapped startup failure", err)
+	}
+	want := []string{"start:first", "start:second", "stop:first"}
+	if !reflect.DeepEqual(calls, want) {
+		t.Fatalf("calls = %v, want %v", calls, want)
+	}
+	statuses := manager.Snapshot()
+	if statuses[0].Status != ModuleStopped || statuses[1].Status != ModuleFailed || statuses[2].Status != ModuleRegistered {
+		t.Fatalf("unexpected module statuses after rollback: %+v", statuses)
+	}
+}
+
+func TestModuleManagerRejectsDuplicateAndLateRegistration(t *testing.T) {
+	manager := NewModuleManager()
+	var calls []string
+	module := testModule{name: "one", calls: &calls}
+	if err := manager.Register("one", module); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Register("one", module); err == nil {
+		t.Fatal("expected duplicate registration to fail")
+	}
+	if err := manager.StartAll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Register("two", module); err == nil {
+		t.Fatal("expected registration after startup to fail")
+	}
+}
+
+func TestModuleManagerContinuesStoppingAfterError(t *testing.T) {
+	manager := NewModuleManager()
+	var calls []string
+	stopFailure := errors.New("stop failed")
+	type stopFailModule struct{ testModule }
+	_ = stopFailure
+	_ = stopFailModule{}
+	_ = manager.Register("first", testModule{name: "first", calls: &calls})
+	_ = manager.Register("second", testModule{name: "second", calls: &calls})
+	if err := manager.StartAll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.StopAll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 6 {
+		t.Fatalf("expected all modules to stop, calls = %v", calls)
+	}
+}
