@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import * as PlatformService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/platformservice.js'
-import { connectPlatform, disconnectPlatform, platformActionError, platforms, bilibiliEvents, platformsError, refreshPlatforms, refreshBilibiliEvents } from '../services/platforms'
+import { connectPlatform, disconnectPlatform, platformActionError, platforms, platformEvents, platformsError, refreshPlatforms, refreshEvents } from '../services/platforms'
 import { bilibiliAccount, bilibiliAuthBusy, bilibiliAuthError, bilibiliCookieBusy, bilibiliLoginSession, bilibiliLoginStatus, logoutBilibili, pollBilibiliLogin, refreshBilibiliAccount, startBilibiliLogin, loginBilibiliWithCookie } from '../services/bilibiliAuth'
 import { bilibiliSettings, bilibiliSettingsBusy, bilibiliSettingsError, loadBilibiliSettings, saveBilibiliRoomID } from '../services/bilibiliSettings'
 
@@ -24,7 +24,7 @@ const statusTypes: Record<string, 'info'|'warning'|'success'|'danger'> = { disco
 let pollTimer: ReturnType<typeof setInterval> | undefined
 let eventTimer: ReturnType<typeof setInterval> | undefined
 const bilibiliConnected = computed(() => platforms.value.some(item => item.platform_id === 'bilibili' && item.status !== 'disconnected'))
-const bilibiliDanmakuEvents = computed(() => bilibiliEvents.value.filter(event => event.type === 'danmaku'))
+const bilibiliDanmakuEvents = computed(() => platformEvents.value.filter(event => event.platform_id === 'bilibili' && event.type === 'danmaku'))
 
 async function submitBrowserCookie() {
   const ok = await loginBilibiliWithCookie(browserCookie.value)
@@ -55,9 +55,9 @@ onMounted(() => {
   void refreshPlatforms()
   void refreshBilibiliAccount()
   void loadBilibiliSettings().then(() => { roomID.value = bilibiliSettings.value.room_id })
-  void refreshBilibiliEvents()
+  void refreshEvents()
   pollTimer = setInterval(() => { if (bilibiliLoginSession.value) void pollBilibiliLogin() }, 2000)
-  eventTimer = setInterval(() => { void refreshPlatforms(); void refreshBilibiliEvents() }, 1500)
+  eventTimer = setInterval(() => { void refreshPlatforms(); void refreshEvents() }, 1500)
 })
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)

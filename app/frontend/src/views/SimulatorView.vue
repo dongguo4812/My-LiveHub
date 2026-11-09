@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as PlatformService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/platformservice.js'
 
-type EventItem = Awaited<ReturnType<typeof PlatformService.GetBilibiliEvents>>[number]
+type EventItem = Awaited<ReturnType<typeof PlatformService.GetEvents>>[number]
 type EventType = 'danmaku' | 'gift' | 'super_chat' | 'guard' | 'follow' | 'like'
 
 const eventTypes: { label: string; value: EventType }[] = [
@@ -35,7 +35,7 @@ const currentEventLabel = computed(() => eventLabels[eventType.value])
 
 async function refreshEvents() {
   try {
-    events.value = await PlatformService.GetBilibiliEvents()
+    events.value = (await PlatformService.GetEvents()).filter(event => event.platform_id === 'bilibili')
     error.value = ''
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : String(cause)
@@ -46,7 +46,8 @@ async function sendEvent() {
   busy.value = true
   error.value = ''
   try {
-    await PlatformService.SimulateBilibiliEvent(
+    await PlatformService.SimulatePlatformEvent(
+      'bilibili',
       eventType.value,
       userID.value,
       userName.value,
