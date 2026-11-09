@@ -38,11 +38,6 @@ func TestLoadTypedCreatesCompleteLocalFileOnFirstLaunch(t *testing.T) {
 		t.Fatalf("loaded config = %#v, want %#v", got, want)
 	}
 
-	local, err := manager.LoadParts("app.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = local
 	raw, err := os.ReadFile(filepath.Join(localDir, "app.json"))
 	if err != nil {
 		t.Fatalf("first launch did not create local config: %v", err)
