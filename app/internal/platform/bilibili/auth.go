@@ -180,7 +180,24 @@ func normalizeCookie(raw string) (string, error) {
 	if raw == "" || strings.ContainsAny(raw, "\r\n") { return "", errors.New("请粘贴有效的 B 站 Cookie") }
 	allowed := map[string]bool{"SESSDATA":true,"bili_jct":true,"DedeUserID":true,"DedeUserID__ckMd5":true,"buvid3":true}
 	values := make(map[string]string)
-		if value == "" || strings.ContainsAny(value, "\r\n;") { return "", errors.New("Cookie 中包含无效字段") };
+	for _, item := range strings.Split(raw, ";") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		name, value, ok := strings.Cut(item, "=")
+		if !ok {
+			return "", errors.New("Cookie 中包含无效字段")
+		}
+		name = strings.TrimSpace(name)
+		value = strings.TrimSpace(value)
+		if name == "" || value == "" || strings.ContainsAny(value, "\r\n;") {
+			return "", errors.New("Cookie 中包含无效字段")
+		}
+		if allowed[name] {
+			values[name] = value
+		}
+	}
 	if values["SESSDATA"] == "" { return "", errors.New("Cookie 缺少 SESSDATA，请确认复制的是 B 站登录后的 Cookie") }
 	order := []string{"SESSDATA","bili_jct","DedeUserID","DedeUserID__ckMd5","buvid3"}; parts := make([]string,0,len(values)); for _,name := range order { if value,ok := values[name]; ok { parts=append(parts,name+"="+value) } }; return strings.Join(parts,"; "),nil
 }
