@@ -73,7 +73,7 @@ func TestPersistentCatalogUpdatesExistingResource(t *testing.T) {
 	if len(got) != 1 || got[0].ImageURL != item.ImageURL {
 		t.Fatalf("resource was not updated in place: %+v", got)
 	}
-	if !got[0].FirstSeenAt.Equal(firstSeen) {
+	if got[0].FirstSeenAt.UnixNano() != firstSeen.UnixNano() {
 		t.Fatalf("first-seen timestamp changed: got %v want %v", got[0].FirstSeenAt, firstSeen)
 	}
 }
