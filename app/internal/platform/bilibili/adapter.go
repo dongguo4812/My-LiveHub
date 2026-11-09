@@ -314,6 +314,20 @@ func (a *Adapter) Connect(ctx context.Context) error {
 		if d == nil || d.Sender == nil { return }
 		timestamp := d.Timestamp
 		emoticons := extractDanmakuEmoticons(d)
+		for i := range emoticons {
+			rawResourceID := emoticons[i].ResourceID
+			sourceID := emoticonSourceID(roomID, rawResourceID)
+			if a.mediaCatalog != nil && rawResourceID != "" {
+				a.mediaCatalog.Register(resource.Resource{
+					PlatformID: "bilibili", SourceID: sourceID,
+					Type: resource.TypeEmoticon, ID: rawResourceID, Name: emoticons[i].Text,
+					ImageURL: emoticons[i].URL, Width: emoticons[i].Width, Height: emoticons[i].Height,
+				})
+			}
+			if rawResourceID != "" {
+				emoticons[i].ResourceID = sourceID + ":" + rawResourceID
+			}
+		}
 		if timestamp <= 0 { timestamp = time.Now().UnixMilli() } else if timestamp < 1_000_000_000_000 { timestamp *= 1000 }
 		a.events.Add(eventstream.Event{
 			PlatformID: "bilibili", Source: "live", Type: "danmaku", RoomID: roomID,
@@ -322,15 +336,6 @@ func (a *Adapter) Connect(ctx context.Context) error {
 			IsModerator: d.Sender.Admin, UserLevel: int(d.Sender.UserLevel), GuardLevel: d.Sender.GuardLevel,
 			FanMedalName: medalName(d.Sender.Medal), FanMedalLevel: medalLevel(d.Sender.Medal), FanMedalColor: medalColor(d.Sender.Medal),
 		})
-		if a.mediaCatalog != nil {
-			for _, token := range emoticons {
-				a.mediaCatalog.Register(resource.Resource{
-					PlatformID: "bilibili", SourceID: emoticonSourceID(roomID, token.ResourceID),
-					Type: resource.TypeEmoticon, ID: token.ResourceID, Name: token.Text,
-					ImageURL: token.URL, Width: token.Width, Height: token.Height,
-				})
-			}
-		}
 	})
 	stream.OnGift(func(g *message.Gift) {
 		if g == nil { return }
