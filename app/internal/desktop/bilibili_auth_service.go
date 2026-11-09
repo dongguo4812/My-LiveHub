@@ -28,6 +28,13 @@ func (s *BilibiliAuthService) PollLogin(sessionID string) (bilibili.LoginStatus,
 	return s.auth.PollLogin(ctx, sessionID)
 }
 
+func (s *BilibiliAuthService) LoginWithCookie(cookie string) (*bilibili.Account, error) {
+	if s == nil || s.auth == nil { return nil, errors.New("Bilibili authentication service is unavailable") }
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	return s.auth.LoginWithCookie(ctx, cookie)
+}
+
 func (s *BilibiliAuthService) GetAccount() (*bilibili.Account, error) {
 	if s == nil || s.auth == nil { return nil, errors.New("Bilibili authentication service is unavailable") }
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

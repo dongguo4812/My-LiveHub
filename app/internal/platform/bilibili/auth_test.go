@@ -49,6 +49,42 @@ func TestBeginLoginAndPollSuccess(t *testing.T) {
 	if len(store.data)==0 || json.Unmarshal(store.data, &saved) != nil || saved.Cookie == "" || saved.RefreshToken != "refresh-secret" { t.Fatal("credentials were not saved through the credential store") }
 }
 
+
+func TestLoginWithBrowserCookie(t *testing.T) {
+	store := &memoryStore{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Cookie"); got != "SESSDATA=session-value; bili_jct=csrf-value" { t.Errorf("unexpected forwarded cookie: %q", got) }
+		_ = json.NewEncoder(w).Encode(map[string]any{"code":0,"data":map[string]any{"isLogin":true,"mid":json.Number("9876"),"uname":"browser-user","face":""}})
+	}))
+	defer server.Close()
+	client := server.Client()
+	client.Transport = roundTripFunc(func(req *http.Request) (*http.Response,error) { clone:=req.Clone(req.Context()); u:=*req.URL; u.Scheme="http"; u.Host=strings.TrimPrefix(server.URL,"http://"); clone.URL=&u; return http.DefaultTransport.RoundTrip(clone) })
+	manager,_ := NewAuthManager(store,client)
+	account,err := manager.LoginWithCookie(context.Background(),"SESSDATA=session-value; bili_jct=csrf-value; unrelated=discard-me")
+	if err != nil { t.Fatal(err) }
+	if account.UID != "9876" || account.Name != "browser-user" { t.Fatalf("unexpected account: %#v",account) }
+	var saved Credentials
+	if err:=json.Unmarshal(store.data,&saved); err!=nil { t.Fatal(err) }
+	if strings.Contains(saved.Cookie,"unrelated") || saved.Cookie == "" { t.Fatalf("unexpected stored cookie fields: %q",saved.Cookie) }
+}
+
+func TestLoginWithInvalidCookieDoesNotOverwriteCredentials(t *testing.T) {
+	store := &memoryStore{data: []byte("{\"cookie\":\"existing-valid-cookie\",\"uid\":\"1\"}")}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request) { _=json.NewEncoder(w).Encode(map[string]any{"code":-101,"message":"not login","data":map[string]any{"isLogin":false}}) }))
+	defer server.Close()
+	client:=server.Client()
+	client.Transport=roundTripFunc(func(req *http.Request)(*http.Response,error) { clone:=req.Clone(req.Context()); u:=*req.URL; u.Scheme="http"; u.Host=strings.TrimPrefix(server.URL,"http://"); clone.URL=&u; return http.DefaultTransport.RoundTrip(clone) })
+	manager,_:=NewAuthManager(store,client); before:=string(store.data)
+	_,err:=manager.LoginWithCookie(context.Background(),"SESSDATA=expired")
+	if err==nil || string(store.data)!=before { t.Fatal("invalid Cookie should not overwrite existing credentials") }
+}
+
+func TestNormalizeCookieRequiresSessdataAndFiltersFields(t *testing.T) {
+	got,err:=normalizeCookie("SESSDATA=abc; buvid3=xyz; random=secret")
+	if err!=nil { t.Fatal(err) }; if got!="SESSDATA=abc; buvid3=xyz" { t.Fatalf("got %q",got) }
+	if _,err:=normalizeCookie("bili_jct=csrf"); err==nil { t.Fatal("expected missing SESSDATA error") }
+}
+
 func TestPollExpiredSession(t *testing.T) {
 	manager,_:=NewAuthManager(&memoryStore{},nil)
 	manager.now=func()time.Time{return time.Unix(1000,0)}

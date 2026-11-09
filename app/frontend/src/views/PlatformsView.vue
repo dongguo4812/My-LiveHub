@@ -6,12 +6,13 @@ import {
   platformsError, refreshPlatforms,
 } from '../services/platforms'
 import {
-  bilibiliAccount, bilibiliAuthBusy, bilibiliAuthError, bilibiliLoginSession,
+  bilibiliAccount, bilibiliAuthBusy, bilibiliAuthError, bilibiliCookieBusy, bilibiliLoginSession,
   bilibiliLoginStatus, logoutBilibili, pollBilibiliLogin, refreshBilibiliAccount,
-  startBilibiliLogin,
+  startBilibiliLogin, loginBilibiliWithCookie,
 } from '../services/bilibiliAuth'
 
 const busyPlatformID = ref('')
+const browserCookie = ref('')
 const statusLabels: Record<string, string> = { disconnected:'未连接', connecting:'连接中', connected:'已连接', disconnecting:'断开中', failed:'连接失败' }
 const statusTypes: Record<string, 'info'|'warning'|'success'|'danger'> = { disconnected:'info', connecting:'warning', connected:'success', disconnecting:'warning', failed:'danger' }
 let pollTimer: ReturnType<typeof setInterval> | undefined
@@ -52,7 +53,15 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
           <img :src="bilibiliLoginSession.qr_code_data_url" alt="B站登录二维码" />
           <div><strong>{{ bilibiliLoginStatus?.message || '请使用哔哩哔哩手机客户端扫码' }}</strong><p>二维码有效期约 3 分钟，过期后请重新生成。</p><el-button v-if="bilibiliLoginStatus?.status === 'expired'" @click="startBilibiliLogin">重新生成二维码</el-button></div>
         </div>
-        <div v-else class="login-prompt"><p>连接 B 站直播间前，需要先使用 B 站手机客户端扫码登录。</p><el-button type="primary" :loading="bilibiliAuthBusy" @click="startBilibiliLogin">扫码登录 B 站</el-button></div>
+        <div v-else class="login-prompt"><p>连接 B 站直播间前，需要先完成账号登录。</p><el-button type="primary" :loading="bilibiliAuthBusy" @click="startBilibiliLogin">扫码登录 B 站</el-button></div>
+        <el-divider>或使用浏览器 Cookie 登录</el-divider>
+        <div class="cookie-login">
+          <el-input v-model="browserCookie" type="password" show-password autocomplete="off" placeholder="粘贴浏览器中 bilibili.com 的 Cookie 请求头（包含 SESSDATA）" />
+          <div class="cookie-actions">
+            <span>仅提取登录验证所需字段；验证成功后使用 Windows DPAPI 加密保存。</span>
+            <el-button type="primary" plain :loading="bilibiliCookieBusy" :disabled="!browserCookie.trim()" @click="async () => { const ok = await loginBilibiliWithCookie(browserCookie); if (ok) browserCookie = '' }">使用 Cookie 登录</el-button>
+          </div>
+        </div>
       </div>
     </el-card>
 
@@ -74,5 +83,5 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
 </template>
 
 <style scoped>
-.platform-page{display:flex;flex-direction:column;gap:20px}.page-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}.eyebrow{margin:0 0 9px;color:var(--el-color-primary);font-size:11px;letter-spacing:.16em}h2{margin:0;font-size:25px;font-weight:650}.muted{margin:9px 0 0;color:var(--el-text-color-secondary)}.card-heading{display:flex;align-items:center;justify-content:space-between;font-weight:600}.empty-note{color:var(--el-text-color-secondary);font-size:13px}.account-row{display:flex;align-items:center;gap:16px}.account-info{display:flex;flex:1;flex-direction:column;gap:6px}.account-info span,.login-prompt p,.qr-panel p{color:var(--el-text-color-secondary);font-size:13px}.login-prompt{display:flex;align-items:center;justify-content:space-between;gap:20px}.qr-panel{display:flex;align-items:center;gap:24px}.qr-panel img{width:180px;height:180px;image-rendering:auto}.qr-panel p{margin:8px 0 0}
+.platform-page{display:flex;flex-direction:column;gap:20px}.page-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}.eyebrow{margin:0 0 9px;color:var(--el-color-primary);font-size:11px;letter-spacing:.16em}h2{margin:0;font-size:25px;font-weight:650}.muted{margin:9px 0 0;color:var(--el-text-color-secondary)}.card-heading{display:flex;align-items:center;justify-content:space-between;font-weight:600}.empty-note{color:var(--el-text-color-secondary);font-size:13px}.account-row{display:flex;align-items:center;gap:16px}.account-info{display:flex;flex:1;flex-direction:column;gap:6px}.account-info span,.login-prompt p,.qr-panel p{color:var(--el-text-color-secondary);font-size:13px}.login-prompt{display:flex;align-items:center;justify-content:space-between;gap:20px}.qr-panel{display:flex;align-items:center;gap:24px}.qr-panel img{width:180px;height:180px;image-rendering:auto}.qr-panel p{margin:8px 0 0}.cookie-login{display:flex;flex-direction:column;gap:10px}.cookie-actions{display:flex;align-items:center;justify-content:space-between;gap:16px}.cookie-actions span{color:var(--el-text-color-secondary);font-size:12px}
 </style>

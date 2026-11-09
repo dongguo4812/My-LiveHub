@@ -163,6 +163,28 @@ func (m *AuthManager) PollLogin(ctx context.Context, sessionID string) (LoginSta
 	}
 }
 
+
+func (m *AuthManager) LoginWithCookie(ctx context.Context, rawCookie string) (*Account, error) {
+	cookie, err := normalizeCookie(rawCookie)
+	if err != nil { return nil, err }
+	account, err := m.fetchAccount(ctx, cookie)
+	if err != nil { var authErr *authenticationError; if errors.As(err, &authErr) { return nil, errors.New("Cookie 无效或已过期，请检查浏览器 Cookie 后重试") }; return nil, err }
+	data, err := json.Marshal(Credentials{Cookie: cookie, UID: account.UID})
+	if err != nil { return nil, err }
+	if err := m.store.Save(data); err != nil { return nil, fmt.Errorf("securely save Bilibili credentials: %w", err) }
+	return account, nil
+}
+
+func normalizeCookie(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.ContainsAny(raw, "\\r\\n") { return "", errors.New("请粘贴有效的 B 站 Cookie") }
+	allowed := map[string]bool{"SESSDATA":true,"bili_jct":true,"DedeUserID":true,"DedeUserID__ckMd5":true,"buvid3":true}
+	values := make(map[string]string)
+	for _, item := range strings.Split(raw, ";") { item = strings.TrimSpace(item); if item == "" { continue }; name, value, ok := strings.Cut(item, "="); if !ok { return "", errors.New("Cookie 格式不正确，请复制完整的 Cookie 请求头") }; name,value = strings.TrimSpace(name),strings.TrimSpace(value); if !allowed[name] { continue }; if value == "" || strings.ContainsAny(value, "\\r\\n;") { return "", errors.New("Cookie 中包含无效字段") }; if _,exists := values[name]; exists { return "", errors.New("Cookie 中存在重复字段，请重新复制") }; values[name]=value }
+	if values["SESSDATA"] == "" { return "", errors.New("Cookie 缺少 SESSDATA，请确认复制的是 B 站登录后的 Cookie") }
+	order := []string{"SESSDATA","bili_jct","DedeUserID","DedeUserID__ckMd5","buvid3"}; parts := make([]string,0,len(values)); for _,name := range order { if value,ok := values[name]; ok { parts=append(parts,name+"="+value) } }; return strings.Join(parts,"; "),nil
+}
+
 func (m *AuthManager) CurrentAccount(ctx context.Context) (*Account, error) {
 	data, err := m.store.Load()
 	if errors.Is(err, ErrCredentialNotFound) { return nil, nil }

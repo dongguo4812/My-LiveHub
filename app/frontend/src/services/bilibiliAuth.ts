@@ -11,6 +11,24 @@ export const bilibiliLoginStatus = ref<BilibiliLoginStatus>(null)
 export const bilibiliAuthError = ref('')
 export const bilibiliAuthBusy = ref(false)
 
+export const bilibiliCookieBusy = ref(false)
+
+export async function loginBilibiliWithCookie(cookie: string) {
+  bilibiliCookieBusy.value = true
+  bilibiliAuthError.value = ''
+  try {
+    bilibiliAccount.value = await BilibiliAuthService.LoginWithCookie(cookie)
+    bilibiliLoginSession.value = null
+    bilibiliLoginStatus.value = { status: 'success', message: 'Cookie 登录成功', account: bilibiliAccount.value }
+    return true
+  } catch (error) {
+    bilibiliAuthError.value = error instanceof Error ? error.message : String(error)
+    return false
+  } finally {
+    bilibiliCookieBusy.value = false
+  }
+}
+
 export async function refreshBilibiliAccount() {
   try {
     bilibiliAccount.value = await BilibiliAuthService.GetAccount()
