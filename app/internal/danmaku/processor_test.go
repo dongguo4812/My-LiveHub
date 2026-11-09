@@ -39,6 +39,7 @@ func TestProcessorFiltersFreeGifts(t *testing.T) {
 func TestProcessorDeDuplicatesWithinWindowAndScopesByPlatformAndUser(t *testing.T) {
 	settings := config.DefaultDanmakuDisplayConfig()
 	settings.DuplicateDanmakuFilterSeconds = 3
+	settings.DisplayDurationSeconds = 60
 	input := []events.Event{
 		event("danmaku", "bilibili", "live", 7, 99000),
 		event("danmaku", "bilibili", "live", 7, 101000),
@@ -55,9 +56,9 @@ func TestProcessorDeDuplicatesWithinWindowAndScopesByPlatformAndUser(t *testing.
 func TestProcessorMergesGiftsWithoutMutatingInput(t *testing.T) {
 	settings := config.DefaultDanmakuDisplayConfig()
 	settings.GiftMergeSeconds = 5
-	first := event("gift", "bilibili", "live", 7, 99000)
+	first := event("gift", "bilibili", "live", 7, 109000)
 	first.GiftName, first.GiftCount, first.UnitPrice, first.TotalPrice = "小心心", 2, 0.1, 0.2
-	second := event("gift", "bilibili", "live", 7, 103000)
+	second := event("gift", "bilibili", "live", 7, 113000)
 	second.GiftName, second.GiftCount, second.UnitPrice, second.TotalPrice = "小心心", 3, 0.1, 0.3
 	input := []events.Event{first, second}
 	got := NewProcessor().Process(input, settings, time.UnixMilli(110000))
@@ -68,7 +69,7 @@ func TestProcessorMergesGiftsWithoutMutatingInput(t *testing.T) {
 	if merged.Event.GiftCount != 5 || merged.Event.TotalPrice < 0.499 || merged.Event.TotalPrice > 0.501 {
 		t.Fatalf("unexpected merged gift: %+v", merged.Event)
 	}
-	if merged.Event.Timestamp != 103000 || merged.HighlightUntil != 283000 {
+	if merged.Event.Timestamp != 113000 || merged.HighlightUntil != 293000 {
 		t.Fatalf("unexpected merged timing: %+v", merged)
 	}
 	if input[0].GiftCount != 2 || input[1].GiftCount != 3 {
@@ -79,11 +80,11 @@ func TestProcessorMergesGiftsWithoutMutatingInput(t *testing.T) {
 func TestProcessorGiftMergeWindowAndSourceAreIsolated(t *testing.T) {
 	settings := config.DefaultDanmakuDisplayConfig()
 	settings.GiftMergeSeconds = 5
-	a := event("gift", "bilibili", "live", 7, 99000)
+	a := event("gift", "bilibili", "live", 7, 109000)
 	a.GiftName, a.GiftCount = "小心心", 1
-	b := event("gift", "bilibili", "live", 7, 105000)
+	b := event("gift", "bilibili", "live", 7, 115000)
 	b.GiftName, b.GiftCount = "小心心", 1
-	c := event("gift", "bilibili", "simulation", 7, 105100)
+	c := event("gift", "bilibili", "simulation", 7, 109100)
 	c.GiftName, c.GiftCount = "小心心", 1
 	got := NewProcessor().Process([]events.Event{a, b, c}, settings, time.UnixMilli(110000))
 	if len(got) != 3 {
