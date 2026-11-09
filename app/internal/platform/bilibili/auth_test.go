@@ -133,3 +133,65 @@ func TestMissingCredentials(t *testing.T) {
 type roundTripFunc func(*http.Request)(*http.Response,error)
 func (f roundTripFunc) RoundTrip(r *http.Request)(*http.Response,error){return f(r)}
 
+
+
+func TestLoadCredentialsPreservesCredentialsOnTemporaryNetworkFailure(t *testing.T) {
+	store := &memoryStore{data: []byte(`{"cookie":"valid-session","uid":"123"}`)}
+	before := string(store.data)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "temporarily unavailable", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	client := server.Client()
+	client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		clone := req.Clone(req.Context())
+		u := *req.URL
+		u.Scheme = "http"
+		u.Host = strings.TrimPrefix(server.URL, "http://")
+		clone.URL = &u
+		return http.DefaultTransport.RoundTrip(clone)
+	})
+	manager, err := NewAuthManager(store, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = manager.LoadCredentials(context.Background())
+	if err == nil {
+		t.Fatal("expected temporary network failure")
+	}
+	if string(store.data) != before {
+		t.Fatal("temporary network failure must not delete saved credentials")
+	}
+}
+
+func TestLoadCredentialsDeletesExpiredCredentials(t *testing.T) {
+	store := &memoryStore{data: []byte(`{"cookie":"expired-session","uid":"123"}`)}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code": -101,
+			"message": "not login",
+			"data": map[string]any{"isLogin": false},
+		})
+	}))
+	defer server.Close()
+	client := server.Client()
+	client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		clone := req.Clone(req.Context())
+		u := *req.URL
+		u.Scheme = "http"
+		u.Host = strings.TrimPrefix(server.URL, "http://")
+		clone.URL = &u
+		return http.DefaultTransport.RoundTrip(clone)
+	})
+	manager, err := NewAuthManager(store, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = manager.LoadCredentials(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "登录已失效") {
+		t.Fatalf("expected expired-login error, got %v", err)
+	}
+	if len(store.data) != 0 {
+		t.Fatal("expired credentials should be removed")
+	}
+}
