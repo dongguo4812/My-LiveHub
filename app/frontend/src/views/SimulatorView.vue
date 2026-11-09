@@ -177,7 +177,7 @@ onUnmounted(() => {
             <template v-if="eventType === 'danmaku'">
               <el-form-item label="弹幕内容"><el-input v-model="content" type="textarea" :rows="3" maxlength="500" show-word-limit /></el-form-item>
               <el-form-item label="插入直播间表情">
-                <el-input v-model="resourceKeyword" placeholder="搜索表情名称或 ID" clearable />
+                <el-input v-model="resourceKeyword" placeholder="搜索表情名称或 ID" clearable><template #append><el-button :loading="resourcesBusy" @click="loadMediaResources">刷新</el-button></template></el-input>
                 <div v-if="mediaResources.length" class="resource-picker">
                   <el-button v-for="item in mediaResources" :key="item.resource_id" class="emoticon-option" text @click="insertEmoticon(item)"><img :src="item.image_url" :alt="item.name" /><span>{{ item.name }}</span></el-button>
                 </div>
@@ -187,7 +187,7 @@ onUnmounted(() => {
 
             <template v-else-if="eventType === 'gift'">
               <el-form-item label="选择直播间礼物">
-                <el-input v-model="resourceKeyword" placeholder="搜索礼物名称或 ID" clearable />
+                <el-input v-model="resourceKeyword" placeholder="搜索礼物名称或 ID" clearable><template #append><el-button :loading="resourcesBusy" @click="loadMediaResources">刷新</el-button></template></el-input>
                 <el-select v-model="selectedGiftID" class="full-width" filterable @change="selectGift">
                   <el-option v-for="item in mediaResources" :key="item.resource_id" :label="item.name" :value="item.resource_id">
                     <div class="gift-option"><img :src="item.image_url" :alt="item.name" /><span>{{ item.name }}</span><small>#{{ item.resource_id }}</small></div>
