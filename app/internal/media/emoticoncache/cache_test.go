@@ -39,14 +39,37 @@ func TestServeHTTPOnlyServesCacheFilesAndFallsBack(t *testing.T) {
 	if res.Code != http.StatusNoContent { t.Fatalf("fallback was not called: %d", res.Code) }
 }
 
-func TestResourceIdentityProducesStableSingleCacheKey(t *testing.T) {
+func TestCacheFileIdentityFollowsImageURLAndPreservesHistory(t *testing.T) {
 	policy := BilibiliURLPolicy
-	first, ext1, err := cacheKeyForResource("https://i0.hdslb.com/a.png?token=one", "bilibili:common:[dog]", policy)
+	oldURL := "https://i0.hdslb.com/a.png?token=one"
+	newURL := "https://i0.hdslb.com/b.png?token=two"
+
+	oldKey, oldExt, err := cacheKeyForResource(oldURL, "bilibili:common:emoji_331", policy)
 	if err != nil { t.Fatal(err) }
-	second, ext2, err := cacheKeyForResource("https://i0.hdslb.com/b.png?token=two", "bilibili:common:[dog]", policy)
+	newKey, newExt, err := cacheKeyForResource(newURL, "bilibili:common:emoji_331", policy)
 	if err != nil { t.Fatal(err) }
-	if first != second || ext1 != ext2 { t.Fatalf("same resource should share one cache file: %s %s %s %s", first, ext1, second, ext2) }
-	other, _, err := cacheKeyForResource("https://i0.hdslb.com/a.png?token=one", "bilibili:room_123:[dog]", policy)
+	if oldKey == newKey { t.Fatal("a changed image URL must receive a new immutable cache file") }
+	if oldExt != newExt { t.Fatalf("unexpected extensions: %s and %s", oldExt, newExt) }
+
+	// The same URL is shared even when referenced by different logical resources.
+	sharedKey, sharedExt, err := cacheKeyForResource(oldURL, "bilibili:room_123:emoji_9", policy)
 	if err != nil { t.Fatal(err) }
-	if other == first { t.Fatal("different resource identities must not share cache files") }
+	if sharedKey != oldKey || sharedExt != oldExt {
+		t.Fatal("the same source URL should reuse one image file across resources")
+	}
+
+	root := t.TempDir()
+	oldPath := filepath.Join(root, oldKey+oldExt)
+	if err := os.WriteFile(oldPath, []byte("historical image"), 0o600); err != nil { t.Fatal(err) }
+	manager, err := New(root, nil)
+	if err != nil { t.Fatal(err) }
+	if got := manager.CachedURLForResource("bilibili", "common:emoji_331", oldURL); got != routePrefix+oldKey+oldExt {
+		t.Fatalf("historical image cache URL = %q", got)
+	}
+	if got := manager.CachedURLForResource("bilibili", "common:emoji_331", newURL); got != "" {
+		t.Fatalf("uncached replacement should fall back to original URL, got %q", got)
+	}
+	if _, err := os.Stat(oldPath); err != nil {
+		t.Fatalf("historical image file was removed: %v", err)
+	}
 }
