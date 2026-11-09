@@ -122,13 +122,18 @@ func main() {
 		Name: "main-window", Title: "My-LiveHub", Width: 1440, Height: 900,
 		MinWidth: 1100, MinHeight: 680, BackgroundColour: background, URL: "/",
 	})
+	// Restore auxiliary windows only after the main WebView runtime is ready.
+	// Creating the transparent overlay before app.Run() can initialise its
+	// WebView before the native event loop and break transparent composition.
+	mainWindow.OnWindowEvent(events.Common.WindowRuntimeReady, func(_ *application.WindowEvent) {
+		if danmakuWindowConfig.OpenOnStartup {
+			if err := danmakuDisplayService.OpenWindow(); err != nil {
+				log.Printf("restore danmaku overlay window: %v", err)
+			}
+		}
+	})
 	// Keep the main window alive until the application-level quit is confirmed.
 	// This ensures OnShutdown closes auxiliary windows before the process exits.
-	if danmakuWindowConfig.OpenOnStartup {
-		if err := danmakuDisplayService.OpenWindow(); err != nil {
-			log.Printf("restore danmaku overlay window: %v", err)
-		}
-	}
 	mainWindow.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
 		event.Cancel()
 		go app.Quit()
