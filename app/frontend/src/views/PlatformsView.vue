@@ -102,7 +102,7 @@ onUnmounted(() => {
     <el-card shadow="never">
       <template #header><div class="card-heading"><span>实时弹幕</span><el-tag size="small" effect="plain">{{ bilibiliDanmakuEvents.length }} 条缓存</el-tag></div></template>
       <el-empty v-if="!bilibiliDanmakuEvents.length" description="连接直播间后，收到的弹幕会显示在这里" :image-size="80" />
-      <el-table v-else :data="[...bilibiliDanmakuEvents].reverse()" row-key="id" max-height="420"><el-table-column label="时间" width="105"><template #default="{ row }">{{ formatEventTime(row.timestamp) }}</template></el-table-column><el-table-column label="用户" width="160"><template #default="{ row }">{{ row.user_name }}</template></el-table-column><el-table-column prop="content" label="弹幕内容" min-width="260" show-overflow-tooltip /></el-table>
+      <el-table v-else :data="[...bilibiliDanmakuEvents].reverse()" row-key="id" max-height="420"><el-table-column label="时间" width="105"><template #default="{ row }">{{ formatEventTime(row.timestamp) }}</template></el-table-column><el-table-column label="用户" width="160"><template #default="{ row }">{{ row.user_name }}</template></el-table-column><el-table-column prop="content" label="弹幕内容" min-width="260" show-overflow-tooltip /><el-table-column label="来源" width="85"><template #default="{ row }"><el-tag v-if="row.is_simulation" type="warning" size="small">模拟</el-tag><el-tag v-else type="success" size="small">真实</el-tag></template></el-table-column></el-table>
     </el-card>
   </section>
 </template>
