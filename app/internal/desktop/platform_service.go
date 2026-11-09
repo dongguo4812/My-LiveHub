@@ -148,11 +148,30 @@ func (s *PlatformService) SimulatePlatformEvent(
 
 // SimulatePlatformEventWithResource carries the selected catalog identity and image URL into the shared event pipeline.
 func (s *PlatformService) SimulatePlatformEventWithResource(platformID, eventType string, userID int, userName, content, giftName string, giftCount int, unitPrice, amount float64, duration, guardLevel, months, giftID int, giftImageURL string, giftResourceID string) (eventstream.Event, error) {
+	return s.SimulatePlatformEventWithMediaResources(platformID, eventType, userID, userName, content, giftName, giftCount, unitPrice, amount, duration, guardLevel, months, giftID, giftImageURL, giftResourceID, nil)
+}
+
+// SimulatePlatformEventWithMediaResources resolves selected emoticon IDs from the platform catalog.
+// The simulator never accepts arbitrary image URLs: event tokens are built from registered resources.
+func (s *PlatformService) SimulatePlatformEventWithMediaResources(platformID, eventType string, userID int, userName, content, giftName string, giftCount int, unitPrice, amount float64, duration, guardLevel, months, giftID int, giftImageURL, giftResourceID string, emoticonResourceIDs []string) (eventstream.Event, error) {
 	if s == nil || s.events == nil { return eventstream.Event{}, errors.New("platform event service is unavailable") }
+	var emoticons []eventstream.EmoticonToken
+	if eventType == "danmaku" && s.mediaCatalog != nil && len(emoticonResourceIDs) > 0 {
+		selected := make(map[string]struct{}, len(emoticonResourceIDs))
+		for _, id := range emoticonResourceIDs { if id = strings.TrimSpace(id); id != "" { selected[id] = struct{}{} } }
+		seen := make(map[string]struct{}, len(selected))
+		for _, item := range s.mediaCatalog.List(platformID, "", resource.TypeEmoticon) {
+			if _, ok := selected[item.ID]; !ok || item.Name == "" || item.ImageURL == "" || !strings.Contains(content, item.Name) { continue }
+			if _, ok := seen[item.Name]; ok { continue }
+			seen[item.Name] = struct{}{}
+			emoticons = append(emoticons, eventstream.EmoticonToken{Text: item.Name, URL: item.ImageURL, Width: item.Width, Height: item.Height})
+		}
+	}
 	return s.events.AddSimulationEvent(platformID, eventstream.SimulationEventInput{
 		Type: eventType, UserID: userID, UserName: userName, Content: content, GiftName: giftName,
 		GiftCount: giftCount, UnitPrice: unitPrice, Amount: amount, Duration: duration,
 		GuardLevel: guardLevel, Months: months, GiftID: giftID, GiftResourceID: giftResourceID, GiftImageURL: giftImageURL,
+		Emoticons: emoticons,
 	})
 }
 
