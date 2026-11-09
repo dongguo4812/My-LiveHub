@@ -84,9 +84,9 @@ function selectGift(resourceID: string) {
 function insertEmoticon(item: MediaResource) { content.value = content.value ? `${content.value}${item.name}` : item.name }
 
 async function sendEvent() {
+  if (eventType.value === 'gift' && !selectedGiftID.value) { error.value = '请先从礼物目录选择礼物'; return }
   busy.value = true
   error.value = ''
-  if (eventType.value === 'gift' && !selectedGiftID.value) { error.value = '请先从礼物目录选择礼物'; return }
   try {
     await PlatformService.SimulatePlatformEventWithResource(
       platformID.value,
