@@ -114,7 +114,7 @@ func TestAdapterRegistersEmoticonByStableResourceID(t *testing.T) {
 		Content: "[dog]",
 		Raw: raw,
 	})
-	items := catalog.List("bilibili", "12345", resource.TypeEmoticon)
+	items := catalog.List("bilibili", "common", resource.TypeEmoticon)
 	if len(items) != 1 || items[0].ID != "official_331" {
 		t.Fatalf("catalog should use the stable emoticon ID, got %+v", items)
 	}
