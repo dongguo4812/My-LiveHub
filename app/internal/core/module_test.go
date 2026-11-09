@@ -8,19 +8,20 @@ import (
 )
 
 type testModule struct {
-	name  string
-	calls *[]string
-	fail  error
+	name      string
+	calls     *[]string
+	startFail error
+	stopFail  error
 }
 
 func (m testModule) Start(context.Context) error {
 	*m.calls = append(*m.calls, "start:"+m.name)
-	return m.fail
+	return m.startFail
 }
 
 func (m testModule) Stop(context.Context) error {
 	*m.calls = append(*m.calls, "stop:"+m.name)
-	return nil
+	return m.stopFail
 }
 
 func TestModuleManagerStartsInOrderAndStopsInReverse(t *testing.T) {
@@ -53,7 +54,7 @@ func TestModuleManagerRollsBackAfterStartupFailure(t *testing.T) {
 	var calls []string
 	startFailure := errors.New("startup failed")
 	_ = manager.Register("first", testModule{name: "first", calls: &calls})
-	_ = manager.Register("second", testModule{name: "second", calls: &calls, fail: startFailure})
+	_ = manager.Register("second", testModule{name: "second", calls: &calls, startFail: startFailure})
 	_ = manager.Register("third", testModule{name: "third", calls: &calls})
 
 	err := manager.StartAll(context.Background())
@@ -92,18 +93,21 @@ func TestModuleManagerContinuesStoppingAfterError(t *testing.T) {
 	manager := NewModuleManager()
 	var calls []string
 	stopFailure := errors.New("stop failed")
-	type stopFailModule struct{ testModule }
-	_ = stopFailure
-	_ = stopFailModule{}
 	_ = manager.Register("first", testModule{name: "first", calls: &calls})
-	_ = manager.Register("second", testModule{name: "second", calls: &calls})
+	_ = manager.Register("second", testModule{name: "second", calls: &calls, stopFail: stopFailure})
 	if err := manager.StartAll(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := manager.StopAll(context.Background()); err != nil {
-		t.Fatal(err)
+	err := manager.StopAll(context.Background())
+	if !errors.Is(err, stopFailure) {
+		t.Fatalf("StopAll error = %v, want wrapped stop failure", err)
 	}
-	if len(calls) != 6 {
-		t.Fatalf("expected all modules to stop, calls = %v", calls)
+	want := []string{"start:first", "start:second", "stop:second", "stop:first"}
+	if !reflect.DeepEqual(calls, want) {
+		t.Fatalf("calls = %v, want %v", calls, want)
+	}
+	statuses := manager.Snapshot()
+	if statuses[0].Status != ModuleStopped || statuses[1].Status != ModuleFailed {
+		t.Fatalf("unexpected module statuses after shutdown: %+v", statuses)
 	}
 }
