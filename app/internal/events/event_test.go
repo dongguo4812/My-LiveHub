@@ -55,6 +55,12 @@ func TestSimulationWelcomeLegacyAlias(t *testing.T) {
 	}
 }
 
+func TestBufferPreservesDisplayIdentityMetadata(t *testing.T) {
+	buffer := NewBuffer()
+	got := buffer.Add(Event{PlatformID: "bilibili", Type: "danmaku", UserName: "viewer", IsModerator: true, UserLevel: 20, GuardLevel: 3, FanMedalName: "测试勋章", FanMedalLevel: 15, FanMedalColor: 0xFFAA00})
+	if !got.IsModerator || got.UserLevel != 20 || got.GuardLevel != 3 || got.FanMedalName != "测试勋章" || got.FanMedalLevel != 15 || got.FanMedalColor != 0xFFAA00 { t.Fatalf("identity metadata was not preserved: %+v", got) }
+}
+
 func TestEventSourceAndDefaults(t *testing.T) {
 	buffer:=NewBuffer()
 	live:=buffer.Add(Event{PlatformID:"bilibili",Type:"danmaku"})

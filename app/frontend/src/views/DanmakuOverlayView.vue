@@ -105,9 +105,14 @@ onUnmounted(() => {
           <div class="message-meta">
             <span v-if="settings?.show_platform_badge" class="platform-badge">{{ platformNames[item.event.platform_id] ?? item.event.platform_id }}</span>
             <strong class="username">{{ item.event.user_name }}</strong>
+            <span v-if="settings?.show_moderator_badge && item.event.is_moderator" class="identity-badge moderator-badge">房管</span>
+            <span v-if="settings?.show_noble_badge && item.event.guard_level > 0" class="identity-badge guard-badge">{{ ['', '总督', '提督', '舰长'][item.event.guard_level] ?? '舰队' }}</span>
+            <span v-if="settings?.show_fan_medal && item.event.fan_medal_name" class="identity-badge medal-badge">{{ item.event.fan_medal_name }} {{ item.event.fan_medal_level }}</span>
+            <span v-if="settings?.show_user_level && item.event.user_level > 0" class="identity-badge level-badge">UL {{ item.event.user_level }}</span>
             <span class="event-type">{{ eventNames[item.event.type] ?? item.event.type }}</span>
             <time>{{ formatTime(item.event.timestamp) }}</time>
           </div>
+          <img v-if="settings?.show_gift_image && item.event.type === 'gift' && item.event.gift_image_url" class="gift-image" :src="item.event.gift_image_url" alt="" />
           <div class="message-content" :style="{ fontSize: `${settings?.font_size ?? 24}px` }">{{ item.event.content }}</div>
         </div>
       </article>
@@ -127,6 +132,12 @@ onUnmounted(() => {
 .message-body { min-width:0; }
 .message-meta { display:flex; align-items:center; flex-wrap:wrap; gap:7px; font-size:12px; color:#d3d9e8; }
 .username { color:#aebaff; font-size:13px; }
+.identity-badge { padding:1px 5px; border:1px solid transparent; border-radius:4px; font-size:10px; line-height:1.5; }
+.moderator-badge { background:#245c48; color:#b9f4d7; }
+.guard-badge { background:#61452d; color:#ffe0a8; }
+.medal-badge { background:#573d38; color:#ffe0ca; }
+.level-badge { background:#39445e; color:#d9e2ff; }
+.gift-image { display:block; max-width:72px; max-height:72px; object-fit:contain; margin-top:5px; }
 .platform-badge { padding:1px 5px; border-radius:4px; background:#46568b; color:#e8ecff; font-size:10px; }
 .event-type,time { color:#aab3c6; font-size:11px; }
 .message-content { margin-top:4px; overflow-wrap:anywhere; white-space:pre-wrap; line-height:1.4; }

@@ -43,6 +43,10 @@ func NewAdapter(auth *AuthManager, roomID int, events *eventstream.Buffer) (*Ada
 	}, nil
 }
 
+func medalName(m *message.Medal) string { if m == nil { return "" }; return m.Name }
+func medalLevel(m *message.Medal) int { if m == nil { return 0 }; return m.Level }
+func medalColor(m *message.Medal) uint32 { if m == nil { return 0 }; return uint32(m.Color) }
+
 func (a *Adapter) ID() string { return "bilibili" }
 
 func (a *Adapter) RoomID() int {
@@ -87,6 +91,8 @@ func (a *Adapter) Connect(ctx context.Context) error {
 			PlatformID: "bilibili", Source: "live", Type: "danmaku", RoomID: roomID,
 			UserID: d.Sender.Uid, UserName: d.Sender.Uname, Avatar: d.Sender.Face,
 			Content: d.Content, Timestamp: timestamp, Color: d.Color,
+			IsModerator: d.Sender.Admin, UserLevel: int(d.Sender.UserLevel), GuardLevel: d.Sender.GuardLevel,
+			FanMedalName: medalName(d.Sender.Medal), FanMedalLevel: medalLevel(d.Sender.Medal), FanMedalColor: medalColor(d.Sender.Medal),
 		})
 	})
 

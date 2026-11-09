@@ -20,6 +20,13 @@ type Event struct {
 	UserID       int     `json:"user_id"`
 	UserName     string  `json:"user_name"`
 	Avatar       string  `json:"avatar,omitempty"`
+	IsModerator  bool    `json:"is_moderator,omitempty"`
+	UserLevel    int     `json:"user_level,omitempty"`
+	GuardLevel   int     `json:"guard_level,omitempty"`
+	FanMedalName string  `json:"fan_medal_name,omitempty"`
+	FanMedalLevel int    `json:"fan_medal_level,omitempty"`
+	FanMedalColor uint32 `json:"fan_medal_color,omitempty"`
+	GiftImageURL string  `json:"gift_image_url,omitempty"`
 	Content      string  `json:"content"`
 	Timestamp    int64   `json:"timestamp"`
 	Color        uint32  `json:"color,omitempty"`
