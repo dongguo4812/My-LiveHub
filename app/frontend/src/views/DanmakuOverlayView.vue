@@ -110,7 +110,8 @@ onUnmounted(() => {
           </div>
           <div class="message-content">{{ item.event.content }}</div>
         </div>
-      </article>\n</div>
+      </article>
+</div>
     <div class="resize-handle" title="拖动调整窗口大小" @pointerdown="beginResize"></div>
   </main>
 </template>
