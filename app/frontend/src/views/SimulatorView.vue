@@ -69,7 +69,7 @@ async function loadMediaResources() {
   if (!kind) { mediaResources.value = []; return }
   resourcesBusy.value = true
   try {
-    const items = await PlatformService.GetMediaResources(platformID.value, kind, resourceKeyword.value, 100)
+    const items = await PlatformService.GetMediaResources(platformID.value, kind, resourceKeyword.value, 0)
     if (requestID === resourceRequestID) mediaResources.value = items
   } catch (cause) { if (requestID === resourceRequestID) error.value = cause instanceof Error ? cause.message : String(cause) }
   finally { if (requestID === resourceRequestID) resourcesBusy.value = false }
@@ -181,7 +181,7 @@ onUnmounted(() => {
               <el-form-item label="插入直播间表情">
                 <el-input v-model="resourceKeyword" placeholder="搜索表情名称或 ID" clearable><template #append><el-button :loading="resourcesBusy" @click="loadMediaResources">刷新</el-button></template></el-input>
                 <div v-if="mediaResources.length" class="resource-picker">
-                  <el-button v-for="item in mediaResources" :key="item.resource_id" class="emoticon-option" text @click="insertEmoticon(item)"><img :src="item.image_url" :alt="item.name" /><span>{{ item.name }}</span></el-button>
+                  <el-button v-for="item in mediaResources" :key="item.resource_id" class="emoticon-option" text @click="insertEmoticon(item)"><img :src="item.image_url" :alt="item.name" loading="lazy" /><span>{{ item.name }}</span></el-button>
                 </div>
                 <el-empty v-else-if="!resourcesBusy" description="暂无已发现的表情；连接平台并收到表情弹幕后可自动收录" :image-size="64" />
               </el-form-item>
