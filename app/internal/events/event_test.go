@@ -35,6 +35,16 @@ func TestSimulationEventValidation(t *testing.T) {
 	if _,err:=NewBuffer().AddSimulationEvent("",SimulationEventInput{Type:"danmaku",Content:"hello"});err==nil { t.Fatal("expected platform ID validation error") }
 }
 
+func TestSimulationWelcomeEvent(t *testing.T) {
+	event, err := NewBuffer().AddSimulationEvent("bilibili", SimulationEventInput{Type: "welcome", UserID: 42, UserName: "新观众"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event.Type != "welcome" || event.Content != "进入了直播间" || event.Source != "simulation" || !event.IsSimulation {
+		t.Fatalf("unexpected welcome event: %+v", event)
+	}
+}
+
 func TestEventSourceAndDefaults(t *testing.T) {
 	buffer:=NewBuffer()
 	live:=buffer.Add(Event{PlatformID:"bilibili",Type:"danmaku"})
