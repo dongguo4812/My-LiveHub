@@ -47,6 +47,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("load application configuration: %v", err)
 	}
+	danmakuDisplayConfig, err := config.LoadTyped[config.DanmakuDisplayConfig](configManager, "danmaku_display.json", func(value config.DanmakuDisplayConfig) error {
+		return value.Validate()
+	})
+	if err != nil {
+		log.Fatalf("load danmaku display configuration: %v", err)
+	}
 	coreApp, err := core.New(configManager, appConfig)
 	if err != nil {
 		log.Fatalf("initialize core application: %v", err)
@@ -91,6 +97,7 @@ func main() {
 			application.NewService(desktop.NewBilibiliAuthService(bilibiliAuth)),
 			application.NewService(desktop.NewBilibiliSettingsService(configManager, bilibiliConfig, bilibiliAdapter)),
 			application.NewService(desktop.NewAppearanceService(configManager, appConfig)),
+			application.NewService(desktop.NewDanmakuDisplayService(configManager, danmakuDisplayConfig)),
 		},
 	})
 	desktop.AttachApplication(platformService, app, appConfig.Appearance.Theme == "light")
