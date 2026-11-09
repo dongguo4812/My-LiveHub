@@ -14,6 +14,7 @@ import (
 	"github.com/dongguo4812/My-LiveHub/app/internal/platform"
 	"github.com/dongguo4812/My-LiveHub/app/internal/platform/bilibili"
 	"github.com/dongguo4812/My-LiveHub/app/internal/media/emoticoncache"
+	"github.com/dongguo4812/My-LiveHub/app/internal/media/resource"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
@@ -82,10 +83,12 @@ func main() {
 		log.Fatalf("load Bilibili configuration: %v", err)
 	}
 	bilibiliEvents := eventstream.NewBuffer()
+	mediaCatalog := resource.NewCatalog()
 	bilibiliAdapter, err := bilibili.NewAdapter(bilibiliAuth, bilibiliConfig.RoomID, bilibiliEvents)
 	if err != nil {
 		log.Fatalf("initialize Bilibili adapter: %v", err)
 	}
+	bilibiliAdapter.SetMediaCatalog(mediaCatalog)
 
 	platformManager := platform.NewManager()
 	if err := platformManager.Register(bilibiliAdapter); err != nil {
@@ -103,7 +106,7 @@ func main() {
 		cacheDir = filepath.Join(userConfigDir, "My-LiveHub", "cache")
 	}
 	assetHandler := application.AssetFileServerFS(assets)
-	imageCache, cacheErr := emoticoncache.New(cacheDir, assetHandler)
+	imageCache, cacheErr := emoticoncache.NewWithPolicies(cacheDir, assetHandler, map[string]emoticoncache.URLPolicy{"bilibili":emoticoncache.BilibiliURLPolicy})
 	if cacheErr != nil { log.Printf("initialize local emoticon cache: %v", cacheErr) } else { assetHandler = imageCache }
 	danmakuDisplayService := desktop.NewDanmakuDisplayService(configManager, danmakuDisplayConfig, danmakuWindowConfig, bilibiliEvents, imageCache)
 	app := application.New(application.Options{
