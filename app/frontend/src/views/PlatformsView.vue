@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import { connectPlatform, disconnectPlatform, platformActionError, platforms, bilibiliEvents, platformsError, refreshPlatforms, refreshBilibiliEvents } from '../services/platforms'
 import { bilibiliAccount, bilibiliAuthBusy, bilibiliAuthError, bilibiliCookieBusy, bilibiliLoginSession, bilibiliLoginStatus, logoutBilibili, pollBilibiliLogin, refreshBilibiliAccount, startBilibiliLogin, loginBilibiliWithCookie } from '../services/bilibiliAuth'
@@ -8,6 +8,15 @@ import { bilibiliSettings, bilibiliSettingsBusy, bilibiliSettingsError, loadBili
 const busyPlatformID = ref('')
 const browserCookie = ref('')
 const roomID = ref(0)
+const avatarLoadFailed = ref(false)
+const avatarSrc = computed(() => {
+  const value = String(bilibiliAccount.value?.avatar ?? '').trim()
+  if (!value) return ''
+  if (value.startsWith('//')) return `https:${value}`
+  if (value.startsWith('http://')) return value.replace(/^http:/, 'https:')
+  return value
+})
+watch(avatarSrc, () => { avatarLoadFailed.value = false })
 const statusLabels: Record<string, string> = { disconnected:'未连接', connecting:'连接中', connected:'已连接', disconnecting:'断开中', failed:'连接失败' }
 const statusTypes: Record<string, 'info'|'warning'|'success'|'danger'> = { disconnected:'info', connecting:'warning', connected:'success', disconnecting:'warning', failed:'danger' }
 let pollTimer: ReturnType<typeof setInterval> | undefined
@@ -55,7 +64,7 @@ onUnmounted(() => {
     <el-alert v-if="bilibiliSettingsError" :title="'B站设置保存失败：' + bilibiliSettingsError" type="error" :closable="false" show-icon />
     <el-card shadow="never">
       <template #header><div class="card-heading"><div class="card-title"><svg class="bilibili-logo" viewBox="0 0 48 48" role="img" aria-label="哔哩哔哩"><path d="M17 10 12 4M31 10l5-6" /><path d="M11 13h26a4 4 0 0 1 4 4v17a5 5 0 0 1-5 5H12a5 5 0 0 1-5-5V17a4 4 0 0 1 4-4Z" /><path d="M18 22v7m12-7v7" /></svg><span>B 站账号</span></div><el-tag v-if="bilibiliAccount?.is_login" type="success">已登录</el-tag><el-tag v-else type="info">未登录</el-tag></div></template>
-      <div v-if="bilibiliAccount?.is_login" class="account-row"><el-avatar :size="52" :src="bilibiliAccount.avatar || undefined" /><div class="account-info"><strong>{{ bilibiliAccount.name }}</strong><span>UID：{{ bilibiliAccount.uid }}</span></div><el-button type="danger" plain :loading="bilibiliAuthBusy" :disabled="bilibiliConnected" @click="logoutBilibili">退出登录</el-button></div>
+      <div v-if="bilibiliAccount?.is_login" class="account-row"><img v-if="avatarSrc && !avatarLoadFailed" class="account-avatar" :src="avatarSrc" alt="B站用户头像" referrerpolicy="no-referrer" @error="avatarLoadFailed = true" /><div v-else class="account-avatar account-avatar-fallback" aria-label="头像暂不可用">B</div><div class="account-info"><strong>{{ bilibiliAccount.name }}</strong><span>UID：{{ bilibiliAccount.uid }}</span></div><el-button type="danger" plain :loading="bilibiliAuthBusy" :disabled="bilibiliConnected" @click="logoutBilibili">退出登录</el-button></div>
       <div v-else class="login-area">
         <div v-if="bilibiliLoginSession" class="qr-panel"><img :src="bilibiliLoginSession.qr_code_data_url" alt="B站登录二维码" /><div><strong>{{ bilibiliLoginStatus?.message || '请使用哔哩哔哩手机客户端扫码' }}</strong><p>二维码有效期约 3 分钟，过期后请重新生成。</p><el-button v-if="bilibiliLoginStatus?.status === 'expired'" type="primary" @click="startBilibiliLogin">重新生成二维码</el-button></div></div>
         <div v-else class="login-prompt"><p>连接 B 站直播间前，需要先完成账号登录。</p><el-button type="primary" :loading="bilibiliAuthBusy" @click="startBilibiliLogin">扫码登录 B 站</el-button></div>
@@ -86,5 +95,5 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.platform-page{display:flex;flex-direction:column;gap:20px}.page-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}.eyebrow{margin:0 0 9px;color:var(--el-color-primary);font-size:11px;letter-spacing:.16em}h2{margin:0;font-size:25px;font-weight:650}.muted{margin:9px 0 0;color:var(--el-text-color-secondary)}.card-heading{display:flex;align-items:center;justify-content:space-between;font-weight:600}.card-title{display:flex;align-items:center;gap:10px}.bilibili-logo{width:28px;height:28px;fill:none;stroke:#00A1D6;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;flex:none}.empty-note{color:var(--el-text-color-secondary);font-size:13px}.account-row{display:flex;align-items:center;gap:16px}.account-info{display:flex;flex:1;flex-direction:column;gap:6px}.account-info span,.login-prompt p,.qr-panel p,.room-settings p,.hint{color:var(--el-text-color-secondary);font-size:13px}.login-prompt{display:flex;align-items:center;justify-content:space-between;gap:20px}.qr-panel{display:flex;align-items:center;gap:24px}.qr-panel img{width:180px;height:180px}.qr-panel p{margin:8px 0 0}.cookie-login{display:flex;flex-direction:column;gap:10px}.cookie-actions{display:flex;align-items:center;justify-content:space-between;gap:16px}.cookie-actions span{color:var(--el-text-color-secondary);font-size:12px}.room-heading{margin-bottom:16px}.room-settings{display:flex;align-items:center;justify-content:space-between;gap:20px}.room-settings p{margin:7px 0 0}.room-controls{display:flex;align-items:center;gap:12px}.hint{margin:14px 0 0}
+.platform-page{display:flex;flex-direction:column;gap:20px}.page-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}.eyebrow{margin:0 0 9px;color:var(--el-color-primary);font-size:11px;letter-spacing:.16em}h2{margin:0;font-size:25px;font-weight:650}.muted{margin:9px 0 0;color:var(--el-text-color-secondary)}.card-heading{display:flex;align-items:center;justify-content:space-between;font-weight:600}.card-title{display:flex;align-items:center;gap:10px}.bilibili-logo{width:28px;height:28px;fill:none;stroke:#00A1D6;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;flex:none}.empty-note{color:var(--el-text-color-secondary);font-size:13px}.account-row{display:flex;align-items:center;gap:16px}.account-avatar{width:52px;height:52px;flex:none;border-radius:50%;object-fit:cover;background:var(--el-fill-color);border:1px solid var(--el-border-color)}.account-avatar-fallback{display:flex;align-items:center;justify-content:center;color:var(--el-text-color-secondary);font-size:20px;font-weight:700}.account-info{display:flex;flex:1;flex-direction:column;gap:6px}.account-info span,.login-prompt p,.qr-panel p,.room-settings p,.hint{color:var(--el-text-color-secondary);font-size:13px}.login-prompt{display:flex;align-items:center;justify-content:space-between;gap:20px}.qr-panel{display:flex;align-items:center;gap:24px}.qr-panel img{width:180px;height:180px}.qr-panel p{margin:8px 0 0}.cookie-login{display:flex;flex-direction:column;gap:10px}.cookie-actions{display:flex;align-items:center;justify-content:space-between;gap:16px}.cookie-actions span{color:var(--el-text-color-secondary);font-size:12px}.room-heading{margin-bottom:16px}.room-settings{display:flex;align-items:center;justify-content:space-between;gap:20px}.room-settings p{margin:7px 0 0}.room-controls{display:flex;align-items:center;gap:12px}.hint{margin:14px 0 0}
 </style>
