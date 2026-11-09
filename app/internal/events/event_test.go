@@ -91,3 +91,15 @@ func TestSimulationGiftPreservesCatalogResource(t *testing.T) {
 		t.Fatalf("simulation event lost catalog metadata: %+v", event)
 	}
 }
+
+func TestSimulationDanmakuPreservesSelectedEmoticons(t *testing.T) {
+	event, err := NewBuffer().AddSimulationEvent("bilibili", SimulationEventInput{
+		Type: "danmaku", Content: "大家好[dog]",
+		Emoticons: []EmoticonToken{{Text: "[dog]", URL: "https://img.test/dog.png", Width: 24, Height: 24}},
+	})
+	if err != nil { t.Fatal(err) }
+	if len(event.Emoticons) != 1 || event.Emoticons[0].Text != "[dog]" || event.Emoticons[0].URL != "https://img.test/dog.png" {
+		t.Fatalf("simulation event lost emoticon metadata: %+v", event.Emoticons)
+	}
+}
+
