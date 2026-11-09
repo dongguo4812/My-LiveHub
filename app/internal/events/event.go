@@ -94,6 +94,7 @@ type SimulationEventInput struct {
 	GiftID     int
 	GiftResourceID string
 	GiftImageURL string
+	Emoticons []EmoticonToken
 	GiftCount  int
 	UnitPrice  float64
 	Amount     float64
@@ -114,6 +115,10 @@ func (b *Buffer) AddSimulationEvent(platformID string, input SimulationEventInpu
 	switch input.Type {
 	case "danmaku":
 		if input.Content == "" { return Event{}, errors.New("弹幕内容不能为空") }
+		for _, token := range input.Emoticons {
+			if token.Text == "" || token.URL == "" || !strings.Contains(input.Content, token.Text) { continue }
+			event.Emoticons = append(event.Emoticons, token)
+		}
 	case "gift":
 		if input.GiftName == "" || input.GiftCount < 1 || input.UnitPrice < 0 { return Event{}, errors.New("礼物名称、数量或单价不正确") }
 		event.GiftName, event.GiftID, event.GiftResourceID, event.GiftImageURL, event.GiftCount, event.UnitPrice = input.GiftName, input.GiftID, input.GiftResourceID, input.GiftImageURL, input.GiftCount, input.UnitPrice
