@@ -1,7 +1,7 @@
 version: '3'
 
 vars:
-  VITE_PORT: '{{.WAILS_VITE_PORT | default "9246"}}'
+  VITE_PORT: '{{.WAILS_VITE_PORT | default "8769"}}'
 
 tasks:
   dev:

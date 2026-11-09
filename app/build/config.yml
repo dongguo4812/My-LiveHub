@@ -24,8 +24,8 @@ dev_mode:
       - "*_test.go"
     git_ignore: true
   executes:
-    - cmd: npm --prefix frontend run dev -- --host 127.0.0.1 --port 9246
+    - cmd: npm --prefix frontend run dev -- --host 127.0.0.1
       type: background
-    - cmd: go run .
+    - cmd: go run . dev
       type: primary
       exit_policy: shutdown

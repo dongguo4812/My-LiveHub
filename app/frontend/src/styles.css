@@ -47,3 +47,8 @@ button { font: inherit; }
 .footer { height: 30px; display: flex; align-items: center; justify-content: space-between; padding: 0 32px; border-top: 1px solid #242936; color: #697287; font-size: 10px; }
 .el-card { --el-card-bg-color: #191c25; --el-card-border-color: #303544; }
 @media (max-width: 1200px) { .workspace { padding: 22px; } }
+
+.status-dot.running { background: #58c98a; box-shadow: 0 0 8px #58c98a66; }
+.status-dot.failed { background: #e16b72; box-shadow: 0 0 8px #e16b7266; }
+.status-dot.stopped { background: #8992a6; box-shadow: none; }
+.status-dot.starting, .status-dot.stopping, .status-dot.created, .status-dot.unknown { background: #d6a85e; box-shadow: 0 0 8px #d6a85e55; }
