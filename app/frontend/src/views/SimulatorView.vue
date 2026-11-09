@@ -139,13 +139,13 @@ onUnmounted(() => {
       <div>
         <p class="eyebrow">PLATFORM EVENT TESTER</p>
         <h1>{{ currentPlatformName }} 互动模拟器</h1>
-        <p class="subtitle">生成本地模拟事件，验证 My-LiveHub 的事件接收与后续处理。无需登录或连接真实直播间。</p>
+        <p class="subtitle">生成本地模拟事件，验证 My-LiveHub 的事件接收与后续处理。模拟操作不会触发真实平台行为；资源目录需先从平台获取。</p>
       </div>
       <el-tag type="warning" effect="plain">仅本地模拟</el-tag>
     </header>
 
     <el-alert
-      title="模拟事件不会发送到 B 站，也不会执行真实平台操作；所有事件都会带有“模拟”标记。"
+      title="模拟事件不会发送到真实平台，也不会执行真实平台操作；所有事件都会带有“模拟”标记。"
       type="info"
       :closable="false"
       show-icon
