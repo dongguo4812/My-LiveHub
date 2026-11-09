@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
 	"github.com/dongguo4812/My-LiveHub/app/internal/core"
@@ -12,6 +13,7 @@ import (
 	eventstream "github.com/dongguo4812/My-LiveHub/app/internal/events"
 	"github.com/dongguo4812/My-LiveHub/app/internal/platform"
 	"github.com/dongguo4812/My-LiveHub/app/internal/platform/bilibili"
+	"github.com/dongguo4812/My-LiveHub/app/internal/media/emoticoncache"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
@@ -94,11 +96,21 @@ func main() {
 	}
 
 	platformService := desktop.NewPlatformService(platformManager, bilibiliEvents)
-	danmakuDisplayService := desktop.NewDanmakuDisplayService(configManager, danmakuDisplayConfig, danmakuWindowConfig, bilibiliEvents)
+	cacheDir := ""
+	if environment == config.EnvironmentDevelopment {
+		cacheDir = filepath.Join(os.Getenv("PWD"), "cache")
+		if workingDir, getwdErr := os.Getwd(); getwdErr == nil { cacheDir = filepath.Join(workingDir, "cache") }
+	} else if userConfigDir, configDirErr := os.UserConfigDir(); configDirErr == nil {
+		cacheDir = filepath.Join(userConfigDir, "My-LiveHub", "cache")
+	}
+	assetHandler := application.AssetFileServerFS(assets)
+	imageCache, cacheErr := emoticoncache.New(cacheDir, assetHandler)
+	if cacheErr != nil { log.Printf("initialize local emoticon cache: %v", cacheErr) } else { assetHandler = imageCache }
+	danmakuDisplayService := desktop.NewDanmakuDisplayService(configManager, danmakuDisplayConfig, danmakuWindowConfig, bilibiliEvents, imageCache)
 	app := application.New(application.Options{
 		Name:        "My-LiveHub",
 		Description: "多平台综合直播互动辅助平台",
-		Assets:      application.AssetOptions{Handler: application.AssetFileServerFS(assets)},
+		Assets:      application.AssetOptions{Handler: assetHandler},
 		Services: []application.Service{
 			application.NewService(desktop.NewCoreService(coreApp)),
 			application.NewService(platformService),
