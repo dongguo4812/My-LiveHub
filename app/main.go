@@ -92,7 +92,7 @@ func main() {
 			application.NewService(desktop.NewAppearanceService(configManager, appConfig)),
 		},
 	})
-	platformService.SetApplication(app, appConfig.Appearance.Theme == "light")
+	desktop.AttachApplication(platformService, app, appConfig.Appearance.Theme == "light")
 
 	background := application.NewRGBA(18, 20, 27, 255)
 	if appConfig.Appearance.Theme == "light" {
