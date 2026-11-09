@@ -62,15 +62,6 @@ jobs:
             go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
           }
 
-      - name: Resolve Go dependencies
-        shell: pwsh
-        run: |
-          go mod tidy
-          Write-Output "GENERATED_GO_MOD_BEGIN"
-          Get-Content go.mod
-          Write-Output "GENERATED_GO_SUM_BEGIN"
-          Get-Content go.sum
-
       - name: Generate frontend bindings
         shell: pwsh
         run: wails3 generate bindings -ts
@@ -106,6 +97,15 @@ jobs:
           go-version: '1.27.x'
           cache: true
           cache-dependency-path: app/go.sum
+
+      - name: Resolve Go dependencies
+        shell: pwsh
+        run: |
+          go mod tidy
+          Write-Output "GENERATED_GO_MOD_BEGIN"
+          Get-Content go.mod
+          Write-Output "GENERATED_GO_SUM_BEGIN"
+          Get-Content go.sum
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
