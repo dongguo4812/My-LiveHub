@@ -98,7 +98,7 @@ func main() {
 		log.Fatalf("register platform connection module: %v", err)
 	}
 
-	platformService := desktop.NewPlatformService(platformManager, bilibiliEvents)
+	platformService := desktop.NewPlatformService(platformManager, bilibiliEvents, mediaCatalog)
 	cacheDir := ""
 	if environment == config.EnvironmentDevelopment {
 		if workingDir, getwdErr := os.Getwd(); getwdErr == nil { cacheDir = filepath.Join(workingDir, "cache") }
