@@ -164,6 +164,31 @@ func (m *AuthManager) PollLogin(ctx context.Context, sessionID string) (LoginSta
 }
 
 
+func (m *AuthManager) LoadCredentials(ctx context.Context) (Credentials, error) {
+	data, err := m.store.Load()
+	if errors.Is(err, ErrCredentialNotFound) {
+		return Credentials{}, errors.New("请先登录 B 站账号")
+	}
+	if err != nil {
+		return Credentials{}, fmt.Errorf("读取 B 站安全凭据失败：%w", err)
+	}
+	var credentials Credentials
+	if err := json.Unmarshal(data, &credentials); err != nil || strings.TrimSpace(credentials.Cookie) == "" {
+		return Credentials{}, errors.New("B 站登录凭据无效，请重新登录")
+	}
+	account, err := m.fetchAccount(ctx, credentials.Cookie)
+	if err != nil {
+		var authErr *authenticationError
+		if errors.As(err, &authErr) {
+			_ = m.store.Delete()
+			return Credentials{}, errors.New("B 站登录已失效，请重新登录")
+		}
+		return Credentials{}, fmt.Errorf("验证 B 站登录状态失败：%w", err)
+	}
+	credentials.UID = account.UID
+	return credentials, nil
+}
+
 func (m *AuthManager) LoginWithCookie(ctx context.Context, rawCookie string) (*Account, error) {
 	cookie, err := normalizeCookie(rawCookie)
 	if err != nil { return nil, err }

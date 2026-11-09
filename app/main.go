@@ -26,9 +26,13 @@ func main() {
  coreApp,err:=core.New(configManager,appConfig);if err!=nil{log.Fatalf("initialize core application: %v",err)}
  credentialStore,err:=bilibili.NewDPAPICredentialStore();if err!=nil{log.Fatalf("initialize Bilibili credential store: %v",err)}
  bilibiliAuth,err:=bilibili.NewAuthManager(credentialStore,nil);if err!=nil{log.Fatalf("initialize Bilibili authentication: %v",err)}
- platformManager:=platform.NewManager();if err:=coreApp.Modules().Register("platform-connections",platformManager);err!=nil{log.Fatalf("register platform connection module: %v",err)}
+ bilibiliConfig,err:=config.LoadTyped[config.BilibiliConfig](configManager,"bilibili.json",func(value config.BilibiliConfig)error{return value.Validate()});if err!=nil{log.Fatalf("load Bilibili configuration: %v",err)}
+ bilibiliEvents:=bilibili.NewEventBuffer()
+ bilibiliAdapter,err:=bilibili.NewAdapter(bilibiliAuth,bilibiliConfig.RoomID,bilibiliEvents);if err!=nil{log.Fatalf("initialize Bilibili adapter: %v",err)}
+ platformManager:=platform.NewManager();if err:=platformManager.Register(bilibiliAdapter);err!=nil{log.Fatalf("register Bilibili adapter: %v",err)}
+ if err:=coreApp.Modules().Register("platform-connections",platformManager);err!=nil{log.Fatalf("register platform connection module: %v",err)}
  app:=application.New(application.Options{Name:"My-LiveHub",Description:"多平台综合直播互动辅助平台",Assets:application.AssetOptions{Handler:application.AssetFileServerFS(assets)},Services:[]application.Service{
- application.NewService(desktop.NewCoreService(coreApp)),application.NewService(desktop.NewPlatformService(platformManager)),application.NewService(desktop.NewBilibiliAuthService(bilibiliAuth)),application.NewService(desktop.NewAppearanceService(configManager,appConfig)),
+ application.NewService(desktop.NewCoreService(coreApp)),application.NewService(desktop.NewPlatformService(platformManager,bilibiliEvents)),application.NewService(desktop.NewBilibiliAuthService(bilibiliAuth)),application.NewService(desktop.NewBilibiliSettingsService(configManager,bilibiliConfig,bilibiliAdapter)),application.NewService(desktop.NewAppearanceService(configManager,appConfig)),
  }})
  bg:=application.NewRGBA(18,20,27,255);if appConfig.Appearance.Theme=="light"{bg=application.NewRGBA(245,247,251,255)}
  app.Window.NewWithOptions(application.WebviewWindowOptions{Name:"main-window",Title:"My-LiveHub",Width:1440,Height:900,MinWidth:1100,MinHeight:680,BackgroundColour:bg,URL:"/"})
