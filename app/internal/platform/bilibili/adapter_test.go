@@ -139,7 +139,7 @@ func TestAdapterReceivesGiftWithResolvedImage(t *testing.T) {
 	got := a.events.Snapshot()
 	if len(got) != 1 { t.Fatalf("got %d events, want 1: %+v", len(got), got) }
 	event := got[0]
-	if event.Type != "gift" || event.GiftID != 30607 || event.GiftName != "小心心" || event.GiftCount != 2 {
+	if event.Type != "gift" || event.GiftID != 30607 || event.GiftResourceID != "30607" || event.GiftName != "小心心" || event.GiftCount != 2 {
 		t.Fatalf("unexpected gift event fields: %+v", event)
 	}
 	deadline:=time.Now().Add(time.Second)
