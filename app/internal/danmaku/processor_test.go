@@ -121,3 +121,69 @@ func TestProcessorExpiresEventsAndCanDisableFilters(t *testing.T) {
 		t.Fatalf("unexpected visible events: %+v", got)
 	}
 }
+
+
+func TestProcessorMovesMergedGiftsToLatestPositionAndKeepsIndexes(t *testing.T) {
+	settings := config.DefaultDanmakuDisplayConfig()
+	settings.DisplayDurationSeconds = 60
+	settings.GiftMergeSeconds = 5
+
+	giftA1 := event("gift", "bilibili", "live", 7, 100000)
+	giftA1.GiftName, giftA1.GiftCount = "小心心", 1
+	giftB1 := event("gift", "bilibili", "live", 7, 101000)
+	giftB1.GiftName, giftB1.GiftCount = "辣条", 1
+	giftA2 := event("gift", "bilibili", "live", 7, 103000)
+	giftA2.GiftName, giftA2.GiftCount = "小心心", 1
+	giftB2 := event("gift", "bilibili", "live", 7, 104000)
+	giftB2.GiftName, giftB2.GiftCount = "辣条", 1
+
+	got := NewProcessor().Process([]events.Event{giftA1, giftB1, giftA2, giftB2}, settings, time.UnixMilli(110000))
+	if len(got) != 2 {
+		t.Fatalf("merged event count=%d want=2: %+v", len(got), got)
+	}
+	if got[0].Event.GiftName != "小心心" || got[0].Event.GiftCount != 2 || got[0].Event.Timestamp != 103000 {
+		t.Fatalf("first merged gift is out of order or incorrect: %+v", got[0])
+	}
+	if got[1].Event.GiftName != "辣条" || got[1].Event.GiftCount != 2 || got[1].Event.Timestamp != 104000 {
+		t.Fatalf("second merged gift is out of order or incorrect: %+v", got[1])
+	}
+}
+
+func TestProcessorDoesNotMergeDifferentGiftUsers(t *testing.T) {
+	settings := config.DefaultDanmakuDisplayConfig()
+	settings.DisplayDurationSeconds = 60
+	settings.GiftMergeSeconds = 5
+
+	first := event("gift", "bilibili", "live", 7, 100000)
+	first.GiftName, first.GiftCount = "小心心", 1
+	differentGift := event("gift", "bilibili", "live", 7, 101000)
+	differentGift.GiftName, differentGift.GiftCount = "辣条", 1
+	differentUser := event("gift", "bilibili", "live", 8, 102000)
+	differentUser.GiftName, differentUser.GiftCount = "小心心", 1
+
+	got := NewProcessor().Process([]events.Event{first, differentGift, differentUser}, settings, time.UnixMilli(110000))
+	if len(got) != 3 {
+		t.Fatalf("different gifts or users were incorrectly merged: %+v", got)
+	}
+}
+
+func TestProcessorDuplicateFilterKeepsDifferentContent(t *testing.T) {
+	settings := config.DefaultDanmakuDisplayConfig()
+	settings.DisplayDurationSeconds = 60
+	settings.DuplicateDanmakuFilterSeconds = 3
+
+	first := event("danmaku", "bilibili", "live", 7, 100000)
+	first.Content = "你好"
+	differentContent := event("danmaku", "bilibili", "live", 7, 101000)
+	differentContent.Content = "晚上好"
+	repeated := event("danmaku", "bilibili", "live", 7, 102000)
+	repeated.Content = "你好"
+
+	got := NewProcessor().Process([]events.Event{first, differentContent, repeated}, settings, time.UnixMilli(110000))
+	if len(got) != 2 {
+		t.Fatalf("duplicate filter should keep distinct content and suppress repeated content: %+v", got)
+	}
+	if got[0].Event.Content != "你好" || got[1].Event.Content != "晚上好" {
+		t.Fatalf("unexpected visible messages: %+v", got)
+	}
+}

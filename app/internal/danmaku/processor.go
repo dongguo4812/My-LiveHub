@@ -60,6 +60,16 @@ func (p *Processor) Process(input []events.Event, settings config.DanmakuDisplay
 				delta := event.Timestamp - previous.Event.Timestamp
 				if delta >= 0 && delta <= int64(settings.GiftMergeSeconds)*1000 {
 					mergeGift(previous, event, settings)
+					// A merged gift represents the latest activity, so move it to
+					// the end of the display list to preserve chronological order.
+					result = append(result[:index], result[index+1:]...)
+					result = append(result, *previous)
+					for giftKey, giftIndex := range lastGiftIndex {
+						if giftIndex > index {
+							lastGiftIndex[giftKey] = giftIndex - 1
+						}
+					}
+					lastGiftIndex[key] = len(result) - 1
 					continue
 				}
 			}
