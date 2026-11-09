@@ -17,11 +17,10 @@ const form = reactive({
 watch(danmakuDisplaySettings, value => { if (value) Object.assign(form, value) }, { immediate: true })
 onMounted(() => { void loadDanmakuDisplaySettings(); void loadDanmakuWindowState() })
 
-async function showOverlay() {
-  if (await openDanmakuWindow()) ElMessage.success('弹幕展示窗口已打开')
-}
-async function hideOverlay() {
-  if (await closeDanmakuWindow()) ElMessage.success('弹幕展示窗口已关闭')
+async function toggleOverlay() {
+  const wasOpen = danmakuWindowState.value.is_open
+  const succeeded = wasOpen ? await closeDanmakuWindow() : await openDanmakuWindow()
+  if (succeeded) ElMessage.success(wasOpen ? '弹幕展示窗口已关闭' : '弹幕展示窗口已打开')
 }
 async function togglePinned(value: string | number | boolean) {
   const pinned = Boolean(value)
@@ -48,13 +47,12 @@ async function save() {
       <template #header><strong>独立展示窗口</strong></template>
       <div class="window-controls">
         <div class="window-description">
-          <strong>{{ danmakuWindowState.is_open ? '展示窗口已打开' : '展示窗口未打开' }}</strong>
+          <strong>状态：{{ danmakuWindowState.is_open ? '已打开' : '未打开' }}</strong>
           <p>{{ danmakuWindowState.is_pinned ? '窗口已置顶，鼠标操作会穿透到下层游戏。' : '取消置顶时可直接拖动窗口，并通过右下角调整大小。' }}</p>
         </div>
         <div class="window-actions">
-          <el-button type="primary" @click="showOverlay">打开展示窗口</el-button>
+          <el-button type="primary" @click="toggleOverlay">{{ danmakuWindowState.is_open ? '关闭展示窗口' : '打开展示窗口' }}</el-button>
           <el-button @click="openSimulator">事件模拟</el-button>
-          <el-button :disabled="!danmakuWindowState.is_open" @click="hideOverlay">关闭窗口</el-button>
           <el-switch
             :model-value="danmakuWindowState.is_pinned"
             :disabled="!danmakuWindowState.is_open"
