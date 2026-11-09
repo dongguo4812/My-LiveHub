@@ -14,6 +14,7 @@ const BufferLimit = 200
 type EmoticonToken struct {
 	Text   string `json:"text"`
 	URL    string `json:"url"`
+	CacheURL string `json:"cache_url,omitempty"`
 	Width  int    `json:"width,omitempty"`
 	Height int    `json:"height,omitempty"`
 }

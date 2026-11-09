@@ -98,7 +98,6 @@ func main() {
 	platformService := desktop.NewPlatformService(platformManager, bilibiliEvents)
 	cacheDir := ""
 	if environment == config.EnvironmentDevelopment {
-		cacheDir = filepath.Join(os.Getenv("PWD"), "cache")
 		if workingDir, getwdErr := os.Getwd(); getwdErr == nil { cacheDir = filepath.Join(workingDir, "cache") }
 	} else if userConfigDir, configDirErr := os.UserConfigDir(); configDirErr == nil {
 		cacheDir = filepath.Join(userConfigDir, "My-LiveHub", "cache")

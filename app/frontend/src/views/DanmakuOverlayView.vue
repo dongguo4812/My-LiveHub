@@ -26,7 +26,7 @@ const visibleItems = computed(() => items.value.slice(-40))
 
 type ContentPart =
   | { kind: 'text'; text: string }
-  | { kind: 'image'; text: string; url: string; width: number; height: number }
+  | { kind: 'image'; text: string; url: string; cacheURL?: string; width: number; height: number }
 
 function contentParts(event: DanmakuDisplayEvent['event']): ContentPart[] {
   const mappings = (event.emoticons ?? []).filter(item => item.text && item.url)
@@ -40,7 +40,7 @@ function contentParts(event: DanmakuDisplayEvent['event']): ContentPart[] {
     const index = match.index ?? 0
     if (index > cursor) parts.push({ kind: 'text', text: event.content.slice(cursor, index) })
     const token = ordered.find(item => item.text === match[0])
-    if (token) parts.push({ kind: 'image', text: token.text, url: token.url, width: token.width ?? 0, height: token.height ?? 0 })
+    if (token) parts.push({ kind: 'image', text: token.text, url: token.url, cacheURL: token.cache_url, width: token.width ?? 0, height: token.height ?? 0 })
     cursor = index + match[0].length
   }
   if (cursor < event.content.length) parts.push({ kind: 'text', text: event.content.slice(cursor) })
@@ -66,8 +66,12 @@ watch(danmakuDisplaySettings, value => {
   if (styleElement) styleElement.textContent = value?.custom_css ?? ''
 }, { deep: true })
 
+function imageSource(part: Extract<ContentPart, { kind: 'image' }>) {
+  return part.cacheURL && !failedEmoticonURLs.value.has(part.cacheURL) ? part.cacheURL : part.url
+}
+
 function markEmoticonFailed(url: string) {
-  failedEmoticonURLs.value.add(url)
+  failedEmoticonURLs.value = new Set(failedEmoticonURLs.value).add(url)
 }
 
 function formatTime(timestamp: number) {
@@ -151,12 +155,12 @@ onUnmounted(() => {
               <img
                 v-if="part.kind === 'image' && !failedEmoticonURLs.has(part.url)"
                 class="danmaku-emoticon"
-                :src="part.url"
+                :src="imageSource(part)"
                 :alt="part.text"
                 :title="part.text"
                 referrerpolicy="no-referrer"
                 :style="{ width: part.width > 0 ? `${part.width}px` : '1.4em', height: part.height > 0 ? `${part.height}px` : '1.4em' }"
-                @error="markEmoticonFailed(part.url)"
+                @error="markEmoticonFailed(imageSource(part))"
               />
               <span v-else>{{ part.text }}</span>
             </template>

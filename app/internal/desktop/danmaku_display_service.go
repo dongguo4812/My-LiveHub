@@ -59,7 +59,7 @@ func (s *DanmakuDisplayService) GetDisplayEvents() []danmaku.DisplayEvent {
 		for j := range result[i].Event.Emoticons {
 			originalURL := result[i].Event.Emoticons[j].URL
 			if localURL := s.imageCache.CachedURL(originalURL); localURL != "" {
-				result[i].Event.Emoticons[j].URL = localURL
+				result[i].Event.Emoticons[j].CacheURL = localURL
 			} else {
 				s.imageCache.Prefetch(originalURL)
 			}
