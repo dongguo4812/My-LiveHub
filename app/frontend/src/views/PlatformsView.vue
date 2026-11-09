@@ -72,7 +72,6 @@ onUnmounted(() => {
         <div class="cookie-login"><el-input v-model="browserCookie" type="password" show-password autocomplete="off" placeholder="粘贴浏览器中 bilibili.com 的 Cookie 请求头（包含 SESSDATA）" /><div class="cookie-actions"><span>仅提取登录验证所需字段；验证成功后使用 Windows DPAPI 加密保存。</span><el-button type="primary" :loading="bilibiliCookieBusy" :disabled="!browserCookie.trim()" @click="submitBrowserCookie">使用 Cookie 登录</el-button></div></div>
       </div>
       <el-divider />
-      <div class="card-heading room-heading"><span>B 站直播间</span><el-tag size="small" effect="plain">{{ bilibiliSettings.room_id ? '房间号：' + bilibiliSettings.room_id : '尚未设置房间号' }}</el-tag></div>
       <div class="room-settings"><div><strong>直播间房间号</strong><p>填写直播间 URL 中的房间号，设置保存在本地配置。</p></div><div class="room-controls"><el-input-number v-model="roomID" :min="1" :max="2147483647" :disabled="bilibiliConnected" controls-position="right" /><el-button type="primary" :loading="bilibiliSettingsBusy" :disabled="bilibiliConnected || roomID === bilibiliSettings.room_id" @click="saveRoomID">保存房间号</el-button></div></div>
       <p v-if="bilibiliConnected" class="hint">断开直播间连接后才能修改房间号或退出账号。</p>
     </el-card>
