@@ -357,9 +357,6 @@ func (a *Adapter) Connect(ctx context.Context) error {
 					break
 				}
 			}
-			if giftImageURL != "" {
-				a.mediaCatalog.Register(resource.Resource{PlatformID: "bilibili", SourceID: fmt.Sprint(roomID), Type: resource.TypeGift, ID: fmt.Sprint(g.GiftId), Name: g.GiftName, ImageURL: giftImageURL})
-			}
 		}
 		a.events.Add(eventstream.Event{
 			PlatformID: "bilibili", Source: "live", Type: "gift", RoomID: roomID,
