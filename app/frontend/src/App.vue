@@ -1,15 +1,28 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   HomeFilled, DataLine, Connection, ChatDotRound, User, SetUp,
   Grid, Monitor, Operation, Setting, Document, Fold, Expand,
 } from '@element-plus/icons-vue'
+import { coreStatus, refreshCoreStatus } from './services/coreStatus'
 
 const route = useRoute()
 const router = useRouter()
 const collapsed = ref(false)
 const activeTitle = computed(() => String(route.meta.title ?? '总览'))
+const coreStatusText = computed(() => {
+  const labels: Record<string, string> = {
+    created: '核心待启动',
+    starting: '核心启动中',
+    running: '核心运行中',
+    stopping: '核心停止中',
+    stopped: '核心已停止',
+    failed: '核心启动失败',
+  }
+  return coreStatus.value ? labels[coreStatus.value.status] ?? '核心状态未知' : '正在获取核心状态'
+})
+const coreStatusClass = computed(() => coreStatus.value?.status ?? 'unknown')
 
 const groups = [
   { title: '工作台', items: [{ path: '/', title: '总览', icon: HomeFilled }, { path: '/monitor', title: '实时监控', icon: DataLine }] },
@@ -21,7 +34,16 @@ const groups = [
   { title: '系统管理', items: [{ path: '/settings', title: '系统设置', icon: Setting }, { path: '/logs', title: '日志诊断', icon: Document }] },
 ]
 
+let refreshTimer: ReturnType<typeof setInterval> | undefined
 function navigate(path: string) { router.push(path) }
+
+onMounted(() => {
+  void refreshCoreStatus()
+  refreshTimer = setInterval(() => void refreshCoreStatus(), 3000)
+})
+onUnmounted(() => {
+  if (refreshTimer) clearInterval(refreshTimer)
+})
 </script>
 
 <template>
@@ -60,7 +82,7 @@ function navigate(path: string) { router.push(path) }
       <el-header class="topbar">
         <div class="breadcrumb"><span>My-LiveHub</span><b>/</b><strong>{{ activeTitle }}</strong></div>
         <div class="system-status">
-          <span class="status-dot"></span><span>核心待启动</span>
+          <span class="status-dot" :class="coreStatusClass"></span><span>{{ coreStatusText }}</span>
           <i></i><span class="status-muted">OBS 未连接</span>
         </div>
       </el-header>
@@ -69,7 +91,7 @@ function navigate(path: string) { router.push(path) }
       </el-main>
       <footer class="footer">
         <span>My-LiveHub · 本地桌面版</span>
-        <span>架构初始化阶段</span>
+        <span>核心服务运行状态实时同步</span>
       </footer>
     </el-container>
   </el-container>

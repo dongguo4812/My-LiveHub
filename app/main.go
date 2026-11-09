@@ -1,15 +1,14 @@
 package main
 
 import (
-	"context"
 	"embed"
 	"io/fs"
 	"log"
 	"os"
-	"time"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
 	"github.com/dongguo4812/My-LiveHub/app/internal/core"
+	"github.com/dongguo4812/My-LiveHub/app/internal/desktop"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -51,17 +50,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("initialize core application: %v", err)
 	}
-	if err := coreApp.Start(context.Background()); err != nil {
-		log.Fatalf("start core application: %v", err)
-	}
-
-	shutdownCore := func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := coreApp.Shutdown(ctx); err != nil {
-			log.Printf("shutdown core application: %v", err)
-		}
-	}
 
 	app := application.New(application.Options{
 		Name:        "My-LiveHub",
@@ -69,7 +57,9 @@ func main() {
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
 		},
-		OnShutdown: shutdownCore,
+		Services: []application.Service{
+			application.NewService(desktop.NewCoreService(coreApp)),
+		},
 	})
 
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
@@ -83,9 +73,7 @@ func main() {
 		URL:              "/",
 	})
 
-	runErr := app.Run()
-	shutdownCore()
-	if runErr != nil {
-		log.Fatal(runErr)
+	if err := app.Run(); err != nil {
+		log.Fatal(err)
 	}
 }

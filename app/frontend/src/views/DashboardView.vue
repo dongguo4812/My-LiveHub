@@ -1,13 +1,29 @@
 <script setup lang="ts">
-import { ElIcon } from 'element-plus'
+import { computed, onMounted } from 'vue'
 import { Connection, Monitor, Operation, ChatDotRound } from '@element-plus/icons-vue'
+import { coreModules, coreStatus, coreStatusError, refreshCoreStatus } from '../services/coreStatus'
 
-const cards = [
-  { label: '直播平台', value: '尚未接入', note: '等待平台适配器启用', icon: Connection },
-  { label: '统一事件流', value: '等待事件', note: '事件总线尚未启动', icon: ChatDotRound },
+const coreLabel = computed(() => {
+  const labels: Record<string, string> = {
+    created: '待启动',
+    starting: '启动中',
+    running: '运行中',
+    stopping: '停止中',
+    stopped: '已停止',
+    failed: '启动失败',
+  }
+  return coreStatus.value ? labels[coreStatus.value.status] ?? '未知' : '获取中'
+})
+const runningModules = computed(() => coreModules.value.filter(item => item.status === 'running').length)
+const failedModules = computed(() => coreModules.value.filter(item => item.status === 'failed').length)
+const cards = computed(() => [
+  { label: '核心服务', value: coreLabel.value, note: coreStatus.value ? `配置版本 v${coreStatus.value.config_version}` : '等待核心状态响应', icon: Operation },
+  { label: '功能模块', value: `${runningModules.value} / ${coreModules.value.length}`, note: failedModules.value ? `${failedModules.value} 个模块启动失败` : '运行中 / 已注册', icon: Connection },
+  { label: '统一事件流', value: '等待事件', note: '事件总线尚未接入', icon: ChatDotRound },
   { label: 'OBS 状态', value: '未连接', note: '由 Go 核心统一管理', icon: Monitor },
-  { label: '功能模块', value: '未启用', note: '按需启动模块资源', icon: Operation },
-]
+])
+
+onMounted(() => void refreshCoreStatus())
 </script>
 
 <template>
@@ -18,8 +34,12 @@ const cards = [
         <h2>欢迎使用 My-LiveHub</h2>
         <p class="muted">多平台直播互动控制中心。连接平台并启用模块后，运行状态将在这里汇总。</p>
       </div>
-      <el-tag effect="plain" type="info">核心骨架 · 初始化阶段</el-tag>
+      <el-tag effect="plain" :type="coreStatus?.status === 'running' ? 'success' : coreStatus?.status === 'failed' ? 'danger' : 'info'">
+        {{ coreLabel }}
+      </el-tag>
     </div>
+
+    <el-alert v-if="coreStatusError" :title="`核心状态读取失败：${coreStatusError}`" type="error" :closable="false" show-icon />
 
     <div class="stat-grid">
       <el-card v-for="card in cards" :key="card.label" class="stat-card" shadow="never">
@@ -35,11 +55,16 @@ const cards = [
     <el-card class="activity-card" shadow="never">
       <template #header>
         <div class="card-heading">
-          <span>系统活动</span>
-          <el-tag size="small" type="info">暂无实时数据</el-tag>
+          <span>模块运行状态</span>
+          <el-tag size="small" type="info">{{ coreModules.length }} 个模块</el-tag>
         </div>
       </template>
-      <el-empty description="核心事件总线接入后，这里将显示平台事件和系统活动" :image-size="92" />
+      <el-empty v-if="coreModules.length === 0" description="当前尚未注册业务模块" :image-size="92" />
+      <el-table v-else :data="coreModules" size="small">
+        <el-table-column prop="name" label="模块名称" min-width="160" />
+        <el-table-column prop="status" label="运行状态" width="140" />
+        <el-table-column prop="error" label="错误信息" min-width="220" show-overflow-tooltip />
+      </el-table>
     </el-card>
   </section>
 </template>
