@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/platform"
+	"github.com/dongguo4812/My-LiveHub/app/internal/media/resource"
 	eventstream "github.com/dongguo4812/My-LiveHub/app/internal/events"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -14,12 +16,32 @@ import (
 type PlatformService struct {
 	manager    *platform.Manager
 	events     *eventstream.Buffer
+	mediaCatalog *resource.Catalog
 	app        *application.App
 	lightTheme bool
 }
 
-func NewPlatformService(manager *platform.Manager, events *eventstream.Buffer) *PlatformService {
-	return &PlatformService{manager: manager, events: events}
+func NewPlatformService(manager *platform.Manager, events *eventstream.Buffer, catalogs ...*resource.Catalog) *PlatformService {
+	service := &PlatformService{manager: manager, events: events}
+	if len(catalogs) > 0 { service.mediaCatalog = catalogs[0] }
+	return service
+}
+
+// GetMediaResources returns a bounded, platform-isolated list for the simulator.
+func (s *PlatformService) GetMediaResources(platformID, resourceType, keyword string, limit int) []resource.Resource {
+	if s == nil || s.mediaCatalog == nil || strings.TrimSpace(platformID) == "" { return []resource.Resource{} }
+	kind := resource.Type(resourceType)
+	if kind != resource.TypeGift && kind != resource.TypeEmoticon { return []resource.Resource{} }
+	if limit <= 0 || limit > 200 { limit = 100 }
+	keyword = strings.ToLower(strings.TrimSpace(keyword))
+	items := s.mediaCatalog.List(strings.TrimSpace(platformID), "", kind)
+	result := make([]resource.Resource, 0, min(limit, len(items)))
+	for _, item := range items {
+		if keyword != "" && !strings.Contains(strings.ToLower(item.Name), keyword) && !strings.Contains(strings.ToLower(item.ID), keyword) { continue }
+		result = append(result, item)
+		if len(result) >= limit { break }
+	}
+	return result
 }
 
 // SetApplication is called after the Wails application has been created.
@@ -114,11 +136,16 @@ func (s *PlatformService) SimulatePlatformEvent(
 	if s == nil || s.events == nil {
 		return eventstream.Event{}, errors.New("platform event service is unavailable")
 	}
+	return s.SimulatePlatformEventWithResource(platformID, eventType, userID, userName, content, giftName, giftCount, unitPrice, amount, duration, guardLevel, months, 0, "")
+}
+
+// SimulatePlatformEventWithResource carries the selected catalog identity and image URL into the shared event pipeline.
+func (s *PlatformService) SimulatePlatformEventWithResource(platformID, eventType string, userID int, userName, content, giftName string, giftCount int, unitPrice, amount float64, duration, guardLevel, months, giftID int, giftImageURL string) (eventstream.Event, error) {
+	if s == nil || s.events == nil { return eventstream.Event{}, errors.New("platform event service is unavailable") }
 	return s.events.AddSimulationEvent(platformID, eventstream.SimulationEventInput{
-		Type: eventType, UserID: userID, UserName: userName,
-		Content: content, GiftName: giftName, GiftCount: giftCount,
-		UnitPrice: unitPrice, Amount: amount, Duration: duration,
-		GuardLevel: guardLevel, Months: months,
+		Type: eventType, UserID: userID, UserName: userName, Content: content, GiftName: giftName,
+		GiftCount: giftCount, UnitPrice: unitPrice, Amount: amount, Duration: duration,
+		GuardLevel: guardLevel, Months: months, GiftID: giftID, GiftImageURL: giftImageURL,
 	})
 }
 
