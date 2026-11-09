@@ -23,6 +23,23 @@ func TestProcessorAppliesMessageSwitches(t *testing.T) {
 	}
 }
 
+func TestProcessorRespectsWelcomeDisplaySetting(t *testing.T) {
+	settings := config.DefaultDanmakuDisplayConfig()
+	welcome := event("welcome", "bilibili", "simulation", 7, 99000)
+
+	settings.ShowWelcome = false
+	got := NewProcessor().Process([]events.Event{welcome}, settings, time.UnixMilli(100000))
+	if len(got) != 0 {
+		t.Fatalf("welcome event should be hidden: %+v", got)
+	}
+
+	settings.ShowWelcome = true
+	got = NewProcessor().Process([]events.Event{welcome}, settings, time.UnixMilli(100000))
+	if len(got) != 1 || got[0].Event.Type != "welcome" {
+		t.Fatalf("welcome event should be visible: %+v", got)
+	}
+}
+
 func TestProcessorFiltersFreeGifts(t *testing.T) {
 	settings := config.DefaultDanmakuDisplayConfig()
 	settings.ShowFreeGifts = false
