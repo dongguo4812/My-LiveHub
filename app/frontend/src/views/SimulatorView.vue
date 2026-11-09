@@ -192,7 +192,7 @@ onUnmounted(() => {
                 <el-input v-model="resourceKeyword" placeholder="搜索礼物名称或 ID" clearable><template #append><el-button :loading="resourcesBusy" @click="loadMediaResources">刷新</el-button></template></el-input>
                 <el-select v-model="selectedGiftID" class="full-width" filterable @change="selectGift">
                   <el-option v-for="item in mediaResources" :key="item.resource_id" :label="item.name" :value="item.resource_id">
-                    <div class="gift-option"><img :src="item.image_url" :alt="item.name" /><span>{{ item.name }}</span><small>#{{ item.resource_id }}</small></div>
+                    <div class="gift-option"><img :src="item.image_url" :alt="item.name" loading="lazy" /><span>{{ item.name }}</span><small>#{{ item.resource_id }}</small></div>
                   </el-option>
                 </el-select>
                 <div v-if="selectedGift" class="selected-gift"><img :src="selectedGift.image_url" :alt="selectedGift.name" /><span>{{ selectedGift.name }}（ID：{{ selectedGift.resource_id }}）</span></div>
