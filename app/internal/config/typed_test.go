@@ -94,6 +94,95 @@ func TestLoadTypedRejectsMalformedConfiguration(t *testing.T) {
 	}
 }
 
+func TestSaveTypedWritesOnlyChangedFields(t *testing.T) {
+	localDir := t.TempDir()
+	manager, err := NewManager(fstest.MapFS{
+		"app.json": {Data: []byte(`{"config_version":1,"default_only":"from-default","local_only":"default"}`)},
+	}, localDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	value := testTypedConfig{
+		ConfigVersion: 1,
+		DefaultOnly:   "from-default",
+		LocalOnly:     "custom",
+	}
+	if err := SaveTyped(manager, "app.json", value, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(localDir, "app.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != "{\n  \"local_only\": \"custom\"\n}\n" {
+		t.Fatalf("local config should contain only changed fields, got: %s", raw)
+	}
+
+	effective, err := LoadTyped[testTypedConfig](manager, "app.json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effective != value {
+		t.Fatalf("effective config = %#v, want %#v", effective, value)
+	}
+}
+
+type nestedDisplayConfig struct {
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}
+
+type nestedTypedConfig struct {
+	ConfigVersion int                  `json:"config_version"`
+	Display       nestedDisplayConfig `json:"display"`
+}
+
+func TestSaveTypedWritesOnlyChangedNestedFields(t *testing.T) {
+	localDir := t.TempDir()
+	manager, err := NewManager(fstest.MapFS{
+		"app.json": {Data: []byte(`{"config_version":1,"display":{"width":100,"height":200}}`)},
+	}, localDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	value := nestedTypedConfig{ConfigVersion: 1, Display: nestedDisplayConfig{Width: 120, Height: 200}}
+	if err := SaveTyped(manager, "app.json", value, nil); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(localDir, "app.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != "{\n  \"display\": {\n    \"width\": 120\n  }\n}\n" {
+		t.Fatalf("nested local config should contain only changed fields, got: %s", raw)
+	}
+}
+
+func TestSaveTypedResetsLocalFileWhenValuesMatchDefaults(t *testing.T) {
+	localDir := t.TempDir()
+	manager, err := NewManager(fstest.MapFS{
+		"app.json": {Data: []byte(`{"config_version":1,"default_only":"from-default","local_only":"default"}`)},
+	}, localDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localPath := filepath.Join(localDir, "app.json")
+	if err := os.WriteFile(localPath, []byte(`{"local_only":"custom"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	value := testTypedConfig{ConfigVersion: 1, DefaultOnly: "from-default", LocalOnly: "default"}
+	if err := SaveTyped(manager, "app.json", value, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(localPath); !os.IsNotExist(err) {
+		t.Fatalf("local override should be removed when no values differ, stat error = %v", err)
+	}
+}
+
 func TestSaveTypedValidatesBeforeWriting(t *testing.T) {
 	localDir := t.TempDir()
 	manager, err := NewManager(fstest.MapFS{
