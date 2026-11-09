@@ -32,7 +32,7 @@ func (s *PlatformService) GetMediaResources(platformID, resourceType, keyword st
 	if s == nil || s.mediaCatalog == nil || strings.TrimSpace(platformID) == "" { return []resource.Resource{} }
 	kind := resource.Type(resourceType)
 	if kind != resource.TypeGift && kind != resource.TypeEmoticon { return []resource.Resource{} }
-	if limit <= 0 || limit > 200 { limit = 100 }
+	if limit <= 0 { limit = 1000 } else if limit > 1000 { limit = 1000 }
 	keyword = strings.ToLower(strings.TrimSpace(keyword))
 	items := s.mediaCatalog.List(strings.TrimSpace(platformID), "", kind)
 	result := make([]resource.Resource, 0, min(limit, len(items)))
