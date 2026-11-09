@@ -84,10 +84,10 @@ func TestBufferUpdatesRecentGiftImageAfterCatalogRefresh(t *testing.T) {
 func TestSimulationGiftPreservesCatalogResource(t *testing.T) {
 	event, err := NewBuffer().AddSimulationEvent("bilibili", SimulationEventInput{
 		Type: "gift", UserID: 123, GiftName: "小心心", GiftID: 30607,
-		GiftImageURL: "https://i0.hdslb.com/bfs/live/gift.png", GiftCount: 2, UnitPrice: 0.1,
+		GiftResourceID: "30607", GiftImageURL: "https://i0.hdslb.com/bfs/live/gift.png", GiftCount: 2, UnitPrice: 0.1,
 	})
 	if err != nil { t.Fatal(err) }
-	if event.GiftID != 30607 || event.GiftImageURL != "https://i0.hdslb.com/bfs/live/gift.png" {
+	if event.GiftID != 30607 || event.GiftResourceID != "30607" || event.GiftImageURL != "https://i0.hdslb.com/bfs/live/gift.png" {
 		t.Fatalf("simulation event lost catalog metadata: %+v", event)
 	}
 }
