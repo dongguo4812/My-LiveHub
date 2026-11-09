@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"net/url"
+	"strings"
 	"sort"
 	"sync"
 	"time"
@@ -44,6 +47,15 @@ func medalName(m *message.Medal) string { if m == nil { return "" }; return m.Na
 func medalLevel(m *message.Medal) int { if m == nil { return 0 }; return m.Level }
 func medalColor(m *message.Medal) uint32 { if m == nil { return 0 }; return uint32(m.Color) }
 
+// normalizeEmoticonURL accepts only absolute HTTP(S) URLs and upgrades insecure URLs.
+func normalizeEmoticonURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if strings.HasPrefix(raw, "//") { raw = "https:" + raw }
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") { return "" }
+	if parsed.Scheme == "http" { parsed.Scheme = "https" }
+	return parsed.String()
+}
 // extractDanmakuEmoticons reads Bilibili's emots map from the legacy DANMU_MSG
 // extra payload. The library separately exposes the single-emoticon protobuf form.
 func extractDanmakuEmoticons(d *message.Danmaku) []eventstream.EmoticonToken {
@@ -94,16 +106,20 @@ func extractDanmakuEmoticons(d *message.Danmaku) []eventstream.EmoticonToken {
 						Width  int    `json:"width"`
 						Height int    `json:"height"`
 					}
-					if json.Unmarshal(meta[13], &emoticon) == nil && emoticon.URL != "" {
-						found[d.Content] = eventstream.EmoticonToken{Text: d.Content, URL: emoticon.URL, Width: emoticon.Width, Height: emoticon.Height}
+					if json.Unmarshal(meta[13], &emoticon) == nil {
+						if normalizedURL := normalizeEmoticonURL(emoticon.URL); normalizedURL != "" {
+							found[d.Content] = eventstream.EmoticonToken{Text: d.Content, URL: normalizedURL, Width: emoticon.Width, Height: emoticon.Height}
+						}
 					}
 				}
 			}
 		}
 	}
 	// The protobuf parser also exposes standalone emoticons directly.
-	if d.Emoticon != nil && d.Emoticon.Url != "" && d.Content != "" {
-		found[d.Content] = eventstream.EmoticonToken{Text: d.Content, URL: d.Emoticon.Url, Width: d.Emoticon.Width, Height: d.Emoticon.Height}
+	if d.Emoticon != nil && d.Content != "" {
+		if normalizedURL := normalizeEmoticonURL(d.Emoticon.Url); normalizedURL != "" {
+			found[d.Content] = eventstream.EmoticonToken{Text: d.Content, URL: normalizedURL, Width: d.Emoticon.Width, Height: d.Emoticon.Height}
+		}
 	}
 	if len(found) == 0 {
 		return nil
@@ -111,6 +127,7 @@ func extractDanmakuEmoticons(d *message.Danmaku) []eventstream.EmoticonToken {
 	tokens := make([]eventstream.EmoticonToken, 0, len(found))
 	for _, emoticon := range found {
 		tokens = append(tokens, emoticon)
+		log.Printf("[Bilibili emoticon] token=%q url=%s", emoticon.Text, emoticon.URL)
 	}
 	sort.Slice(tokens, func(i, j int) bool {
 		if len(tokens[i].Text) == len(tokens[j].Text) {

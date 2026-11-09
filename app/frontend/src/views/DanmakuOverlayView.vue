@@ -11,6 +11,7 @@ import {
 } from '../services/danmakuDisplay'
 
 const items = ref<DanmakuDisplayEvent[]>([])
+const failedEmoticonURLs = ref(new Set<string>())
 const settings = computed(() => danmakuDisplaySettings.value)
 let refreshTimer: ReturnType<typeof setInterval> | undefined
 let styleElement: HTMLStyleElement | undefined
@@ -144,12 +145,13 @@ onUnmounted(() => {
           <div class="message-content" :style="{ fontSize: `${settings?.font_size ?? 24}px` }">
             <template v-for="(part, index) in contentParts(item.event)" :key="index">
               <img
-                v-if="part.kind === 'image'"
+                v-if="part.kind === 'image' && !failedEmoticonURLs.has(part.url)"
                 class="danmaku-emoticon"
                 :src="part.url"
                 :alt="part.text"
                 :title="part.text"
                 :style="{ width: part.width > 0 ? `${part.width}px` : '1.4em', height: part.height > 0 ? `${part.height}px` : '1.4em' }"
+                @error="failedEmoticonURLs.add(part.url)"
               />
               <span v-else>{{ part.text }}</span>
             </template>

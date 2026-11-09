@@ -166,3 +166,19 @@ func TestAdapterDisconnectCancelsPendingStartup(t *testing.T) {
 	}
 	select { case <-fake.Done(): case <-time.After(time.Second): t.Fatal("cancelled stream was not stopped") }
 }
+
+func TestNormalizeEmoticonURL(t *testing.T) {
+	cases := []struct { input, want string }{
+		{"//i0.hdslb.com/bfs/live/dog.png", "https://i0.hdslb.com/bfs/live/dog.png"},
+		{"http://i0.hdslb.com/bfs/live/dog.png", "https://i0.hdslb.com/bfs/live/dog.png"},
+		{"https://i0.hdslb.com/bfs/live/dog.png", "https://i0.hdslb.com/bfs/live/dog.png"},
+		{"javascript:alert(1)", ""},
+		{"not a url", ""},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			if got := normalizeEmoticonURL(tc.input); got != tc.want { t.Fatalf("normalizeEmoticonURL(%q) = %q, want %q", tc.input, got, tc.want) }
+		})
+	}
+}
