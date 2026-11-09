@@ -110,7 +110,7 @@ async function sendEvent() {
       Number(selectedGiftID.value) || 0,
       giftImageURL.value,
       selectedGiftID.value,
-      selectedEmoticonIDs.value.filter(id => mediaResources.value.some(item => item.resource_id === id && content.value.includes(item.name))),
+      selectedEmoticonIDs.value,
     )
     await refreshEvents()
     ElMessage.success(`已发送模拟${currentEventLabel.value}事件`)
