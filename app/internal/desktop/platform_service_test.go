@@ -45,3 +45,21 @@ func TestGetMediaResourcesFiltersPlatformTypeAndKeyword(t *testing.T) {
 		t.Fatalf("limit was not applied: %+v", got)
 	}
 }
+
+func TestSimulatePlatformEventResolvesSelectedEmoticonsFromCatalog(t *testing.T) {
+	catalog := resource.NewCatalog()
+	catalog.Register(resource.Resource{PlatformID: "bilibili", SourceID: "123", Type: resource.TypeEmoticon, ID: "[dog]", Name: "[dog]", ImageURL: "https://img.test/dog.png", Width: 24, Height: 24})
+	catalog.Register(resource.Resource{PlatformID: "douyin", SourceID: "456", Type: resource.TypeEmoticon, ID: "[dog]", Name: "[dog]", ImageURL: "https://img.test/douyin-dog.png"})
+	service := NewPlatformService(nil, eventstream.NewBuffer(), catalog)
+
+	event, err := service.SimulatePlatformEventWithMediaResources("bilibili", "danmaku", 7, "viewer", "hello[dog]", "", 0, 0, 0, 0, 0, 0, 0, "", "", []string{"[dog]", "not-in-catalog"})
+	if err != nil { t.Fatal(err) }
+	if len(event.Emoticons) != 1 || event.Emoticons[0].URL != "https://img.test/dog.png" || event.Emoticons[0].Width != 24 {
+		t.Fatalf("simulated emoticons were not resolved from the selected platform catalog: %+v", event.Emoticons)
+	}
+
+	plain, err := service.SimulatePlatformEventWithMediaResources("bilibili", "danmaku", 7, "viewer", "hello", "", 0, 0, 0, 0, 0, 0, 0, "", "", []string{"[dog]"})
+	if err != nil { t.Fatal(err) }
+	if len(plain.Emoticons) != 0 { t.Fatalf("unused selected emoticon should not be attached: %+v", plain.Emoticons) }
+}
+
