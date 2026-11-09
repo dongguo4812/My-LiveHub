@@ -40,6 +40,7 @@ func TestGetMediaResourcesFiltersPlatformTypeAndKeyword(t *testing.T) {
 	if got := service.GetMediaResources("bilibili", "unknown", "", 10); len(got) != 0 {
 		t.Fatalf("unsupported resource type should be empty: %+v", got)
 	}
+	if got := service.GetMediaResources("bilibili", "gift", "", 0); len(got) != 2 { t.Fatalf("unbounded catalog query did not return all gifts: %+v", got) }
 	if got := service.GetMediaResources("bilibili", "gift", "", 1); len(got) != 1 {
 		t.Fatalf("limit was not applied: %+v", got)
 	}
