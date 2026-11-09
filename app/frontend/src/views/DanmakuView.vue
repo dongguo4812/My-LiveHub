@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { danmakuDisplaySettings, danmakuDisplayError, danmakuDisplayBusy, loadDanmakuDisplaySettings, saveDanmakuDisplaySettings } from '../services/danmakuDisplay'
+import { danmakuDisplaySettings, danmakuDisplayError, danmakuDisplayBusy, danmakuWindowState, loadDanmakuDisplaySettings, saveDanmakuDisplaySettings, loadDanmakuWindowState, openDanmakuWindow, closeDanmakuWindow, setDanmakuWindowPinned } from '../services/danmakuDisplay'
 
 const form = reactive({
   font_size: 24, display_duration_seconds: 8,
@@ -14,8 +14,20 @@ const form = reactive({
   show_super_chat: true, show_guard: true, custom_css: '',
 })
 watch(danmakuDisplaySettings, value => { if (value) Object.assign(form, value) }, { immediate: true })
-onMounted(() => void loadDanmakuDisplaySettings())
+onMounted(() => { void loadDanmakuDisplaySettings(); void loadDanmakuWindowState() })
 
+async function showOverlay() {
+  if (await openDanmakuWindow()) ElMessage.success('弹幕展示窗口已打开')
+}
+async function hideOverlay() {
+  if (await closeDanmakuWindow()) ElMessage.success('弹幕展示窗口已关闭')
+}
+async function togglePinned(value: string | number | boolean) {
+  const pinned = Boolean(value)
+  if (await setDanmakuWindowPinned(pinned)) {
+    ElMessage.success(pinned ? '已置顶并开启鼠标穿透' : '已取消置顶，可拖动和调整窗口大小')
+  }
+}
 async function save() {
   if (await saveDanmakuDisplaySettings({ ...form })) ElMessage.success('弹幕显示设置已保存')
 }
@@ -24,6 +36,26 @@ async function save() {
 <template>
   <section class="danmaku-page">
     <div class="page-heading"><div><p class="eyebrow">DANMAKU DISPLAY</p><h2>弹幕显示</h2><p class="description">配置桌面弹幕展示内容、礼物处理规则和自定义样式。设置保存在本地。</p></div><el-button type="primary" :loading="danmakuDisplayBusy" @click="save">保存设置</el-button></div>
+    <el-card shadow="never" class="window-card">
+      <template #header><strong>独立展示窗口</strong></template>
+      <div class="window-controls">
+        <div class="window-description">
+          <strong>{{ danmakuWindowState.is_open ? '展示窗口已打开' : '展示窗口未打开' }}</strong>
+          <p>{{ danmakuWindowState.is_pinned ? '窗口已置顶，鼠标操作会穿透到下层游戏。' : '取消置顶时可直接拖动窗口，并通过右下角调整大小。' }}</p>
+        </div>
+        <div class="window-actions">
+          <el-button type="primary" @click="showOverlay">打开展示窗口</el-button>
+          <el-button :disabled="!danmakuWindowState.is_open" @click="hideOverlay">关闭窗口</el-button>
+          <el-switch
+            :model-value="danmakuWindowState.is_pinned"
+            :disabled="!danmakuWindowState.is_open"
+            active-text="置顶并鼠标穿透"
+            inactive-text="允许交互"
+            @change="togglePinned"
+          />
+        </div>
+      </div>
+    </el-card>
     <el-alert v-if="danmakuDisplayError" :title="danmakuDisplayError" type="error" :closable="false" show-icon />
     <el-card shadow="never"><template #header><strong>基础显示</strong></template>
       <div class="setting-grid">
@@ -69,5 +101,5 @@ async function save() {
 </template>
 
 <style scoped>
-.danmaku-page{display:flex;flex-direction:column;gap:18px}.page-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 8px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.setting-item p,.css-hint{color:var(--el-text-color-secondary);font-size:13px}.setting-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px}.setting-item{display:flex;align-items:center;gap:10px;min-width:0}.setting-item>div{flex:1;min-width:0}.setting-item p{margin:6px 0 0}.unit{color:var(--el-text-color-secondary);font-size:13px}.switch-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px 16px}.css-hint{margin:0 0 12px}.bottom-actions{display:flex;justify-content:flex-end}@media(max-width:900px){.setting-grid{grid-template-columns:1fr}.switch-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:560px){.switch-grid{grid-template-columns:1fr}.page-heading{flex-direction:column}}
+.danmaku-page{display:flex;flex-direction:column;gap:18px}.page-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 8px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.setting-item p,.css-hint{color:var(--el-text-color-secondary);font-size:13px}.window-controls{display:flex;align-items:center;justify-content:space-between;gap:20px}.window-description{min-width:0}.window-description p{margin:6px 0 0;color:var(--el-text-color-secondary);font-size:13px}.window-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.setting-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px}.setting-item{display:flex;align-items:center;gap:10px;min-width:0}.setting-item>div{flex:1;min-width:0}.setting-item p{margin:6px 0 0}.unit{color:var(--el-text-color-secondary);font-size:13px}.switch-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px 16px}.css-hint{margin:0 0 12px}.bottom-actions{display:flex;justify-content:flex-end}@media(max-width:900px){.window-controls{align-items:flex-start;flex-direction:column}.setting-grid{grid-template-columns:1fr}.switch-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:560px){.switch-grid{grid-template-columns:1fr}.page-heading{flex-direction:column}}
 </style>

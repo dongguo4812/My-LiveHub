@@ -87,6 +87,7 @@ func main() {
 	}
 
 	platformService := desktop.NewPlatformService(platformManager, bilibiliEvents)
+	danmakuDisplayService := desktop.NewDanmakuDisplayService(configManager, danmakuDisplayConfig, bilibiliEvents)
 	app := application.New(application.Options{
 		Name:        "My-LiveHub",
 		Description: "多平台综合直播互动辅助平台",
@@ -97,10 +98,11 @@ func main() {
 			application.NewService(desktop.NewBilibiliAuthService(bilibiliAuth)),
 			application.NewService(desktop.NewBilibiliSettingsService(configManager, bilibiliConfig, bilibiliAdapter)),
 			application.NewService(desktop.NewAppearanceService(configManager, appConfig)),
-			application.NewService(desktop.NewDanmakuDisplayService(configManager, danmakuDisplayConfig, bilibiliEvents)),
+			application.NewService(danmakuDisplayService),
 		},
 	})
 	desktop.AttachApplication(platformService, app, appConfig.Appearance.Theme == "light")
+	desktop.AttachDanmakuDisplayApplication(danmakuDisplayService, app)
 
 	background := application.NewRGBA(18, 20, 27, 255)
 	if appConfig.Appearance.Theme == "light" {
