@@ -19,13 +19,18 @@ type DanmakuDisplayService struct {
 	processor *danmaku.Processor
 	mu        sync.RWMutex
 	current   config.DanmakuDisplayConfig
+	windowCfg config.DanmakuWindowConfig
 	app       *application.App
 	window    *application.WebviewWindow
 	pinned    bool
+	saveTimer *time.Timer
 }
 
-func NewDanmakuDisplayService(manager *config.Manager, current config.DanmakuDisplayConfig, buffer *eventstream.Buffer) *DanmakuDisplayService {
-	return &DanmakuDisplayService{manager: manager, current: current, events: buffer, processor: danmaku.NewProcessor()}
+func NewDanmakuDisplayService(manager *config.Manager, current config.DanmakuDisplayConfig, windowCfg config.DanmakuWindowConfig, buffer *eventstream.Buffer) *DanmakuDisplayService {
+	return &DanmakuDisplayService{
+		manager: manager, current: current, windowCfg: windowCfg,
+		events: buffer, processor: danmaku.NewProcessor(),
+	}
 }
 
 func (s *DanmakuDisplayService) GetSettings() config.DanmakuDisplayConfig {
@@ -66,14 +71,11 @@ func (s *DanmakuDisplayService) GetDisplayEvents() []danmaku.DisplayEvent {
 	return s.processor.Process(s.events.Snapshot(), settings, time.Now())
 }
 
-
-// DanmakuWindowState describes the independent overlay window.
 type DanmakuWindowState struct {
 	IsOpen   bool `json:"is_open"`
 	IsPinned bool `json:"is_pinned"`
 }
 
-// AttachDanmakuDisplayApplication supplies the Wails application after startup.
 func AttachDanmakuDisplayApplication(s *DanmakuDisplayService, app *application.App) {
 	if s == nil {
 		return
@@ -83,7 +85,6 @@ func AttachDanmakuDisplayApplication(s *DanmakuDisplayService, app *application.
 	s.mu.Unlock()
 }
 
-// OpenWindow creates or focuses the transparent, frameless danmaku overlay.
 func (s *DanmakuDisplayService) OpenWindow() error {
 	if s == nil {
 		return errors.New("弹幕展示窗口服务不可用")
@@ -98,11 +99,13 @@ func (s *DanmakuDisplayService) OpenWindow() error {
 		s.window.Focus()
 		return nil
 	}
-	window := s.app.Window.NewWithOptions(application.WebviewWindowOptions{
+
+	cfg := s.windowCfg
+	options := application.WebviewWindowOptions{
 		Name: "danmaku-overlay",
 		Title: "",
-		Width: 1000,
-		Height: 560,
+		Width: cfg.Width,
+		Height: cfg.Height,
 		MinWidth: 420,
 		MinHeight: 180,
 		Frameless: true,
@@ -110,22 +113,113 @@ func (s *DanmakuDisplayService) OpenWindow() error {
 		BackgroundType: application.BackgroundTypeTransparent,
 		BackgroundColour: application.NewRGBA(0, 0, 0, 0),
 		URL: "/#/danmaku/overlay",
-	})
+		Windows: application.WindowsWindow{
+			// Keep the overlay truly frameless; the page supplies its own
+			// interactive resize affordance when the window is not pinned.
+			DisableFramelessWindowDecorations: true,
+			HiddenOnTaskbar: true,
+		},
+	}
+	if cfg.PositionSaved {
+		options.InitialPosition = application.WindowXY
+		options.X = cfg.X
+		options.Y = cfg.Y
+	}
+	window := s.app.Window.NewWithOptions(options)
 	s.window = window
 	window.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
+		s.persistWindowGeometry(window)
 		s.mu.Lock()
 		if s.window == window {
 			s.window = nil
 			s.pinned = false
+			if s.saveTimer != nil {
+				s.saveTimer.Stop()
+				s.saveTimer = nil
+			}
 		}
 		s.mu.Unlock()
 	})
-	window.Center()
+	window.OnWindowEvent(events.Common.WindowDidMove, func(_ *application.WindowEvent) {
+		s.scheduleWindowGeometrySave(window)
+	})
+	window.OnWindowEvent(events.Common.WindowDidResize, func(_ *application.WindowEvent) {
+		s.scheduleWindowGeometrySave(window)
+	})
+	// Windows "Show desktop" can minimise or hide ordinary top-level windows.
+	// A pinned overlay is a tool overlay, so immediately restore its visibility.
+	restorePinned := func(_ *application.WindowEvent) {
+		s.mu.RLock()
+		shouldRestore := s.window == window && s.pinned
+		s.mu.RUnlock()
+		if shouldRestore {
+			go func() {
+				window.UnMinimise()
+				window.Show()
+				window.SetAlwaysOnTop(true)
+				window.SetIgnoreMouseEvents(true)
+			}()
+		}
+	}
+	window.OnWindowEvent(events.Common.WindowMinimise, restorePinned)
+	window.OnWindowEvent(events.Common.WindowHide, restorePinned)
+
+	if !cfg.PositionSaved {
+		window.Center()
+	}
 	window.Show()
 	return nil
 }
 
-// CloseWindow closes only the overlay; it does not affect platform connections.
+func (s *DanmakuDisplayService) scheduleWindowGeometrySave(window *application.WebviewWindow) {
+	if s == nil || window == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.window != window {
+		return
+	}
+	if s.saveTimer != nil {
+		s.saveTimer.Stop()
+	}
+	s.saveTimer = time.AfterFunc(350*time.Millisecond, func() {
+		s.persistWindowGeometry(window)
+	})
+}
+
+func (s *DanmakuDisplayService) persistWindowGeometry(window *application.WebviewWindow) {
+	if s == nil || window == nil || s.manager == nil {
+		return
+	}
+	x, y := window.Position()
+	width, height := window.Size()
+	if width < 420 || height < 180 {
+		return
+	}
+	s.mu.Lock()
+	if s.window != window {
+		s.mu.Unlock()
+		return
+	}
+	next := s.windowCfg
+	next.X, next.Y = x, y
+	next.Width, next.Height = width, height
+	next.PositionSaved = true
+	s.mu.Unlock()
+
+	if err := config.SaveTyped(s.manager, "danmaku_window.json", next, func(value config.DanmakuWindowConfig) error {
+		return value.Validate()
+	}); err != nil {
+		return
+	}
+	s.mu.Lock()
+	if s.window == window {
+		s.windowCfg = next
+	}
+	s.mu.Unlock()
+}
+
 func (s *DanmakuDisplayService) CloseWindow() {
 	if s == nil {
 		return
@@ -134,15 +228,44 @@ func (s *DanmakuDisplayService) CloseWindow() {
 	window := s.window
 	s.window = nil
 	s.pinned = false
+	if s.saveTimer != nil {
+		s.saveTimer.Stop()
+		s.saveTimer = nil
+	}
 	s.mu.Unlock()
 	if window != nil {
+		s.persistWindowGeometryForClose(window)
 		window.SetIgnoreMouseEvents(false)
 		window.SetAlwaysOnTop(false)
 		window.Close()
 	}
 }
 
-// SetWindowPinned toggles topmost and click-through together.
+// persistWindowGeometryForClose saves the final frame after CloseWindow has detached
+// the window from the service's active-window pointer.
+func (s *DanmakuDisplayService) persistWindowGeometryForClose(window *application.WebviewWindow) {
+	if s == nil || window == nil || s.manager == nil {
+		return
+	}
+	x, y := window.Position()
+	width, height := window.Size()
+	if width < 420 || height < 180 {
+		return
+	}
+	s.mu.Lock()
+	next := s.windowCfg
+	next.X, next.Y, next.Width, next.Height = x, y, width, height
+	next.PositionSaved = true
+	s.mu.Unlock()
+	if err := config.SaveTyped(s.manager, "danmaku_window.json", next, func(value config.DanmakuWindowConfig) error {
+		return value.Validate()
+	}); err == nil {
+		s.mu.Lock()
+		s.windowCfg = next
+		s.mu.Unlock()
+	}
+}
+
 func (s *DanmakuDisplayService) SetWindowPinned(pinned bool) error {
 	if s == nil {
 		return errors.New("弹幕展示窗口服务不可用")
@@ -163,7 +286,6 @@ func (s *DanmakuDisplayService) SetWindowPinned(pinned bool) error {
 	return nil
 }
 
-// GetWindowState reports whether the overlay is open and pinned.
 func (s *DanmakuDisplayService) GetWindowState() DanmakuWindowState {
 	if s == nil {
 		return DanmakuWindowState{}

@@ -53,6 +53,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("load danmaku display configuration: %v", err)
 	}
+	danmakuWindowConfig, err := config.LoadTyped[config.DanmakuWindowConfig](configManager, "danmaku_window.json", func(value config.DanmakuWindowConfig) error {
+		return value.Validate()
+	})
+	if err != nil {
+		log.Fatalf("load danmaku window configuration: %v", err)
+	}
 	coreApp, err := core.New(configManager, appConfig)
 	if err != nil {
 		log.Fatalf("initialize core application: %v", err)
@@ -87,7 +93,7 @@ func main() {
 	}
 
 	platformService := desktop.NewPlatformService(platformManager, bilibiliEvents)
-	danmakuDisplayService := desktop.NewDanmakuDisplayService(configManager, danmakuDisplayConfig, bilibiliEvents)
+	danmakuDisplayService := desktop.NewDanmakuDisplayService(configManager, danmakuDisplayConfig, danmakuWindowConfig, bilibiliEvents)
 	app := application.New(application.Options{
 		Name:        "My-LiveHub",
 		Description: "多平台综合直播互动辅助平台",
