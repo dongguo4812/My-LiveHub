@@ -23,14 +23,17 @@ type fakeStreamClient struct {
 	once sync.Once
 	startErr error
 	startGate <-chan struct{}
+	startEntered chan struct{}
+	startOnce sync.Once
 }
 
 func newFakeStreamClient(_ int) *fakeStreamClient {
-	return &fakeStreamClient{done: make(chan struct{})}
+	return &fakeStreamClient{done: make(chan struct{}), startEntered: make(chan struct{})}
 }
 func (f *fakeStreamClient) SetCookie(cookie string) { f.mu.Lock(); f.cookie = cookie; f.mu.Unlock() }
 func (f *fakeStreamClient) OnDanmaku(handler func(*message.Danmaku)) { f.mu.Lock(); f.handler = handler; f.mu.Unlock() }
 func (f *fakeStreamClient) StartContext(ctx context.Context) error {
+	f.startOnce.Do(func(){ close(f.startEntered) })
 	if f.startGate != nil {
 		select { case <-f.startGate: case <-ctx.Done(): return ctx.Err() }
 	}
@@ -140,12 +143,11 @@ func TestAdapterDisconnectCancelsPendingStartup(t *testing.T) {
 	connectCtx, cancelConnect := context.WithCancel(context.Background())
 	connectDone := make(chan error, 1)
 	go func(){ connectDone <- a.Connect(connectCtx) }()
-	deadline := time.Now().Add(time.Second)
-	for {
-		fake.mu.Lock(); started := fake.started; fake.mu.Unlock()
-		if started { break }
-		if time.Now().After(deadline) { cancelConnect(); t.Fatal("stream startup did not begin") }
-		time.Sleep(time.Millisecond)
+	select {
+	case <-fake.startEntered:
+	case <-time.After(time.Second):
+		cancelConnect()
+		t.Fatal("stream startup did not begin")
 	}
 	cancelConnect()
 	select {
