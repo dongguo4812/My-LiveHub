@@ -86,6 +86,7 @@ function insertEmoticon(item: MediaResource) { content.value = content.value ? `
 async function sendEvent() {
   busy.value = true
   error.value = ''
+  if (eventType.value === 'gift' && !selectedGiftID.value) { error.value = '请先从礼物目录选择礼物'; return }
   try {
     await PlatformService.SimulatePlatformEventWithResource(
       platformID.value,
@@ -102,6 +103,7 @@ async function sendEvent() {
       months.value,
       Number(selectedGiftID.value) || 0,
       giftImageURL.value,
+      selectedGiftID.value,
     )
     await refreshEvents()
     ElMessage.success(`已发送模拟${currentEventLabel.value}事件`)
