@@ -29,15 +29,50 @@ type Resource struct {
 }
 
 type Catalog struct {
-	mu          sync.RWMutex
-	items       map[string]Resource
-	refreshes   map[string]time.Time
-	persistence *catalogPersistence
-	closed      bool
+	mu              sync.RWMutex
+	items           map[string]Resource
+	imageURLIndex   map[string]map[string]struct{}
+	provisionalURLs map[string]string
+	refreshes       map[string]time.Time
+	persistence     *catalogPersistence
+	closed          bool
 }
 
 func NewCatalog() *Catalog {
-	return &Catalog{items: make(map[string]Resource), refreshes: make(map[string]time.Time)}
+	return &Catalog{
+		items: make(map[string]Resource),
+		imageURLIndex: make(map[string]map[string]struct{}),
+		provisionalURLs: make(map[string]string),
+		refreshes: make(map[string]time.Time),
+	}
+}
+
+func imageURLIdentity(platformID string, kind Type, imageURL string) string {
+	return strings.Join([]string{platformID, string(kind), imageURL}, "\x00")
+}
+
+func provisionalIdentity(r Resource) string {
+	return strings.Join([]string{r.PlatformID, r.SourceID, string(r.Type), r.ImageURL}, "\x00")
+}
+
+func (c *Catalog) addImageIndex(key string, r Resource) {
+	indexKey := imageURLIdentity(r.PlatformID, r.Type, r.ImageURL)
+	keys := c.imageURLIndex[indexKey]
+	if keys == nil { keys = make(map[string]struct{}); c.imageURLIndex[indexKey] = keys }
+	keys[key] = struct{}{}
+	if r.ID == r.ImageURL { c.provisionalURLs[provisionalIdentity(r)] = key }
+}
+
+func (c *Catalog) removeImageIndex(key string, r Resource) {
+	indexKey := imageURLIdentity(r.PlatformID, r.Type, r.ImageURL)
+	if keys := c.imageURLIndex[indexKey]; keys != nil {
+		delete(keys, key)
+		if len(keys) == 0 { delete(c.imageURLIndex, indexKey) }
+	}
+	if r.ID == r.ImageURL {
+		provisionalKey := provisionalIdentity(r)
+		if c.provisionalURLs[provisionalKey] == key { delete(c.provisionalURLs, provisionalKey) }
+	}
 }
 
 func identity(r Resource) string {
@@ -76,42 +111,32 @@ func (c *Catalog) Register(r Resource) bool {
 	key := identity(r)
 	old, exists := c.items[key]
 	promoted := false
-	// A live danmaku event can arrive before the full directory and only expose
-	// an image URL. When the directory later supplies the official ID for that
-	// same URL and scope, promote the provisional URL identity in place.
 	if !exists {
-		for previousKey, previous := range c.items {
-			if previous.PlatformID == r.PlatformID && previous.SourceID == r.SourceID &&
-				previous.Type == r.Type && previous.ID == previous.ImageURL && previous.ImageURL == r.ImageURL {
-					old = previous
-					exists = true
-					delete(c.items, previousKey)
-					promoted = true
-					break
-				}
+		provisionalKey := provisionalIdentity(r)
+		if previousKey, ok := c.provisionalURLs[provisionalKey]; ok {
+			if previous, found := c.items[previousKey]; found {
+				old, exists, promoted = previous, true, true
+				c.removeImageIndex(previousKey, previous)
+				delete(c.items, previousKey)
 			}
 		}
+	}
 	if exists {
+		if !promoted { c.removeImageIndex(key, old) }
 		r.FirstSeenAt = old.FirstSeenAt
-		if r.FirstSeenAt.IsZero() {
-			r.FirstSeenAt = now
-		}
-		if r.Name == "" {
-			r.Name = old.Name
-		}
+		if r.FirstSeenAt.IsZero() { r.FirstSeenAt = now }
+		if r.Name == "" { r.Name = old.Name }
 		if !promoted && old.Name == r.Name && old.ImageURL == r.ImageURL && old.UnitPrice == r.UnitPrice && old.Width == r.Width && old.Height == r.Height {
+			c.addImageIndex(key, old)
 			return true
 		}
 		r.UpdatedAt = now
 	} else {
-		if r.FirstSeenAt.IsZero() {
-			r.FirstSeenAt = now
-		}
-		if r.UpdatedAt.IsZero() {
-			r.UpdatedAt = now
-		}
+		if r.FirstSeenAt.IsZero() { r.FirstSeenAt = now }
+		if r.UpdatedAt.IsZero() { r.UpdatedAt = now }
 	}
 	c.items[key] = r
+	c.addImageIndex(key, r)
 	if c.persistence != nil {
 		c.persistence.markDirty()
 	}
@@ -165,14 +190,20 @@ func (c *Catalog) FindByImageURL(platformID string, kind Type, imageURL string) 
 	defer c.mu.RUnlock()
 	var match Resource
 	found := false
-	for _, item := range c.items {
-		if (platformID != "" && item.PlatformID != platformID) || (kind != "" && item.Type != kind) || item.ImageURL != imageURL {
-			continue
+	consider := func(key string) {
+		item, ok := c.items[key]
+		if !ok || (platformID != "" && item.PlatformID != platformID) || (kind != "" && item.Type != kind) { return }
+		if !found || (item.SourceID == "common" && match.SourceID != "common") || (item.SourceID == match.SourceID && item.ID < match.ID) {
+			match, found = item, true
 		}
-		if !found || (item.SourceID == "common" && match.SourceID != "common") ||
-			(item.SourceID == match.SourceID && item.ID < match.ID) {
-			match = item
-			found = true
+	}
+	if platformID != "" && kind != "" {
+		for key := range c.imageURLIndex[imageURLIdentity(platformID, kind, imageURL)] { consider(key) }
+	} else {
+		for indexKey, keys := range c.imageURLIndex {
+			parts := strings.Split(indexKey, "\x00")
+			if len(parts) != 3 || parts[2] != imageURL || (platformID != "" && parts[0] != platformID) || (kind != "" && parts[1] != string(kind)) { continue }
+			for key := range keys { consider(key) }
 		}
 	}
 	return match, found
