@@ -1,9 +1,11 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 )
 
 // LoadTyped loads a configuration, decodes it into a typed value, and validates it.
@@ -24,7 +26,15 @@ func LoadTyped[T any](manager *Manager, name string, validate func(T) error) (T,
 	}
 
 	var value T
-	if err := json.Unmarshal(encoded, &value); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&value); err != nil {
+		return zero, fmt.Errorf("decode configuration %q: %w", name, err)
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		if err == nil {
+			return zero, fmt.Errorf("decode configuration %q: unexpected trailing JSON data", name)
+		}
 		return zero, fmt.Errorf("decode configuration %q: %w", name, err)
 	}
 	if validate != nil {
