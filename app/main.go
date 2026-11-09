@@ -9,6 +9,7 @@ import (
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
 	"github.com/dongguo4812/My-LiveHub/app/internal/core"
 	"github.com/dongguo4812/My-LiveHub/app/internal/desktop"
+	eventstream "github.com/dongguo4812/My-LiveHub/app/internal/events"
 	"github.com/dongguo4812/My-LiveHub/app/internal/platform"
 	"github.com/dongguo4812/My-LiveHub/app/internal/platform/bilibili"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -65,7 +66,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("load Bilibili configuration: %v", err)
 	}
-	bilibiliEvents := bilibili.NewEventBuffer()
+	bilibiliEvents := eventstream.NewBuffer()
 	bilibiliAdapter, err := bilibili.NewAdapter(bilibiliAuth, bilibiliConfig.RoomID, bilibiliEvents)
 	if err != nil {
 		log.Fatalf("initialize Bilibili adapter: %v", err)

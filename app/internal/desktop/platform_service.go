@@ -7,18 +7,18 @@ import (
 	"time"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/platform"
-	"github.com/dongguo4812/My-LiveHub/app/internal/platform/bilibili"
+	eventstream "github.com/dongguo4812/My-LiveHub/app/internal/events"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 type PlatformService struct {
 	manager    *platform.Manager
-	events     *bilibili.EventBuffer
+	events     *eventstream.Buffer
 	app        *application.App
 	lightTheme bool
 }
 
-func NewPlatformService(manager *platform.Manager, events *bilibili.EventBuffer) *PlatformService {
+func NewPlatformService(manager *platform.Manager, events *eventstream.Buffer) *PlatformService {
 	return &PlatformService{manager: manager, events: events}
 }
 
@@ -38,11 +38,16 @@ func (s *PlatformService) GetPlatforms() []platform.ConnectionSnapshot {
 	return s.manager.Snapshot()
 }
 
-func (s *PlatformService) GetBilibiliEvents() []bilibili.Event {
+func (s *PlatformService) GetEvents() []eventstream.Event {
 	if s == nil || s.events == nil {
 		return nil
 	}
 	return s.events.Snapshot()
+}
+
+// GetBilibiliEvents is retained for compatibility with the current simulator UI.
+func (s *PlatformService) GetBilibiliEvents() []eventstream.Event {
+	return s.GetEvents()
 }
 
 func (s *PlatformService) ConnectPlatform(platformID string) error {
@@ -91,9 +96,9 @@ func (s *PlatformService) OpenSimulatorWindow(platformID string) error {
 	return nil
 }
 
-// SimulateBilibiliEvent injects a local test event into the same event buffer
-// used by the Bilibili adapter. It never calls Bilibili's network APIs.
-func (s *PlatformService) SimulateBilibiliEvent(
+// SimulatePlatformEvent injects a local event through the shared platform event pipeline.
+func (s *PlatformService) SimulatePlatformEvent(
+	platformID string,
 	eventType string,
 	userID int,
 	userName string,
@@ -105,14 +110,19 @@ func (s *PlatformService) SimulateBilibiliEvent(
 	duration int,
 	guardLevel int,
 	months int,
-) (bilibili.Event, error) {
+) (eventstream.Event, error) {
 	if s == nil || s.events == nil {
-		return bilibili.Event{}, errors.New("Bilibili event service is unavailable")
+		return eventstream.Event{}, errors.New("platform event service is unavailable")
 	}
-	return s.events.AddSimulationEvent(bilibili.SimulationEventInput{
+	return s.events.AddSimulationEvent(platformID, eventstream.SimulationEventInput{
 		Type: eventType, UserID: userID, UserName: userName,
 		Content: content, GiftName: giftName, GiftCount: giftCount,
 		UnitPrice: unitPrice, Amount: amount, Duration: duration,
 		GuardLevel: guardLevel, Months: months,
 	})
+}
+
+// SimulateBilibiliEvent is retained for compatibility with the current simulator UI.
+func (s *PlatformService) SimulateBilibiliEvent(eventType string, userID int, userName, content, giftName string, giftCount int, unitPrice, amount float64, duration, guardLevel, months int) (eventstream.Event, error) {
+	return s.SimulatePlatformEvent("bilibili", eventType, userID, userName, content, giftName, giftCount, unitPrice, amount, duration, guardLevel, months)
 }

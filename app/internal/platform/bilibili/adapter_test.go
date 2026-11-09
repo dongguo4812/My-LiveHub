@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Akegarasu/blivedm-go/message"
+	eventstream "github.com/dongguo4812/My-LiveHub/app/internal/events"
 )
 
 type fakeStreamClient struct {
@@ -82,7 +83,7 @@ func newAdapterTestAuth(t *testing.T) *AuthManager {
 }
 
 func TestAdapterConnectStartsAuthenticatedStreamAndReceivesDanmaku(t *testing.T) {
-	a, err := NewAdapter(newAdapterTestAuth(t), 12345, NewEventBuffer())
+	a, err := NewAdapter(newAdapterTestAuth(t), 12345, eventstream.NewBuffer())
 	if err != nil { t.Fatal(err) }
 	fake := newFakeStreamClient(12345)
 	a.newStream = func(int) streamClient { return fake }

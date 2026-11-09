@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/Akegarasu/blivedm-go/client"
 	"github.com/Akegarasu/blivedm-go/message"
+	eventstream "github.com/dongguo4812/My-LiveHub/app/internal/events"
 )
 
 type streamClient interface {
@@ -21,7 +23,7 @@ type streamClient interface {
 
 type Adapter struct {
 	auth *AuthManager
-	events *EventBuffer
+	events *eventstream.Buffer
 	newStream func(int) streamClient
 	mu sync.Mutex
 	roomID int
@@ -29,10 +31,10 @@ type Adapter struct {
 	cancel context.CancelFunc
 }
 
-func NewAdapter(auth *AuthManager, roomID int, events *EventBuffer) (*Adapter, error) {
+func NewAdapter(auth *AuthManager, roomID int, events *eventstream.Buffer) (*Adapter, error) {
 	if auth == nil { return nil, errors.New("Bilibili authentication manager is required") }
 	if roomID < 0 { return nil, errors.New("Bilibili room ID cannot be negative") }
-	if events == nil { events = NewEventBuffer() }
+	if events == nil { events = eventstream.NewBuffer() }
 	return &Adapter{
 		auth: auth,
 		roomID: roomID,
@@ -71,7 +73,22 @@ func (a *Adapter) Connect(ctx context.Context) error {
 	if err != nil { return err }
 	stream := a.newStream(roomID)
 	stream.SetCookie(credentials.Cookie)
-	stream.OnDanmaku(func(d *message.Danmaku) { a.events.AddDanmaku(roomID, d) })
+	stream.OnDanmaku(func(d *message.Danmaku) {
+		if d == nil || d.Sender == nil {
+			return
+		}
+		timestamp := d.Timestamp
+		if timestamp <= 0 {
+			timestamp = time.Now().UnixMilli()
+		} else if timestamp < 1_000_000_000_000 {
+			timestamp *= 1000
+		}
+		a.events.Add(eventstream.Event{
+			PlatformID: "bilibili", Source: "live", Type: "danmaku", RoomID: roomID,
+			UserID: d.Sender.Uid, UserName: d.Sender.Uname, Avatar: d.Sender.Face,
+			Content: d.Content, Timestamp: timestamp, Color: d.Color,
+		})
+	})
 
 	runCtx, cancel := context.WithCancel(context.Background())
 	started := make(chan error, 1)

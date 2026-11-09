@@ -1,77 +1,73 @@
-package bilibili
+package events
 
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
-
-	"github.com/Akegarasu/blivedm-go/message"
 )
 
-const eventBufferLimit = 200
+const BufferLimit = 200
 
+// Event is the normalized event contract shared by every platform.
 type Event struct {
-	ID          uint64  `json:"id"`
-	Type        string  `json:"type"`
-	RoomID      int     `json:"room_id,omitempty"`
-	UserID      int     `json:"user_id"`
-	UserName    string  `json:"user_name"`
-	Avatar      string  `json:"avatar,omitempty"`
-	Content     string  `json:"content"`
-	Timestamp   int64   `json:"timestamp"`
-	Color       uint32  `json:"color,omitempty"`
-	IsSimulation bool   `json:"is_simulation,omitempty"`
-	GiftName    string  `json:"gift_name,omitempty"`
-	GiftCount   int     `json:"gift_count,omitempty"`
-	UnitPrice   float64 `json:"unit_price,omitempty"`
-	TotalPrice  float64 `json:"total_price,omitempty"`
-	Amount      float64 `json:"amount,omitempty"`
-	Duration    int     `json:"duration,omitempty"`
-	GuardLevel  int     `json:"guard_level,omitempty"`
-	Months      int     `json:"months,omitempty"`
+	ID           uint64  `json:"id"`
+	PlatformID   string  `json:"platform_id"`
+	Source       string  `json:"source"`
+	Type         string  `json:"type"`
+	RoomID       int     `json:"room_id,omitempty"`
+	UserID       int     `json:"user_id"`
+	UserName     string  `json:"user_name"`
+	Avatar       string  `json:"avatar,omitempty"`
+	Content      string  `json:"content"`
+	Timestamp    int64   `json:"timestamp"`
+	Color        uint32  `json:"color,omitempty"`
+	IsSimulation bool    `json:"is_simulation,omitempty"`
+	GiftName     string  `json:"gift_name,omitempty"`
+	GiftCount    int     `json:"gift_count,omitempty"`
+	UnitPrice    float64 `json:"unit_price,omitempty"`
+	TotalPrice   float64 `json:"total_price,omitempty"`
+	Amount       float64 `json:"amount,omitempty"`
+	Duration     int     `json:"duration,omitempty"`
+	GuardLevel   int     `json:"guard_level,omitempty"`
+	Months       int     `json:"months,omitempty"`
 }
 
-type EventBuffer struct {
+// Buffer is the shared in-memory ingress and recent-event history for all platforms.
+type Buffer struct {
 	mu     sync.RWMutex
 	nextID uint64
 	items  []Event
 }
 
-func NewEventBuffer() *EventBuffer {
-	return &EventBuffer{items: make([]Event, 0, eventBufferLimit)}
+func NewBuffer() *Buffer {
+	return &Buffer{items: make([]Event, 0, BufferLimit)}
 }
 
-func (b *EventBuffer) AddDanmaku(roomID int, d *message.Danmaku) {
-	if b == nil || d == nil || d.Sender == nil {
-		return
-	}
-	timestamp := d.Timestamp
-	if timestamp <= 0 {
-		timestamp = time.Now().UnixMilli()
-	} else if timestamp < 1_000_000_000_000 {
-		timestamp *= 1000
-	}
-	b.Add(Event{
-		Type: "danmaku", RoomID: roomID, UserID: d.Sender.Uid,
-		UserName: d.Sender.Uname, Avatar: d.Sender.Face,
-		Content: d.Content, Timestamp: timestamp, Color: d.Color,
-	})
-}
-
-// Add stores a normalized platform event and assigns its local sequence ID.
-func (b *EventBuffer) Add(event Event) Event {
+// Add normalizes source metadata, assigns a local sequence ID, and stores an event.
+func (b *Buffer) Add(event Event) Event {
 	if b == nil {
 		return event
 	}
 	if event.Timestamp <= 0 {
 		event.Timestamp = time.Now().UnixMilli()
 	}
+	if event.Source == "" {
+		if event.IsSimulation {
+			event.Source = "simulation"
+		} else {
+			event.Source = "live"
+		}
+	}
+	if event.Source == "simulation" {
+		event.IsSimulation = true
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.nextID++
 	event.ID = b.nextID
-	if len(b.items) == eventBufferLimit {
+	if len(b.items) == BufferLimit {
 		copy(b.items, b.items[1:])
 		b.items[len(b.items)-1] = event
 		return event
@@ -94,22 +90,25 @@ type SimulationEventInput struct {
 	Months     int
 }
 
-// AddSimulationEvent creates a clearly marked local event without connecting
-// to Bilibili or invoking any real platform operation.
-func (b *EventBuffer) AddSimulationEvent(input SimulationEventInput) (Event, error) {
+// AddSimulationEvent injects a local event through the same buffer as live events.
+func (b *Buffer) AddSimulationEvent(platformID string, input SimulationEventInput) (Event, error) {
 	if b == nil {
-		return Event{}, errors.New("Bilibili event buffer is unavailable")
+		return Event{}, errors.New("event buffer is unavailable")
+	}
+	platformID = strings.TrimSpace(platformID)
+	if platformID == "" {
+		return Event{}, errors.New("平台标识不能为空")
 	}
 	if input.UserID < 0 {
 		return Event{}, errors.New("用户 UID 不能为负数")
 	}
-	userName := input.UserName
+	userName := strings.TrimSpace(input.UserName)
 	if userName == "" {
 		userName = "模拟用户"
 	}
 	event := Event{
-		Type: input.Type, UserID: input.UserID,
-		UserName: userName, Content: input.Content, IsSimulation: true,
+		PlatformID: platformID, Source: "simulation", IsSimulation: true,
+		Type: input.Type, UserID: input.UserID, UserName: userName, Content: input.Content,
 	}
 	switch input.Type {
 	case "danmaku":
@@ -145,7 +144,7 @@ func (b *EventBuffer) AddSimulationEvent(input SimulationEventInput) (Event, err
 	return b.Add(event), nil
 }
 
-func (b *EventBuffer) Snapshot() []Event {
+func (b *Buffer) Snapshot() []Event {
 	if b == nil {
 		return nil
 	}
