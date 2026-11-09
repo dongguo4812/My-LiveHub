@@ -1,7 +1,9 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
+	"reflect"
 	"os"
 	"path/filepath"
 	"testing"
@@ -179,8 +181,19 @@ func TestSaveTypedKeepsFieldsMatchingDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(raw) != "{\n  \"config_version\": 1,\n  \"display\": {\n    \"width\": 100,\n    \"height\": 200\n  }\n}\n" {
-		t.Fatalf("local config should contain all nested fields, got: %s", raw)
+	gotObject, err := decodeObject(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantObject := map[string]any{
+		"config_version": json.Number("1"),
+		"display": map[string]any{
+			"width": json.Number("100"),
+			"height": json.Number("200"),
+		},
+	}
+	if !reflect.DeepEqual(gotObject, wantObject) {
+		t.Fatalf("local config = %#v, want %#v", gotObject, wantObject)
 	}
 }
 
