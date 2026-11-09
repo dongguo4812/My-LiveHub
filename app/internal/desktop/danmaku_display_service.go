@@ -130,10 +130,9 @@ func (s *DanmakuDisplayService) OpenWindow() error {
 		options.Y = cfg.Y
 	}
 	s.pinned = cfg.Pinned
-	if cfg.Pinned {
-		options.AlwaysOnTop = true
-		options.IgnoreMouseEvents = true
-	}
+	// Create and show the transparent window before applying topmost and
+	// mouse-through styles. Applying these styles in the native creation
+	// options can interfere with transparent WebView composition on Windows.
 	window := s.app.Window.NewWithOptions(options)
 	s.window = window
 	window.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
@@ -177,6 +176,10 @@ func (s *DanmakuDisplayService) OpenWindow() error {
 		window.Center()
 	}
 	window.Show()
+	if cfg.Pinned {
+		window.SetAlwaysOnTop(true)
+		window.SetIgnoreMouseEvents(true)
+	}
 	return nil
 }
 
