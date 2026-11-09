@@ -37,7 +37,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("initialize configuration manager: %v", err)
 	}
-	appConfig, err := config.LoadTyped[config.AppConfig](configManager, "app.json", config.CurrentAppConfigVersion, config.AppConfigMigrations, func(value config.AppConfig) error {
+	appConfig, err := config.LoadTyped[config.AppConfig](configManager, "app.json", func(value config.AppConfig) error {
 		return value.Validate()
 	})
 	if err != nil {
