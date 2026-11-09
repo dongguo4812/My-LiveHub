@@ -226,7 +226,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.simulator-page{display:flex;flex-direction:column;gap:18px;padding:26px 28px;min-height:100vh;background:var(--app-bg-page);color:var(--app-text-primary)}
+.simulator-page{display:flex;flex-direction:column;gap:18px;padding:26px 28px;width:100%;height:100vh;min-height:0;overflow-y:auto;overflow-x:hidden;background:var(--app-bg-page);color:var(--app-text-primary)}
 .simulator-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}
 .eyebrow{margin:0 0 8px;color:var(--app-accent);font-size:10px;letter-spacing:.16em}
 h1{margin:0;font-size:24px;font-weight:650}
