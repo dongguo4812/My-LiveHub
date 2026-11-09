@@ -101,6 +101,11 @@ func (s *DanmakuDisplayService) OpenWindow() error {
 	}
 
 	cfg := s.windowCfg
+	cfg.OpenOnStartup = true
+	if err := config.SaveTyped(s.manager, "danmaku_window.json", cfg, func(value config.DanmakuWindowConfig) error { return value.Validate() }); err != nil {
+		return err
+	}
+	s.windowCfg = cfg
 	options := application.WebviewWindowOptions{
 		Name: "danmaku-overlay",
 		Title: "",
@@ -127,7 +132,7 @@ func (s *DanmakuDisplayService) OpenWindow() error {
 	window := s.app.Window.NewWithOptions(options)
 	s.window = window
 	window.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
-		s.persistWindowGeometry(window)
+		s.persistWindowGeometryAndOpenState(window, false)
 		s.mu.Lock()
 		if s.window == window {
 			s.window = nil
@@ -188,6 +193,10 @@ func (s *DanmakuDisplayService) scheduleWindowGeometrySave(window *application.W
 }
 
 func (s *DanmakuDisplayService) persistWindowGeometry(window *application.WebviewWindow) {
+	s.persistWindowGeometryAndOpenState(window, true)
+}
+
+func (s *DanmakuDisplayService) persistWindowGeometryAndOpenState(window *application.WebviewWindow, openOnStartup bool) {
 	if s == nil || window == nil || s.manager == nil {
 		return
 	}
@@ -202,9 +211,9 @@ func (s *DanmakuDisplayService) persistWindowGeometry(window *application.Webvie
 		return
 	}
 	next := s.windowCfg
-	next.X, next.Y = x, y
-	next.Width, next.Height = width, height
+	next.X, next.Y, next.Width, next.Height = x, y, width, height
 	next.PositionSaved = true
+	next.OpenOnStartup = openOnStartup
 	s.mu.Unlock()
 
 	if err := config.SaveTyped(s.manager, "danmaku_window.json", next, func(value config.DanmakuWindowConfig) error {
@@ -213,13 +222,21 @@ func (s *DanmakuDisplayService) persistWindowGeometry(window *application.Webvie
 		return
 	}
 	s.mu.Lock()
-	if s.window == window {
-		s.windowCfg = next
-	}
+	s.windowCfg = next
 	s.mu.Unlock()
 }
 
 func (s *DanmakuDisplayService) CloseWindow() {
+	s.closeWindow(false)
+}
+
+// CloseWindowForShutdown closes the native window while preserving the user's
+// last open/closed preference for the next application launch.
+func (s *DanmakuDisplayService) CloseWindowForShutdown() {
+	s.closeWindow(true)
+}
+
+func (s *DanmakuDisplayService) closeWindow(preserveOpenPreference bool) {
 	if s == nil {
 		return
 	}
@@ -227,22 +244,32 @@ func (s *DanmakuDisplayService) CloseWindow() {
 	window := s.window
 	s.window = nil
 	s.pinned = false
+	openOnStartup := s.windowCfg.OpenOnStartup
+	if !preserveOpenPreference {
+		openOnStartup = false
+		s.windowCfg.OpenOnStartup = false
+	}
 	if s.saveTimer != nil {
 		s.saveTimer.Stop()
 		s.saveTimer = nil
 	}
 	s.mu.Unlock()
 	if window != nil {
-		s.persistWindowGeometryForClose(window)
+		s.persistWindowGeometryForClose(window, openOnStartup)
 		window.SetIgnoreMouseEvents(false)
 		window.SetAlwaysOnTop(false)
 		window.Close()
+	} else if !preserveOpenPreference && s.manager != nil {
+		s.mu.Lock()
+		next := s.windowCfg
+		s.mu.Unlock()
+		_ = config.SaveTyped(s.manager, "danmaku_window.json", next, func(value config.DanmakuWindowConfig) error {
+			return value.Validate()
+		})
 	}
 }
 
-// persistWindowGeometryForClose saves the final frame after CloseWindow has detached
-// the window from the service's active-window pointer.
-func (s *DanmakuDisplayService) persistWindowGeometryForClose(window *application.WebviewWindow) {
+func (s *DanmakuDisplayService) persistWindowGeometryForClose(window *application.WebviewWindow, openOnStartup bool) {
 	if s == nil || window == nil || s.manager == nil {
 		return
 	}
@@ -255,6 +282,7 @@ func (s *DanmakuDisplayService) persistWindowGeometryForClose(window *applicatio
 	next := s.windowCfg
 	next.X, next.Y, next.Width, next.Height = x, y, width, height
 	next.PositionSaved = true
+	next.OpenOnStartup = openOnStartup
 	s.mu.Unlock()
 	if err := config.SaveTyped(s.manager, "danmaku_window.json", next, func(value config.DanmakuWindowConfig) error {
 		return value.Validate()

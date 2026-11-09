@@ -9,6 +9,7 @@ type DanmakuWindowConfig struct {
 	Width        int  `json:"width"`
 	Height       int  `json:"height"`
 	PositionSaved bool `json:"position_saved"`
+	OpenOnStartup bool `json:"open_on_startup"`
 }
 
 func DefaultDanmakuWindowConfig() DanmakuWindowConfig {

@@ -111,7 +111,7 @@ func main() {
 	desktop.AttachApplication(platformService, app, appConfig.Appearance.Theme == "light")
 	desktop.AttachDanmakuDisplayApplication(danmakuDisplayService, app)
 	app.OnShutdown(func() {
-		danmakuDisplayService.CloseWindow()
+		danmakuDisplayService.CloseWindowForShutdown()
 	})
 
 	background := application.NewRGBA(18, 20, 27, 255)
@@ -124,6 +124,11 @@ func main() {
 	})
 	// Keep the main window alive until the application-level quit is confirmed.
 	// This ensures OnShutdown closes auxiliary windows before the process exits.
+	if danmakuWindowConfig.OpenOnStartup {
+		if err := danmakuDisplayService.OpenWindow(); err != nil {
+			log.Printf("restore danmaku overlay window: %v", err)
+		}
+	}
 	mainWindow.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
 		event.Cancel()
 		go app.Quit()

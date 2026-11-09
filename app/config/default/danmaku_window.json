@@ -3,5 +3,6 @@
   "y": 0,
   "width": 1000,
   "height": 560,
-  "position_saved": false
+  "position_saved": false,
+  "open_on_startup": false
 }
