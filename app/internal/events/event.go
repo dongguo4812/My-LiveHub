@@ -10,34 +10,43 @@ import (
 
 const BufferLimit = 200
 
+// EmoticonToken maps the literal token in a danmaku message to its platform image.
+type EmoticonToken struct {
+	Text   string `json:"text"`
+	URL    string `json:"url"`
+	Width  int    `json:"width,omitempty"`
+	Height int    `json:"height,omitempty"`
+}
+
 // Event is the normalized event contract shared by every platform.
 type Event struct {
-	ID           uint64  `json:"id"`
-	PlatformID   string  `json:"platform_id"`
-	Source       string  `json:"source"`
-	Type         string  `json:"type"`
-	RoomID       int     `json:"room_id,omitempty"`
-	UserID       int     `json:"user_id"`
-	UserName     string  `json:"user_name"`
-	Avatar       string  `json:"avatar,omitempty"`
-	IsModerator  bool    `json:"is_moderator,omitempty"`
-	UserLevel    int     `json:"user_level,omitempty"`
-	FanMedalName string  `json:"fan_medal_name,omitempty"`
-	FanMedalLevel int    `json:"fan_medal_level,omitempty"`
-	FanMedalColor uint32 `json:"fan_medal_color,omitempty"`
-	GiftImageURL string  `json:"gift_image_url,omitempty"`
-	Content      string  `json:"content"`
-	Timestamp    int64   `json:"timestamp"`
-	Color        uint32  `json:"color,omitempty"`
-	IsSimulation bool    `json:"is_simulation,omitempty"`
-	GiftName     string  `json:"gift_name,omitempty"`
-	GiftCount    int     `json:"gift_count,omitempty"`
-	UnitPrice    float64 `json:"unit_price,omitempty"`
-	TotalPrice   float64 `json:"total_price,omitempty"`
-	Amount       float64 `json:"amount,omitempty"`
-	Duration     int     `json:"duration,omitempty"`
-	GuardLevel   int     `json:"guard_level,omitempty"`
-	Months       int     `json:"months,omitempty"`
+	ID             uint64          `json:"id"`
+	PlatformID     string          `json:"platform_id"`
+	Source         string          `json:"source"`
+	Type           string          `json:"type"`
+	RoomID         int             `json:"room_id,omitempty"`
+	UserID         int             `json:"user_id"`
+	UserName       string          `json:"user_name"`
+	Avatar         string          `json:"avatar,omitempty"`
+	IsModerator    bool            `json:"is_moderator,omitempty"`
+	UserLevel      int             `json:"user_level,omitempty"`
+	GuardLevel     int             `json:"guard_level,omitempty"`
+	FanMedalName   string          `json:"fan_medal_name,omitempty"`
+	FanMedalLevel  int             `json:"fan_medal_level,omitempty"`
+	FanMedalColor  uint32          `json:"fan_medal_color,omitempty"`
+	GiftImageURL   string          `json:"gift_image_url,omitempty"`
+	Emoticons      []EmoticonToken `json:"emoticons,omitempty"`
+	Content        string          `json:"content"`
+	Timestamp      int64           `json:"timestamp"`
+	Color          uint32          `json:"color,omitempty"`
+	IsSimulation   bool            `json:"is_simulation,omitempty"`
+	GiftName       string          `json:"gift_name,omitempty"`
+	GiftCount      int             `json:"gift_count,omitempty"`
+	UnitPrice      float64         `json:"unit_price,omitempty"`
+	TotalPrice     float64         `json:"total_price,omitempty"`
+	Amount         float64         `json:"amount,omitempty"`
+	Duration       int             `json:"duration,omitempty"`
+	Months         int             `json:"months,omitempty"`
 }
 
 // Buffer is the shared in-memory ingress and recent-event history for all platforms.
@@ -53,22 +62,12 @@ func NewBuffer() *Buffer {
 
 // Add normalizes source metadata, assigns a local sequence ID, and stores an event.
 func (b *Buffer) Add(event Event) Event {
-	if b == nil {
-		return event
-	}
-	if event.Timestamp <= 0 {
-		event.Timestamp = time.Now().UnixMilli()
-	}
+	if b == nil { return event }
+	if event.Timestamp <= 0 { event.Timestamp = time.Now().UnixMilli() }
 	if event.Source == "" {
-		if event.IsSimulation {
-			event.Source = "simulation"
-		} else {
-			event.Source = "live"
-		}
+		if event.IsSimulation { event.Source = "simulation" } else { event.Source = "live" }
 	}
-	if event.Source == "simulation" {
-		event.IsSimulation = true
-	}
+	if event.Source == "simulation" { event.IsSimulation = true }
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.nextID++
@@ -98,45 +97,26 @@ type SimulationEventInput struct {
 
 // AddSimulationEvent injects a local event through the same buffer as live events.
 func (b *Buffer) AddSimulationEvent(platformID string, input SimulationEventInput) (Event, error) {
-	if b == nil {
-		return Event{}, errors.New("event buffer is unavailable")
-	}
+	if b == nil { return Event{}, errors.New("event buffer is unavailable") }
 	platformID = strings.TrimSpace(platformID)
-	if platformID == "" {
-		return Event{}, errors.New("平台标识不能为空")
-	}
-	if input.UserID < 0 {
-		return Event{}, errors.New("用户 UID 不能为负数")
-	}
+	if platformID == "" { return Event{}, errors.New("平台标识不能为空") }
+	if input.UserID < 0 { return Event{}, errors.New("用户 UID 不能为负数") }
 	userName := strings.TrimSpace(input.UserName)
-	if userName == "" {
-		userName = "模拟用户"
-	}
-	event := Event{
-		PlatformID: platformID, Source: "simulation", IsSimulation: true,
-		Type: input.Type, UserID: input.UserID, UserName: userName, Content: input.Content,
-	}
+	if userName == "" { userName = "模拟用户" }
+	event := Event{PlatformID: platformID, Source: "simulation", IsSimulation: true, Type: input.Type, UserID: input.UserID, UserName: userName, Content: input.Content}
 	switch input.Type {
 	case "danmaku":
-		if input.Content == "" {
-			return Event{}, errors.New("弹幕内容不能为空")
-		}
+		if input.Content == "" { return Event{}, errors.New("弹幕内容不能为空") }
 	case "gift":
-		if input.GiftName == "" || input.GiftCount < 1 || input.UnitPrice < 0 {
-			return Event{}, errors.New("礼物名称、数量或单价不正确")
-		}
+		if input.GiftName == "" || input.GiftCount < 1 || input.UnitPrice < 0 { return Event{}, errors.New("礼物名称、数量或单价不正确") }
 		event.GiftName, event.GiftCount, event.UnitPrice = input.GiftName, input.GiftCount, input.UnitPrice
 		event.TotalPrice = input.UnitPrice * float64(input.GiftCount)
 		event.Content = fmt.Sprintf("赠送了 %s × %d", input.GiftName, input.GiftCount)
 	case "super_chat":
-		if input.Amount <= 0 || input.Content == "" || input.Duration < 0 {
-			return Event{}, errors.New("SC 金额、留言或展示时长不正确")
-		}
+		if input.Amount <= 0 || input.Content == "" || input.Duration < 0 { return Event{}, errors.New("SC 金额、留言或展示时长不正确") }
 		event.Amount, event.Duration = input.Amount, input.Duration
 	case "guard":
-		if input.GuardLevel < 1 || input.GuardLevel > 3 || input.Months < 1 {
-			return Event{}, errors.New("舰队等级或开通月份不正确")
-		}
+		if input.GuardLevel < 1 || input.GuardLevel > 3 || input.Months < 1 { return Event{}, errors.New("舰队等级或开通月份不正确") }
 		event.GuardLevel, event.Months = input.GuardLevel, input.Months
 		labels := map[int]string{1: "总督", 2: "提督", 3: "舰长"}
 		event.Content = fmt.Sprintf("开通了 %s × %d 个月", labels[input.GuardLevel], input.Months)
@@ -145,7 +125,6 @@ func (b *Buffer) AddSimulationEvent(platformID string, input SimulationEventInpu
 	case "like":
 		event.Content = "为直播间点赞"
 	case "welcome", "welcom":
-		// Accept the earlier simulator value as a compatibility alias.
 		event.Type = "welcome"
 		event.Content = "进入了直播间"
 	default:
@@ -155,9 +134,7 @@ func (b *Buffer) AddSimulationEvent(platformID string, input SimulationEventInpu
 }
 
 func (b *Buffer) Snapshot() []Event {
-	if b == nil {
-		return nil
-	}
+	if b == nil { return nil }
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return append([]Event(nil), b.items...)

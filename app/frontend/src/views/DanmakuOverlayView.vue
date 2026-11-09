@@ -23,6 +23,34 @@ const eventNames: Record<string, string> = {
 }
 const visibleItems = computed(() => items.value.slice(-24))
 
+type ContentPart =
+  | { kind: 'text'; text: string }
+  | { kind: 'image'; text: string; url: string; width: number; height: number }
+
+function contentParts(event: DanmakuDisplayEvent['event']): ContentPart[] {
+  const mappings = (event.emoticons ?? []).filter(item => item.text && item.url)
+  if (mappings.length === 0) return [{ kind: 'text', text: event.content }]
+  const ordered = [...mappings].sort((a, b) => b.text.length - a.text.length)
+  const escaped = ordered.map(item => item.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  const pattern = new RegExp(escaped.join('|'), 'g')
+  const parts: ContentPart[] = []
+  let cursor = 0
+  for (const match of event.content.matchAll(pattern)) {
+    const index = match.index ?? 0
+    if (index > cursor) parts.push({ kind: 'text', text: event.content.slice(cursor, index) })
+    const token = ordered.find(item => item.text === match[0])
+    if (token) parts.push({ kind: 'image', text: token.text, url: token.url, width: token.width ?? 0, height: token.height ?? 0 })
+    cursor = index + match[0].length
+  }
+  if (cursor < event.content.length) parts.push({ kind: 'text', text: event.content.slice(cursor) })
+  return parts.length > 0 ? parts : [{ kind: 'text', text: event.content }]
+}
+
+function guardLabel(level?: number) {
+  const labels = ['', '总督', '提督', '舰长']
+  return labels[level ?? 0] ?? '舰队'
+}
+
 async function refresh() {
   if (refreshing) return
   refreshing = true
@@ -106,17 +134,29 @@ onUnmounted(() => {
             <span v-if="settings?.show_platform_badge" class="platform-badge">{{ platformNames[item.event.platform_id] ?? item.event.platform_id }}</span>
             <strong class="username">{{ item.event.user_name }}</strong>
             <span v-if="settings?.show_moderator_badge && item.event.is_moderator" class="identity-badge moderator-badge">房管</span>
-            <span v-if="settings?.show_noble_badge && (item.event.guard_level ?? 0) > 0" class="identity-badge guard-badge">{{ ['', '总督', '提督', '舰长'][item.event.guard_level] ?? '舰队' }}</span>
+            <span v-if="settings?.show_noble_badge && (item.event.guard_level ?? 0) > 0" class="identity-badge guard-badge">{{ guardLabel(item.event.guard_level) }}</span>
             <span v-if="settings?.show_fan_medal && item.event.fan_medal_name" class="identity-badge medal-badge">{{ item.event.fan_medal_name }} {{ item.event.fan_medal_level }}</span>
             <span v-if="settings?.show_user_level && (item.event.user_level ?? 0) > 0" class="identity-badge level-badge">UL {{ item.event.user_level }}</span>
             <span class="event-type">{{ eventNames[item.event.type] ?? item.event.type }}</span>
             <time>{{ formatTime(item.event.timestamp) }}</time>
           </div>
           <img v-if="settings?.show_gift_image && item.event.type === 'gift' && item.event.gift_image_url" class="gift-image" :src="item.event.gift_image_url" alt="" />
-          <div class="message-content" :style="{ fontSize: `${settings?.font_size ?? 24}px` }">{{ item.event.content }}</div>
+          <div class="message-content" :style="{ fontSize: `${settings?.font_size ?? 24}px` }">
+            <template v-for="(part, index) in contentParts(item.event)" :key="index">
+              <img
+                v-if="part.kind === 'image'"
+                class="danmaku-emoticon"
+                :src="part.url"
+                :alt="part.text"
+                :title="part.text"
+                :style="{ width: part.width > 0 ? `${part.width}px` : '1.4em', height: part.height > 0 ? `${part.height}px` : '1.4em' }"
+              />
+              <span v-else>{{ part.text }}</span>
+            </template>
+          </div>
         </div>
       </article>
-</div>
+    </div>
     <div class="resize-handle" title="拖动调整窗口大小" @pointerdown="beginResize"></div>
   </main>
 </template>
@@ -138,6 +178,7 @@ onUnmounted(() => {
 .medal-badge { background:#573d38; color:#ffe0ca; }
 .level-badge { background:#39445e; color:#d9e2ff; }
 .gift-image { display:block; max-width:72px; max-height:72px; object-fit:contain; margin-top:5px; }
+.danmaku-emoticon { display:inline-block; max-width:3em; max-height:2em; margin:0 2px; object-fit:contain; vertical-align:middle; }
 .platform-badge { padding:1px 5px; border-radius:4px; background:#46568b; color:#e8ecff; font-size:10px; }
 .event-type,time { color:#aab3c6; font-size:11px; }
 .message-content { margin-top:4px; overflow-wrap:anywhere; white-space:pre-wrap; line-height:1.4; }
