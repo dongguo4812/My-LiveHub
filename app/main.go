@@ -103,6 +103,9 @@ func main() {
 	})
 	desktop.AttachApplication(platformService, app, appConfig.Appearance.Theme == "light")
 	desktop.AttachDanmakuDisplayApplication(danmakuDisplayService, app)
+	app.OnShutdown(func() {
+		danmakuDisplayService.CloseWindow()
+	})
 
 	background := application.NewRGBA(18, 20, 27, 255)
 	if appConfig.Appearance.Theme == "light" {
