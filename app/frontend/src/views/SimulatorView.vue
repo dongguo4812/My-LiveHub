@@ -26,6 +26,7 @@ const platformID = ref(String(route.params.platformID || 'bilibili'))
 const mediaResources = ref<MediaResource[]>([])
 const resourceKeyword = ref('')
 const selectedGiftID = ref('')
+const selectedEmoticonIDs = ref<string[]>([])
 const giftImageURL = ref('')
 const resourcesBusy = ref(false)
 let resourceSearchTimer: ReturnType<typeof setTimeout> | undefined
@@ -83,14 +84,17 @@ function selectGift(resourceID: string) {
   if (item) { giftName.value = item.name; giftImageURL.value = item.image_url }
 }
 
-function insertEmoticon(item: MediaResource) { content.value = content.value ? `${content.value}${item.name}` : item.name }
+function insertEmoticon(item: MediaResource) {
+  if (!selectedEmoticonIDs.value.includes(item.resource_id)) selectedEmoticonIDs.value.push(item.resource_id)
+  content.value = content.value ? `${content.value}${item.name}` : item.name
+}
 
 async function sendEvent() {
   if (eventType.value === 'gift' && !selectedGiftID.value) { error.value = '请先从礼物目录选择礼物'; return }
   busy.value = true
   error.value = ''
   try {
-    await PlatformService.SimulatePlatformEventWithResource(
+    await PlatformService.SimulatePlatformEventWithMediaResources(
       platformID.value,
       eventType.value,
       userID.value,
@@ -106,6 +110,7 @@ async function sendEvent() {
       Number(selectedGiftID.value) || 0,
       giftImageURL.value,
       selectedGiftID.value,
+      selectedEmoticonIDs.value.filter(id => mediaResources.value.some(item => item.resource_id === id && content.value.includes(item.name))),
     )
     await refreshEvents()
     ElMessage.success(`已发送模拟${currentEventLabel.value}事件`)
@@ -120,7 +125,7 @@ function formatTime(timestamp: number) {
   return new Date(timestamp).toLocaleTimeString()
 }
 
-watch([platformID, eventType], () => { resourceKeyword.value = ''; selectedGiftID.value = ''; giftImageURL.value = ''; void loadMediaResources() })
+watch([platformID, eventType], () => { resourceKeyword.value = ''; selectedGiftID.value = ''; selectedEmoticonIDs.value = []; giftImageURL.value = ''; void loadMediaResources() })
 watch(resourceKeyword, () => { if (resourceSearchTimer) clearTimeout(resourceSearchTimer); resourceSearchTimer = setTimeout(() => void loadMediaResources(), 250) })
 
 onMounted(() => {
@@ -183,7 +188,7 @@ onUnmounted(() => {
               <el-form-item label="插入直播间表情">
                 <el-input v-model="resourceKeyword" placeholder="搜索表情名称或 ID" clearable><template #append><el-button :loading="resourcesBusy" @click="loadMediaResources">刷新</el-button></template></el-input>
                 <div v-if="mediaResources.length" class="resource-picker">
-                  <el-button v-for="item in mediaResources" :key="item.resource_id" class="emoticon-option" text @click="insertEmoticon(item)"><img :src="item.image_url" :alt="item.name" loading="lazy" /><span>{{ item.name }}</span></el-button>
+                  <el-button v-for="item in mediaResources" :key="item.resource_id" class="emoticon-option" :type="selectedEmoticonIDs.includes(item.resource_id) ? 'primary' : 'default'" text @click="insertEmoticon(item)"><img :src="item.image_url" :alt="item.name" loading="lazy" /><span>{{ item.name }}</span></el-button>
                 </div>
                 <el-empty v-else-if="!resourcesBusy" description="暂无已发现的表情；连接平台并收到表情弹幕后可自动收录" :image-size="64" />
               </el-form-item>
