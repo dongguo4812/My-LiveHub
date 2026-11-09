@@ -185,9 +185,13 @@ func extractDanmakuEmoticons(d *message.Danmaku) []eventstream.EmoticonToken {
 						}
 						var extra struct {
 							Emots map[string]struct {
-								URL    string `json:"url"`
-								Width  int    `json:"width"`
-								Height int    `json:"height"`
+								URL             string `json:"url"`
+								Width           int    `json:"width"`
+								Height          int    `json:"height"`
+								EmoticonUnique  string `json:"emoticon_unique"`
+								EmotionUnique   string `json:"emotion_unique"`
+								EmoticonID      int    `json:"emoticon_id"`
+								EmotionID       int    `json:"emotion_id"`
 							} `json:"emots"`
 						}
 						if json.Unmarshal(extraRaw, &extra) == nil {
@@ -196,7 +200,14 @@ func extractDanmakuEmoticons(d *message.Danmaku) []eventstream.EmoticonToken {
 									continue
 								}
 								if normalizedURL := normalizeEmoticonURL(emoticon.URL); normalizedURL != "" {
-								found[token] = eventstream.EmoticonToken{Text: token, URL: normalizedURL, Width: emoticon.Width, Height: emoticon.Height}
+									resourceID := firstNonEmpty(emoticon.EmoticonUnique, emoticon.EmotionUnique)
+									if resourceID == "" && emoticon.EmoticonID > 0 {
+										resourceID = strconv.Itoa(emoticon.EmoticonID)
+									}
+									if resourceID == "" && emoticon.EmotionID > 0 {
+										resourceID = strconv.Itoa(emoticon.EmotionID)
+									}
+									found[token] = eventstream.EmoticonToken{Text: token, ResourceID: resourceID, URL: normalizedURL, Width: emoticon.Width, Height: emoticon.Height}
 								}
 							}
 						}
@@ -205,13 +216,27 @@ func extractDanmakuEmoticons(d *message.Danmaku) []eventstream.EmoticonToken {
 				// A standalone room emoticon is carried in info[0][13].
 				if len(meta) > 13 && d.Content != "" {
 					var emoticon struct {
-						URL    string `json:"url"`
-						Width  int    `json:"width"`
-						Height int    `json:"height"`
+						URL            string `json:"url"`
+						Width          int    `json:"width"`
+						Height         int    `json:"height"`
+						EmoticonUnique string `json:"emoticon_unique"`
+						EmotionUnique  string `json:"emotion_unique"`
+						EmoticonID     int    `json:"emoticon_id"`
+						EmotionID      int    `json:"emotion_id"`
 					}
 					if json.Unmarshal(meta[13], &emoticon) == nil {
 						if normalizedURL := normalizeEmoticonURL(emoticon.URL); normalizedURL != "" {
-							found[d.Content] = eventstream.EmoticonToken{Text: d.Content, URL: normalizedURL, Width: emoticon.Width, Height: emoticon.Height}
+							resourceID := firstNonEmpty(emoticon.EmoticonUnique, emoticon.EmotionUnique)
+							if resourceID == "" && emoticon.EmoticonID > 0 {
+								resourceID = strconv.Itoa(emoticon.EmoticonID)
+							}
+							if resourceID == "" && emoticon.EmotionID > 0 {
+								resourceID = strconv.Itoa(emoticon.EmotionID)
+							}
+							if resourceID == "" && d.Extra != nil {
+								resourceID = d.Extra.EmoticonUnique
+							}
+							found[d.Content] = eventstream.EmoticonToken{Text: d.Content, ResourceID: resourceID, URL: normalizedURL, Width: emoticon.Width, Height: emoticon.Height}
 						}
 					}
 				}
@@ -221,7 +246,11 @@ func extractDanmakuEmoticons(d *message.Danmaku) []eventstream.EmoticonToken {
 	// The protobuf parser also exposes standalone emoticons directly.
 	if d.Emoticon != nil && d.Content != "" {
 		if normalizedURL := normalizeEmoticonURL(d.Emoticon.Url); normalizedURL != "" {
-			found[d.Content] = eventstream.EmoticonToken{Text: d.Content, URL: normalizedURL, Width: d.Emoticon.Width, Height: d.Emoticon.Height}
+			resourceID := d.Emoticon.EmoticonUnique
+			if resourceID == "" && d.Extra != nil {
+				resourceID = d.Extra.EmoticonUnique
+			}
+			found[d.Content] = eventstream.EmoticonToken{Text: d.Content, ResourceID: resourceID, URL: normalizedURL, Width: d.Emoticon.Width, Height: d.Emoticon.Height}
 		}
 	}
 	if len(found) == 0 {
@@ -284,7 +313,7 @@ func (a *Adapter) Connect(ctx context.Context) error {
 			IsModerator: d.Sender.Admin, UserLevel: int(d.Sender.UserLevel), GuardLevel: d.Sender.GuardLevel,
 			FanMedalName: medalName(d.Sender.Medal), FanMedalLevel: medalLevel(d.Sender.Medal), FanMedalColor: medalColor(d.Sender.Medal),
 		})
-		if a.mediaCatalog!=nil{for _,token:=range emoticons{a.mediaCatalog.Register(resource.Resource{PlatformID:"bilibili",SourceID:fmt.Sprint(roomID),Type:resource.TypeEmoticon,ID:token.Text,Name:token.Text,ImageURL:token.URL,Width:token.Width,Height:token.Height})}}
+		if a.mediaCatalog!=nil{for _,token:=range emoticons{a.mediaCatalog.Register(resource.Resource{PlatformID:"bilibili",SourceID:fmt.Sprint(roomID),Type:resource.TypeEmoticon,ID:token.ResourceID,Name:token.Text,ImageURL:token.URL,Width:token.Width,Height:token.Height})}}
 	})
 	stream.OnGift(func(g *message.Gift) {
 		if g == nil { return }
