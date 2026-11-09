@@ -10,12 +10,22 @@ import (
 	"github.com/Akegarasu/blivedm-go/message"
 )
 
+type streamClient interface {
+	SetCookie(string)
+	OnDanmaku(func(*message.Danmaku))
+	StartContext(context.Context) error
+	Stop()
+	Wait()
+	Done() <-chan struct{}
+}
+
 type Adapter struct {
 	auth *AuthManager
 	events *EventBuffer
+	newStream func(int) streamClient
 	mu sync.Mutex
 	roomID int
-	client *client.Client
+	client streamClient
 	cancel context.CancelFunc
 }
 
@@ -23,7 +33,12 @@ func NewAdapter(auth *AuthManager, roomID int, events *EventBuffer) (*Adapter, e
 	if auth == nil { return nil, errors.New("Bilibili authentication manager is required") }
 	if roomID < 0 { return nil, errors.New("Bilibili room ID cannot be negative") }
 	if events == nil { events = NewEventBuffer() }
-	return &Adapter{auth:auth, roomID:roomID, events:events}, nil
+	return &Adapter{
+		auth: auth,
+		roomID: roomID,
+		events: events,
+		newStream: func(roomID int) streamClient { return client.NewClient(roomID) },
+	}, nil
 }
 
 func (a *Adapter) ID() string { return "bilibili" }
