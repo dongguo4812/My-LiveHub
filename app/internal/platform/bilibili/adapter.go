@@ -324,7 +324,9 @@ func (a *Adapter) Connect(ctx context.Context) error {
 					ImageURL: emoticons[i].URL, Width: emoticons[i].Width, Height: emoticons[i].Height,
 				})
 			}
-			if rawResourceID != "" {
+			if rawResourceID == "" {
+				emoticons[i].ResourceID = sourceID + ":" + emoticons[i].URL
+			} else {
 				emoticons[i].ResourceID = sourceID + ":" + rawResourceID
 			}
 		}

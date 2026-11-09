@@ -36,7 +36,11 @@ type roomEmoticonResponse struct {
 }
 
 func emoticonSourceID(roomID int, unique string) string {
-	if strings.HasPrefix(strings.TrimSpace(unique), "room_") || strings.TrimSpace(unique) == "" {
+	value := strings.TrimSpace(unique)
+	if strings.HasPrefix(value, "room_") || value == "" {
+		return strconv.Itoa(roomID)
+	}
+	if _, err := strconv.Atoi(value); err == nil {
 		return strconv.Itoa(roomID)
 	}
 	return "common"

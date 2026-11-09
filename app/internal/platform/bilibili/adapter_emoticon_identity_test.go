@@ -122,3 +122,12 @@ func TestAdapterRegistersEmoticonByStableResourceID(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestEmoticonSourceIDTreatsNumericFallbackAsRoomScoped(t *testing.T) {
+	if got := emoticonSourceID(12345, "331"); got != "12345" {
+		t.Fatalf("numeric fallback source ID = %q, want room ID", got)
+	}
+	if got := emoticonSourceID(12345, "official_331"); got != "common" {
+		t.Fatalf("official emoticon source ID = %q, want common", got)
+	}
+}
