@@ -10,6 +10,7 @@ import (
 	"github.com/dongguo4812/My-LiveHub/app/internal/core"
 	"github.com/dongguo4812/My-LiveHub/app/internal/desktop"
 	"github.com/dongguo4812/My-LiveHub/app/internal/platform"
+	"github.com/dongguo4812/My-LiveHub/app/internal/platform/bilibili"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -52,6 +53,15 @@ func main() {
 		log.Fatalf("initialize core application: %v", err)
 	}
 
+	credentialStore, err := bilibili.NewDPAPICredentialStore()
+	if err != nil {
+		log.Fatalf("initialize Bilibili credential store: %v", err)
+	}
+	bilibiliAuth, err := bilibili.NewAuthManager(credentialStore, nil)
+	if err != nil {
+		log.Fatalf("initialize Bilibili authentication: %v", err)
+	}
+
 	platformManager := platform.NewManager()
 	if err := coreApp.Modules().Register("platform-connections", platformManager); err != nil {
 		log.Fatalf("register platform connection module: %v", err)
@@ -66,6 +76,7 @@ func main() {
 		Services: []application.Service{
 			application.NewService(desktop.NewCoreService(coreApp)),
 			application.NewService(desktop.NewPlatformService(platformManager)),
+			application.NewService(desktop.NewBilibiliAuthService(bilibiliAuth)),
 		},
 	})
 
