@@ -136,16 +136,16 @@ func (s *PlatformService) SimulatePlatformEvent(
 	if s == nil || s.events == nil {
 		return eventstream.Event{}, errors.New("platform event service is unavailable")
 	}
-	return s.SimulatePlatformEventWithResource(platformID, eventType, userID, userName, content, giftName, giftCount, unitPrice, amount, duration, guardLevel, months, 0, "")
+	return s.SimulatePlatformEventWithResource(platformID, eventType, userID, userName, content, giftName, giftCount, unitPrice, amount, duration, guardLevel, months, 0, "", "")
 }
 
 // SimulatePlatformEventWithResource carries the selected catalog identity and image URL into the shared event pipeline.
-func (s *PlatformService) SimulatePlatformEventWithResource(platformID, eventType string, userID int, userName, content, giftName string, giftCount int, unitPrice, amount float64, duration, guardLevel, months, giftID int, giftImageURL string) (eventstream.Event, error) {
+func (s *PlatformService) SimulatePlatformEventWithResource(platformID, eventType string, userID int, userName, content, giftName string, giftCount int, unitPrice, amount float64, duration, guardLevel, months, giftID int, giftImageURL string, giftResourceID string) (eventstream.Event, error) {
 	if s == nil || s.events == nil { return eventstream.Event{}, errors.New("platform event service is unavailable") }
 	return s.events.AddSimulationEvent(platformID, eventstream.SimulationEventInput{
 		Type: eventType, UserID: userID, UserName: userName, Content: content, GiftName: giftName,
 		GiftCount: giftCount, UnitPrice: unitPrice, Amount: amount, Duration: duration,
-		GuardLevel: guardLevel, Months: months, GiftID: giftID, GiftImageURL: giftImageURL,
+		GuardLevel: guardLevel, Months: months, GiftID: giftID, GiftResourceID: giftResourceID, GiftImageURL: giftImageURL,
 	})
 }
 
