@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -20,7 +22,7 @@ type catalogFile struct {
 
 type catalogPersistence struct {
 	catalog *Catalog
-	path    string
+	root    string
 	dirty   chan struct{}
 	stop    chan struct{}
 	done    chan struct{}
@@ -29,47 +31,22 @@ type catalogPersistence struct {
 	err     error
 }
 
-// NewPersistentCatalog loads the last saved catalog before returning. Subsequent
-// registrations and refresh timestamps are coalesced by a background writer.
-func NewPersistentCatalog(path string) (*Catalog, error) {
-	if path == "" {
-		return nil, errors.New("media catalog persistence path is required")
+// NewPersistentCatalog loads a platform/scope/type-partitioned JSON catalog.
+// The supplied path is the media-resources root directory, not a JSON filename.
+func NewPersistentCatalog(root string) (*Catalog, error) {
+	if strings.TrimSpace(root) == "" {
+		return nil, errors.New("media catalog persistence directory is required")
 	}
 	catalog := NewCatalog()
-	var loadErr error
-	data, err := os.ReadFile(path)
-	if err == nil {
-		var stored catalogFile
-		if decodeErr := json.Unmarshal(data, &stored); decodeErr != nil {
-			loadErr = fmt.Errorf("decode media catalog %q: %w", path, decodeErr)
-		} else if stored.Version != catalogFileVersion {
-			loadErr = fmt.Errorf("unsupported media catalog version %d", stored.Version)
-		} else {
-			for _, item := range stored.Resources {
-				catalog.Register(item)
-			}
-			for key, refreshedAt := range stored.Refreshes {
-				if !refreshedAt.IsZero() {
-					catalog.refreshes[key] = refreshedAt
-				}
-			}
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		loadErr = fmt.Errorf("read media catalog %q: %w", path, err)
-	}
-
-	// Never start a writer when the existing catalog could not be loaded.
-	// The caller still receives an empty in-memory catalog alongside the error,
-	// but registering resources or closing it must not overwrite the unreadable
-	// file with an incomplete snapshot. A later successful recovery/restart can
-	// load the original data again.
-	if loadErr != nil {
-		return catalog, loadErr
+	if err := loadCatalogDirectory(root, catalog); err != nil {
+		// Fail closed: never start a writer when any existing catalog file is
+		// unreadable, otherwise a later flush could erase recoverable data.
+		return catalog, err
 	}
 
 	persistence := &catalogPersistence{
 		catalog: catalog,
-		path:    path,
+		root:    root,
 		dirty:   make(chan struct{}, 1),
 		stop:    make(chan struct{}),
 		done:    make(chan struct{}),
@@ -77,6 +54,76 @@ func NewPersistentCatalog(path string) (*Catalog, error) {
 	catalog.persistence = persistence
 	go persistence.run()
 	return catalog, nil
+}
+
+func loadCatalogDirectory(root string, catalog *Catalog) error {
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if errors.Is(walkErr, os.ErrNotExist) && path == root {
+			return nil
+		}
+		if walkErr != nil {
+			return fmt.Errorf("walk media catalog directory %q: %w", root, walkErr)
+		}
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read media catalog %q: %w", path, err)
+		}
+		var stored catalogFile
+		if err := json.Unmarshal(data, &stored); err != nil {
+			return fmt.Errorf("decode media catalog %q: %w", path, err)
+		}
+		if stored.Version != catalogFileVersion {
+			return fmt.Errorf("unsupported media catalog version %d in %q", stored.Version, path)
+		}
+		for _, item := range stored.Resources {
+			catalog.Register(item)
+		}
+		for key, refreshedAt := range stored.Refreshes {
+			if !refreshedAt.IsZero() {
+				catalog.refreshes[key] = refreshedAt
+			}
+		}
+		return nil
+	})
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
+func safeCatalogSegment(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "_"
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || r == '-' || r == '_' {
+			continue
+		}
+		return fmt.Sprintf("id-%x", []byte(value))
+	}
+	if value == "." || value == ".." {
+		return fmt.Sprintf("id-%x", []byte(value))
+	}
+	return value
+}
+
+func catalogPartitionPath(root string, platformID, sourceID string, kind Type) string {
+	scope := "rooms"
+	scopeID := sourceID
+	if sourceID == "common" {
+		scope = "common"
+		scopeID = ""
+	}
+	dir := filepath.Join(root, safeCatalogSegment(platformID), scope)
+	if scopeID != "" {
+		dir = filepath.Join(dir, safeCatalogSegment(scopeID))
+	}
+	return filepath.Join(dir, string(kind)+".json")
 }
 
 func (p *catalogPersistence) markDirty() {
@@ -136,31 +183,60 @@ func (p *catalogPersistence) run() {
 
 func (p *catalogPersistence) flush() {
 	p.catalog.mu.RLock()
-	snapshot := make([]Resource, 0, len(p.catalog.items))
+	partitions := make(map[string]*catalogFile)
 	for _, item := range p.catalog.items {
-		snapshot = append(snapshot, item)
+		path := catalogPartitionPath(p.root, item.PlatformID, item.SourceID, item.Type)
+		file := partitions[path]
+		if file == nil {
+			file = &catalogFile{Version: catalogFileVersion}
+			partitions[path] = file
+		}
+		file.Resources = append(file.Resources, item)
 	}
-	refreshes := make(map[string]time.Time, len(p.catalog.refreshes))
-	for key, at := range p.catalog.refreshes {
-		refreshes[key] = at
+	for key, refreshedAt := range p.catalog.refreshes {
+		parts := strings.Split(key, "\x00")
+		if len(parts) != 3 {
+			continue
+		}
+		path := catalogPartitionPath(p.root, parts[0], parts[1], Type(parts[2]))
+		file := partitions[path]
+		if file == nil {
+			file = &catalogFile{Version: catalogFileVersion}
+			partitions[path] = file
+		}
+		if file.Refreshes == nil {
+			file.Refreshes = make(map[string]time.Time)
+		}
+		file.Refreshes[key] = refreshedAt
 	}
 	p.catalog.mu.RUnlock()
 
-	data, err := json.MarshalIndent(catalogFile{Version: catalogFileVersion, Resources: snapshot, Refreshes: refreshes}, "", "  ")
-	if err != nil {
-		p.setError(fmt.Errorf("encode media catalog: %w", err))
-		return
+	paths := make([]string, 0, len(partitions))
+	for path := range partitions {
+		paths = append(paths, path)
 	}
-	if err := os.MkdirAll(filepath.Dir(p.path), 0o700); err != nil {
-		p.setError(fmt.Errorf("create media catalog directory: %w", err))
-		return
+	sort.Strings(paths)
+	for _, path := range paths {
+		if err := writeCatalogFile(path, partitions[path]); err != nil {
+			p.setError(err)
+			return
+		}
 	}
+	p.setError(nil)
+}
 
-	tempPath := p.path + ".tmp"
+func writeCatalogFile(path string, snapshot *catalogFile) error {
+	data, err := json.MarshalIndent(snapshot, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode media catalog: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create media catalog directory: %w", err)
+	}
+	tempPath := path + ".tmp"
 	file, err := os.OpenFile(tempPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
-		p.setError(fmt.Errorf("create media catalog temporary file: %w", err))
-		return
+		return fmt.Errorf("create media catalog temporary file: %w", err)
 	}
 	if _, err = file.Write(data); err == nil {
 		err = file.Sync()
@@ -171,13 +247,11 @@ func (p *catalogPersistence) flush() {
 	}
 	if err != nil {
 		_ = os.Remove(tempPath)
-		p.setError(fmt.Errorf("write media catalog: %w", err))
-		return
+		return fmt.Errorf("write media catalog: %w", err)
 	}
-	if err := os.Rename(tempPath, p.path); err != nil {
+	if err := os.Rename(tempPath, path); err != nil {
 		_ = os.Remove(tempPath)
-		p.setError(fmt.Errorf("replace media catalog: %w", err))
-		return
+		return fmt.Errorf("replace media catalog: %w", err)
 	}
-	p.setError(nil)
+	return nil
 }
