@@ -80,11 +80,7 @@ func (c *Catalog) Register(r Resource) bool {
 		if old.Name == r.Name && old.ImageURL == r.ImageURL && old.Width == r.Width && old.Height == r.Height {
 			return true
 		}
-		if old.UpdatedAt.IsZero() {
-			r.UpdatedAt = now
-		} else {
-			r.UpdatedAt = now
-		}
+		r.UpdatedAt = now
 	} else {
 		if r.FirstSeenAt.IsZero() {
 			r.FirstSeenAt = now
