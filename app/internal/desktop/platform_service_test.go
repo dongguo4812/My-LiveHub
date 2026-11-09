@@ -54,7 +54,7 @@ func TestSimulatePlatformEventResolvesSelectedEmoticonsFromCatalog(t *testing.T)
 
 	event, err := service.SimulatePlatformEventWithMediaResources("bilibili", "danmaku", 7, "viewer", "hello[dog]", "", 0, 0, 0, 0, 0, 0, 0, "", "", []string{"[dog]", "not-in-catalog"})
 	if err != nil { t.Fatal(err) }
-	if len(event.Emoticons) != 1 || event.Emoticons[0].URL != "https://img.test/dog.png" || event.Emoticons[0].Width != 24 {
+	if len(event.Emoticons) != 1 || event.Emoticons[0].URL != "https://img.test/dog.png" || event.Emoticons[0].Width != 24 || event.Emoticons[0].ResourceID != "123:[dog]" {
 		t.Fatalf("simulated emoticons were not resolved from the selected platform catalog: %+v", event.Emoticons)
 	}
 

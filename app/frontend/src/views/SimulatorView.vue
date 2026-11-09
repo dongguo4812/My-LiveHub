@@ -27,6 +27,7 @@ const mediaResources = ref<MediaResource[]>([])
 const resourceKeyword = ref('')
 const selectedGiftID = ref('')
 const selectedEmoticonIDs = ref<string[]>([])
+const failedResourceImages = ref(new Set<string>())
 const giftImageURL = ref('')
 const resourcesBusy = ref(false)
 let resourceSearchTimer: ReturnType<typeof setTimeout> | undefined
@@ -52,6 +53,8 @@ const selectedGift = computed(() => mediaResources.value.find(item => (item.reso
 function resourceID(item: MediaResource): string { return item.resource_id ?? '' }
 function resourceName(item: MediaResource): string { return item.name ?? '' }
 function resourceImageURL(item: MediaResource): string { return item.image_url ?? '' }
+function markResourceImageFailed(item: MediaResource) { failedResourceImages.value = new Set(failedResourceImages.value).add(resourceID(item)) }
+function resourceImageFailed(item: MediaResource): boolean { return failedResourceImages.value.has(resourceID(item)) }
 const currentPlatformName = computed(() => platforms.value.find(item => item.platform_id === platformID.value)?.platform_id ?? platformID.value)
 
 async function refreshEvents() {
@@ -195,7 +198,7 @@ onUnmounted(() => {
               <el-form-item label="插入直播间表情">
                 <el-input v-model="resourceKeyword" placeholder="搜索表情名称或 ID" clearable><template #append><el-button :loading="resourcesBusy" @click="loadMediaResources">刷新</el-button></template></el-input>
                 <div v-if="mediaResources.length" class="resource-picker">
-                  <el-button v-for="item in mediaResources" :key="resourceID(item)" class="emoticon-option" :type="selectedEmoticonIDs.includes(resourceID(item)) ? 'primary' : 'default'" text @click="insertEmoticon(item)"><img :src="resourceImageURL(item)" :alt="resourceName(item)" loading="lazy" /><span>{{ resourceName(item) }}</span></el-button>
+                  <el-button v-for="item in mediaResources" :key="resourceID(item)" class="emoticon-option" :type="selectedEmoticonIDs.includes(resourceID(item)) ? 'primary' : 'default'" text @click="insertEmoticon(item)"><img v-if="!resourceImageFailed(item)" :src="resourceImageURL(item)" :alt="resourceName(item)" referrerpolicy="no-referrer" loading="lazy" @error="markResourceImageFailed(item)" /><span>{{ resourceName(item) }}</span></el-button>
                 </div>
                 <el-empty v-else-if="!resourcesBusy" description="暂无已发现的表情；连接平台并收到表情弹幕后可自动收录" :image-size="64" />
               </el-form-item>
@@ -206,10 +209,10 @@ onUnmounted(() => {
                 <el-input v-model="resourceKeyword" placeholder="搜索礼物名称或 ID" clearable><template #append><el-button :loading="resourcesBusy" @click="loadMediaResources">刷新</el-button></template></el-input>
                 <el-select v-model="selectedGiftID" class="full-width" filterable @change="selectGift">
                   <el-option v-for="item in mediaResources" :key="resourceID(item)" :label="resourceName(item)" :value="resourceID(item)">
-                    <div class="gift-option"><img :src="resourceImageURL(item)" :alt="resourceName(item)" loading="lazy" /><span>{{ resourceName(item) }}</span><small>#{{ resourceID(item) }}</small></div>
+                    <div class="gift-option"><img v-if="!resourceImageFailed(item)" :src="resourceImageURL(item)" :alt="resourceName(item)" referrerpolicy="no-referrer" loading="lazy" @error="markResourceImageFailed(item)" /><span>{{ resourceName(item) }}</span><small>#{{ resourceID(item) }}</small></div>
                   </el-option>
                 </el-select>
-                <div v-if="selectedGift" class="selected-gift"><img :src="resourceImageURL(selectedGift)" :alt="resourceName(selectedGift)" /><span>{{ resourceName(selectedGift) }}（ID：{{ resourceID(selectedGift) }}）</span></div>
+                <div v-if="selectedGift" class="selected-gift"><img :src="resourceImageURL(selectedGift)" :alt="resourceName(selectedGift)" referrerpolicy="no-referrer" /><span>{{ resourceName(selectedGift) }}（ID：{{ resourceID(selectedGift) }}）</span></div>
                 <el-empty v-else-if="!resourcesBusy && mediaResources.length === 0" description="暂无礼物目录；连接平台后会自动获取直播间礼物列表" :image-size="64" />
               </el-form-item>
               <div class="field-grid">

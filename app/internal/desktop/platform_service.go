@@ -164,7 +164,7 @@ func (s *PlatformService) SimulatePlatformEventWithMediaResources(platformID, ev
 			if _, ok := selected[item.ID]; !ok || item.Name == "" || item.ImageURL == "" || !strings.Contains(content, item.Name) { continue }
 			if _, ok := seen[item.Name]; ok { continue }
 			seen[item.Name] = struct{}{}
-			emoticons = append(emoticons, eventstream.EmoticonToken{Text: item.Name, URL: item.ImageURL, Width: item.Width, Height: item.Height})
+			emoticons = append(emoticons, eventstream.EmoticonToken{Text: item.Name, ResourceID: item.SourceID + ":" + item.ID, URL: item.ImageURL, Width: item.Width, Height: item.Height})
 		}
 	}
 	return s.events.AddSimulationEvent(platformID, eventstream.SimulationEventInput{

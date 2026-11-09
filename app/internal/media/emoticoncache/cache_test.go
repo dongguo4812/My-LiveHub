@@ -38,3 +38,15 @@ func TestServeHTTPOnlyServesCacheFilesAndFallsBack(t *testing.T) {
 	m.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/index.html", nil))
 	if res.Code != http.StatusNoContent { t.Fatalf("fallback was not called: %d", res.Code) }
 }
+
+func TestResourceIdentityProducesStableSingleCacheKey(t *testing.T) {
+	policy := BilibiliURLPolicy
+	first, ext1, err := cacheKeyForResource("https://i0.hdslb.com/a.png?token=one", "bilibili:common:[dog]", policy)
+	if err != nil { t.Fatal(err) }
+	second, ext2, err := cacheKeyForResource("https://i0.hdslb.com/b.png?token=two", "bilibili:common:[dog]", policy)
+	if err != nil { t.Fatal(err) }
+	if first != second || ext1 != ext2 { t.Fatalf("same resource should share one cache file: %s %s %s %s", first, ext1, second, ext2) }
+	other, _, err := cacheKeyForResource("https://i0.hdslb.com/a.png?token=one", "bilibili:room_123:[dog]", policy)
+	if err != nil { t.Fatal(err) }
+	if other == first { t.Fatal("different resource identities must not share cache files") }
+}

@@ -65,11 +65,11 @@ func (s *DanmakuDisplayService) GetDisplayEvents() []danmaku.DisplayEvent {
 			}
 		}
 		for j := range result[i].Event.Emoticons {
-			originalURL := result[i].Event.Emoticons[j].URL
-			if localURL := s.imageCache.CachedURLFor(result[i].Event.PlatformID,originalURL); localURL != "" {
-				result[i].Event.Emoticons[j].CacheURL = localURL
+			token := &result[i].Event.Emoticons[j]
+			if localURL := s.imageCache.CachedURLForResource(result[i].Event.PlatformID, token.ResourceID, token.URL); localURL != "" {
+				token.CacheURL = localURL
 			} else {
-				s.imageCache.PrefetchFor(result[i].Event.PlatformID,originalURL)
+				s.imageCache.PrefetchForResource(result[i].Event.PlatformID, token.ResourceID, token.URL)
 			}
 		}
 	}
