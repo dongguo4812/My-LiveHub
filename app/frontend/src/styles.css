@@ -152,10 +152,17 @@ button { font: inherit; }
 .status-dot.starting, .status-dot.stopping, .status-dot.created, .status-dot.unknown { background: var(--app-warning); box-shadow: 0 0 8px #d6a85e55; }
 
 :root[data-theme="light"] {
- color-scheme:light; --app-bg-page:#f3f5fa; --app-bg-sidebar:#fff; --app-bg-surface:#fff; --app-bg-overlay:#fff;
- --app-bg-control:#f0f2f8; --app-bg-hover:#e8ecf5; --app-bg-selected:#e8eaff;
+ color-scheme:light;
+ /* Soft neutral whites: keep the light appearance without large pure-white areas. */
+ --app-bg-page:#f2f3f5;
+ --app-bg-sidebar:#f8f9fa;
+ --app-bg-surface:#fafbfc;
+ --app-bg-overlay:#fcfcfd;
+ --app-bg-control:#eef0f3;
+ --app-bg-hover:#e7eaf0;
+ --app-bg-selected:#e7e9f7;
  --app-text-primary:#202536; --app-text-regular:#41495b; --app-text-secondary:#697386; --app-text-muted:#8992a3;
- --app-border:#d9deea; --app-border-subtle:#e7eaf1; --el-fill-color-lighter:#f5f6fa;
+ --app-border:#d9dee6; --app-border-subtle:#e5e8ee; --el-fill-color-lighter:#f3f4f6;
 }
 :root[data-accent="indigo"]{--app-accent:#7c8cff;--app-accent-soft:#aab5ff}
 :root[data-accent="blue"]{--app-accent:#5798e8;--app-accent-soft:#8bb9f1}

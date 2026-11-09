@@ -11,12 +11,12 @@ import (
 func newTestApp(t *testing.T) *App {
 	t.Helper()
 	manager, err := config.NewManager(fstest.MapFS{
-		"app.json": &fstest.MapFile{Data: []byte(`{"config_version":1}`)},
+		"app.json": &fstest.MapFile{Data: []byte(`{"config_version":1,"appearance":{"theme":"dark","accent_color":"indigo"}}`)},
 	}, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	app, err := New(manager, config.AppConfig{ConfigVersion: config.CurrentAppConfigVersion})
+	app, err := New(manager, config.AppConfig{ConfigVersion: config.CurrentAppConfigVersion, Appearance: config.DefaultAppearanceConfig()})
 	if err != nil {
 		t.Fatal(err)
 	}
