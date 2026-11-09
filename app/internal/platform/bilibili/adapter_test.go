@@ -88,6 +88,34 @@ func TestGiftCatalogRefreshCachesByRoomAndNormalizesImageURL(t *testing.T) {
 	if got := catalog.ImageURL(54321, 30607); got == "" { t.Fatal("gift image should be cached independently for the second room") }
 }
 
+
+func TestAdapterConnectContinuesWhenGiftCatalogUnavailable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "temporarily unavailable", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	a, err := NewAdapter(newAdapterTestAuth(t), 12345, eventstream.NewBuffer())
+	if err != nil { t.Fatal(err) }
+	a.giftCatalog = newGiftCatalog(server.Client())
+	a.giftCatalog.endpoint = server.URL
+	fake := newFakeStreamClient(12345)
+	a.newStream = func(int) streamClient { return fake }
+	if err := a.Connect(context.Background()); err != nil {
+		t.Fatalf("gift catalog failure must not prevent live connection: %v", err)
+	}
+	fake.mu.Lock()
+	started := fake.started
+	fake.mu.Unlock()
+	if !started { t.Fatal("live stream did not start after optional gift catalog failure") }
+	fake.emitGift(&message.Gift{GiftId: 30607, GiftName: "小心心", Num: 1, Uid: 7, Uname: "viewer"})
+	got := a.events.Snapshot()
+	if len(got) != 1 || got[0].Type != "gift" || got[0].GiftImageURL != "" {
+		t.Fatalf("gift event should still be delivered without an image: %+v", got)
+	}
+	if err := a.Disconnect(context.Background()); err != nil { t.Fatal(err) }
+}
+
 func TestAdapterReceivesGiftWithResolvedImage(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"code":0,"message":"0","data":{"gift_config":{"base_config":{"list":[{"id":30607,"img_basic":"https://i0.hdslb.com/bfs/live/gift.png"}]}}}}`))
