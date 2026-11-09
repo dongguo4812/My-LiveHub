@@ -129,6 +129,7 @@ func (s *DanmakuDisplayService) OpenWindow() error {
 		options.X = cfg.X
 		options.Y = cfg.Y
 	}
+	s.pinned = false
 	window := s.app.Window.NewWithOptions(options)
 	s.window = window
 	window.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {

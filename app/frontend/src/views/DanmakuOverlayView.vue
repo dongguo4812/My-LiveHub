@@ -81,8 +81,9 @@ onMounted(async () => {
   await refresh()
   refreshTimer = setInterval(() => {
     void refresh()
+    void loadDanmakuDisplaySettings()
     void loadDanmakuWindowState()
-  }, 300)
+  }, 1000)
 })
 onUnmounted(() => {
   if (refreshTimer) clearInterval(refreshTimer)
@@ -107,7 +108,7 @@ onUnmounted(() => {
             <span class="event-type">{{ eventNames[item.event.type] ?? item.event.type }}</span>
             <time>{{ formatTime(item.event.timestamp) }}</time>
           </div>
-          <div class="message-content">{{ item.event.content }}</div>
+          <div class="message-content" :style="{ fontSize: `${settings?.font_size ?? 24}px` }">{{ item.event.content }}</div>
         </div>
       </article>
 </div>
@@ -128,7 +129,7 @@ onUnmounted(() => {
 .username { color:#aebaff; font-size:13px; }
 .platform-badge { padding:1px 5px; border-radius:4px; background:#46568b; color:#e8ecff; font-size:10px; }
 .event-type,time { color:#aab3c6; font-size:11px; }
-.message-content { margin-top:4px; overflow-wrap:anywhere; white-space:pre-wrap; font-size:24px; line-height:1.4; }
+.message-content { margin-top:4px; overflow-wrap:anywhere; white-space:pre-wrap; line-height:1.4; }
 .empty-state { padding:10px 14px; border-radius:8px; background:#111722a8; color:#d2d8e6; font-size:18px; }
 .resize-handle { --wails-draggable:no-drag; position:absolute; right:0; bottom:0; width:22px; height:22px; cursor:nwse-resize; background:linear-gradient(135deg,transparent 48%,#aab5d877 50%,#aab5d877 56%,transparent 58%,transparent 68%,#aab5d877 70%,#aab5d877 76%,transparent 78%); }
 .danmaku-overlay.pinned .resize-handle { display:none; }
