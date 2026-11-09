@@ -9,6 +9,7 @@ import (
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
 	"github.com/dongguo4812/My-LiveHub/app/internal/core"
 	"github.com/dongguo4812/My-LiveHub/app/internal/desktop"
+	"github.com/dongguo4812/My-LiveHub/app/internal/platform"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -49,6 +50,11 @@ func main() {
 	coreApp, err := core.New(configManager, appConfig)
 	if err != nil {
 		log.Fatalf("initialize core application: %v", err)
+	}
+
+	platformManager := platform.NewManager()
+	if err := coreApp.Modules().Register("platform-connections", platformManager); err != nil {
+		log.Fatalf("register platform connection module: %v", err)
 	}
 
 	app := application.New(application.Options{
