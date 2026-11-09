@@ -31,16 +31,21 @@ type Resource struct {
 type Catalog struct {
 	mu          sync.RWMutex
 	items       map[string]Resource
+	refreshes   map[string]time.Time
 	persistence *catalogPersistence
 	closed      bool
 }
 
 func NewCatalog() *Catalog {
-	return &Catalog{items: make(map[string]Resource)}
+	return &Catalog{items: make(map[string]Resource), refreshes: make(map[string]time.Time)}
 }
 
 func identity(r Resource) string {
 	return strings.Join([]string{r.PlatformID, r.SourceID, string(r.Type), r.ID}, "\x00")
+}
+
+func refreshIdentity(platformID, sourceID string, kind Type) string {
+	return strings.Join([]string{strings.TrimSpace(platformID), strings.TrimSpace(sourceID), string(kind)}, "\x00")
 }
 
 // Register updates the in-memory catalog and only signals the persistence worker.
@@ -91,6 +96,41 @@ func (c *Catalog) Register(r Resource) bool {
 		}
 	}
 	c.items[key] = r
+	if c.persistence != nil {
+		c.persistence.markDirty()
+	}
+	return true
+}
+
+// IsFresh reports whether a source's last successful directory refresh is within ttl.
+func (c *Catalog) IsFresh(platformID, sourceID string, kind Type, ttl time.Duration) bool {
+	if c == nil || ttl <= 0 {
+		return false
+	}
+	c.mu.RLock()
+	refreshedAt := c.refreshes[refreshIdentity(platformID, sourceID, kind)]
+	c.mu.RUnlock()
+	return !refreshedAt.IsZero() && time.Since(refreshedAt) < ttl
+}
+
+// MarkRefreshed records a successful directory refresh. Call it only after the
+// remote request and response validation have completed successfully.
+func (c *Catalog) MarkRefreshed(platformID, sourceID string, kind Type, at time.Time) bool {
+	if c == nil || strings.TrimSpace(platformID) == "" || (kind != TypeEmoticon && kind != TypeGift) {
+		return false
+	}
+	if at.IsZero() {
+		at = time.Now()
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return false
+	}
+	if c.refreshes == nil {
+		c.refreshes = make(map[string]time.Time)
+	}
+	c.refreshes[refreshIdentity(platformID, sourceID, kind)] = at
 	if c.persistence != nil {
 		c.persistence.markDirty()
 	}
