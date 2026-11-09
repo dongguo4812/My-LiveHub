@@ -34,7 +34,7 @@ func TestDanmakuDisplayServiceReturnsProcessedEvents(t *testing.T) {
 	buffer := events.NewBuffer()
 	buffer.Add(events.Event{PlatformID: "bilibili", Type: "danmaku", UserID: 1, UserName: "viewer", Content: "hello", Timestamp: time.Now().UnixMilli()})
 	buffer.Add(events.Event{PlatformID: "bilibili", Type: "like", UserID: 1, UserName: "viewer", Timestamp: time.Now().UnixMilli()})
-	service := NewDanmakuDisplayService(nil, config.DefaultDanmakuDisplayConfig(), config.DefaultDanmakuWindowConfig(), buffer)
+	service := NewDanmakuDisplayService(nil, config.DefaultDanmakuDisplayConfig(), config.DefaultDanmakuWindowConfig(), buffer), nil
 	got := service.GetDisplayEvents()
 	if len(got) != 2 || got[0].Event.PlatformID != "bilibili" {
 		t.Fatalf("unexpected display events: %+v", got)
