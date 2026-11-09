@@ -122,9 +122,10 @@ func main() {
 		Name: "main-window", Title: "My-LiveHub", Width: 1440, Height: 900,
 		MinWidth: 1100, MinHeight: 680, BackgroundColour: background, URL: "/",
 	})
-	// Closing the main window exits the application. The shutdown hook above
-	// then closes the independent overlay window as part of the same lifecycle.
-	mainWindow.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
+	// Keep the main window alive until the application-level quit is confirmed.
+	// This ensures OnShutdown closes auxiliary windows before the process exits.
+	mainWindow.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
+		event.Cancel()
 		go app.Quit()
 	})
 	if err := app.Run(); err != nil {
