@@ -3,6 +3,7 @@ package desktop
 import (
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
 	"github.com/dongguo4812/My-LiveHub/app/internal/danmaku"

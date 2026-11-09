@@ -97,7 +97,7 @@ func main() {
 			application.NewService(desktop.NewBilibiliAuthService(bilibiliAuth)),
 			application.NewService(desktop.NewBilibiliSettingsService(configManager, bilibiliConfig, bilibiliAdapter)),
 			application.NewService(desktop.NewAppearanceService(configManager, appConfig)),
-			application.NewService(desktop.NewDanmakuDisplayService(configManager, danmakuDisplayConfig)),
+			application.NewService(desktop.NewDanmakuDisplayService(configManager, danmakuDisplayConfig, bilibiliEvents)),
 		},
 	})
 	desktop.AttachApplication(platformService, app, appConfig.Appearance.Theme == "light")
