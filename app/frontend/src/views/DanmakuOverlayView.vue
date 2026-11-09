@@ -105,7 +105,6 @@ onUnmounted(() => {
             <span v-if="settings?.show_platform_badge" class="platform-badge">{{ platformNames[item.event.platform_id] ?? item.event.platform_id }}</span>
             <strong class="username">{{ item.event.user_name }}</strong>
             <span class="event-type">{{ eventNames[item.event.type] ?? item.event.type }}</span>
-            <span v-if="item.event.source === 'simulation'" class="simulation-badge">模拟</span>
             <time>{{ formatTime(item.event.timestamp) }}</time>
           </div>
           <div class="message-content">{{ item.event.content }}</div>
@@ -127,8 +126,7 @@ onUnmounted(() => {
 .message-body { min-width:0; }
 .message-meta { display:flex; align-items:center; flex-wrap:wrap; gap:7px; font-size:12px; color:#d3d9e8; }
 .username { color:#aebaff; font-size:13px; }
-.platform-badge,.simulation-badge { padding:1px 5px; border-radius:4px; background:#46568b; color:#e8ecff; font-size:10px; }
-.simulation-badge { background:#66502b; color:#f4d99b; }
+.platform-badge { padding:1px 5px; border-radius:4px; background:#46568b; color:#e8ecff; font-size:10px; }
 .event-type,time { color:#aab3c6; font-size:11px; }
 .message-content { margin-top:4px; overflow-wrap:anywhere; white-space:pre-wrap; font-size:24px; line-height:1.4; }
 .empty-state { padding:10px 14px; border-radius:8px; background:#111722a8; color:#d2d8e6; font-size:18px; }
