@@ -22,7 +22,7 @@ const eventNames: Record<string, string> = {
   danmaku: '弹幕', gift: '礼物', super_chat: '醒目留言',
   guard: '上舰', follow: '关注', like: '点赞', welcome: '进场', entry: '进场',
 }
-const visibleItems = computed(() => items.value.slice(-24))
+const visibleItems = computed(() => items.value.slice(-40))
 
 type ContentPart =
   | { kind: 'text'; text: string }
@@ -170,10 +170,10 @@ onUnmounted(() => {
 
 <style scoped>
 :global(html), :global(body), :global(#app) { width:100%; height:100%; margin:0; overflow:hidden; background:transparent !important; }
-.danmaku-overlay { --wails-draggable:drag; position:relative; box-sizing:border-box; width:100%; height:100%; overflow:hidden; padding:18px 22px 24px; border:1px solid #8d99b6; border-radius:8px; background:transparent; color:#f2f4fa; font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif; text-shadow:0 1px 3px #000b; }
-.danmaku-overlay.pinned { border:0 !important; outline:0 !important; box-shadow:none !important; border-radius:0; padding:19px 23px 25px; }
-.message-list { display:flex; flex-direction:column; justify-content:flex-end; align-items:flex-start; gap:10px; width:100%; height:100%; overflow:hidden; }
-.message { display:flex; align-items:flex-start; gap:10px; max-width:100%; padding:8px 12px; border:1px solid #ffffff20; border-radius:10px; background:#111722c9; backdrop-filter:blur(8px); }
+.danmaku-overlay { --wails-draggable:drag; position:relative; box-sizing:border-box; width:100%; height:100%; overflow:hidden; padding:8px 10px; border:1px solid #8d99b6; border-radius:8px; background:transparent; color:#f2f4fa; font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif; text-shadow:0 1px 3px #000b; }
+.danmaku-overlay.pinned { border:0 !important; outline:0 !important; box-shadow:none !important; border-radius:0; padding:8px 10px; }
+.message-list { display:flex; flex-direction:column; justify-content:flex-end; align-items:flex-start; gap:4px; width:100%; height:100%; overflow:hidden; }
+.message { display:flex; align-items:flex-start; gap:10px; max-width:100%; padding:4px 8px; border:1px solid #ffffff20; border-radius:10px; background:#111722c9; backdrop-filter:blur(8px); }
 .message.highlighted { border-color:#e6b75b; background:#44351bcf; }
 .avatar { width:32px; height:32px; flex:0 0 32px; border-radius:50%; object-fit:cover; }
 .message-body { min-width:0; }
@@ -188,7 +188,7 @@ onUnmounted(() => {
 .danmaku-emoticon { display:inline-block; max-width:3em; max-height:2em; margin:0 2px; object-fit:contain; vertical-align:middle; }
 .platform-badge { padding:1px 5px; border-radius:4px; background:#46568b; color:#e8ecff; font-size:10px; }
 .event-type,time { color:#aab3c6; font-size:11px; }
-.message-content { margin-top:4px; overflow-wrap:anywhere; white-space:pre-wrap; line-height:1.4; }
+.message-content { margin-top:2px; overflow-wrap:anywhere; white-space:pre-wrap; line-height:1.4; }
 .empty-state { padding:10px 14px; border-radius:8px; background:#111722a8; color:#d2d8e6; font-size:18px; }
 .resize-handle { --wails-draggable:no-drag; position:absolute; right:0; bottom:0; width:22px; height:22px; cursor:nwse-resize; background:linear-gradient(135deg,transparent 48%,#aab5d877 50%,#aab5d877 56%,transparent 58%,transparent 68%,#aab5d877 70%,#aab5d877 76%,transparent 78%); }
 .danmaku-overlay.pinned .resize-handle { display:none; }
