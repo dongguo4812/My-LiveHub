@@ -67,7 +67,7 @@ func newGiftCatalog(client *http.Client) *giftCatalog {
 	return &giftCatalog{
 		client: client,
 		endpoint: "https://api.live.bilibili.com/xlive/web-room/v1/giftPanel/roomGiftList",
-		ttl: 6 * time.Hour,
+		ttl: 24 * time.Hour,
 		rooms: make(map[int]giftCatalogEntry),
 	}
 }
@@ -349,8 +349,18 @@ func (a *Adapter) Connect(ctx context.Context) error {
 		unitPrice := float64(g.Price) / 1000
 		totalPrice := float64(g.TotalCoin) / 1000
 		if totalPrice <= 0 { totalPrice = unitPrice * float64(count) }
-		giftImageURL:=a.giftCatalog.ImageURL(roomID,g.GiftId)
-		if a.mediaCatalog!=nil&&giftImageURL!=""{a.mediaCatalog.Register(resource.Resource{PlatformID:"bilibili",SourceID:fmt.Sprint(roomID),Type:resource.TypeGift,ID:fmt.Sprint(g.GiftId),Name:g.GiftName,ImageURL:giftImageURL})}
+		giftImageURL := a.giftCatalog.ImageURL(roomID, g.GiftId)
+		if a.mediaCatalog != nil {
+			for _, item := range a.mediaCatalog.List("bilibili", fmt.Sprint(roomID), resource.TypeGift) {
+				if item.ID == strconv.Itoa(g.GiftId) {
+					giftImageURL = item.ImageURL
+					break
+				}
+			}
+			if giftImageURL != "" {
+				a.mediaCatalog.Register(resource.Resource{PlatformID: "bilibili", SourceID: fmt.Sprint(roomID), Type: resource.TypeGift, ID: fmt.Sprint(g.GiftId), Name: g.GiftName, ImageURL: giftImageURL})
+			}
+		}
 		a.events.Add(eventstream.Event{
 			PlatformID: "bilibili", Source: "live", Type: "gift", RoomID: roomID,
 			UserID: g.Uid, UserName: g.Uname, Avatar: g.Face,
@@ -382,7 +392,8 @@ func (a *Adapter) Connect(ctx context.Context) error {
 	}
 	a.client, a.cancel = stream, cancel
 	a.mu.Unlock()
-	if a.mediaCatalog != nil {
+	if a.mediaCatalog != nil && (!a.mediaCatalog.IsFresh("bilibili", "common", resource.TypeEmoticon, 24*time.Hour) ||
+		!a.mediaCatalog.IsFresh("bilibili", strconv.Itoa(roomID), resource.TypeEmoticon, 6*time.Hour)) {
 		go func() {
 			catalogCtx, catalogCancel := context.WithTimeout(runCtx, 8*time.Second)
 			defer catalogCancel()
@@ -394,9 +405,13 @@ func (a *Adapter) Connect(ctx context.Context) error {
 			for _, item := range items {
 				a.mediaCatalog.Register(item)
 			}
+			refreshedAt := time.Now()
+			a.mediaCatalog.MarkRefreshed("bilibili", "common", resource.TypeEmoticon, refreshedAt)
+			a.mediaCatalog.MarkRefreshed("bilibili", strconv.Itoa(roomID), resource.TypeEmoticon, refreshedAt)
 		}()
 	}
-	if a.giftCatalog != nil {
+	if a.giftCatalog != nil && (a.mediaCatalog == nil ||
+		!a.mediaCatalog.IsFresh("bilibili", strconv.Itoa(roomID), resource.TypeGift, 24*time.Hour)) {
 		go func() {
 			catalogCtx, catalogCancel := context.WithTimeout(runCtx, 8*time.Second)
 			defer catalogCancel()
@@ -410,6 +425,7 @@ func (a *Adapter) Connect(ctx context.Context) error {
 						a.events.UpdateGiftImage("bilibili", roomID, giftID, item.ImageURL)
 					}
 				}
+				a.mediaCatalog.MarkRefreshed("bilibili", strconv.Itoa(roomID), resource.TypeGift, time.Now())
 			}
 		}()
 	}
