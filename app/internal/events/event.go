@@ -138,6 +138,8 @@ func (b *Buffer) AddSimulationEvent(platformID string, input SimulationEventInpu
 		event.Content = "关注了直播间"
 	case "like":
 		event.Content = "为直播间点赞"
+	case "welcome":
+		event.Content = "进入了直播间"
 	default:
 		return Event{}, fmt.Errorf("不支持的模拟事件类型：%s", input.Type)
 	}
