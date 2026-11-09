@@ -144,7 +144,7 @@ onUnmounted(() => {
             <template v-else-if="eventType === 'super_chat'">
               <div class="field-grid">
                 <el-form-item label="SC 金额（元）">
-                  <el-input-number v-model="amount" :min="0.01" :precision="2" :step="10" class="full-width" />
+                  <el-input-number v-model="amount" :min="0.01" :precision="2" :step="0.01" class="full-width" />
                 </el-form-item>
                 <el-form-item label="展示时长（秒）">
                   <el-input-number v-model="duration" :min="0" :max="86400" class="full-width" />
