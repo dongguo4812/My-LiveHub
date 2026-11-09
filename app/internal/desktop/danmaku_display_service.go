@@ -109,6 +109,8 @@ func (s *DanmakuDisplayService) OpenWindow() error {
 		DisableResize: false,
 		BackgroundType: application.BackgroundTypeTransparent,
 		BackgroundColour: application.NewRGBA(0, 0, 0, 0),
+		// Treat the overlay as a floating tool window so the Windows desktop switcher
+		// does not handle it like a regular taskbar application window.
 		Windows: application.WindowsWindow{
 			HiddenOnTaskbar: true,
 			DisableFramelessWindowDecorations: true,
