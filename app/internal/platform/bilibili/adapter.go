@@ -92,8 +92,11 @@ func extractDanmakuEmoticons(d *message.Danmaku) []eventstream.EmoticonToken {
 						}
 						if json.Unmarshal(extraRaw, &extra) == nil {
 							for token, emoticon := range extra.Emots {
-								if token != "" && emoticon.URL != "" {
-									found[token] = eventstream.EmoticonToken{Text: token, URL: emoticon.URL, Width: emoticon.Width, Height: emoticon.Height}
+								if token == "" {
+									continue
+								}
+								if normalizedURL := normalizeEmoticonURL(emoticon.URL); normalizedURL != "" {
+								found[token] = eventstream.EmoticonToken{Text: token, URL: normalizedURL, Width: emoticon.Width, Height: emoticon.Height}
 								}
 							}
 						}
