@@ -77,17 +77,26 @@ func TestAdapterConnectStartsAuthenticatedStreamAndReceivesDanmaku(t *testing.T)
 }
 
 func TestAdapterMapsDanmakuEmoticonsFromLegacyExtra(t *testing.T) {
-	// Match the real heterogeneous DANMU_MSG.info shape: metadata array,
-	// content string, sender array, then the remaining protocol fields.
-	raw := `{"info":[[0,1,25,16777215,1700000000000,0,0,"",0,0,0,"",0,"{}","{}",{"extra":"{\\"emots\\":{\\"[dog]\\":{\\"url\\":\\"https://i0.hdslb.com/bfs/live/dog.png\\",\\"width\\":24,\\"height\\":24},\\"[wow]\\":{\\"url\\":\\"https://i0.hdslb.com/bfs/live/wow.png\\"}}}"}],"[dog] and [wow]",[7,"viewer",0,0,0,0],[],[],0,0,0,0,0,0,0,0]}`
-	got := extractDanmakuEmoticons(&message.Danmaku{Raw: raw, Content: "[dog] and [wow]"})
+	// Build a real heterogeneous DANMU_MSG.info array and JSON-encoded extra.
+	emots := map[string]any{
+		"[dog]": map[string]any{"url": "https://i0.hdslb.com/bfs/live/dog.png", "width": 24, "height": 24},
+		"[wow]": map[string]any{"url": "https://i0.hdslb.com/bfs/live/wow.png"},
+	}
+	extraJSON, err := json.Marshal(map[string]any{"emots": emots})
+	if err != nil { t.Fatal(err) }
+	meta := make([]any, 16)
+	meta[1], meta[3], meta[4] = 1, 16777215, int64(1700000000000)
+	meta[15] = map[string]any{"extra": string(extraJSON)}
+	info := []any{meta, "[dog] and [wow]", []any{7, "viewer"}, []any{}, []any{}}
+	packet, err := json.Marshal(map[string]any{"info": info})
+	if err != nil { t.Fatal(err) }
+
+	got := extractDanmakuEmoticons(&message.Danmaku{Raw: string(packet), Content: "[dog] and [wow]"})
 	if len(got) != 2 {
 		t.Fatalf("got %d emoticons, want 2: %+v", len(got), got)
 	}
 	byText := make(map[string]eventstream.EmoticonToken, len(got))
-	for _, item := range got {
-		byText[item.Text] = item
-	}
+	for _, item := range got { byText[item.Text] = item }
 	dog := byText["[dog]"]
 	if dog.URL != "https://i0.hdslb.com/bfs/live/dog.png" || dog.Width != 24 || dog.Height != 24 {
 		t.Fatalf("unexpected dog emoticon: %+v", dog)
@@ -98,8 +107,14 @@ func TestAdapterMapsDanmakuEmoticonsFromLegacyExtra(t *testing.T) {
 }
 
 func TestAdapterMapsStandaloneLegacyEmoticon(t *testing.T) {
-	raw := `{"info":[[0,1,25,16777215,1700000000000,0,0,"",0,0,0,"",1,{"url":"https://i0.hdslb.com/bfs/live/dog.png","width":60,"height":60},"{}",{}],"[dog]",[7,"viewer",0,0,0,0],[],[],0,0,0,0,0,0,0,0,0,0]}`
-	got := extractDanmakuEmoticons(&message.Danmaku{Raw: raw, Content: "[dog]"})
+	meta := make([]any, 16)
+	meta[1], meta[3], meta[4] = 1, 16777215, int64(1700000000000)
+	meta[12] = 1
+	meta[13] = map[string]any{"url": "https://i0.hdslb.com/bfs/live/dog.png", "width": 60, "height": 60}
+	info := []any{meta, "[dog]", []any{7, "viewer"}, []any{}, []any{}}
+	packet, err := json.Marshal(map[string]any{"info": info})
+	if err != nil { t.Fatal(err) }
+	got := extractDanmakuEmoticons(&message.Danmaku{Raw: string(packet), Content: "[dog]"})
 	if len(got) != 1 || got[0].URL != "https://i0.hdslb.com/bfs/live/dog.png" {
 		t.Fatalf("unexpected standalone emoticon mapping: %+v", got)
 	}
