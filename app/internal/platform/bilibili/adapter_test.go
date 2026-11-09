@@ -288,3 +288,59 @@ func TestNormalizeEmoticonURL(t *testing.T) {
 		})
 	}
 }
+
+
+func TestGiftCatalogUses24HourTTL(t *testing.T) {
+	catalog := newGiftCatalog(nil)
+	if catalog.ttl != 24*time.Hour {
+		t.Fatalf("gift catalog TTL = %v, want 24h", catalog.ttl)
+	}
+}
+
+func TestAdapterSkipsFreshPersistedCatalogRefreshes(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		_, _ = w.Write([]byte(`{"code":0,"data":{"gift_config":{"base_config":{"list":[{"id":30607,"name":"小心心","price":1000,"img_basic":"https://i0.hdslb.com/bfs/live/gift.png"}]}}}}`))
+	}))
+	defer server.Close()
+
+	a, err := NewAdapter(newAdapterTestAuth(t), 12345, eventstream.NewBuffer())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.giftCatalog = newGiftCatalog(server.Client())
+	a.giftCatalog.endpoint = server.URL
+	catalog := resource.NewCatalog()
+	catalog.Register(resource.Resource{
+		PlatformID: "bilibili", SourceID: "12345", Type: resource.TypeGift,
+		ID: "30607", Name: "小心心", ImageURL: "https://i0.hdslb.com/bfs/live/gift.png", UnitPrice: 1,
+	})
+	now := time.Now()
+	catalog.MarkRefreshed("bilibili", "12345", resource.TypeGift, now)
+	catalog.MarkRefreshed("bilibili", "common", resource.TypeEmoticon, now)
+	catalog.MarkRefreshed("bilibili", "12345", resource.TypeEmoticon, now)
+	a.SetMediaCatalog(catalog)
+
+	fake := newFakeStreamClient(12345)
+	a.newStream = func(int) streamClient { return fake }
+	if err := a.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if requests != 0 {
+		t.Fatalf("fresh persisted gift catalog triggered %d network requests, want 0", requests)
+	}
+
+	fake.emitGift(&message.Gift{GiftId: 30607, GiftName: "小心心", Num: 1, Uid: 7, Uname: "viewer"})
+	events := a.events.Snapshot()
+	if len(events) != 1 || events[0].GiftImageURL != "https://i0.hdslb.com/bfs/live/gift.png" {
+		t.Fatalf("persisted gift image was not used immediately: %+v", events)
+	}
+	if err := a.Disconnect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := catalog.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
