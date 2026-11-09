@@ -79,8 +79,8 @@ func TestAdapterConnectStartsAuthenticatedStreamAndReceivesDanmaku(t *testing.T)
 func TestAdapterMapsDanmakuEmoticonsFromLegacyExtra(t *testing.T) {
 	// Build a real heterogeneous DANMU_MSG.info array and JSON-encoded extra.
 	emots := map[string]any{
-		"[dog]": map[string]any{"url": "https://i0.hdslb.com/bfs/live/dog.png", "width": 24, "height": 24},
-		"[wow]": map[string]any{"url": "https://i0.hdslb.com/bfs/live/wow.png"},
+		"[dog]": map[string]any{"url": "http://i0.hdslb.com/bfs/live/dog.png", "width": 24, "height": 24},
+		"[wow]": map[string]any{"url": "//i0.hdslb.com/bfs/live/wow.png"},
 	}
 	extraJSON, err := json.Marshal(map[string]any{"emots": emots})
 	if err != nil { t.Fatal(err) }
