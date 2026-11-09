@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -95,9 +96,15 @@ func (s *PlatformService) OpenSimulatorWindow(platformID string) error {
 	if s == nil || s.app == nil {
 		return errors.New("simulator window service is unavailable")
 	}
-	if platformID != "bilibili" {
-		return fmt.Errorf("暂不支持 %s 平台的事件模拟", platformID)
+	platformID = strings.TrimSpace(platformID)
+	if platformID == "" || s.manager == nil {
+		return errors.New("请选择已注册的直播平台")
 	}
+	registered := false
+	for _, item := range s.manager.Snapshot() {
+		if item.PlatformID == platformID { registered = true; break }
+	}
+	if !registered { return fmt.Errorf("平台 %s 尚未注册", platformID) }
 	name := "simulator-" + platformID
 	if existing, ok := s.app.Window.GetByName(name); ok {
 		existing.Show()
@@ -109,9 +116,9 @@ func (s *PlatformService) OpenSimulatorWindow(platformID string) error {
 		background = application.NewRGBA(242, 243, 245, 255)
 	}
 	window := s.app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name: name, Title: "B 站互动模拟器", Width: 1080, Height: 780,
+		Name: name, Title: platformID + " 互动模拟器", Width: 1080, Height: 780,
 		MinWidth: 900, MinHeight: 640, BackgroundColour: background,
-		URL: "/#/simulator/bilibili",
+		URL: "/#/simulator/" + url.PathEscape(platformID),
 	})
 	window.Center()
 	window.Show()
