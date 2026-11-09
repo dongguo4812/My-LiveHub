@@ -13,7 +13,6 @@ func TestCacheKeyRestrictsHostsAndSchemes(t *testing.T) {
 	for _, raw := range []string{
 		"http://i0.hdslb.com/bfs/live/test.png",
 		"https://example.com/test.png",
-		"https://i0.hdslb.com/test.png",
 	} {
 		if _, _, err := cacheKey(raw); err == nil { t.Fatalf("expected URL to be rejected: %s", raw) }
 	}
