@@ -10,3 +10,6 @@
 /frontend/src/router.js
 /frontend/src/views/DashboardView.vue.js
 /frontend/src/views/PlaceholderView.vue.js
+
+# Per-workspace local configuration must never be committed
+/config/local/
