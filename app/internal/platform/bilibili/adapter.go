@@ -322,7 +322,15 @@ func (a *Adapter) Connect(ctx context.Context) error {
 			IsModerator: d.Sender.Admin, UserLevel: int(d.Sender.UserLevel), GuardLevel: d.Sender.GuardLevel,
 			FanMedalName: medalName(d.Sender.Medal), FanMedalLevel: medalLevel(d.Sender.Medal), FanMedalColor: medalColor(d.Sender.Medal),
 		})
-		if a.mediaCatalog!=nil{for _,token:=range emoticons{a.mediaCatalog.Register(resource.Resource{PlatformID:"bilibili",SourceID:fmt.Sprint(roomID),Type:resource.TypeEmoticon,ID:token.ResourceID,Name:token.Text,ImageURL:token.URL,Width:token.Width,Height:token.Height})}}
+		if a.mediaCatalog != nil {
+			for _, token := range emoticons {
+				a.mediaCatalog.Register(resource.Resource{
+					PlatformID: "bilibili", SourceID: emoticonSourceID(roomID, token.ResourceID),
+					Type: resource.TypeEmoticon, ID: token.ResourceID, Name: token.Text,
+					ImageURL: token.URL, Width: token.Width, Height: token.Height,
+				})
+			}
+		}
 	})
 	stream.OnGift(func(g *message.Gift) {
 		if g == nil { return }
@@ -366,7 +374,37 @@ func (a *Adapter) Connect(ctx context.Context) error {
 	}
 	a.client, a.cancel = stream, cancel
 	a.mu.Unlock()
-	if a.giftCatalog!=nil{go func(){catalogCtx,catalogCancel:=context.WithTimeout(runCtx,8*time.Second);defer catalogCancel();if err:=a.giftCatalog.Refresh(catalogCtx,roomID);err!=nil{return};if a.mediaCatalog!=nil{for _,item:=range a.giftCatalog.Resources(roomID){a.mediaCatalog.Register(item);if giftID,parseErr:=strconv.Atoi(item.ID);parseErr==nil{a.events.UpdateGiftImage("bilibili",roomID,giftID,item.ImageURL)}}}}()}
+	if a.mediaCatalog != nil {
+		go func() {
+			catalogCtx, catalogCancel := context.WithTimeout(runCtx, 8*time.Second)
+			defer catalogCancel()
+			httpClient := &http.Client{Timeout: 6 * time.Second}
+			items, err := fetchRoomEmoticonResources(catalogCtx, httpClient, roomID, credentials.Cookie)
+			if err != nil {
+				return
+			}
+			for _, item := range items {
+				a.mediaCatalog.Register(item)
+			}
+		}()
+	}
+	if a.giftCatalog != nil {
+		go func() {
+			catalogCtx, catalogCancel := context.WithTimeout(runCtx, 8*time.Second)
+			defer catalogCancel()
+			if err := a.giftCatalog.Refresh(catalogCtx, roomID); err != nil {
+				return
+			}
+			if a.mediaCatalog != nil {
+				for _, item := range a.giftCatalog.Resources(roomID) {
+					a.mediaCatalog.Register(item)
+					if giftID, parseErr := strconv.Atoi(item.ID); parseErr == nil {
+						a.events.UpdateGiftImage("bilibili", roomID, giftID, item.ImageURL)
+					}
+				}
+			}
+		}()
+	}
 
 	go func() {
 		stream.Wait()
