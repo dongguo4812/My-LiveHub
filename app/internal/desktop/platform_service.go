@@ -95,7 +95,6 @@ func (s *PlatformService) OpenSimulatorWindow(platformID string) error {
 // used by the Bilibili adapter. It never calls Bilibili's network APIs.
 func (s *PlatformService) SimulateBilibiliEvent(
 	eventType string,
-	roomID int,
 	userID int,
 	userName string,
 	content string,
@@ -111,7 +110,7 @@ func (s *PlatformService) SimulateBilibiliEvent(
 		return bilibili.Event{}, errors.New("Bilibili event service is unavailable")
 	}
 	return s.events.AddSimulationEvent(bilibili.SimulationEventInput{
-		Type: eventType, RoomID: roomID, UserID: userID, UserName: userName,
+		Type: eventType, UserID: userID, UserName: userName,
 		Content: content, GiftName: giftName, GiftCount: giftCount,
 		UnitPrice: unitPrice, Amount: amount, Duration: duration,
 		GuardLevel: guardLevel, Months: months,
