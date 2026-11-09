@@ -22,7 +22,6 @@ type Event struct {
 	Avatar       string  `json:"avatar,omitempty"`
 	IsModerator  bool    `json:"is_moderator,omitempty"`
 	UserLevel    int     `json:"user_level,omitempty"`
-	GuardLevel   int     `json:"guard_level,omitempty"`
 	FanMedalName string  `json:"fan_medal_name,omitempty"`
 	FanMedalLevel int    `json:"fan_medal_level,omitempty"`
 	FanMedalColor uint32 `json:"fan_medal_color,omitempty"`

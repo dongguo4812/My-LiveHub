@@ -106,9 +106,9 @@ onUnmounted(() => {
             <span v-if="settings?.show_platform_badge" class="platform-badge">{{ platformNames[item.event.platform_id] ?? item.event.platform_id }}</span>
             <strong class="username">{{ item.event.user_name }}</strong>
             <span v-if="settings?.show_moderator_badge && item.event.is_moderator" class="identity-badge moderator-badge">房管</span>
-            <span v-if="settings?.show_noble_badge && item.event.guard_level > 0" class="identity-badge guard-badge">{{ ['', '总督', '提督', '舰长'][item.event.guard_level] ?? '舰队' }}</span>
+            <span v-if="settings?.show_noble_badge && (item.event.guard_level ?? 0) > 0" class="identity-badge guard-badge">{{ ['', '总督', '提督', '舰长'][item.event.guard_level] ?? '舰队' }}</span>
             <span v-if="settings?.show_fan_medal && item.event.fan_medal_name" class="identity-badge medal-badge">{{ item.event.fan_medal_name }} {{ item.event.fan_medal_level }}</span>
-            <span v-if="settings?.show_user_level && item.event.user_level > 0" class="identity-badge level-badge">UL {{ item.event.user_level }}</span>
+            <span v-if="settings?.show_user_level && (item.event.user_level ?? 0) > 0" class="identity-badge level-badge">UL {{ item.event.user_level }}</span>
             <span class="event-type">{{ eventNames[item.event.type] ?? item.event.type }}</span>
             <time>{{ formatTime(item.event.timestamp) }}</time>
           </div>
