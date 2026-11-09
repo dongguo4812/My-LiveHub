@@ -147,6 +147,15 @@ func medalName(m *message.Medal) string { if m == nil { return "" }; return m.Na
 func medalLevel(m *message.Medal) int { if m == nil { return 0 }; return m.Level }
 func medalColor(m *message.Medal) uint32 { if m == nil { return 0 }; return uint32(m.Color) }
 
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 // normalizeEmoticonURL accepts only absolute HTTP(S) URLs and upgrades insecure URLs.
 func normalizeEmoticonURL(raw string) string {
 	raw = strings.TrimSpace(raw)
