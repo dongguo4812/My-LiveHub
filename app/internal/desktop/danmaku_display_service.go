@@ -109,6 +109,10 @@ func (s *DanmakuDisplayService) OpenWindow() error {
 		DisableResize: false,
 		BackgroundType: application.BackgroundTypeTransparent,
 		BackgroundColour: application.NewRGBA(0, 0, 0, 0),
+		Windows: application.WindowsWindow{
+			HiddenOnTaskbar: true,
+			DisableFramelessWindowDecorations: true,
+		},
 		URL: "/#/danmaku/overlay",
 	})
 	s.window = window
