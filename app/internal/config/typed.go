@@ -83,3 +83,24 @@ func readConfigVersion(data map[string]any) (int, error) {
 		return 0, fmt.Errorf("config_version must be an integer, got %T", raw)
 	}
 }
+ 
+// SaveTyped validates and serializes a typed configuration before writing it.
+func SaveTyped[T any](manager *Manager, name string, value T, validate func(T) error) error {
+	if manager == nil {
+		return errors.New("configuration manager is required")
+	}
+	if validate != nil {
+		if err := validate(value); err != nil {
+			return fmt.Errorf("validate configuration %q: %w", name, err)
+		}
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Errorf("encode configuration %q: %w", name, err)
+	}
+	object, err := decodeObject(encoded)
+	if err != nil {
+		return fmt.Errorf("configuration %q must encode as an object: %w", name, err)
+	}
+	return manager.Save(name, object)
+}
