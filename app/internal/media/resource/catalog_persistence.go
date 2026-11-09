@@ -58,6 +58,15 @@ func NewPersistentCatalog(path string) (*Catalog, error) {
 		loadErr = fmt.Errorf("read media catalog %q: %w", path, err)
 	}
 
+	// Never start a writer when the existing catalog could not be loaded.
+	// The caller still receives an empty in-memory catalog alongside the error,
+	// but registering resources or closing it must not overwrite the unreadable
+	// file with an incomplete snapshot. A later successful recovery/restart can
+	// load the original data again.
+	if loadErr != nil {
+		return catalog, loadErr
+	}
+
 	persistence := &catalogPersistence{
 		catalog: catalog,
 		path:    path,
@@ -67,7 +76,7 @@ func NewPersistentCatalog(path string) (*Catalog, error) {
 	}
 	catalog.persistence = persistence
 	go persistence.run()
-	return catalog, loadErr
+	return catalog, nil
 }
 
 func (p *catalogPersistence) markDirty() {
