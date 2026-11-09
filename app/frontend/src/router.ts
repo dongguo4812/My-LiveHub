@@ -2,11 +2,13 @@ import {createRouter,createWebHashHistory} from 'vue-router'
 import DashboardView from './views/DashboardView.vue'
 import PlatformsView from './views/PlatformsView.vue'
 import SettingsView from './views/SettingsView.vue'
+import SimulatorView from './views/SimulatorView.vue'
 import PlaceholderView from './views/PlaceholderView.vue'
 const routes=[
 {path:'/',name:'overview',component:DashboardView,meta:{title:'总览',section:'工作台'}},
 {path:'/monitor',component:PlaceholderView,meta:{title:'实时监控',section:'工作台',description:'集中查看直播连接、事件流和模块运行状态。'}},
 {path:'/platforms',component:PlatformsView,meta:{title:'平台管理',section:'直播接入',description:'管理直播平台适配器、账号授权和直播间连接。'}},
+{path:'/simulator/bilibili',name:'bilibili-simulator',component:SimulatorView,meta:{title:'B站互动模拟器',standalone:true}},
 {path:'/events',component:PlaceholderView,meta:{title:'事件中心',section:'互动中心',description:'汇总多平台事件，同时保留各平台原生事件信息。'}},
 {path:'/users',component:PlaceholderView,meta:{title:'用户管理',section:'互动中心',description:'查看跨平台用户身份、档案和互动记录。'}},
 {path:'/rules',component:PlaceholderView,meta:{title:'互动规则',section:'互动中心',description:'配置事件触发条件、动作和自动化流程。'}},
