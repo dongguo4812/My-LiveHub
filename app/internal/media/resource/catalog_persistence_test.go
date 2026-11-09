@@ -94,6 +94,7 @@ func TestPersistentCatalogToleratesMissingAndInvalidFiles(t *testing.T) {
 	if err := os.WriteFile(broken, []byte("{not-json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	original := []byte("{not-json")
 	catalog, err = NewPersistentCatalog(broken)
 	if err == nil {
 		t.Fatal("invalid JSON should be reported")
@@ -101,8 +102,24 @@ func TestPersistentCatalogToleratesMissingAndInvalidFiles(t *testing.T) {
 	if len(catalog.List("", "", "")) != 0 {
 		t.Fatal("invalid JSON should not produce partial catalog entries")
 	}
+	// Even if callers continue using the returned in-memory catalog after the
+	// load error, closing it must not replace the unreadable file with an empty
+	// or partial snapshot.
+	if !catalog.Register(Resource{
+		PlatformID: "bilibili", SourceID: "common", Type: TypeEmoticon,
+		ID: "official_1", Name: "恢复测试", ImageURL: "https://img.test/recovery.png",
+	}) {
+		t.Fatal("in-memory registration should remain available after load failure")
+	}
 	if err := catalog.Close(); err != nil {
 		t.Fatal(err)
+	}
+	preserved, err := os.ReadFile(broken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(preserved) != string(original) {
+		t.Fatalf("unreadable catalog was overwritten: got %q want %q", preserved, original)
 	}
 }
 
