@@ -14,7 +14,7 @@ const eventBufferLimit = 200
 type Event struct {
 	ID          uint64  `json:"id"`
 	Type        string  `json:"type"`
-	RoomID      int     `json:"room_id"`
+	RoomID      int     `json:"room_id,omitempty"`
 	UserID      int     `json:"user_id"`
 	UserName    string  `json:"user_name"`
 	Avatar      string  `json:"avatar,omitempty"`
@@ -82,7 +82,6 @@ func (b *EventBuffer) Add(event Event) Event {
 
 type SimulationEventInput struct {
 	Type       string
-	RoomID     int
 	UserID     int
 	UserName   string
 	Content    string
@@ -101,15 +100,15 @@ func (b *EventBuffer) AddSimulationEvent(input SimulationEventInput) (Event, err
 	if b == nil {
 		return Event{}, errors.New("Bilibili event buffer is unavailable")
 	}
-	if input.RoomID < 0 || input.UserID < 0 {
-		return Event{}, errors.New("房间号和用户 UID 不能为负数")
+	if input.UserID < 0 {
+		return Event{}, errors.New("用户 UID 不能为负数")
 	}
 	userName := input.UserName
 	if userName == "" {
 		userName = "模拟用户"
 	}
 	event := Event{
-		Type: input.Type, RoomID: input.RoomID, UserID: input.UserID,
+		Type: input.Type, UserID: input.UserID,
 		UserName: userName, Content: input.Content, IsSimulation: true,
 	}
 	switch input.Type {
