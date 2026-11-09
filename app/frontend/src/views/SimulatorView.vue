@@ -49,6 +49,7 @@ let refreshTimer: ReturnType<typeof setInterval> | undefined
 
 const currentEventLabel = computed(() => eventLabels[eventType.value])
 const selectedGift = computed(() => mediaResources.value.find(item => (item.resource_id ?? '') === selectedGiftID.value))
+const giftTotalPrice = computed(() => Math.round(unitPrice.value * giftCount.value * 100) / 100)
 
 function resourceID(item: MediaResource): string { return item.resource_id ?? '' }
 function resourceName(item: MediaResource): string { return item.name ?? '' }
@@ -88,7 +89,7 @@ async function loadMediaResources() {
 function selectGift(resourceID: string) {
   selectedGiftID.value = resourceID
   const item = mediaResources.value.find(resource => resource.resource_id === resourceID)
-  if (item) { giftName.value = resourceName(item); giftImageURL.value = resourceImageURL(item) }
+  if (item) { giftName.value = resourceName(item); giftImageURL.value = resourceImageURL(item); unitPrice.value = Number(item.unit_price ?? 0) }
 }
 
 function insertEmoticon(item: MediaResource) {
@@ -223,6 +224,7 @@ onUnmounted(() => {
                   <el-input-number v-model="unitPrice" :min="0" :precision="2" :step="0.1" class="full-width" />
                 </el-form-item>
               </div>
+              <div class="gift-total">预计总金额：¥{{ giftTotalPrice.toFixed(2) }}</div>
             </template>
 
             <template v-else-if="eventType === 'super_chat'">
@@ -319,7 +321,7 @@ h1{margin:0;font-size:24px;font-weight:650}
 .field-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .full-width{width:100%}
 .send-button{width:100%;margin-top:8px}
-.resource-picker{display:flex;flex-wrap:wrap;gap:6px;max-height:190px;overflow:auto;margin-top:10px}.emoticon-option{display:flex;align-items:center;gap:6px;height:34px;padding:4px 7px}.emoticon-option img,.gift-option img,.selected-gift img{width:24px;height:24px;object-fit:contain}.gift-option,.selected-gift{display:flex;align-items:center;gap:9px}.gift-option small{margin-left:auto;color:var(--app-text-secondary)}.selected-gift{margin-top:10px;color:var(--app-text-secondary);font-size:12px}.simple-event-hint{padding:12px 14px;border-radius:7px;background:var(--app-bg-control);color:var(--app-text-secondary);font-size:13px}
+.resource-picker{display:flex;flex-wrap:wrap;gap:6px;max-height:190px;overflow:auto;margin-top:10px}.emoticon-option{display:flex;align-items:center;gap:6px;height:34px;padding:4px 7px}.emoticon-option img,.gift-option img,.selected-gift img{width:24px;height:24px;object-fit:contain}.gift-option,.selected-gift{display:flex;align-items:center;gap:9px}.gift-option small{margin-left:auto;color:var(--app-text-secondary)}.selected-gift{margin-top:10px;color:var(--app-text-secondary);font-size:12px}.gift-total{margin-top:-8px;margin-bottom:12px;text-align:right;color:var(--app-text-secondary);font-size:13px}.simple-event-hint{padding:12px 14px;border-radius:7px;background:var(--app-bg-control);color:var(--app-text-secondary);font-size:13px}
 .form-error{margin-top:12px}
 .history-card{min-height:100%}
 @media(max-width:700px){.simulator-page{padding:18px}.field-grid{grid-template-columns:1fr}.simulator-heading{flex-direction:column}}

@@ -73,7 +73,7 @@ func TestGiftCatalogRefreshCachesByRoomAndNormalizesImageURL(t *testing.T) {
 		if r.URL.Query().Get("platform") != "pc" || r.URL.Query().Get("room_id") == "" {
 			t.Errorf("unexpected gift catalog query: %s", r.URL.RawQuery)
 		}
-		_, _ = w.Write([]byte(`{"code":0,"message":"0","data":{"gift_config":{"base_config":{"list":[{"id":30607,"img_basic":"http://i0.hdslb.com/bfs/live/gift.png"}]}}}}`))
+		_, _ = w.Write([]byte(`{"code":0,"message":"0","data":{"gift_config":{"base_config":{"list":[{"id":30607,"price":1000,"img_basic":"http://i0.hdslb.com/bfs/live/gift.png"}]}}}}`))
 	}))
 	defer server.Close()
 	catalog := newGiftCatalog(server.Client())
@@ -119,7 +119,7 @@ func TestAdapterConnectContinuesWhenGiftCatalogUnavailable(t *testing.T) {
 
 func TestAdapterReceivesGiftWithResolvedImage(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"code":0,"message":"0","data":{"gift_config":{"base_config":{"list":[{"id":30607,"name":"小心心","img_basic":"https://i0.hdslb.com/bfs/live/gift.png"}]}}}}`))
+		_, _ = w.Write([]byte(`{"code":0,"message":"0","data":{"gift_config":{"base_config":{"list":[{"id":30607,"name":"小心心","price":1000,"img_basic":"https://i0.hdslb.com/bfs/live/gift.png"}]}}}}`))
 	}))
 	defer server.Close()
 
@@ -145,7 +145,7 @@ func TestAdapterReceivesGiftWithResolvedImage(t *testing.T) {
 	deadline:=time.Now().Add(time.Second)
 	for len(catalog.List("bilibili","12345",resource.TypeGift))==0&&time.Now().Before(deadline){time.Sleep(5*time.Millisecond)}
 	items:=catalog.List("bilibili","12345",resource.TypeGift)
-	if len(items)!=1||items[0].ImageURL!="https://i0.hdslb.com/bfs/live/gift.png"{t.Fatalf("catalog missing gift image: %+v",items)}
+	if len(items)!=1||items[0].ImageURL!="https://i0.hdslb.com/bfs/live/gift.png" || items[0].UnitPrice!=1{t.Fatalf("catalog missing gift metadata or price: %+v",items)}
 	if event.UserID != 7 || event.UserName != "viewer" || event.Avatar == "" {
 		t.Fatalf("gift sender metadata missing: %+v", event)
 	}

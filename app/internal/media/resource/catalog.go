@@ -21,6 +21,7 @@ type Resource struct {
 	ID          string    `json:"resource_id,omitempty"`
 	Name        string    `json:"name"`
 	ImageURL    string    `json:"image_url"`
+	UnitPrice   float64   `json:"unit_price,omitempty"`
 	Width       int       `json:"width,omitempty"`
 	Height      int       `json:"height,omitempty"`
 	FirstSeenAt time.Time `json:"first_seen_at"`
@@ -77,7 +78,7 @@ func (c *Catalog) Register(r Resource) bool {
 		if r.Name == "" {
 			r.Name = old.Name
 		}
-		if old.Name == r.Name && old.ImageURL == r.ImageURL && old.Width == r.Width && old.Height == r.Height {
+		if old.Name == r.Name && old.ImageURL == r.ImageURL && old.UnitPrice == r.UnitPrice && old.Width == r.Width && old.Height == r.Height {
 			return true
 		}
 		r.UpdatedAt = now

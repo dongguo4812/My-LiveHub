@@ -41,7 +41,7 @@ type giftCatalog struct {
 }
 
 type giftCatalogEntry struct { gifts map[int]giftCatalogResource; expiresAt time.Time }
-type giftCatalogResource struct { name string; imageURL string }
+type giftCatalogResource struct { name string; imageURL string; unitPrice float64 }
 
 type roomGiftListResponse struct {
 	Code int `json:"code"`
@@ -53,6 +53,7 @@ type roomGiftListResponse struct {
 					ID int `json:"id"`
 					Name string `json:"name"`
 					ImgBasic string `json:"img_basic"`
+					Price int `json:"price"`
 				} `json:"list"`
 			} `json:"base_config"`
 		} `json:"gift_config"`
@@ -103,7 +104,7 @@ func (c *giftCatalog) Refresh(ctx context.Context, roomID int) error {
 	for _, gift := range payload.Data.GiftConfig.BaseConfig.List {
 		if gift.ID <= 0 { continue }
 		if imageURL := normalizeEmoticonURL(gift.ImgBasic); imageURL != "" {
-			gifts[gift.ID] = giftCatalogResource{name:gift.Name,imageURL:imageURL}
+			gifts[gift.ID] = giftCatalogResource{name:gift.Name,imageURL:imageURL,unitPrice:float64(gift.Price)/1000}
 		}
 	}
 	if len(gifts) == 0 { return errors.New("Bilibili gift catalog contains no usable gift images") }
@@ -122,7 +123,7 @@ func (c *giftCatalog) ImageURL(roomID, giftID int) string {
 	return entry.gifts[giftID].imageURL
 }
 
-func(c *giftCatalog)Resources(roomID int)[]resource.Resource{if c==nil||roomID<=0{return nil};c.mu.RLock();entry,ok:=c.rooms[roomID];c.mu.RUnlock();if !ok{return nil};out:=make([]resource.Resource,0,len(entry.gifts));for id,g:=range entry.gifts{out=append(out,resource.Resource{PlatformID:"bilibili",SourceID:fmt.Sprint(roomID),Type:resource.TypeGift,ID:fmt.Sprint(id),Name:g.name,ImageURL:g.imageURL})};return out}
+func(c *giftCatalog)Resources(roomID int)[]resource.Resource{if c==nil||roomID<=0{return nil};c.mu.RLock();entry,ok:=c.rooms[roomID];c.mu.RUnlock();if !ok{return nil};out:=make([]resource.Resource,0,len(entry.gifts));for id,g:=range entry.gifts{out=append(out,resource.Resource{PlatformID:"bilibili",SourceID:fmt.Sprint(roomID),Type:resource.TypeGift,ID:fmt.Sprint(id),Name:g.name,ImageURL:g.imageURL,UnitPrice:g.unitPrice})};return out}
 
 type Adapter struct {
 	auth *AuthManager
