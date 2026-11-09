@@ -66,6 +66,10 @@ watch(danmakuDisplaySettings, value => {
   if (styleElement) styleElement.textContent = value?.custom_css ?? ''
 }, { deep: true })
 
+function markEmoticonFailed(url: string) {
+  failedEmoticonURLs.value.add(url)
+}
+
 function formatTime(timestamp: number) {
   return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
@@ -150,8 +154,9 @@ onUnmounted(() => {
                 :src="part.url"
                 :alt="part.text"
                 :title="part.text"
+                referrerpolicy="no-referrer"
                 :style="{ width: part.width > 0 ? `${part.width}px` : '1.4em', height: part.height > 0 ? `${part.height}px` : '1.4em' }"
-                @error="failedEmoticonURLs.add(part.url)"
+                @error="markEmoticonFailed(part.url)"
               />
               <span v-else>{{ part.text }}</span>
             </template>
