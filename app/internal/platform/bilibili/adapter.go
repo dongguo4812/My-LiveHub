@@ -69,7 +69,7 @@ func (a *Adapter) Connect(ctx context.Context) error {
 
 	credentials, err := a.auth.LoadCredentials(ctx)
 	if err != nil { return err }
-	stream := client.NewClient(roomID)
+	stream := a.newStream(roomID)
 	stream.SetCookie(credentials.Cookie)
 	stream.OnDanmaku(func(d *message.Danmaku) { a.events.AddDanmaku(roomID, d) })
 
