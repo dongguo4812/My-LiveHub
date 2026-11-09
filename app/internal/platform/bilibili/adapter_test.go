@@ -77,11 +77,31 @@ func TestAdapterConnectStartsAuthenticatedStreamAndReceivesDanmaku(t *testing.T)
 }
 
 func TestAdapterMapsDanmakuEmoticonsFromLegacyExtra(t *testing.T) {
-	raw := `{"info":[[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,{"extra":"{\"emots\":{\"[dog]\":{\"url\":\"https://i0.hdslb.com/bfs/live/dog.png\",\"width\":24,\"height\":24},\"[wow]\":{\"url\":\"https://i0.hdslb.com/bfs/live/wow.png\"}}}"}]]}`
-	got := extractDanmakuEmoticons(&message.Danmaku{Raw: raw})
-	if len(got) != 2 { t.Fatalf("got %d emoticons, want 2: %+v", len(got), got) }
-	if got[0].Text != "[dog]" || got[0].URL != "https://i0.hdslb.com/bfs/live/dog.png" || got[0].Width != 24 || got[0].Height != 24 {
-		t.Fatalf("unexpected first emoticon: %+v", got[0])
+	// Match the real heterogeneous DANMU_MSG.info shape: metadata array,
+	// content string, sender array, then the remaining protocol fields.
+	raw := `{"info":[[0,1,25,16777215,1700000000000,0,0,"",0,0,0,"",0,"{}","{}",{"extra":"{\\"emots\\":{\\"[dog]\\":{\\"url\\":\\"https://i0.hdslb.com/bfs/live/dog.png\\",\\"width\\":24,\\"height\\":24},\\"[wow]\\":{\\"url\\":\\"https://i0.hdslb.com/bfs/live/wow.png\\"}}}"}],"[dog] and [wow]",[7,"viewer",0,0,0,0],[],[],0,0,0,0,0,0,0,0]}`
+	got := extractDanmakuEmoticons(&message.Danmaku{Raw: raw, Content: "[dog] and [wow]"})
+	if len(got) != 2 {
+		t.Fatalf("got %d emoticons, want 2: %+v", len(got), got)
+	}
+	byText := make(map[string]eventstream.EmoticonToken, len(got))
+	for _, item := range got {
+		byText[item.Text] = item
+	}
+	dog := byText["[dog]"]
+	if dog.URL != "https://i0.hdslb.com/bfs/live/dog.png" || dog.Width != 24 || dog.Height != 24 {
+		t.Fatalf("unexpected dog emoticon: %+v", dog)
+	}
+	if byText["[wow]"].URL != "https://i0.hdslb.com/bfs/live/wow.png" {
+		t.Fatalf("unexpected wow emoticon: %+v", byText["[wow]"])
+	}
+}
+
+func TestAdapterMapsStandaloneLegacyEmoticon(t *testing.T) {
+	raw := `{"info":[[0,1,25,16777215,1700000000000,0,0,"",0,0,0,"",1,{"url":"https://i0.hdslb.com/bfs/live/dog.png","width":60,"height":60},"{}",{}],"[dog]",[7,"viewer",0,0,0,0],[],[],0,0,0,0,0,0,0,0,0,0]}`
+	got := extractDanmakuEmoticons(&message.Danmaku{Raw: raw, Content: "[dog]"})
+	if len(got) != 1 || got[0].URL != "https://i0.hdslb.com/bfs/live/dog.png" {
+		t.Fatalf("unexpected standalone emoticon mapping: %+v", got)
 	}
 }
 

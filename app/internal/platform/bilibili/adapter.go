@@ -47,41 +47,75 @@ func medalColor(m *message.Medal) uint32 { if m == nil { return 0 }; return uint
 // extractDanmakuEmoticons reads Bilibili's emots map from the legacy DANMU_MSG
 // extra payload. The library separately exposes the single-emoticon protobuf form.
 func extractDanmakuEmoticons(d *message.Danmaku) []eventstream.EmoticonToken {
-	if d == nil { return nil }
+	if d == nil {
+		return nil
+	}
 	found := make(map[string]eventstream.EmoticonToken)
 	if d.Raw != "" {
-		var packet struct { Info [][]json.RawMessage `json:"info"` }
-		if json.Unmarshal([]byte(d.Raw), &packet) == nil && len(packet.Info) > 0 && len(packet.Info[0]) > 15 {
-			var meta struct { Extra json.RawMessage `json:"extra"` }
-			if json.Unmarshal(packet.Info[0][15], &meta) == nil && len(meta.Extra) > 0 {
-				extraRaw := meta.Extra
-				var extraString string
-				if json.Unmarshal(meta.Extra, &extraString) == nil { extraRaw = []byte(extraString) }
-				var extra struct {
-					Emots map[string]struct {
-						URL string `json:"url"`
-						Width int `json:"width"`
-						Height int `json:"height"`
-					} `json:"emots"`
-				}
-				if json.Unmarshal(extraRaw, &extra) == nil {
-					for token, emoticon := range extra.Emots {
-						if token != "" && emoticon.URL != "" {
-							found[token] = eventstream.EmoticonToken{Text: token, URL: emoticon.URL, Width: emoticon.Width, Height: emoticon.Height}
+		// DANMU_MSG.info is a heterogeneous array:
+		// [0] metadata array, [1] content string, [2] sender array, ...
+		var packet struct {
+			Info []json.RawMessage `json:"info"`
+		}
+		if json.Unmarshal([]byte(d.Raw), &packet) == nil && len(packet.Info) > 0 {
+			var meta []json.RawMessage
+			if json.Unmarshal(packet.Info[0], &meta) == nil {
+				// Small inline emoticons are carried in info[0][15].extra.emots.
+				if len(meta) > 15 {
+					var extraHolder struct {
+						Extra json.RawMessage `json:"extra"`
+					}
+					if json.Unmarshal(meta[15], &extraHolder) == nil && len(extraHolder.Extra) > 0 && string(extraHolder.Extra) != "null" {
+						extraRaw := extraHolder.Extra
+						var extraString string
+						if json.Unmarshal(extraHolder.Extra, &extraString) == nil {
+							extraRaw = []byte(extraString)
 						}
+						var extra struct {
+							Emots map[string]struct {
+								URL    string `json:"url"`
+								Width  int    `json:"width"`
+								Height int    `json:"height"`
+							} `json:"emots"`
+						}
+						if json.Unmarshal(extraRaw, &extra) == nil {
+							for token, emoticon := range extra.Emots {
+								if token != "" && emoticon.URL != "" {
+									found[token] = eventstream.EmoticonToken{Text: token, URL: emoticon.URL, Width: emoticon.Width, Height: emoticon.Height}
+								}
+							}
+						}
+					}
+				}
+				// A standalone room emoticon is carried in info[0][13].
+				if len(meta) > 13 && d.Content != "" {
+					var emoticon struct {
+						URL    string `json:"url"`
+						Width  int    `json:"width"`
+						Height int    `json:"height"`
+					}
+					if json.Unmarshal(meta[13], &emoticon) == nil && emoticon.URL != "" {
+						found[d.Content] = eventstream.EmoticonToken{Text: d.Content, URL: emoticon.URL, Width: emoticon.Width, Height: emoticon.Height}
 					}
 				}
 			}
 		}
 	}
-	if d.Emoticon != nil && d.Emoticon.Url != "" && len(found) == 0 && d.Content != "" {
+	// The protobuf parser also exposes standalone emoticons directly.
+	if d.Emoticon != nil && d.Emoticon.Url != "" && d.Content != "" {
 		found[d.Content] = eventstream.EmoticonToken{Text: d.Content, URL: d.Emoticon.Url, Width: d.Emoticon.Width, Height: d.Emoticon.Height}
 	}
-	if len(found) == 0 { return nil }
+	if len(found) == 0 {
+		return nil
+	}
 	tokens := make([]eventstream.EmoticonToken, 0, len(found))
-	for _, emoticon := range found { tokens = append(tokens, emoticon) }
+	for _, emoticon := range found {
+		tokens = append(tokens, emoticon)
+	}
 	sort.Slice(tokens, func(i, j int) bool {
-		if len(tokens[i].Text) == len(tokens[j].Text) { return tokens[i].Text < tokens[j].Text }
+		if len(tokens[i].Text) == len(tokens[j].Text) {
+			return tokens[i].Text < tokens[j].Text
+		}
 		return len(tokens[i].Text) > len(tokens[j].Text)
 	})
 	return tokens
