@@ -401,6 +401,12 @@ func (a *Adapter) Connect(ctx context.Context) error {
 				return
 			}
 			for _, item := range items {
+				if item.SourceID == "common" && !refreshCommonEmoticons {
+					continue
+				}
+				if item.SourceID == strconv.Itoa(roomID) && !refreshRoomEmoticons {
+					continue
+				}
 				a.mediaCatalog.Register(item)
 			}
 			refreshedAt := time.Now()
