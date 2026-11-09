@@ -8,11 +8,12 @@ import (
 )
 
 // Migration upgrades a decoded configuration object from version N to N+1.
-// The supplied object is the effective default/local configuration.
 type Migration func(map[string]any) error
 
 // LoadTyped loads, migrates, decodes, and validates a configuration.
-// Migrations are applied in memory; they are not written to disk automatically.
+// Existing local overrides are migrated and atomically saved only after the
+// fully merged configuration passes decoding and validation. Embedded defaults
+// are migrated in memory and are never written to the user's local override.
 func LoadTyped[T any](manager *Manager, name string, currentVersion int, migrations map[int]Migration, validate func(T) error) (T, error) {
 	var zero T
 	if manager == nil {
@@ -22,31 +23,41 @@ func LoadTyped[T any](manager *Manager, name string, currentVersion int, migrati
 		return zero, fmt.Errorf("current configuration version must be positive")
 	}
 
-	data, err := manager.Load(name)
+	defaults, local, localExists, err := manager.LoadParts(name)
 	if err != nil {
 		return zero, err
 	}
-	version, err := readConfigVersion(data)
+
+	migrationTarget := defaults
+	if localExists {
+		migrationTarget = local
+	}
+	version, err := readConfigVersion(migrationTarget)
 	if err != nil {
 		return zero, fmt.Errorf("configuration %q: %w", name, err)
 	}
 	if version > currentVersion {
 		return zero, fmt.Errorf("configuration %q uses newer version %d (supported: %d)", name, version, currentVersion)
 	}
-
+	migrated := false
 	for version < currentVersion {
 		migration, ok := migrations[version]
 		if !ok {
 			return zero, fmt.Errorf("configuration %q has no migration from version %d to %d", name, version, version+1)
 		}
-		if err := migration(data); err != nil {
+		if err := migration(migrationTarget); err != nil {
 			return zero, fmt.Errorf("migrate configuration %q from version %d: %w", name, version, err)
 		}
 		version++
-		data["config_version"] = json.Number(strconv.Itoa(version))
+		migrationTarget["config_version"] = json.Number(strconv.Itoa(version))
+		migrated = true
 	}
 
-	encoded, err := json.Marshal(data)
+	effective := defaults
+	if localExists {
+		effective = mergeObjects(defaults, local)
+	}
+	encoded, err := json.Marshal(effective)
 	if err != nil {
 		return zero, fmt.Errorf("encode migrated configuration %q: %w", name, err)
 	}
@@ -59,7 +70,34 @@ func LoadTyped[T any](manager *Manager, name string, currentVersion int, migrati
 			return zero, fmt.Errorf("validate configuration %q: %w", name, err)
 		}
 	}
+
+	if localExists && migrated {
+		if err := manager.Save(name, local); err != nil {
+			return zero, fmt.Errorf("persist migrated configuration %q: %w", name, err)
+		}
+	}
 	return value, nil
+}
+
+// SaveTyped validates and serializes a typed configuration before writing it.
+func SaveTyped[T any](manager *Manager, name string, value T, validate func(T) error) error {
+	if manager == nil {
+		return errors.New("configuration manager is required")
+	}
+	if validate != nil {
+		if err := validate(value); err != nil {
+			return fmt.Errorf("validate configuration %q: %w", name, err)
+		}
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Errorf("encode configuration %q: %w", name, err)
+	}
+	object, err := decodeObject(encoded)
+	if err != nil {
+		return fmt.Errorf("configuration %q must encode as an object: %w", name, err)
+	}
+	return manager.Save(name, object)
 }
 
 func readConfigVersion(data map[string]any) (int, error) {
@@ -82,25 +120,4 @@ func readConfigVersion(data map[string]any) (int, error) {
 	default:
 		return 0, fmt.Errorf("config_version must be an integer, got %T", raw)
 	}
-}
- 
-// SaveTyped validates and serializes a typed configuration before writing it.
-func SaveTyped[T any](manager *Manager, name string, value T, validate func(T) error) error {
-	if manager == nil {
-		return errors.New("configuration manager is required")
-	}
-	if validate != nil {
-		if err := validate(value); err != nil {
-			return fmt.Errorf("validate configuration %q: %w", name, err)
-		}
-	}
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return fmt.Errorf("encode configuration %q: %w", name, err)
-	}
-	object, err := decodeObject(encoded)
-	if err != nil {
-		return fmt.Errorf("configuration %q must encode as an object: %w", name, err)
-	}
-	return manager.Save(name, object)
 }
