@@ -1,7 +1,8 @@
 import { ref } from 'vue'
-import * as DanmakuDisplayService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/danmaku_displayservice.js'
+import * as DanmakuDisplayService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/danmakudisplayservice.js'
 
 export type DanmakuDisplaySettings = Awaited<ReturnType<typeof DanmakuDisplayService.GetSettings>>
+export type DanmakuDisplayEvent = Awaited<ReturnType<typeof DanmakuDisplayService.GetDisplayEvents>>[number]
 export const danmakuDisplaySettings = ref<DanmakuDisplaySettings | null>(null)
 export const danmakuDisplayError = ref('')
 export const danmakuDisplayBusy = ref(false)
@@ -26,5 +27,14 @@ export async function saveDanmakuDisplaySettings(value: DanmakuDisplaySettings) 
     return false
   } finally {
     danmakuDisplayBusy.value = false
+  }
+}
+
+export async function loadDanmakuDisplayEvents(): Promise<DanmakuDisplayEvent[]> {
+  try {
+    return await DanmakuDisplayService.GetDisplayEvents()
+  } catch (error) {
+    danmakuDisplayError.value = error instanceof Error ? error.message : String(error)
+    return []
   }
 }
