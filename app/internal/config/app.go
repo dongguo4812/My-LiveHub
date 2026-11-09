@@ -15,11 +15,3 @@ func (c AppConfig) Validate() error {
 	}
 	return nil
 }
-
-// AppConfigMigrations contains sequential migrations keyed by their source version.
-var AppConfigMigrations = map[int]Migration{
-	0: func(data map[string]any) error {
-		// Version 1 establishes the versioned app configuration envelope.
-		return nil
-	},
-}
