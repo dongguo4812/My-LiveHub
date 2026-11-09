@@ -41,13 +41,23 @@ func BilibiliURLPolicy(u *url.URL) bool { if u==nil||u.Scheme!="https"||u.User!=
 func New(root string,fallback http.Handler)(*Manager,error){return NewWithPolicies(root,fallback,map[string]URLPolicy{"bilibili":BilibiliURLPolicy})}
 func NewWithPolicies(root string,fallback http.Handler,policies map[string]URLPolicy)(*Manager,error){if strings.TrimSpace(root)==""{return nil,errors.New("图片缓存目录不能为空")};if err:=os.MkdirAll(root,0o755);err!=nil{return nil,fmt.Errorf("创建图片缓存目录: %w",err)};m:=&Manager{root:root,fallback:fallback,policies:make(map[string]URLPolicy),client:&http.Client{Timeout:8*time.Second},queue:make(chan downloadTask,64),inflight:make(map[string]bool),failedUntil:make(map[string]time.Time),ready:make(map[string]string)};for id,p:=range policies{if strings.TrimSpace(id)!=""&&p!=nil{m.policies[id]=p}};for i:=0;i<3;i++{go m.worker()};return m,nil}
 func cacheKey(raw string,p URLPolicy)(string,string,error){return cacheKeyForResource(raw,"",p)}
-func cacheKeyForResource(raw,resourceID string,p URLPolicy)(string,string,error){u,err:=url.Parse(strings.TrimSpace(raw));if err!=nil||u.Scheme!="https"||u.Host==""||p==nil||!p(u){return "","",errors.New("图片地址不符合平台 HTTPS 域名策略")};identity:=strings.TrimSpace(raw);if resourceID=strings.TrimSpace(resourceID);resourceID!=""{identity="resource\x00"+resourceID};sum:=sha256.Sum256([]byte(identity));ext:=strings.ToLower(filepath.Ext(u.Path));if at:=strings.IndexByte(ext,'@');at>=0{ext=ext[:at]};switch ext{case ".png",".jpg",".jpeg",".gif",".webp",".avif",".bmp":default:ext=".img"};return hex.EncodeToString(sum[:]),ext,nil}
+func cacheKeyForResource(raw, _ string, p URLPolicy)(string,string,error){
+	u,err:=url.Parse(strings.TrimSpace(raw))
+	if err!=nil||u.Scheme!="https"||u.Host==""||p==nil||!p(u){return "","",errors.New("图片地址不符合平台 HTTPS 域名策略")}
+	// File identity follows the exact source URL, not the logical resource ID.
+	// A replaced image receives a new immutable path, preserving historical files.
+	sum:=sha256.Sum256([]byte(strings.TrimSpace(raw)))
+	ext:=strings.ToLower(filepath.Ext(u.Path))
+	if at:=strings.IndexByte(ext,'@');at>=0{ext=ext[:at]}
+	switch ext{case ".png",".jpg",".jpeg",".gif",".webp",".avif",".bmp":default:ext=".img"}
+	return hex.EncodeToString(sum[:]),ext,nil
+}
 
 func(m *Manager)CachedURL(raw string)string{return m.CachedURLFor("bilibili",raw)}
 func(m *Manager)Prefetch(raw string){m.PrefetchFor("bilibili",raw)}
 func(m *Manager)CachedURLFor(platformID,raw string)string{return m.CachedURLForResource(platformID,"",raw)}
 func(m *Manager)PrefetchFor(platformID,raw string){m.PrefetchForResource(platformID,"",raw)}
-func resourceIdentity(platformID,resourceID,raw string)string{if id:=strings.TrimSpace(resourceID);id!=""{return platformID+"\x00resource\x00"+id};return platformID+"\x00url\x00"+strings.TrimSpace(raw)}
+func resourceIdentity(platformID, _ ,raw string)string{return platformID+"\x00url\x00"+strings.TrimSpace(raw)}
 func(m *Manager)CachedURLForResource(platformID,resourceID,raw string)string{if m==nil{return ""};stableID:=strings.TrimSpace(resourceID);if stableID!=""{stableID=platformID+":"+stableID};key,ext,err:=cacheKeyForResource(raw,stableID,m.policies[platformID]);if err!=nil{return ""};identity:=resourceIdentity(platformID,resourceID,raw);m.mu.RLock();path:=m.ready[identity];m.mu.RUnlock();if path==""{path=filepath.Join(m.root,key+ext);if info,e:=os.Stat(path);e!=nil||!info.Mode().IsRegular(){return ""};m.mu.Lock();m.ready[identity]=path;m.mu.Unlock()};return routePrefix+key+ext}
 func(m *Manager)PrefetchForResource(platformID,resourceID,raw string){if m==nil{return};stableID:=strings.TrimSpace(resourceID);if stableID!=""{stableID=platformID+":"+stableID};if _,_,err:=cacheKeyForResource(raw,stableID,m.policies[platformID]);err!=nil{return};identity:=resourceIdentity(platformID,resourceID,raw);m.mu.Lock();if m.ready[identity]!=""||m.inflight[identity]||time.Now().Before(m.failedUntil[identity]){m.mu.Unlock();return};m.inflight[identity]=true;m.mu.Unlock();select{case m.queue<-downloadTask{platformID:platformID,resourceID:strings.TrimSpace(resourceID),raw:raw}:default:m.mu.Lock();delete(m.inflight,identity);m.mu.Unlock()}}
 func(m *Manager)worker(){for task:=range m.queue{err:=m.download(task);k:=resourceIdentity(task.platformID,task.resourceID,task.raw);m.mu.Lock();delete(m.inflight,k);if err!=nil{m.failedUntil[k]=time.Now().Add(30*time.Second)}else{delete(m.failedUntil,k)};m.mu.Unlock()}}
