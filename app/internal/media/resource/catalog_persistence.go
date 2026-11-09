@@ -13,8 +13,9 @@ import (
 const catalogFileVersion = 1
 
 type catalogFile struct {
-	Version   int        `json:"version"`
-	Resources []Resource `json:"resources"`
+	Version   int                  `json:"version"`
+	Resources []Resource           `json:"resources"`
+	Refreshes map[string]time.Time `json:"refreshes,omitempty"`
 }
 
 type catalogPersistence struct {
@@ -29,7 +30,7 @@ type catalogPersistence struct {
 }
 
 // NewPersistentCatalog loads the last saved catalog before returning. Subsequent
-// registrations are coalesced and written by a background worker.
+// registrations and refresh timestamps are coalesced by a background writer.
 func NewPersistentCatalog(path string) (*Catalog, error) {
 	if path == "" {
 		return nil, errors.New("media catalog persistence path is required")
@@ -46,6 +47,11 @@ func NewPersistentCatalog(path string) (*Catalog, error) {
 		} else {
 			for _, item := range stored.Resources {
 				catalog.Register(item)
+			}
+			for key, refreshedAt := range stored.Refreshes {
+				if !refreshedAt.IsZero() {
+					catalog.refreshes[key] = refreshedAt
+				}
 			}
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -120,8 +126,18 @@ func (p *catalogPersistence) run() {
 }
 
 func (p *catalogPersistence) flush() {
-	snapshot := p.catalog.List("", "", "")
-	data, err := json.MarshalIndent(catalogFile{Version: catalogFileVersion, Resources: snapshot}, "", "  ")
+	p.catalog.mu.RLock()
+	snapshot := make([]Resource, 0, len(p.catalog.items))
+	for _, item := range p.catalog.items {
+		snapshot = append(snapshot, item)
+	}
+	refreshes := make(map[string]time.Time, len(p.catalog.refreshes))
+	for key, at := range p.catalog.refreshes {
+		refreshes[key] = at
+	}
+	p.catalog.mu.RUnlock()
+
+	data, err := json.MarshalIndent(catalogFile{Version: catalogFileVersion, Resources: snapshot, Refreshes: refreshes}, "", "  ")
 	if err != nil {
 		p.setError(fmt.Errorf("encode media catalog: %w", err))
 		return
