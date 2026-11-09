@@ -1,3 +1,4 @@
 {
-  "config_version": 1
+  "config_version": 1,
+  "appearance": { "theme": "dark", "accent_color": "indigo" }
 }

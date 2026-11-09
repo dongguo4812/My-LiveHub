@@ -47,7 +47,8 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <el-container class="shell">
+  <router-view v-if="route.meta.standalone" />
+  <el-container v-else class="shell">
     <el-aside :width="collapsed ? '68px' : '226px'" class="sidebar">
       <div class="brand">
         <div class="brand-mark">L</div>

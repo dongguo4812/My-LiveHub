@@ -5,8 +5,9 @@ vars:
 
 tasks:
   dev:
-    summary: 启动 My-LiveHub 桌面开发环境
+    summary: 生成 Wails 前端绑定并启动 My-LiveHub 桌面开发环境
     cmds:
+      - wails3 generate bindings -ts
       - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
   frontend:install:
     summary: 安装管理端前端依赖

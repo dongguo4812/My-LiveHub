@@ -211,7 +211,7 @@ func TestSaveTypedValidatesBeforeWriting(t *testing.T) {
 		t.Fatalf("invalid config was written, stat error = %v", err)
 	}
 
-	valid := AppConfig{ConfigVersion: CurrentAppConfigVersion}
+	valid := AppConfig{ConfigVersion: CurrentAppConfigVersion, Appearance: DefaultAppearanceConfig()}
 	if err := SaveTyped(manager, "app.json", valid, func(value AppConfig) error {
 		return value.Validate()
 	}); err != nil {
