@@ -79,13 +79,14 @@ onUnmounted(() => {
       <div class="planned-platform-content"><span>抖音直播平台</span><p>已预留平台入口，登录、直播间连接及弹幕功能将在后续版本开发。</p></div>
     </el-card>
     <el-card shadow="never">
-      <template #header><div class="card-heading"><span>平台连接状态</span><el-tag size="small" effect="plain">{{ platforms.length }} 个适配器</el-tag></div></template>
+      <template #header><div class="card-heading"><span>直播间连接状态</span><el-tag size="small" effect="plain">{{ platforms.length }} 个适配器</el-tag></div></template>
       <el-empty v-if="platforms.length === 0" description="尚未接入直播平台适配器" :image-size="100"><template #default><p class="empty-note">平台连接管理服务已就绪。</p></template></el-empty>
       <el-table v-else :data="platforms" row-key="platform_id">
-        <el-table-column label="平台" min-width="130"><template #default="{ row }">{{ row.platform_id === 'bilibili' ? '哔哩哔哩' : row.platform_id }}</template></el-table-column>
-        <el-table-column label="连接状态" width="140"><template #default="{ row }"><el-tag :type="statusTypes[row.status] ?? 'info'" effect="light">{{ statusLabels[row.status] ?? row.status }}</el-tag></template></el-table-column>
+        <el-table-column label="直播平台" min-width="110"><template #default="{ row }">{{ row.platform_id === 'bilibili' ? '哔哩哔哩' : row.platform_id }}</template></el-table-column>
+        <el-table-column label="直播间房间号" width="140"><template #default="{ row }">{{ row.platform_id === 'bilibili' ? (bilibiliSettings?.room_id || '-') : '-' }}</template></el-table-column>
+        <el-table-column label="直播间连接状态" width="150"><template #default="{ row }"><el-tag :type="statusTypes[row.status] ?? 'info'" effect="light">{{ statusLabels[row.status] ?? row.status }}</el-tag></template></el-table-column>
         <el-table-column prop="error" label="错误信息" min-width="220" show-overflow-tooltip />
-        <el-table-column label="操作" width="180" fixed="right"><template #default="{ row }"><el-button v-if="row.status === 'disconnected' || row.status === 'failed'" type="primary" plain size="small" :loading="busyPlatformID === row.platform_id" :disabled="!!busyPlatformID" @click="runAction(row.platform_id, 'connect')">连接</el-button><el-button v-else-if="row.status === 'connected'" type="danger" plain size="small" :loading="busyPlatformID === row.platform_id" :disabled="!!busyPlatformID" @click="runAction(row.platform_id, 'disconnect')">断开连接</el-button><el-button v-else size="small" disabled>处理中</el-button></template></el-table-column>
+        <el-table-column label="操作" width="180" fixed="right"><template #default="{ row }"><el-button v-if="row.status === 'disconnected' || row.status === 'failed'" type="primary" plain size="small" :loading="busyPlatformID === row.platform_id" :disabled="!!busyPlatformID" @click="runAction(row.platform_id, 'connect')">连接直播间</el-button><el-button v-else-if="row.status === 'connected'" type="danger" plain size="small" :loading="busyPlatformID === row.platform_id" :disabled="!!busyPlatformID" @click="runAction(row.platform_id, 'disconnect')">断开直播间连接</el-button><el-button v-else size="small" disabled>处理中</el-button></template></el-table-column>
       </el-table>
     </el-card>
     <el-card shadow="never">
