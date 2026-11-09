@@ -91,7 +91,7 @@ func main() {
 	} else if userConfigDir, configDirErr := os.UserConfigDir(); configDirErr == nil {
 		cacheDir = filepath.Join(userConfigDir, "My-LiveHub", "cache")
 	}
-	mediaCatalog, catalogErr := resource.NewPersistentCatalog(filepath.Join(cacheDir, "media-resources", "catalog.json"))
+	mediaCatalog, catalogErr := resource.NewPersistentCatalog(filepath.Join(cacheDir, "media-resources"))
 	if catalogErr != nil {
 		log.Printf("load local media resource catalog: %v", catalogErr)
 	}
