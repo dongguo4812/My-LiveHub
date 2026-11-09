@@ -8,115 +8,87 @@ import (
 	"testing/fstest"
 )
 
-func TestLoadTypedMigratesLocalOverrideAndPersistsAfterValidation(t *testing.T) {
+type testTypedConfig struct {
+	ConfigVersion int    `json:"config_version"`
+	DefaultOnly   string `json:"default_only"`
+	LocalOnly     string `json:"local_only"`
+}
+
+func TestLoadTypedMergesDefaultsAndLocalOverrides(t *testing.T) {
 	localDir := t.TempDir()
 	manager, err := NewManager(fstest.MapFS{
-		"app.json": {Data: []byte(`{"config_version":1,"default_only":"keep"}`)},
+		"app.json": {Data: []byte(`{"config_version":1,"default_only":"from-default","local_only":"default"}`)},
 	}, localDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	localPath := filepath.Join(localDir, "app.json")
-	if err := os.WriteFile(localPath, []byte(`{"config_version":0,"legacy_setting":true}`), 0o600); err != nil {
+	if err := os.WriteFile(localPath, []byte(`{"local_only":"from-local"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	migrated := false
-	got, err := LoadTyped[map[string]any](manager, "app.json", 1, map[int]Migration{
-		0: func(data map[string]any) error {
-			migrated = true
-			data["renamed_setting"] = data["legacy_setting"]
-			delete(data, "legacy_setting")
-			return nil
-		},
-	}, func(value map[string]any) error {
-		if value["default_only"] != "keep" || value["renamed_setting"] != true {
-			t.Fatalf("unexpected merged config: %#v", value)
+	got, err := LoadTyped[testTypedConfig](manager, "app.json", func(value testTypedConfig) error {
+		if value.ConfigVersion != 1 {
+			t.Fatalf("config version = %d, want 1", value.ConfigVersion)
 		}
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !migrated || got["default_only"] != "keep" || got["renamed_setting"] != true {
-		t.Fatalf("migration result = %#v, migrated=%v", got, migrated)
+	if got.DefaultOnly != "from-default" || got.LocalOnly != "from-local" {
+		t.Fatalf("unexpected merged config: %#v", got)
 	}
-	// Only the local override is persisted; defaults remain inherited.
+
+	// Loading is read-only and must not rewrite the user's local override.
 	raw, err := os.ReadFile(localPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(raw) == "" {
-		t.Fatal("migrated local override was not persisted")
-	}
-	reloaded, err := manager.Load("app.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if reloaded["default_only"] != "keep" || reloaded["renamed_setting"] != true {
-		t.Fatalf("reloaded merged config = %#v", reloaded)
+	if string(raw) != `{"local_only":"from-local"}` {
+		t.Fatalf("loading changed local config: %s", raw)
 	}
 }
 
-func TestLoadTypedDoesNotPersistWhenValidationFails(t *testing.T) {
-	localDir := t.TempDir()
-	manager, err := NewManager(fstest.MapFS{"app.json": {Data: []byte(`{"config_version":1}`)}}, localDir)
+func TestLoadTypedValidatesEffectiveConfiguration(t *testing.T) {
+	manager, err := NewManager(fstest.MapFS{
+		"app.json": {Data: []byte(`{"config_version":1}`)},
+	}, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	localPath := filepath.Join(localDir, "app.json")
-	original := `{"config_version":0,"bad":true}`
-	if err := os.WriteFile(localPath, []byte(original), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	_, err = LoadTyped[map[string]any](manager, "app.json", 1, map[int]Migration{
-		0: func(data map[string]any) error { data["migrated"] = true; return nil },
-	}, func(map[string]any) error { return errors.New("invalid effective configuration") })
+
+	_, err = LoadTyped[AppConfig](manager, "app.json", func(value AppConfig) error {
+		return errors.New("invalid effective configuration")
+	})
 	if err == nil {
 		t.Fatal("expected validation failure")
 	}
-	raw, readErr := os.ReadFile(localPath)
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	if string(raw) != original {
-		t.Fatalf("failed migration changed source config: %s", raw)
-	}
 }
 
-func TestLoadTypedRejectsUnsupportedVersionsAndMigrationFailures(t *testing.T) {
-	tests := []struct {
-		name string
-		data string
-		migrations map[int]Migration
-	}{
-		{name: "future version", data: `{"config_version":2}`},
-		{name: "missing migration", data: `{"config_version":0}`},
-		{name: "migration failure", data: `{"config_version":0}`, migrations: map[int]Migration{
-			0: func(map[string]any) error { return errors.New("broken migration") },
-		}},
-		{name: "invalid version type", data: `{"config_version":"one"}`},
+func TestLoadTypedRejectsMalformedConfiguration(t *testing.T) {
+	manager, err := NewManager(fstest.MapFS{
+		"app.json": {Data: []byte(`{"config_version":"one"}`)},
+	}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			manager, err := NewManager(fstest.MapFS{"app.json": {Data: []byte(tt.data)}}, t.TempDir())
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, err = LoadTyped[AppConfig](manager, "app.json", 1, tt.migrations, nil)
-			if err == nil {
-				t.Fatal("expected configuration loading error")
-			}
-		})
+	if _, err := LoadTyped[AppConfig](manager, "app.json", func(value AppConfig) error {
+		return value.Validate()
+	}); err == nil {
+		t.Fatal("expected type decoding error")
 	}
 }
 
 func TestSaveTypedValidatesBeforeWriting(t *testing.T) {
 	localDir := t.TempDir()
-	manager, err := NewManager(fstest.MapFS{"app.json": {Data: []byte(`{"config_version":1}`)}}, localDir)
+	manager, err := NewManager(fstest.MapFS{
+		"app.json": {Data: []byte(`{"config_version":1}`)},
+	}, localDir)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	invalid := AppConfig{ConfigVersion: 2}
 	if err := SaveTyped(manager, "app.json", invalid, func(value AppConfig) error {
 		return value.Validate()
