@@ -24,6 +24,7 @@ const statusTypes: Record<string, 'info'|'warning'|'success'|'danger'> = { disco
 let pollTimer: ReturnType<typeof setInterval> | undefined
 let eventTimer: ReturnType<typeof setInterval> | undefined
 const bilibiliConnected = computed(() => platforms.value.some(item => item.platform_id === 'bilibili' && item.status !== 'disconnected'))
+const bilibiliDanmakuEvents = computed(() => bilibiliEvents.value.filter(event => event.type === 'danmaku'))
 
 async function submitBrowserCookie() {
   const ok = await loginBilibiliWithCookie(browserCookie.value)
@@ -99,9 +100,9 @@ onUnmounted(() => {
       </el-table>
     </el-card>
     <el-card shadow="never">
-      <template #header><div class="card-heading"><span>实时弹幕</span><el-tag size="small" effect="plain">{{ bilibiliEvents.length }} 条缓存</el-tag></div></template>
-      <el-empty v-if="!bilibiliEvents.length" description="连接直播间后，收到的弹幕会显示在这里" :image-size="80" />
-      <el-table v-else :data="[...bilibiliEvents].reverse()" row-key="id" max-height="420"><el-table-column label="时间" width="105"><template #default="{ row }">{{ formatEventTime(row.timestamp) }}</template></el-table-column><el-table-column label="用户" width="160"><template #default="{ row }">{{ row.user_name }}</template></el-table-column><el-table-column prop="content" label="弹幕内容" min-width="260" show-overflow-tooltip /></el-table>
+      <template #header><div class="card-heading"><span>实时弹幕</span><el-tag size="small" effect="plain">{{ bilibiliDanmakuEvents.length }} 条缓存</el-tag></div></template>
+      <el-empty v-if="!bilibiliDanmakuEvents.length" description="连接直播间后，收到的弹幕会显示在这里" :image-size="80" />
+      <el-table v-else :data="[...bilibiliDanmakuEvents].reverse()" row-key="id" max-height="420"><el-table-column label="时间" width="105"><template #default="{ row }">{{ formatEventTime(row.timestamp) }}</template></el-table-column><el-table-column label="用户" width="160"><template #default="{ row }">{{ row.user_name }}</template></el-table-column><el-table-column prop="content" label="弹幕内容" min-width="260" show-overflow-tooltip /></el-table>
     </el-card>
   </section>
 </template>
