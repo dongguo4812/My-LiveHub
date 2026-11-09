@@ -65,6 +65,7 @@ func main() {
 		},
 		Services: []application.Service{
 			application.NewService(desktop.NewCoreService(coreApp)),
+			application.NewService(desktop.NewPlatformService(platformManager)),
 		},
 	})
 
