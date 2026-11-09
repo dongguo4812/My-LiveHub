@@ -23,6 +23,12 @@ func TestFetchRoomEmoticonResourcesSeparatesCommonAndRoomEmoticons(t *testing.T)
 				]},
 				{"pkg_id": 2, "pkg_name": "房间专属", "pkg_type": 2, "emoticons": [
 					{"emoticon_id": 9, "emoticon_unique": "room_12345_9", "emoji": "[room]", "url": "https://i0.hdslb.com/bfs/live/room.png", "width": 100, "height": 100}
+				]},
+				{"pkg_id": 3, "pkg_name": "无唯一标识表情包 A", "pkg_type": 1, "emoticons": [
+					{"emoticon_id": 331, "emoji": "[dog-a]", "url": "https://i0.hdslb.com/bfs/live/dog-a.png"}
+				]},
+				{"pkg_id": 4, "pkg_name": "无唯一标识表情包 B", "pkg_type": 1, "emoticons": [
+					{"emoticon_id": 331, "emoji": "[dog-b]", "url": "https://i0.hdslb.com/bfs/live/dog-b.png"}
 				]}
 			]}
 		}`))
@@ -43,14 +49,26 @@ func TestFetchRoomEmoticonResourcesSeparatesCommonAndRoomEmoticons(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 2 {
-		t.Fatalf("resource count = %d, want 2: %+v", len(items), items)
+	if len(items) != 4 {
+		t.Fatalf("resource count = %d, want 4: %+v", len(items), items)
 	}
 	if items[0].SourceID != "common" && items[1].SourceID != "common" {
 		t.Fatalf("common emoticon was not shared: %+v", items)
 	}
-	if items[0].SourceID != "12345" && items[1].SourceID != "12345" {
+	if items[0].SourceID != "12345" && items[1].SourceID != "12345" && items[2].SourceID != "12345" && items[3].SourceID != "12345" {
 		t.Fatalf("room emoticon was not room-scoped: %+v", items)
+	}
+	fallbackIDs := map[string]bool{}
+	for _, item := range items {
+		if item.Name == "[dog-a]" || item.Name == "[dog-b]" {
+			fallbackIDs[item.ID] = true
+			if item.SourceID != "common" {
+				t.Fatalf("fallback common emoticon has wrong scope: %+v", item)
+			}
+		}
+	}
+	if !fallbackIDs["pkg_3_emoticon_331"] || !fallbackIDs["pkg_4_emoticon_331"] {
+		t.Fatalf("missing package-scoped fallback IDs: %+v", items)
 	}
 }
 
