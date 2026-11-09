@@ -11,7 +11,7 @@ import {
 } from '../services/danmakuDisplay'
 
 const items = ref<DanmakuDisplayEvent[]>([])
-const failedEmoticonURLs = ref(new Set<string>())
+const failedImageURLs = ref(new Set<string>())
 const settings = computed(() => danmakuDisplaySettings.value)
 let refreshTimer: ReturnType<typeof setInterval> | undefined
 let styleElement: HTMLStyleElement | undefined
@@ -67,11 +67,17 @@ watch(danmakuDisplaySettings, value => {
 }, { deep: true })
 
 function imageSource(part: Extract<ContentPart, { kind: 'image' }>) {
-  return part.cacheURL && !failedEmoticonURLs.value.has(part.cacheURL) ? part.cacheURL : part.url
+  return part.cacheURL && !failedImageURLs.value.has(part.cacheURL) ? part.cacheURL : part.url
 }
 
-function markEmoticonFailed(url: string) {
-  failedEmoticonURLs.value = new Set(failedEmoticonURLs.value).add(url)
+function markImageFailed(url: string) {
+  failedImageURLs.value = new Set(failedImageURLs.value).add(url)
+}
+
+function giftImageSource(event: DanmakuDisplayEvent['event']) {
+  return event.gift_image_cache_url && !failedImageURLs.value.has(event.gift_image_cache_url)
+    ? event.gift_image_cache_url
+    : event.gift_image_url
 }
 
 function formatTime(timestamp: number) {
@@ -149,18 +155,26 @@ onUnmounted(() => {
             <span class="event-type">{{ eventNames[item.event.type] ?? item.event.type }}</span>
             <time>{{ formatTime(item.event.timestamp) }}</time>
           </div>
-          <img v-if="settings?.show_gift_image && item.event.type === 'gift' && item.event.gift_image_url" class="gift-image" :src="item.event.gift_image_url" alt="" />
+          <img
+            v-if="settings?.show_gift_image && item.event.type === 'gift' && item.event.gift_image_url && !failedImageURLs.has(item.event.gift_image_url)"
+            class="gift-image"
+            :src="giftImageSource(item.event)"
+            alt=""
+            referrerpolicy="no-referrer"
+            @error="markImageFailed(giftImageSource(item.event))"
+          />
+          <span v-else-if="settings?.show_gift_image && item.event.type === 'gift' && item.event.gift_image_url && failedImageURLs.has(item.event.gift_image_url)" class="gift-image-fallback">{{ item.event.gift_name || '礼物图片加载失败' }}</span>
           <div class="message-content" :style="{ fontSize: `${settings?.font_size ?? 24}px` }">
             <template v-for="(part, index) in contentParts(item.event)" :key="index">
               <img
-                v-if="part.kind === 'image' && !failedEmoticonURLs.has(part.url)"
+                v-if="part.kind === 'image' && !failedImageURLs.has(part.url)"
                 class="danmaku-emoticon"
                 :src="imageSource(part)"
                 :alt="part.text"
                 :title="part.text"
                 referrerpolicy="no-referrer"
                 :style="{ width: part.width > 0 ? `${part.width}px` : '1.4em', height: part.height > 0 ? `${part.height}px` : '1.4em' }"
-                @error="markEmoticonFailed(imageSource(part))"
+                @error="markImageFailed(imageSource(part))"
               />
               <span v-else>{{ part.text }}</span>
             </template>
@@ -188,6 +202,7 @@ onUnmounted(() => {
 .guard-badge { background:#61452d; color:#ffe0a8; }
 .medal-badge { background:#573d38; color:#ffe0ca; }
 .level-badge { background:#39445e; color:#d9e2ff; }
+.gift-image-fallback { display:inline-block; margin-top:5px; color:#d3d9e8; font-size:12px; }
 .gift-image { display:block; max-width:72px; max-height:72px; object-fit:contain; margin-top:5px; }
 .danmaku-emoticon { display:inline-block; max-width:3em; max-height:2em; margin:0 2px; object-fit:contain; vertical-align:middle; }
 .platform-badge { padding:1px 5px; border-radius:4px; background:#46568b; color:#e8ecff; font-size:10px; }

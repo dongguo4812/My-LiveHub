@@ -36,6 +36,7 @@ type Event struct {
 	FanMedalLevel  int             `json:"fan_medal_level,omitempty"`
 	FanMedalColor  uint32          `json:"fan_medal_color,omitempty"`
 	GiftImageURL   string          `json:"gift_image_url,omitempty"`
+	GiftImageCacheURL string       `json:"gift_image_cache_url,omitempty"`
 	GiftID         int             `json:"gift_id,omitempty"`
 	Emoticons      []EmoticonToken `json:"emoticons,omitempty"`
 	Content        string          `json:"content"`

@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	routePrefix = "/__local_cache/emoticons/"
+	routePrefix = "/__local_cache/images/"
 	maxImageSize = 8 << 20
 )
 
