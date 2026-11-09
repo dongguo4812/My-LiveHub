@@ -4,7 +4,7 @@ import { ElMessage } from 'element-plus'
 import * as PlatformService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/platformservice.js'
 
 type EventItem = Awaited<ReturnType<typeof PlatformService.GetEvents>>[number]
-type EventType = 'danmaku' | 'gift' | 'super_chat' | 'guard' | 'follow' | 'like'
+type EventType = 'danmaku' | 'gift' | 'super_chat' | 'guard' | 'follow' | 'like' | 'welcome'
 
 const eventTypes: { label: string; value: EventType }[] = [
   { label: '弹幕', value: 'danmaku' },
@@ -13,6 +13,7 @@ const eventTypes: { label: string; value: EventType }[] = [
   { label: '上舰', value: 'guard' },
   { label: '关注', value: 'follow' },
   { label: '点赞', value: 'like' },
+  { label: '欢迎进场', value: 'welcome' },
 ]
 const eventLabels = Object.fromEntries(eventTypes.map(item => [item.value, item.label])) as Record<EventType, string>
 const eventType = ref<EventType>('danmaku')
@@ -172,7 +173,7 @@ onUnmounted(() => {
             </template>
 
             <div v-else class="simple-event-hint">
-              {{ eventType === 'follow' ? '发送一条用户关注直播间的模拟事件。' : '发送一条用户点赞直播间的模拟事件。' }}
+              {{ eventType === 'follow' ? '发送一条用户关注直播间的模拟事件。' : eventType === 'like' ? '发送一条用户点赞直播间的模拟事件。' : '发送一条用户进入直播间的欢迎事件。' }}
             </div>
 
             <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon class="form-error" />
