@@ -6,8 +6,8 @@ export type BilibiliLoginSession = Awaited<ReturnType<typeof BilibiliAuthService
 export type BilibiliLoginStatus = Awaited<ReturnType<typeof BilibiliAuthService.PollLogin>>
 
 export const bilibiliAccount = ref<BilibiliAccount>(null)
-export const bilibiliLoginSession = ref<BilibiliLoginSession>(null)
-export const bilibiliLoginStatus = ref<BilibiliLoginStatus>(null)
+export const bilibiliLoginSession = ref<BilibiliLoginSession | null>(null)
+export const bilibiliLoginStatus = ref<BilibiliLoginStatus | null>(null)
 export const bilibiliAuthError = ref('')
 export const bilibiliAuthBusy = ref(false)
 
@@ -19,7 +19,7 @@ export async function loginBilibiliWithCookie(cookie: string) {
   try {
     bilibiliAccount.value = await BilibiliAuthService.LoginWithCookie(cookie)
     bilibiliLoginSession.value = null
-    bilibiliLoginStatus.value = { status: 'success', message: 'Cookie 登录成功', account: bilibiliAccount.value }
+    bilibiliLoginStatus.value = { status: 'success', message: 'Cookie 登录成功', account: bilibiliAccount.value ?? undefined }
     return true
   } catch (error) {
     bilibiliAuthError.value = error instanceof Error ? error.message : String(error)
@@ -57,7 +57,7 @@ export async function pollBilibiliLogin() {
     const status = await BilibiliAuthService.PollLogin(bilibiliLoginSession.value.id)
     bilibiliLoginStatus.value = status
     if (status.status === 'success') {
-      bilibiliAccount.value = status.account
+      bilibiliAccount.value = status.account ?? null
       bilibiliLoginSession.value = null
     } else if (status.status === 'expired') {
       bilibiliLoginSession.value = null
