@@ -44,8 +44,6 @@ type Event struct {
 	Color          uint32          `json:"color,omitempty"`
 	IsSimulation   bool            `json:"is_simulation,omitempty"`
 	GiftName       string          `json:"gift_name,omitempty"`
-	GiftImageURL   string          `json:"gift_image_url,omitempty"`
-	GiftID         int             `json:"gift_id,omitempty"`
 	GiftCount      int             `json:"gift_count,omitempty"`
 	UnitPrice      float64         `json:"unit_price,omitempty"`
 	TotalPrice     float64         `json:"total_price,omitempty"`
