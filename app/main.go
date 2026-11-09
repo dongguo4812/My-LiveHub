@@ -13,6 +13,7 @@ import (
 	"github.com/dongguo4812/My-LiveHub/app/internal/platform"
 	"github.com/dongguo4812/My-LiveHub/app/internal/platform/bilibili"
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
 //go:embed all:frontend/dist
@@ -117,9 +118,14 @@ func main() {
 	if appConfig.Appearance.Theme == "light" {
 		background = application.NewRGBA(245, 247, 251, 255)
 	}
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
+	mainWindow := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "main-window", Title: "My-LiveHub", Width: 1440, Height: 900,
 		MinWidth: 1100, MinHeight: 680, BackgroundColour: background, URL: "/",
+	})
+	// Closing the main window exits the application. The shutdown hook above
+	// then closes the independent overlay window as part of the same lifecycle.
+	mainWindow.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
+		go app.Quit()
 	})
 	if err := app.Run(); err != nil {
 		log.Fatal(err)

@@ -117,7 +117,6 @@ func (s *DanmakuDisplayService) OpenWindow() error {
 			// Keep the overlay truly frameless; the page supplies its own
 			// interactive resize affordance when the window is not pinned.
 			DisableFramelessWindowDecorations: true,
-			HiddenOnTaskbar: true,
 		},
 	}
 	if cfg.PositionSaved {
