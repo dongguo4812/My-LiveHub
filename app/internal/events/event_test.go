@@ -45,6 +45,16 @@ func TestSimulationWelcomeEvent(t *testing.T) {
 	}
 }
 
+func TestSimulationWelcomeLegacyAlias(t *testing.T) {
+	event, err := NewBuffer().AddSimulationEvent("bilibili", SimulationEventInput{Type: "welcom", UserID: 42})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event.Type != "welcome" || event.Content != "进入了直播间" {
+		t.Fatalf("legacy value was not normalized: %+v", event)
+	}
+}
+
 func TestEventSourceAndDefaults(t *testing.T) {
 	buffer:=NewBuffer()
 	live:=buffer.Add(Event{PlatformID:"bilibili",Type:"danmaku"})
