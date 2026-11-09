@@ -44,6 +44,8 @@ type Event struct {
 	Color          uint32          `json:"color,omitempty"`
 	IsSimulation   bool            `json:"is_simulation,omitempty"`
 	GiftName       string          `json:"gift_name,omitempty"`
+	GiftImageURL   string          `json:"gift_image_url,omitempty"`
+	GiftID         int             `json:"gift_id,omitempty"`
 	GiftCount      int             `json:"gift_count,omitempty"`
 	UnitPrice      float64         `json:"unit_price,omitempty"`
 	TotalPrice     float64         `json:"total_price,omitempty"`
@@ -90,6 +92,8 @@ type SimulationEventInput struct {
 	UserName   string
 	Content    string
 	GiftName   string
+	GiftID     int
+	GiftImageURL string
 	GiftCount  int
 	UnitPrice  float64
 	Amount     float64
@@ -112,7 +116,7 @@ func (b *Buffer) AddSimulationEvent(platformID string, input SimulationEventInpu
 		if input.Content == "" { return Event{}, errors.New("弹幕内容不能为空") }
 	case "gift":
 		if input.GiftName == "" || input.GiftCount < 1 || input.UnitPrice < 0 { return Event{}, errors.New("礼物名称、数量或单价不正确") }
-		event.GiftName, event.GiftCount, event.UnitPrice = input.GiftName, input.GiftCount, input.UnitPrice
+		event.GiftName, event.GiftID, event.GiftImageURL, event.GiftCount, event.UnitPrice = input.GiftName, input.GiftID, input.GiftImageURL, input.GiftCount, input.UnitPrice
 		event.TotalPrice = input.UnitPrice * float64(input.GiftCount)
 		event.Content = fmt.Sprintf("赠送了 %s × %d", input.GiftName, input.GiftCount)
 	case "super_chat":
