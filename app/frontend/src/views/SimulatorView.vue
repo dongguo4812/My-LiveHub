@@ -16,7 +16,6 @@ const eventTypes: { label: string; value: EventType }[] = [
 ]
 const eventLabels = Object.fromEntries(eventTypes.map(item => [item.value, item.label])) as Record<EventType, string>
 const eventType = ref<EventType>('danmaku')
-const roomID = ref(0)
 const userID = ref(10001)
 const userName = ref('模拟观众')
 const content = ref('这是一条模拟弹幕')
@@ -49,7 +48,6 @@ async function sendEvent() {
   try {
     await PlatformService.SimulateBilibiliEvent(
       eventType.value,
-      roomID.value,
       userID.value,
       userName.value,
       content.value,
@@ -118,14 +116,9 @@ onUnmounted(() => {
               </el-select>
             </el-form-item>
 
-            <div class="field-grid">
-              <el-form-item label="直播间房间号">
-                <el-input-number v-model="roomID" :min="0" :max="2147483647" class="full-width" />
-              </el-form-item>
-              <el-form-item label="用户 UID">
-                <el-input-number v-model="userID" :min="0" :max="2147483647" class="full-width" />
-              </el-form-item>
-            </div>
+            <el-form-item label="用户 UID">
+              <el-input-number v-model="userID" :min="0" :max="2147483647" class="full-width" />
+            </el-form-item>
             <el-form-item label="用户昵称">
               <el-input v-model="userName" maxlength="40" />
             </el-form-item>
