@@ -1,16 +1,10 @@
 import { ref } from 'vue'
 import * as CoreService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/coreservice.js'
 
-export interface CoreAppSnapshot {
-  status: 'created' | 'starting' | 'running' | 'stopping' | 'stopped' | 'failed'
-  config_version: number
-}
-
-export interface ModuleSnapshot {
-  name: string
-  status: 'registered' | 'starting' | 'running' | 'stopping' | 'stopped' | 'failed'
-  error?: string
-}
+// Use generated Wails return types directly so frontend state cannot drift
+// from the Go service models.
+export type CoreAppSnapshot = Awaited<ReturnType<typeof CoreService.GetStatus>>
+export type ModuleSnapshot = Awaited<ReturnType<typeof CoreService.GetModules>>[number]
 
 export const coreStatus = ref<CoreAppSnapshot | null>(null)
 export const coreModules = ref<ModuleSnapshot[]>([])
