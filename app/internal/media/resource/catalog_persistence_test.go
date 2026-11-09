@@ -7,28 +7,55 @@ import (
 	"time"
 )
 
-func TestPersistentCatalogRestoresResourcesAndSeparatesSources(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "media", "catalog.json")
-	catalog, err := NewPersistentCatalog(path)
+func TestPersistentCatalogRestoresPartitionedResourcesAndRefreshes(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "media-resources")
+	catalog, err := NewPersistentCatalog(root)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	items := []Resource{
 		{PlatformID: "bilibili", SourceID: "common", Type: TypeEmoticon, ID: "official_331", Name: "通用表情", ImageURL: "https://img.test/common.png"},
 		{PlatformID: "bilibili", SourceID: "12345", Type: TypeEmoticon, ID: "room_12345_9", Name: "房间表情", ImageURL: "https://img.test/room.png"},
 		{PlatformID: "bilibili", SourceID: "12345", Type: TypeGift, ID: "30607", Name: "小心心", ImageURL: "https://img.test/gift.png"},
-		{PlatformID: "douyin", SourceID: "common", Type: TypeEmoticon, ID: "official_331", Name: "抖音表情", ImageURL: "https://img.test/douyin.png"},
+		{PlatformID: "douyin", SourceID: "common", Type: TypeEmoticon, ID: "douyin_1", Name: "抖音表情", ImageURL: "https://img.test/douyin.png"},
 	}
 	for _, item := range items {
 		if !catalog.Register(item) {
 			t.Fatalf("register failed: %+v", item)
 		}
 	}
+	refreshedAt := time.Now().Add(-time.Hour)
+	for _, entry := range []struct {
+		platform string
+		source   string
+		kind     Type
+	}{
+		{"bilibili", "common", TypeEmoticon},
+		{"bilibili", "12345", TypeEmoticon},
+		{"bilibili", "12345", TypeGift},
+	} {
+		if !catalog.MarkRefreshed(entry.platform, entry.source, entry.kind, refreshedAt) {
+			t.Fatalf("mark refresh failed: %+v", entry)
+		}
+	}
 	if err := catalog.Close(); err != nil {
 		t.Fatal(err)
 	}
 
-	restored, err := NewPersistentCatalog(path)
+	expectedFiles := []string{
+		filepath.Join(root, "bilibili", "common", "emoticon.json"),
+		filepath.Join(root, "bilibili", "rooms", "12345", "emoticon.json"),
+		filepath.Join(root, "bilibili", "rooms", "12345", "gift.json"),
+		filepath.Join(root, "douyin", "common", "emoticon.json"),
+	}
+	for _, path := range expectedFiles {
+		if info, err := os.Stat(path); err != nil || info.IsDir() {
+			t.Fatalf("expected partition file %q, stat error: %v", path, err)
+		}
+	}
+
+	restored, err := NewPersistentCatalog(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,11 +75,20 @@ func TestPersistentCatalogRestoresResourcesAndSeparatesSources(t *testing.T) {
 	if got := len(restored.List("bilibili", "12345", TypeGift)); got != 1 {
 		t.Fatalf("gift was not restored, count = %d", got)
 	}
+	if !restored.IsFresh("bilibili", "common", TypeEmoticon, 24*time.Hour) {
+		t.Fatal("common emoticon refresh timestamp was not restored")
+	}
+	if !restored.IsFresh("bilibili", "12345", TypeEmoticon, 6*time.Hour) {
+		t.Fatal("room emoticon refresh timestamp was not restored")
+	}
+	if !restored.IsFresh("bilibili", "12345", TypeGift, 24*time.Hour) {
+		t.Fatal("gift refresh timestamp was not restored")
+	}
 }
 
 func TestPersistentCatalogUpdatesExistingResource(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "catalog.json")
-	catalog, err := NewPersistentCatalog(path)
+	root := filepath.Join(t.TempDir(), "media-resources")
+	catalog, err := NewPersistentCatalog(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +101,7 @@ func TestPersistentCatalogUpdatesExistingResource(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	restored, err := NewPersistentCatalog(path)
+	restored, err := NewPersistentCatalog(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,23 +115,25 @@ func TestPersistentCatalogUpdatesExistingResource(t *testing.T) {
 	}
 }
 
-func TestPersistentCatalogToleratesMissingAndInvalidFiles(t *testing.T) {
-	dir := t.TempDir()
-	missing := filepath.Join(dir, "missing.json")
-	catalog, err := NewPersistentCatalog(missing)
+func TestPersistentCatalogMissingRootAndCorruptFileProtection(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "missing", "media-resources")
+	catalog, err := NewPersistentCatalog(root)
 	if err != nil {
-		t.Fatalf("missing catalog should be treated as empty: %v", err)
+		t.Fatalf("missing catalog directory should be treated as empty: %v", err)
 	}
 	if err := catalog.Close(); err != nil {
 		t.Fatal(err)
 	}
 
-	broken := filepath.Join(dir, "broken.json")
-	if err := os.WriteFile(broken, []byte("{not-json"), 0o600); err != nil {
+	broken := filepath.Join(root, "bilibili", "common", "emoticon.json")
+	if err := os.MkdirAll(filepath.Dir(broken), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	original := []byte("{not-json")
-	catalog, err = NewPersistentCatalog(broken)
+	if err := os.WriteFile(broken, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err = NewPersistentCatalog(root)
 	if err == nil {
 		t.Fatal("invalid JSON should be reported")
 	}
@@ -103,8 +141,7 @@ func TestPersistentCatalogToleratesMissingAndInvalidFiles(t *testing.T) {
 		t.Fatal("invalid JSON should not produce partial catalog entries")
 	}
 	// Even if callers continue using the returned in-memory catalog after the
-	// load error, closing it must not replace the unreadable file with an empty
-	// or partial snapshot.
+	// load error, closing it must not replace the unreadable file.
 	if !catalog.Register(Resource{
 		PlatformID: "bilibili", SourceID: "common", Type: TypeEmoticon,
 		ID: "official_1", Name: "恢复测试", ImageURL: "https://img.test/recovery.png",
@@ -120,60 +157,5 @@ func TestPersistentCatalogToleratesMissingAndInvalidFiles(t *testing.T) {
 	}
 	if string(preserved) != string(original) {
 		t.Fatalf("unreadable catalog was overwritten: got %q want %q", preserved, original)
-	}
-}
-
-
-func TestPersistentCatalogRestoresRefreshTimestamps(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "catalog.json")
-	catalog, err := NewPersistentCatalog(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	refreshedAt := time.Now().Add(-time.Hour)
-	if !catalog.MarkRefreshed("bilibili", "common", TypeEmoticon, refreshedAt) {
-		t.Fatal("marking successful refresh should work")
-	}
-	if !catalog.MarkRefreshed("bilibili", "12345", TypeEmoticon, refreshedAt) {
-		t.Fatal("marking room refresh should work")
-	}
-	if !catalog.MarkRefreshed("bilibili", "12345", TypeGift, refreshedAt) {
-		t.Fatal("marking gift refresh should work")
-	}
-	if err := catalog.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	restored, err := NewPersistentCatalog(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer restored.Close()
-	if !restored.IsFresh("bilibili", "common", TypeEmoticon, 24*time.Hour) {
-		t.Fatal("common emoticon refresh timestamp was not restored")
-	}
-	if !restored.IsFresh("bilibili", "12345", TypeEmoticon, 6*time.Hour) {
-		t.Fatal("room emoticon refresh timestamp was not restored")
-	}
-	if !restored.IsFresh("bilibili", "12345", TypeGift, 24*time.Hour) {
-		t.Fatal("gift refresh timestamp was not restored")
-	}
-	if restored.IsFresh("bilibili", "common", TypeEmoticon, 30*time.Minute) {
-		t.Fatal("refresh older than TTL must be stale")
-	}
-}
-
-func TestPersistentCatalogOldFormatWithoutRefreshesRemainsReadable(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "catalog.json")
-	if err := os.WriteFile(path, []byte(`{"version":1,"resources":[]}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	catalog, err := NewPersistentCatalog(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer catalog.Close()
-	if catalog.IsFresh("bilibili", "common", TypeEmoticon, 24*time.Hour) {
-		t.Fatal("catalog without refresh metadata must be treated as stale")
 	}
 }
