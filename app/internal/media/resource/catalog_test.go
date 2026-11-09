@@ -31,3 +31,73 @@ func TestCatalogFindByImageURLPrefersCommonScope(t *testing.T) {
 		t.Fatal("URL must not resolve across platforms")
 	}
 }
+
+
+func TestCatalogPromotesProvisionalURLIdentityToOfficialID(t *testing.T) {
+	catalog := NewCatalog()
+	provisional := Resource{
+		PlatformID: "bilibili", SourceID: "common", Type: TypeEmoticon,
+		ID: "https://img.test/dog.png", Name: "[dog]",
+		ImageURL: "https://img.test/dog.png",
+	}
+	if !catalog.Register(provisional) {
+		t.Fatal("failed to register provisional emoticon")
+	}
+	firstSeen := catalog.List("bilibili", "common", TypeEmoticon)[0].FirstSeenAt
+
+	official := Resource{
+		PlatformID: "bilibili", SourceID: "common", Type: TypeEmoticon,
+		ID: "emoji_331", Name: "[dog]", ImageURL: "https://img.test/dog.png",
+	}
+	if !catalog.Register(official) {
+		t.Fatal("failed to register official emoticon")
+	}
+	got := catalog.List("bilibili", "common", TypeEmoticon)
+	if len(got) != 1 {
+		t.Fatalf("catalog contains %d resources, want 1: %+v", len(got), got)
+	}
+	if got[0].ID != "emoji_331" {
+		t.Fatalf("resource ID = %q, want official ID", got[0].ID)
+	}
+	if !got[0].FirstSeenAt.Equal(firstSeen) {
+		t.Fatalf("first-seen timestamp changed: got %v want %v", got[0].FirstSeenAt, firstSeen)
+	}
+}
+
+func TestCatalogKeepsResourcesMissingFromLaterDirectoryRefresh(t *testing.T) {
+	catalog := NewCatalog()
+	removed := Resource{
+		PlatformID: "bilibili", SourceID: "12345", Type: TypeEmoticon,
+		ID: "room_12345_9", Name: "[old]", ImageURL: "https://img.test/old.png",
+	}
+	current := Resource{
+		PlatformID: "bilibili", SourceID: "12345", Type: TypeEmoticon,
+		ID: "room_12345_10", Name: "[new]", ImageURL: "https://img.test/new.png",
+	}
+	if !catalog.Register(removed) || !catalog.Register(current) {
+		t.Fatal("failed to register initial directory")
+	}
+
+	// A refresh only upserts resources returned by Bilibili; it must not prune
+	// historical entries that may still be referenced by cached events.
+	nextRefresh := Resource{
+		PlatformID: "bilibili", SourceID: "12345", Type: TypeEmoticon,
+		ID: "room_12345_10", Name: "[renamed]", ImageURL: "https://img.test/new-v2.png",
+	}
+	if !catalog.Register(nextRefresh) {
+		t.Fatal("failed to register refreshed resource")
+	}
+	got := catalog.List("bilibili", "12345", TypeEmoticon)
+	if len(got) != 2 {
+		t.Fatalf("catalog contains %d resources, want historical + current: %+v", len(got), got)
+	}
+	var foundRemoved bool
+	for _, item := range got {
+		if item.ID == removed.ID && item.ImageURL == removed.ImageURL {
+			foundRemoved = true
+		}
+	}
+	if !foundRemoved {
+		t.Fatal("resource missing from latest directory was deleted")
+	}
+}
