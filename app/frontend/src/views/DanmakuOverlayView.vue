@@ -80,6 +80,11 @@ function giftImageSource(event: DanmakuDisplayEvent['event']) {
     : event.gift_image_url
 }
 
+function markGiftImageFailed(event: DanmakuDisplayEvent['event']) {
+  const url = giftImageSource(event)
+  if (url) markImageFailed(url)
+}
+
 function formatTime(timestamp: number) {
   return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
@@ -161,7 +166,7 @@ onUnmounted(() => {
             :src="giftImageSource(item.event)"
             alt=""
             referrerpolicy="no-referrer"
-            @error="markImageFailed(giftImageSource(item.event))"
+            @error="markGiftImageFailed(item.event)"
           />
           <span v-else-if="settings?.show_gift_image && item.event.type === 'gift' && item.event.gift_image_url && failedImageURLs.has(item.event.gift_image_url)" class="gift-image-fallback">{{ item.event.gift_name || '礼物图片加载失败' }}</span>
           <div class="message-content" :style="{ fontSize: `${settings?.font_size ?? 24}px` }">
