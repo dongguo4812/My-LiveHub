@@ -119,7 +119,7 @@ onUnmounted(() => {
 <style scoped>
 :global(html), :global(body), :global(#app) { width:100%; height:100%; margin:0; overflow:hidden; background:transparent !important; }
 .danmaku-overlay { --wails-draggable:drag; position:relative; box-sizing:border-box; width:100%; height:100%; overflow:hidden; padding:18px 22px 24px; border:1px solid #8d99b6; border-radius:8px; background:transparent; color:#f2f4fa; font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif; text-shadow:0 1px 3px #000b; }
-.danmaku-overlay.pinned { border:0 !important; outline:0 !important; box-shadow:none !important; border-radius:0; padding:19px 23px 25px; }
+.danmaku-overlay.pinned { border-color:transparent; border-radius:0; }
 .message-list { display:flex; flex-direction:column; justify-content:flex-end; align-items:flex-start; gap:10px; width:100%; height:100%; overflow:hidden; }
 .message { display:flex; align-items:flex-start; gap:10px; max-width:100%; padding:8px 12px; border:1px solid #ffffff20; border-radius:10px; background:#111722c9; backdrop-filter:blur(8px); }
 .message.highlighted { border-color:#e6b75b; background:#44351bcf; }

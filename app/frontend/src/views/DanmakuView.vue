@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import * as PlatformService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/platformservice.js'
 import { danmakuDisplaySettings, danmakuDisplayError, danmakuDisplayBusy, danmakuWindowState, loadDanmakuDisplaySettings, saveDanmakuDisplaySettings, loadDanmakuWindowState, openDanmakuWindow, closeDanmakuWindow, setDanmakuWindowPinned } from '../services/danmakuDisplay'
 
 const form = reactive({
@@ -28,6 +29,13 @@ async function togglePinned(value: string | number | boolean) {
     ElMessage.success(pinned ? '已置顶并开启鼠标穿透' : '已取消置顶，可拖动和调整窗口大小')
   }
 }
+async function openSimulator() {
+  try {
+    await PlatformService.OpenSimulatorWindow('bilibili')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : String(error))
+  }
+}
 async function save() {
   if (await saveDanmakuDisplaySettings({ ...form })) ElMessage.success('弹幕显示设置已保存')
 }
@@ -45,6 +53,7 @@ async function save() {
         </div>
         <div class="window-actions">
           <el-button type="primary" @click="showOverlay">打开展示窗口</el-button>
+          <el-button @click="openSimulator">事件模拟</el-button>
           <el-button :disabled="!danmakuWindowState.is_open" @click="hideOverlay">关闭窗口</el-button>
           <el-switch
             :model-value="danmakuWindowState.is_pinned"

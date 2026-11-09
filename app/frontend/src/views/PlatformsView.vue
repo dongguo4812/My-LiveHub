@@ -2,7 +2,6 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import * as PlatformService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/platformservice.js'
 import { connectPlatform, disconnectPlatform, platformActionError, platforms, platformEvents, platformsError, refreshPlatforms, refreshEvents } from '../services/platforms'
 import { bilibiliAccount, bilibiliAuthBusy, bilibiliAuthError, bilibiliCookieBusy, bilibiliLoginSession, bilibiliLoginStatus, logoutBilibili, pollBilibiliLogin, refreshBilibiliAccount, startBilibiliLogin, loginBilibiliWithCookie } from '../services/bilibiliAuth'
 import { bilibiliSettings, bilibiliSettingsBusy, bilibiliSettingsError, loadBilibiliSettings, saveBilibiliRoomID } from '../services/bilibiliSettings'
@@ -34,13 +33,6 @@ async function saveRoomID() {
   if (await saveBilibiliRoomID(roomID.value)) await loadBilibiliSettings()
 }
 function formatEventTime(timestamp: number) { return new Date(timestamp).toLocaleTimeString() }
-async function openSimulator() {
-  try {
-    await PlatformService.OpenSimulatorWindow('bilibili')
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : String(error))
-  }
-}
 async function runAction(platformID: string, action: 'connect' | 'disconnect') {
   busyPlatformID.value = platformID
   try {
@@ -96,7 +88,7 @@ onUnmounted(() => {
         <el-table-column label="直播间房间号" width="140"><template #default="{ row }">{{ row.platform_id === 'bilibili' ? (bilibiliSettings?.room_id || '-') : '-' }}</template></el-table-column>
         <el-table-column label="直播间连接状态" width="150"><template #default="{ row }"><el-tag :type="statusTypes[row.status] ?? 'info'" effect="light">{{ statusLabels[row.status] ?? row.status }}</el-tag></template></el-table-column>
         <el-table-column prop="error" label="错误信息" min-width="220" show-overflow-tooltip />
-        <el-table-column label="操作" width="250" fixed="right"><template #default="{ row }"><el-button v-if="row.platform_id === 'bilibili'" type="info" plain size="small" @click="openSimulator">模拟</el-button><el-button v-if="row.status === 'disconnected' || row.status === 'failed'" type="primary" plain size="small" :loading="busyPlatformID === row.platform_id" :disabled="!!busyPlatformID" @click="runAction(row.platform_id, 'connect')">连接</el-button><el-button v-else-if="row.status === 'connected'" type="danger" plain size="small" :loading="busyPlatformID === row.platform_id" :disabled="!!busyPlatformID" @click="runAction(row.platform_id, 'disconnect')">断开连接</el-button><el-button v-else size="small" disabled>处理中</el-button></template></el-table-column>
+        <el-table-column label="操作" width="250" fixed="right"><template #default="{ row }"><el-button v-if="row.status === 'disconnected' || row.status === 'failed'" type="primary" plain size="small" :loading="busyPlatformID === row.platform_id" :disabled="!!busyPlatformID" @click="runAction(row.platform_id, 'connect')">连接</el-button><el-button v-else-if="row.status === 'connected'" type="danger" plain size="small" :loading="busyPlatformID === row.platform_id" :disabled="!!busyPlatformID" @click="runAction(row.platform_id, 'disconnect')">断开连接</el-button><el-button v-else size="small" disabled>处理中</el-button></template></el-table-column>
       </el-table>
     </el-card>
     <el-card shadow="never">
