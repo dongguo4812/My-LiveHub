@@ -13,6 +13,7 @@ const BufferLimit = 200
 // EmoticonToken maps the literal token in a danmaku message to its platform image.
 type EmoticonToken struct {
 	Text   string `json:"text"`
+	ResourceID string `json:"resource_id,omitempty"`
 	URL    string `json:"url"`
 	CacheURL string `json:"cache_url,omitempty"`
 	Width  int    `json:"width,omitempty"`
