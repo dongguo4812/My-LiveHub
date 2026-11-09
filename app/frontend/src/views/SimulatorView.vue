@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import * as PlatformService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/platformservice.js'
 
@@ -18,9 +19,10 @@ const eventTypes: { label: string; value: EventType }[] = [
   { label: '欢迎进场', value: 'welcome' },
 ]
 const eventLabels = Object.fromEntries(eventTypes.map(item => [item.value, item.label])) as Record<EventType, string>
+const route = useRoute()
 const eventType = ref<EventType>('danmaku')
 const platforms = ref<PlatformItem[]>([])
-const platformID = ref('bilibili')
+const platformID = ref(String(route.params.platformID || 'bilibili'))
 const mediaResources = ref<MediaResource[]>([])
 const resourceKeyword = ref('')
 const selectedGiftID = ref('')
