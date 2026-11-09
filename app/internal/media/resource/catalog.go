@@ -75,6 +75,7 @@ func (c *Catalog) Register(r Resource) bool {
 
 	key := identity(r)
 	old, exists := c.items[key]
+	promoted := false
 	// A live danmaku event can arrive before the full directory and only expose
 	// an image URL. When the directory later supplies the official ID for that
 	// same URL and scope, promote the provisional URL identity in place.
@@ -85,6 +86,7 @@ func (c *Catalog) Register(r Resource) bool {
 					old = previous
 					exists = true
 					delete(c.items, previousKey)
+					promoted = true
 					break
 				}
 			}
@@ -97,7 +99,7 @@ func (c *Catalog) Register(r Resource) bool {
 		if r.Name == "" {
 			r.Name = old.Name
 		}
-		if old.Name == r.Name && old.ImageURL == r.ImageURL && old.UnitPrice == r.UnitPrice && old.Width == r.Width && old.Height == r.Height {
+		if !promoted && old.Name == r.Name && old.ImageURL == r.ImageURL && old.UnitPrice == r.UnitPrice && old.Width == r.Width && old.Height == r.Height {
 			return true
 		}
 		r.UpdatedAt = now
