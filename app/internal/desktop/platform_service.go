@@ -23,7 +23,7 @@ func NewPlatformService(manager *platform.Manager, events *bilibili.EventBuffer)
 }
 
 // SetApplication is called after the Wails application has been created.
-func (s *PlatformService) SetApplication(app *application.App, lightTheme bool) {
+func AttachApplication(s *PlatformService, app *application.App, lightTheme bool) {
 	if s == nil {
 		return
 	}
