@@ -69,3 +69,13 @@ func TestEventSourceAndDefaults(t *testing.T) {
 	if err!=nil { t.Fatal(err) }
 	if sim.PlatformID!="douyin" || sim.Source!="simulation" || sim.UserName!="模拟用户" || sim.ID!=2 { t.Fatalf("unexpected simulation event: %+v",sim) }
 }
+
+func TestBufferUpdatesRecentGiftImageAfterCatalogRefresh(t *testing.T) {
+	buffer:=NewBuffer()
+	buffer.Add(Event{PlatformID:"bilibili",RoomID:123,Type:"gift",GiftID:7,GiftName:"礼物"})
+	buffer.Add(Event{PlatformID:"douyin",RoomID:123,Type:"gift",GiftID:7,GiftName:"礼物"})
+	buffer.Add(Event{PlatformID:"bilibili",RoomID:456,Type:"gift",GiftID:7,GiftName:"礼物"})
+	if n:=buffer.UpdateGiftImage("bilibili",123,7,"https://i0.hdslb.com/gift.png");n!=1{t.Fatalf("updated=%d want=1",n)}
+	items:=buffer.Snapshot()
+	if items[0].GiftImageURL!="https://i0.hdslb.com/gift.png"||items[1].GiftImageURL!=""||items[2].GiftImageURL!=""{t.Fatalf("image update crossed platform or room boundary: %+v",items)}
+}

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -118,7 +119,7 @@ func (c *giftCatalog) ImageURL(roomID, giftID int) string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	entry, ok := c.rooms[roomID]
-	if !ok || time.Now().After(entry.expiresAt) { return "" }
+	if !ok { return "" }
 	return entry.gifts[giftID].imageURL
 }
 
@@ -230,7 +231,7 @@ func extractDanmakuEmoticons(d *message.Danmaku) []eventstream.EmoticonToken {
 	tokens := make([]eventstream.EmoticonToken, 0, len(found))
 	for _, emoticon := range found {
 		tokens = append(tokens, emoticon)
-		log.Printf("[Bilibili emoticon] token=%q url=%s", emoticon.Text, emoticon.URL)
+		
 	}
 	sort.Slice(tokens, func(i, j int) bool {
 		if len(tokens[i].Text) == len(tokens[j].Text) {
@@ -275,15 +276,16 @@ func (a *Adapter) Connect(ctx context.Context) error {
 	stream.OnDanmaku(func(d *message.Danmaku) {
 		if d == nil || d.Sender == nil { return }
 		timestamp := d.Timestamp
+		emoticons := extractDanmakuEmoticons(d)
 		if timestamp <= 0 { timestamp = time.Now().UnixMilli() } else if timestamp < 1_000_000_000_000 { timestamp *= 1000 }
 		a.events.Add(eventstream.Event{
 			PlatformID: "bilibili", Source: "live", Type: "danmaku", RoomID: roomID,
 			UserID: d.Sender.Uid, UserName: d.Sender.Uname, Avatar: d.Sender.Face,
-			Content: d.Content, Emoticons: extractDanmakuEmoticons(d), Timestamp: timestamp, Color: d.Color,
+			Content: d.Content, Emoticons: emoticons, Timestamp: timestamp, Color: d.Color,
 			IsModerator: d.Sender.Admin, UserLevel: int(d.Sender.UserLevel), GuardLevel: d.Sender.GuardLevel,
 			FanMedalName: medalName(d.Sender.Medal), FanMedalLevel: medalLevel(d.Sender.Medal), FanMedalColor: medalColor(d.Sender.Medal),
 		})
-		if a.mediaCatalog!=nil{for _,token:=range extractDanmakuEmoticons(d){a.mediaCatalog.Register(resource.Resource{PlatformID:"bilibili",SourceID:fmt.Sprint(roomID),Type:resource.TypeEmoticon,ID:token.Text,Name:token.Text,ImageURL:token.URL,Width:token.Width,Height:token.Height})}}
+		if a.mediaCatalog!=nil{for _,token:=range emoticons{a.mediaCatalog.Register(resource.Resource{PlatformID:"bilibili",SourceID:fmt.Sprint(roomID),Type:resource.TypeEmoticon,ID:token.Text,Name:token.Text,ImageURL:token.URL,Width:token.Width,Height:token.Height})}}
 	})
 	stream.OnGift(func(g *message.Gift) {
 		if g == nil { return }
@@ -327,7 +329,7 @@ func (a *Adapter) Connect(ctx context.Context) error {
 	}
 	a.client, a.cancel = stream, cancel
 	a.mu.Unlock()
-	if a.giftCatalog!=nil{go func(){catalogCtx,catalogCancel:=context.WithTimeout(runCtx,8*time.Second);defer catalogCancel();if err:=a.giftCatalog.Refresh(catalogCtx,roomID);err!=nil{return};if a.mediaCatalog!=nil{for _,item:=range a.giftCatalog.Resources(roomID){a.mediaCatalog.Register(item)}}}()}
+	if a.giftCatalog!=nil{go func(){catalogCtx,catalogCancel:=context.WithTimeout(runCtx,8*time.Second);defer catalogCancel();if err:=a.giftCatalog.Refresh(catalogCtx,roomID);err!=nil{return};if a.mediaCatalog!=nil{for _,item:=range a.giftCatalog.Resources(roomID){a.mediaCatalog.Register(item);if giftID,parseErr:=strconv.Atoi(item.ID);parseErr==nil{a.events.UpdateGiftImage("bilibili",roomID,giftID,item.ImageURL)}}}}()}
 
 	go func() {
 		stream.Wait()

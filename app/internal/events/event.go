@@ -136,6 +136,22 @@ func (b *Buffer) AddSimulationEvent(platformID string, input SimulationEventInpu
 	return b.Add(event), nil
 }
 
+// UpdateGiftImage enriches recent gift events after the asynchronous gift catalog refresh.
+func (b *Buffer) UpdateGiftImage(platformID string, roomID, giftID int, imageURL string) int {
+	if b == nil || platformID == "" || roomID <= 0 || giftID <= 0 || imageURL == "" { return 0 }
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	updated := 0
+	for i := range b.items {
+		item := &b.items[i]
+		if item.PlatformID == platformID && item.RoomID == roomID && item.Type == "gift" && item.GiftID == giftID {
+			item.GiftImageURL = imageURL
+			updated++
+		}
+	}
+	return updated
+}
+
 func (b *Buffer) Snapshot() []Event {
 	if b == nil { return nil }
 	b.mu.RLock()
