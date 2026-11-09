@@ -27,14 +27,14 @@ func TestEventBufferKeepsNewestEvents(t *testing.T) {
 func TestAddSimulationEventCreatesTypedGift(t *testing.T) {
 	buffer := NewEventBuffer()
 	event, err := buffer.AddSimulationEvent(SimulationEventInput{
-		Type: "gift", RoomID: 99, UserID: 123, UserName: "模拟观众",
+		Type: "gift", UserID: 123, UserName: "模拟观众",
 		GiftName: "小心心", GiftCount: 3, UnitPrice: 0.1,
 	})
 	if err != nil {
 		t.Fatalf("AddSimulationEvent() error = %v", err)
 	}
-	if !event.IsSimulation || event.Type != "gift" || event.RoomID != 99 {
-		t.Fatalf("unexpected event metadata: %+v", event)
+	if !event.IsSimulation || event.Type != "gift" || event.RoomID != 0 {
+		t.Fatalf("unexpected event metadata (simulation must not carry a room ID): %+v", event)
 	}
 	if event.TotalPrice < 0.299 || event.TotalPrice > 0.301 {
 		t.Fatalf("total price = %v, want 0.3", event.TotalPrice)
