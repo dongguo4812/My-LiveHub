@@ -17,6 +17,11 @@ const statusLabels: Record<string, string> = { disconnected:'未连接', connect
 const statusTypes: Record<string, 'info'|'warning'|'success'|'danger'> = { disconnected:'info', connecting:'warning', connected:'success', disconnecting:'warning', failed:'danger' }
 let pollTimer: ReturnType<typeof setInterval> | undefined
 
+async function submitBrowserCookie() {
+  const ok = await loginBilibiliWithCookie(browserCookie.value)
+  if (ok) browserCookie.value = ''
+}
+
 async function runAction(platformID: string, action: 'connect' | 'disconnect') {
   busyPlatformID.value = platformID
   try { if (action === 'connect') await connectPlatform(platformID); else await disconnectPlatform(platformID) }
@@ -59,7 +64,7 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
           <el-input v-model="browserCookie" type="password" show-password autocomplete="off" placeholder="粘贴浏览器中 bilibili.com 的 Cookie 请求头（包含 SESSDATA）" />
           <div class="cookie-actions">
             <span>仅提取登录验证所需字段；验证成功后使用 Windows DPAPI 加密保存。</span>
-            <el-button type="primary" plain :loading="bilibiliCookieBusy" :disabled="!browserCookie.trim()" @click="async () => { const ok = await loginBilibiliWithCookie(browserCookie); if (ok) browserCookie = '' }">使用 Cookie 登录</el-button>
+            <el-button type="primary" plain :loading="bilibiliCookieBusy" :disabled="!browserCookie.trim()" @click="submitBrowserCookie">使用 Cookie 登录</el-button>
           </div>
         </div>
       </div>
