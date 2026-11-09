@@ -3,6 +3,8 @@ package bilibili
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
 	"errors"
 	"fmt"
 	"log"
@@ -20,16 +22,111 @@ import (
 type streamClient interface {
 	SetCookie(string)
 	OnDanmaku(func(*message.Danmaku))
+	OnGift(func(*message.Gift))
 	StartContext(context.Context) error
 	Stop()
 	Wait()
 	Done() <-chan struct{}
 }
 
+
+// giftCatalog caches the public gift-panel metadata separately for each room.
+type giftCatalog struct {
+	mu sync.RWMutex
+	client *http.Client
+	endpoint string
+	ttl time.Duration
+	rooms map[int]giftCatalogEntry
+}
+
+type giftCatalogEntry struct {
+	images map[int]string
+	expiresAt time.Time
+}
+
+type roomGiftListResponse struct {
+	Code int `json:"code"`
+	Message string `json:"message"`
+	Data struct {
+		GiftConfig struct {
+			BaseConfig struct {
+				List []struct {
+					ID int `json:"id"`
+					ImgBasic string `json:"img_basic"`
+				} `json:"list"`
+			} `json:"base_config"`
+		} `json:"gift_config"`
+	} `json:"data"`
+}
+
+func newGiftCatalog(client *http.Client) *giftCatalog {
+	if client == nil {
+		client = &http.Client{Timeout: 4 * time.Second}
+	}
+	return &giftCatalog{
+		client: client,
+		endpoint: "https://api.live.bilibili.com/xlive/web-room/v1/giftPanel/roomGiftList",
+		ttl: 6 * time.Hour,
+		rooms: make(map[int]giftCatalogEntry),
+	}
+}
+
+func (c *giftCatalog) Refresh(ctx context.Context, roomID int) error {
+	if c == nil { return nil }
+	if roomID <= 0 { return errors.New("invalid Bilibili room ID for gift catalog") }
+	c.mu.RLock()
+	cached, ok := c.rooms[roomID]
+	c.mu.RUnlock()
+	if ok && time.Now().Before(cached.expiresAt) { return nil }
+
+	requestURL, err := url.Parse(c.endpoint)
+	if err != nil { return err }
+	query := requestURL.Query()
+	query.Set("platform", "pc")
+	query.Set("room_id", fmt.Sprint(roomID))
+	requestURL.RawQuery = query.Encode()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL.String(), nil)
+	if err != nil { return err }
+	request.Header.Set("User-Agent", "My-LiveHub/1.0")
+	response, err := c.client.Do(request)
+	if err != nil { return err }
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return fmt.Errorf("Bilibili gift catalog returned HTTP %d", response.StatusCode)
+	}
+	var payload roomGiftListResponse
+	if err := json.NewDecoder(io.LimitReader(response.Body, 4<<20)).Decode(&payload); err != nil { return err }
+	if payload.Code != 0 {
+		return fmt.Errorf("Bilibili gift catalog API error %d: %s", payload.Code, payload.Message)
+	}
+	images := make(map[int]string, len(payload.Data.GiftConfig.BaseConfig.List))
+	for _, gift := range payload.Data.GiftConfig.BaseConfig.List {
+		if gift.ID <= 0 { continue }
+		if imageURL := normalizeEmoticonURL(gift.ImgBasic); imageURL != "" {
+			images[gift.ID] = imageURL
+		}
+	}
+	if len(images) == 0 { return errors.New("Bilibili gift catalog contains no usable gift images") }
+	c.mu.Lock()
+	c.rooms[roomID] = giftCatalogEntry{images: images, expiresAt: time.Now().Add(c.ttl)}
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *giftCatalog) ImageURL(roomID, giftID int) string {
+	if c == nil || roomID <= 0 || giftID <= 0 { return "" }
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	entry, ok := c.rooms[roomID]
+	if !ok || time.Now().After(entry.expiresAt) { return "" }
+	return entry.images[giftID]
+}
+
 type Adapter struct {
 	auth *AuthManager
 	events *eventstream.Buffer
 	newStream func(int) streamClient
+	giftCatalog *giftCatalog
 	mu sync.Mutex
 	roomID int
 	client streamClient
@@ -40,7 +137,7 @@ func NewAdapter(auth *AuthManager, roomID int, events *eventstream.Buffer) (*Ada
 	if auth == nil { return nil, errors.New("Bilibili authentication manager is required") }
 	if roomID < 0 { return nil, errors.New("Bilibili room ID cannot be negative") }
 	if events == nil { events = eventstream.NewBuffer() }
-	return &Adapter{auth: auth, roomID: roomID, events: events, newStream: func(roomID int) streamClient { return client.NewClient(roomID) }}, nil
+	return &Adapter{auth: auth, roomID: roomID, events: events, newStream: func(roomID int) streamClient { return client.NewClient(roomID) }, giftCatalog: newGiftCatalog(nil)}, nil
 }
 
 func medalName(m *message.Medal) string { if m == nil { return "" }; return m.Name }
@@ -169,6 +266,11 @@ func (a *Adapter) Connect(ctx context.Context) error {
 
 	credentials, err := a.auth.LoadCredentials(ctx)
 	if err != nil { return err }
+	if a.giftCatalog != nil {
+		catalogCtx, catalogCancel := context.WithTimeout(ctx, 3*time.Second)
+		_ = a.giftCatalog.Refresh(catalogCtx, roomID) // Gift metadata is optional; never block live connection on API failure.
+		catalogCancel()
+	}
 	stream := a.newStream(roomID)
 	stream.SetCookie(credentials.Cookie)
 	stream.OnDanmaku(func(d *message.Danmaku) {
@@ -181,6 +283,24 @@ func (a *Adapter) Connect(ctx context.Context) error {
 			Content: d.Content, Emoticons: extractDanmakuEmoticons(d), Timestamp: timestamp, Color: d.Color,
 			IsModerator: d.Sender.Admin, UserLevel: int(d.Sender.UserLevel), GuardLevel: d.Sender.GuardLevel,
 			FanMedalName: medalName(d.Sender.Medal), FanMedalLevel: medalLevel(d.Sender.Medal), FanMedalColor: medalColor(d.Sender.Medal),
+		})
+	})
+	stream.OnGift(func(g *message.Gift) {
+		if g == nil { return }
+		count := g.Num
+		if count <= 0 { count = 1 }
+		timestamp := int64(g.Timestamp)
+		if timestamp <= 0 { timestamp = time.Now().UnixMilli() } else if timestamp < 1_000_000_000_000 { timestamp *= 1000 }
+		unitPrice := float64(g.Price) / 1000
+		totalPrice := float64(g.TotalCoin) / 1000
+		if totalPrice <= 0 { totalPrice = unitPrice * float64(count) }
+		a.events.Add(eventstream.Event{
+			PlatformID: "bilibili", Source: "live", Type: "gift", RoomID: roomID,
+			UserID: g.Uid, UserName: g.Uname, Avatar: g.Face,
+			Content: fmt.Sprintf("赠送了 %s × %d", g.GiftName, count),
+			Timestamp: timestamp, GiftID: g.GiftId, GiftName: g.GiftName,
+			GiftCount: count, UnitPrice: unitPrice, TotalPrice: totalPrice,
+			GiftImageURL: a.giftCatalog.ImageURL(roomID, g.GiftId),
 		})
 	})
 
