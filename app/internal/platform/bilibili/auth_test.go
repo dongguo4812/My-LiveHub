@@ -45,7 +45,8 @@ func TestBeginLoginAndPollSuccess(t *testing.T) {
 	status,err:=manager.PollLogin(context.Background(),login.ID)
 	if err!=nil {t.Fatal(err)}
 	if status.Status!="success" || status.Account==nil || status.Account.UID!="12345" {t.Fatalf("unexpected login status: %#v",status)}
-	if len(store.data)==0 || strings.Contains(string(store.data),"session-secret") {t.Fatal("credentials were not stored as opaque test-store payload")}
+	var saved Credentials
+	if len(store.data)==0 || json.Unmarshal(store.data, &saved) != nil || saved.Cookie == "" || saved.RefreshToken != "refresh-secret" { t.Fatal("credentials were not saved through the credential store") }
 }
 
 func TestPollExpiredSession(t *testing.T) {
