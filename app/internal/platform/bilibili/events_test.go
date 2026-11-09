@@ -1,7 +1,9 @@
 package bilibili
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/Akegarasu/blivedm-go/message"
@@ -71,5 +73,21 @@ func TestSimulationEventDefaultsUserAndTimestamp(t *testing.T) {
 	}
 	if event.UserName != "模拟用户" || event.Timestamp <= 0 || event.ID != 1 {
 		t.Fatalf("unexpected default event values: %+v", event)
+	}
+}
+
+func TestSimulationEventJSONOmitsRoomID(t *testing.T) {
+	event, err := NewEventBuffer().AddSimulationEvent(SimulationEventInput{
+		Type: "danmaku", UserID: 123, UserName: "模拟观众", Content: "测试弹幕",
+	})
+	if err != nil {
+		t.Fatalf("AddSimulationEvent() error = %v", err)
+	}
+	payload, err := json.Marshal(event)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if strings.Contains(string(payload), "room_id") {
+		t.Fatalf("simulation event unexpectedly contains room_id: %s", payload)
 	}
 }
