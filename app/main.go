@@ -83,7 +83,21 @@ func main() {
 		log.Fatalf("load Bilibili configuration: %v", err)
 	}
 	bilibiliEvents := eventstream.NewBuffer()
-	mediaCatalog := resource.NewCatalog()
+	cacheDir := ""
+	if environment == config.EnvironmentDevelopment {
+		if workingDir, getwdErr := os.Getwd(); getwdErr == nil {
+			cacheDir = filepath.Join(workingDir, "cache")
+		}
+	} else if userConfigDir, configDirErr := os.UserConfigDir(); configDirErr == nil {
+		cacheDir = filepath.Join(userConfigDir, "My-LiveHub", "cache")
+	}
+	mediaCatalog, catalogErr := resource.NewPersistentCatalog(filepath.Join(cacheDir, "media-resources", "catalog.json"))
+	if catalogErr != nil {
+		log.Printf("load local media resource catalog: %v", catalogErr)
+	}
+	if mediaCatalog == nil {
+		mediaCatalog = resource.NewCatalog()
+	}
 	bilibiliAdapter, err := bilibili.NewAdapter(bilibiliAuth, bilibiliConfig.RoomID, bilibiliEvents)
 	if err != nil {
 		log.Fatalf("initialize Bilibili adapter: %v", err)
@@ -99,12 +113,6 @@ func main() {
 	}
 
 	platformService := desktop.NewPlatformService(platformManager, bilibiliEvents, mediaCatalog)
-	cacheDir := ""
-	if environment == config.EnvironmentDevelopment {
-		if workingDir, getwdErr := os.Getwd(); getwdErr == nil { cacheDir = filepath.Join(workingDir, "cache") }
-	} else if userConfigDir, configDirErr := os.UserConfigDir(); configDirErr == nil {
-		cacheDir = filepath.Join(userConfigDir, "My-LiveHub", "cache")
-	}
 	assetHandler := application.AssetFileServerFS(assets)
 	imageCache, cacheErr := emoticoncache.NewWithPolicies(cacheDir, assetHandler, map[string]emoticoncache.URLPolicy{"bilibili":emoticoncache.BilibiliURLPolicy})
 	if cacheErr != nil { log.Printf("initialize local emoticon cache: %v", cacheErr) } else { assetHandler = imageCache }
@@ -126,6 +134,9 @@ func main() {
 	desktop.AttachDanmakuDisplayApplication(danmakuDisplayService, app)
 	app.OnShutdown(func() {
 		danmakuDisplayService.CloseWindowForShutdown()
+		if err := mediaCatalog.Close(); err != nil {
+			log.Printf("flush local media resource catalog: %v", err)
+		}
 	})
 
 	background := application.NewRGBA(18, 20, 27, 255)
