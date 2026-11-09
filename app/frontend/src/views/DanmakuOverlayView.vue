@@ -97,7 +97,7 @@ onUnmounted(() => {
         v-for="item in visibleItems"
         :key="item.event.id"
         class="message"
-        :class="{ highlighted: item.highlight_until > Date.now(), gift: item.event.type === 'gift' }"
+        :class="{ highlighted: (item.highlight_until ?? 0) > Date.now(), gift: item.event.type === 'gift' }"
       >
         <img v-if="settings?.show_avatar && item.event.avatar" class="avatar" :src="item.event.avatar" alt="" />
         <div class="message-body">
