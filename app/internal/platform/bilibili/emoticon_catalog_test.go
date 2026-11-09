@@ -65,3 +65,42 @@ func TestEmoticonSourceIDFallsBackToRoomForUnknownIdentity(t *testing.T) {
 		t.Fatalf("source ID = %q, want room scope", got)
 	}
 }
+
+
+func TestEmoticonResourceIDFallsBackToPackageAndEmoticonIDs(t *testing.T) {
+	if got := emoticonResourceID("", 12, 331, "https://i0.hdslb.com/bfs/live/a.png"); got != "pkg_12_emoticon_331" {
+		t.Fatalf("resource ID = %q, want package-scoped ID", got)
+	}
+	if got := emoticonResourceID("", 13, 331, "https://i0.hdslb.com/bfs/live/b.png"); got != "pkg_13_emoticon_331" {
+		t.Fatalf("resource ID = %q, want distinct package-scoped ID", got)
+	}
+	if got := emoticonResourceID("emoji_331", 12, 331, "https://i0.hdslb.com/bfs/live/a.png"); got != "emoji_331" {
+		t.Fatalf("unique resource ID = %q, want emoticon_unique", got)
+	}
+	if got := emoticonResourceID("", 0, 0, "https://i0.hdslb.com/bfs/live/a.png"); got != "https://i0.hdslb.com/bfs/live/a.png" {
+		t.Fatalf("resource ID = %q, want URL fallback", got)
+	}
+}
+
+func TestEmoticonSourceIDUsesUniqueAndPackageType(t *testing.T) {
+	cases := []struct {
+		name        string
+		unique      string
+		packageType int
+		want        string
+	}{
+		{name: "common unique", unique: "emoji_331", packageType: 2, want: "common"},
+		{name: "official common unique", unique: "official_331", packageType: 2, want: "common"},
+		{name: "room unique", unique: "room_12345_9", packageType: 1, want: "12345"},
+		{name: "common package fallback", packageType: 1, want: "common"},
+		{name: "room package fallback", packageType: 2, want: "12345"},
+		{name: "unknown package stays room scoped", packageType: 0, want: "12345"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := emoticonSourceIDForPackage(12345, tc.unique, tc.packageType); got != tc.want {
+				t.Fatalf("source ID = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
