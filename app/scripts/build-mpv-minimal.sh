@@ -100,10 +100,9 @@ cp -p "$build_dir/mpv.exe" "$build_dir/mpv.com" "$artifact_dir/"
 # This is a staging bundle, not the final trimmed dependency set. Include
 # runtime DLLs so the prototype is runnable; later dependency analysis will
 # prune unused DLLs and produce the final size comparison.
-mkdir -p "$artifact_dir/dlls"
-cp -p "$prefix_dir"/bin/*.dll "$artifact_dir/dlls/" 2>/dev/null || true
+cp -p "$prefix_dir"/bin/*.dll "$artifact_dir/" 2>/dev/null || true
 for file in /usr/lib/gcc/"$TARGET"/*-posix/*.dll /usr/"$TARGET"/lib/*.dll; do
-    [[ -f "$file" ]] && cp -p "$file" "$artifact_dir/dlls/"
+    [[ -f "$file" ]] && cp -p "$file" "$artifact_dir/"
 done
 cp -p LICENSE.GPL "$artifact_dir/" 2>/dev/null || true
 
@@ -117,8 +116,8 @@ cp -p LICENSE.GPL "$artifact_dir/" 2>/dev/null || true
     ls -lh "$artifact_dir/mpv.exe" "$artifact_dir/mpv.com"
     echo
     echo "DLL count and size:"
-    find "$artifact_dir/dlls" -maxdepth 1 -type f -name '*.dll' | wc -l
-    du -sh "$artifact_dir/dlls"
+    find "$artifact_dir" -maxdepth 1 -type f -name '*.dll' | wc -l
+    du -sh "$artifact_dir"
     echo
     echo "Direct mpv.exe imports:"
     "$TARGET-objdump" -p "$artifact_dir/mpv.exe" | sed -n '/The Import Tables/,/The Export Tables/p' | grep 'DLL Name' || true
