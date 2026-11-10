@@ -142,7 +142,14 @@ func (m *Manager) Connect(ctx context.Context, platformID string) error {
 		m.setStatus(entry, StatusFailed, wrapped)
 		return wrapped
 	}
-	m.setStatus(entry, StatusConnected, nil)
+	m.mu.Lock()
+	// An adapter may report that its stream ended while Connect was
+	// returning. Do not overwrite that terminal failure with connected.
+	if entry.status == StatusConnecting {
+		entry.status = StatusConnected
+		entry.err = nil
+	}
+	m.mu.Unlock()
 	return nil
 }
 

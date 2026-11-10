@@ -336,7 +336,10 @@ func TestAdapterReportsUnexpectedStreamTermination(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "unexpectedly") { t.Fatalf("unexpected failure: %v", err) }
 	case <-time.After(time.Second): t.Fatal("unexpected stream termination was not reported")
 	}
-	if a.client != nil { t.Fatal("adapter retained a terminated stream client") }
+	a.mu.Lock()
+	client := a.client
+	a.mu.Unlock()
+	if client != nil { t.Fatal("adapter retained a terminated stream client") }
 }
 
 func TestAdapterDisconnectStopsAndWaitsForStream(t *testing.T) {
