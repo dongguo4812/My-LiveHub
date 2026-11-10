@@ -40,6 +40,7 @@ type Manager struct {
 	statsMu sync.RWMutex
 	stats CacheStats
 	statsRefreshing bool
+	statsRefreshPending bool
 }
 
 func BilibiliURLPolicy(u *url.URL) bool { if u==nil||u.Scheme!="https"||u.User!=nil||u.Port()!=""{return false};h:=strings.ToLower(u.Hostname());return h=="bilibili.com"||strings.HasSuffix(h,".bilibili.com")||h=="hdslb.com"||strings.HasSuffix(h,".hdslb.com") }
