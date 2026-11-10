@@ -61,8 +61,6 @@ meson setup "$build_dir" \
     -Duchardet=disabled \
     -Dvapoursynth=disabled \
     -Dsixel=disabled \
-    -Dshaderc=disabled \
-    -Dspirv-cross=disabled \
     -Dvulkan=disabled \
     -Dzimg=disabled \
     -Dlibavdevice=disabled \
