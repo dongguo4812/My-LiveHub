@@ -52,6 +52,9 @@ let refreshTimer: ReturnType<typeof setInterval> | undefined
 const currentEventLabel = computed(() => eventLabels[eventType.value])
 const selectedGift = computed(() => mediaResources.value.find(item => (item.resource_id ?? '') === selectedGiftID.value))
 const giftTotalPrice = computed(() => Math.round(unitPrice.value * giftCount.value * 100) / 100)
+const guardMonthlyPrices: Record<number, number> = { 1: 19998, 2: 1998, 3: 198 }
+const guardMonthlyPrice = computed(() => guardMonthlyPrices[guardLevel.value] ?? 0)
+const guardTotalPrice = computed(() => guardMonthlyPrice.value * months.value)
 
 function resourceID(item: MediaResource): string { return item.resource_id ?? '' }
 function resourceKey(item: MediaResource): string { return `${item.source_id ?? ''}\u0000${resourceID(item)}` }
@@ -127,7 +130,7 @@ async function sendEvent() {
       giftName.value,
       giftCount.value,
       unitPrice.value,
-      amount.value,
+      eventType.value === 'guard' ? guardTotalPrice.value : amount.value,
       duration.value,
       guardLevel.value,
       months.value,
@@ -266,10 +269,11 @@ onUnmounted(() => {
                 <el-form-item label="开通月份">
                   <el-input-number v-model="months" :min="1" :max="120" class="full-width" />
                 </el-form-item>
-                <el-form-item label="上舰金额（元）">
-                  <el-input-number v-model="amount" :min="0" :precision="2" :step="1" class="full-width" />
+                <el-form-item label="预计上舰金额（元）">
+                  <el-input :model-value="`¥${guardTotalPrice.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`" readonly />
                 </el-form-item>
               </div>
+              <p class="guard-price-hint">按标准月价自动计算：舰长 ¥198、提督 ¥1,998、总督 ¥19,998；实际平台订单可能因续费优惠等产生差异。</p>
             </template>
 
             <div v-else class="simple-event-hint">
@@ -338,7 +342,7 @@ h1{margin:0;font-size:24px;font-weight:650}
 .field-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .full-width{width:100%}
 .send-button{width:100%;margin-top:8px}
-.resource-picker{display:flex;flex-wrap:wrap;gap:6px;max-height:190px;overflow:auto;margin-top:10px}.emoticon-option{display:flex;align-items:center;gap:6px;height:34px;padding:4px 7px}.emoticon-option img,.gift-option img,.selected-gift img{width:24px;height:24px;object-fit:contain}.emoticon-scope{color:var(--app-text-secondary);font-size:10px}.gift-option,.selected-gift{display:flex;align-items:center;gap:9px}.gift-option small{margin-left:auto;color:var(--app-text-secondary)}.selected-gift{margin-top:10px;color:var(--app-text-secondary);font-size:12px}.gift-total{margin-top:-8px;margin-bottom:12px;text-align:right;color:var(--app-text-secondary);font-size:13px}.simple-event-hint{padding:12px 14px;border-radius:7px;background:var(--app-bg-control);color:var(--app-text-secondary);font-size:13px}
+.resource-picker{display:flex;flex-wrap:wrap;gap:6px;max-height:190px;overflow:auto;margin-top:10px}.emoticon-option{display:flex;align-items:center;gap:6px;height:34px;padding:4px 7px}.emoticon-option img,.gift-option img,.selected-gift img{width:24px;height:24px;object-fit:contain}.emoticon-scope{color:var(--app-text-secondary);font-size:10px}.gift-option,.selected-gift{display:flex;align-items:center;gap:9px}.gift-option small{margin-left:auto;color:var(--app-text-secondary)}.selected-gift{margin-top:10px;color:var(--app-text-secondary);font-size:12px}.gift-total{margin-top:-8px;margin-bottom:12px;text-align:right;color:var(--app-text-secondary);font-size:13px}.guard-price-hint{margin:-4px 0 12px;color:var(--app-text-secondary);font-size:12px;line-height:1.5}.simple-event-hint{padding:12px 14px;border-radius:7px;background:var(--app-bg-control);color:var(--app-text-secondary);font-size:13px}
 .form-error{margin-top:12px}
 .history-card{min-height:100%}
 @media(max-width:700px){.simulator-page{padding:18px}.field-grid{grid-template-columns:1fr}.simulator-heading{flex-direction:column}}
