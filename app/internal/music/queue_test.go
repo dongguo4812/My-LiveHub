@@ -6,7 +6,7 @@ import (
 )
 
 func testTrack(id string) Track {
-	return Track{ID:id, PlayerID:"luoxue", Title:"测试歌曲", Artist:"测试歌手", DurationMS:180000}
+	return Track{ID:id, SourceID:"netease", Title:"测试歌曲", Artist:"测试歌手", DurationMS:180000}
 }
 
 func TestQueueEnqueueTakeNextAndFinish(t *testing.T) {
