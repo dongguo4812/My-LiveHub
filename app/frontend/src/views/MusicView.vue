@@ -48,6 +48,7 @@ function formatDuration(value?: number) {
   return `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`
 }
 function sourceName(id?: string) { return sourceNames[id ?? ''] ?? id ?? '未知音源' }
+function trackRowKey(row: Track) { return `${row.source_id}:${row.id}` }
 
 async function loadConfig() {
   loading.value = true
@@ -99,7 +100,9 @@ async function search() {
   try {
     const response = await MusicService.Search(query.value)
     results.value = response.tracks ?? []
-    searchErrors.value = response.errors ?? {}
+    searchErrors.value = Object.fromEntries(
+      Object.entries(response.errors ?? {}).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+    )
     if (results.value.length === 0 && Object.keys(searchErrors.value).length === 0) success.value = '没有找到匹配歌曲'
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
@@ -224,7 +227,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         <el-button type="primary" :loading="searching" :disabled="enabledCount === 0" @click="search">搜索</el-button>
       </div>
       <el-alert v-if="searchErrorText" :title="searchErrorText" type="warning" :closable="false" show-icon />
-      <el-table v-if="results.length" :data="results" :row-key="row => `${row.source_id}:${row.id}`" style="width:100%;margin-top:14px">
+      <el-table v-if="results.length" :data="results" :row-key="trackRowKey" style="width:100%;margin-top:14px">
         <el-table-column prop="title" label="歌曲" min-width="180" />
         <el-table-column prop="artist" label="歌手" min-width="140" />
         <el-table-column prop="album" label="专辑" min-width="140" />
