@@ -129,3 +129,74 @@ References reviewed:
 - https://github.com/BtbN/FFmpeg-Builds/blob/master/.github/workflows/build.yml
 
 The remaining blocking question is not whether FFmpeg-Builds has package recipes; it is whether we can associate one exact repository revision, generated build definition, downloaded source set, base/toolchain image set, and build configuration with the specific historical image digest consumed by mpv v0.42.0. Until that association is proven, the historical ZIP's full corresponding-source closure remains unverified.
+
+## Alternative prebuilt distributions and corresponding-source approaches reviewed
+
+The following alternatives were checked before deciding whether to keep using the v0.42.0 official full ZIP.
+
+### 1. shinchiro/mpv-winbuild-cmake
+
+Repository: https://github.com/shinchiro/mpv-winbuild-cmake
+
+This project publishes ready-to-run Windows mpv.exe archives, so it is technically a suitable independent-process player. However, its current build recipes do not pin all dependencies to immutable revisions: the mpv and FFmpeg ExternalProject definitions clone their repositories without a GIT_TAG, and the build workflow runs ninja update. The workflow also retains detailed build logs for only one day.
+
+Public redistribution requests confirm that this is a real provenance gap, not merely a theoretical concern:
+
+- Issue #848 asks for exact dependency revisions and corresponding sources for the 20260903 build. A later comment points to a different LGPL libmpv project, not a matching mpv.exe source bundle.
+- Issue #856 asks for the full dependency manifest for the 20260809 libmpv build; it records that floating branches and expired detailed logs prevent identifying every effective revision.
+- Issue #858 asks the same for the 20261021 mpv.exe build; its author reports that the detailed log artifact expired and one dependency fetch failed, leaving an exact dependency revision unknown.
+
+These issues remain open at the time of this review. Do not treat the mpv commit hash in the filename, the top-level recipe archive, or the FFmpeg version as the complete source closure.
+
+References:
+- https://github.com/shinchiro/mpv-winbuild-cmake/blob/master/packages/mpv.cmake
+- https://github.com/shinchiro/mpv-winbuild-cmake/blob/master/packages/ffmpeg.cmake
+- https://github.com/shinchiro/mpv-winbuild-cmake/blob/master/.github/workflows/mpv_gcc.yml
+- https://github.com/shinchiro/mpv-winbuild-cmake/issues/848
+- https://github.com/shinchiro/mpv-winbuild-cmake/issues/856
+- https://github.com/shinchiro/mpv-winbuild-cmake/issues/858
+
+### 2. Reelm / MediaBoxMc corresponding-source publication
+
+Page: https://mediaboxmc.com/oss/mpv/20260610-304426c/
+
+This is a useful example of redistributing an unmodified, standalone mpv process: the published binary is an mpv.exe archive from shinchiro's 20260610 release, and the publisher provides a machine-readable BUILD_MANIFEST, hashes, and source archives for the build recipe, mpv, FFmpeg, and uosc.
+
+Important limitation: the manifest does not mirror every dependency source archive. It instead publishes a written source offer for the remaining GPL/LGPL components. That offer belongs to the publisher and cannot automatically be treated as My-LiveHub's own offer. We would need to obtain and verify the remaining corresponding sources ourselves, or obtain an explicit arrangement that actually covers My-LiveHub's recipients and distribution period.
+
+This is a possible model, not yet a cleared binary for My-LiveHub.
+
+References:
+- https://mediaboxmc.com/oss/mpv/20260610-304426c/
+- https://mediaboxmc.com/oss/mpv/20260610-304426c/BUILD_MANIFEST.json
+
+### 3. freeKC/libmpv-builds — strongest source-management example, but a different runtime shape
+
+Repository: https://github.com/freeKC/libmpv-builds
+
+This project demonstrates a much cleaner provenance workflow: immutable commits for Git dependencies, SHA-256 pins for source archives and recipe files, a BUILDINFO file, a complete source archive, per-component license notices, and checksums published alongside each binary.
+
+However, its Windows output is libmpv-2.dll (a library loaded into an application), not a standalone mpv.exe process. It builds with -Dgpl=false and an LGPL-oriented FFmpeg configuration. It cannot be substituted into the already-approved independent mpv process design without changing the playback architecture and Go integration.
+
+The useful takeaway is to reuse its source-locking, source-archive, BUILDINFO and license-collection approach for a future standalone mpv.exe build, not to silently replace the selected runtime with libmpv.
+
+References:
+- https://github.com/freeKC/libmpv-builds
+- https://github.com/freeKC/libmpv-builds/blob/main/windows/sources.lock
+- https://github.com/freeKC/libmpv-builds/blob/main/README.md
+
+### 4. Why Bilibili-MagicalDanmaku does not need mpv
+
+The inspected trytrytogo/Bilibili-MagicalDanmaku source does not integrate mpv. Its Qt project links Qt Multimedia and its order-song player instantiates QMediaPlayer; playback is started from a local file URL. The project file also lists a LAV Filters installer among its distribution files. This is a different playback stack, and it does not establish that an mpv binary or its source can be redistributed without the corresponding-source obligations.
+
+References:
+- https://github.com/trytrytogo/Bilibili-MagicalDanmaku/blob/master/Bilibili-MagicalDanmaku.pro
+- https://github.com/trytrytogo/Bilibili-MagicalDanmaku/blob/master/order_player/orderplayerwindow.cpp
+
+## Current decision
+
+No ready-to-use Windows x64 standalone mpv.exe candidate reviewed so far has both (a) the required runtime shape and (b) a publicly mirrored, fully verified corresponding-source closure that My-LiveHub can safely reuse as-is.
+
+The lowest-risk next step is not to rebuild the entire mpv stack immediately. First request/locate a complete source bundle for a specific existing standalone mpv.exe build, including the actual dependency revisions and notices. In parallel, retain freeKC's source-locking workflow as a proven technical template if the existing prebuilt binary cannot be cleared.
+
+Do not switch to libmpv, Qt Multimedia, LAV Filters, or Windows Media Foundation without an explicit architecture decision. The selected My-LiveHub direction remains a separately packaged mpv.exe controlled through JSON IPC.
