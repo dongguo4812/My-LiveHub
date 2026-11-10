@@ -44,6 +44,24 @@ func (e *MpvEngine) Validate() error {
 	e.mu.RUnlock()
 	resolved, err := resolveMpvExecutable(configured)
 	if err != nil { return err }
+
+	// Starting mpv with --version verifies that the executable can actually
+	// load its runtime dependencies (including any required DLLs).
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, resolved, "--no-config", "--version").CombinedOutput()
+	if err != nil {
+		if ctx.Err() != nil {
+			return fmt.Errorf("mpv runtime check timed out: %w", ctx.Err())
+		}
+		detail := strings.TrimSpace(string(output))
+		if detail == "" { detail = err.Error() }
+		return fmt.Errorf("mpv runtime is incomplete or cannot start: %s", detail)
+	}
+	if !strings.Contains(strings.ToLower(string(output)), "mpv") {
+		return fmt.Errorf("mpv runtime check returned unexpected output: %s", strings.TrimSpace(string(output)))
+	}
+
 	e.mu.Lock()
 	e.executable = resolved
 	e.mu.Unlock()
