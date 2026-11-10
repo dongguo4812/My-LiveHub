@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/wailsapp/wails/v3/pkg/application"
+
 	"github.com/dongguo4812/My-LiveHub/app/internal/platform"
 )
 
