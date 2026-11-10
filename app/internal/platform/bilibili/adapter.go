@@ -223,7 +223,7 @@ func (a *Adapter) addLikeEvent(roomID int, raw []byte) {
 		Content: firstNonEmpty(data.LikeText, "为直播间点赞"),
 		Timestamp: normalizeTimestamp(data.Timestamp),
 		FanMedalName: data.FansMedal.Name, FanMedalLevel: data.FansMedal.Level,
-		FanMedalColor: data.FansMedal.Color,
+		FanMedalColor: data.FansMedal.Color, LikeCount: 1,
 	})
 }
 

@@ -47,6 +47,7 @@ type Event struct {
 	IsSimulation   bool            `json:"is_simulation,omitempty"`
 	GiftName       string          `json:"gift_name,omitempty"`
 	GiftCount      int             `json:"gift_count,omitempty"`
+	LikeCount      int             `json:"like_count,omitempty"`
 	UnitPrice      float64         `json:"unit_price,omitempty"`
 	TotalPrice     float64         `json:"total_price,omitempty"`
 	Amount         float64         `json:"amount,omitempty"`

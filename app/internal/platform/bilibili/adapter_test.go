@@ -305,6 +305,9 @@ func TestAdapterReceivesLikeClickAndIgnoresRoomLikeUpdates(t *testing.T) {
 	if event.Type != "like" || event.PlatformID != "bilibili" || event.RoomID != 12345 {
 		t.Fatalf("unexpected like event identity: %+v", event)
 	}
+	if event.LikeCount != 1 {
+		t.Fatalf("like count = %d, want 1", event.LikeCount)
+	}
 	if event.UserID != 77 || event.UserName != "点赞观众" || event.Content != "为主播点赞" {
 		t.Fatalf("unexpected like event user/content: %+v", event)
 	}

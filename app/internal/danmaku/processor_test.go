@@ -123,6 +123,62 @@ func TestProcessorExpiresEventsAndCanDisableFilters(t *testing.T) {
 }
 
 
+
+func TestProcessorMergesLikesUsingDuplicateDanmakuWindow(t *testing.T) {
+	settings := config.DefaultDanmakuDisplayConfig()
+	settings.DisplayDurationSeconds = 60
+	settings.DuplicateDanmakuFilterSeconds = 3
+
+	first := event("like", "bilibili", "live", 7, 100000)
+	first.RoomID, first.Content = 12345, "为直播间点赞"
+	second := event("like", "bilibili", "live", 7, 102000)
+	second.RoomID, second.Content = 12345, "为直播间点赞"
+	third := event("like", "bilibili", "live", 7, 104000)
+	third.RoomID, third.Content = 12345, "为直播间点赞"
+	got := NewProcessor().Process([]events.Event{first, second, third}, settings, time.UnixMilli(110000))
+	if len(got) != 1 {
+		t.Fatalf("merged like count=%d want=1: %+v", len(got), got)
+	}
+	if got[0].Event.LikeCount != 3 || got[0].Event.Content != "为直播间点赞 × 3" || got[0].Event.Timestamp != 104000 {
+		t.Fatalf("unexpected merged like: %+v", got[0].Event)
+	}
+	if first.LikeCount != 0 || second.LikeCount != 0 || third.LikeCount != 0 {
+		t.Fatal("processor mutated original like events")
+	}
+}
+
+func TestProcessorLikeMergeWindowAndScopeAreIsolated(t *testing.T) {
+	settings := config.DefaultDanmakuDisplayConfig()
+	settings.DisplayDurationSeconds = 60
+	settings.DuplicateDanmakuFilterSeconds = 3
+	first := event("like", "bilibili", "live", 7, 100000)
+	first.RoomID = 12345
+	second := event("like", "bilibili", "live", 7, 104000)
+	second.RoomID = 12345
+	otherUser := event("like", "bilibili", "live", 8, 101000)
+	otherUser.RoomID = 12345
+	otherRoom := event("like", "bilibili", "live", 7, 101000)
+	otherRoom.RoomID = 67890
+	otherSource := event("like", "bilibili", "simulation", 7, 101000)
+	otherSource.RoomID = 12345
+	got := NewProcessor().Process([]events.Event{first, second, otherUser, otherRoom, otherSource}, settings, time.UnixMilli(110000))
+	if len(got) != 5 {
+		t.Fatalf("likes from different users, rooms, sources or outside window were merged: %+v", got)
+	}
+}
+
+func TestProcessorDisablesLikeMergingWithDuplicateFilter(t *testing.T) {
+	settings := config.DefaultDanmakuDisplayConfig()
+	settings.DisplayDurationSeconds = 60
+	settings.DuplicateDanmakuFilterSeconds = 0
+	first := event("like", "bilibili", "live", 7, 100000)
+	second := event("like", "bilibili", "live", 7, 101000)
+	got := NewProcessor().Process([]events.Event{first, second}, settings, time.UnixMilli(110000))
+	if len(got) != 2 {
+		t.Fatalf("like merging should be disabled: %+v", got)
+	}
+}
+
 func TestProcessorMovesMergedGiftsToLatestPositionAndKeepsIndexes(t *testing.T) {
 	settings := config.DefaultDanmakuDisplayConfig()
 	settings.DisplayDurationSeconds = 60
