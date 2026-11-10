@@ -149,6 +149,29 @@ func (b *Buffer) AddSimulationEvent(platformID string, input SimulationEventInpu
 	return b.Add(event), nil
 }
 
+// EnrichGuardEvent fills missing user profile fields on a recent guard event.
+func (b *Buffer) EnrichGuardEvent(eventID uint64, userName, avatar string) bool {
+	if b == nil || eventID == 0 {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for i := range b.items {
+		item := &b.items[i]
+		if item.ID != eventID || item.Type != "guard" {
+			continue
+		}
+		if item.UserName == "" {
+			item.UserName = strings.TrimSpace(userName)
+		}
+		if item.Avatar == "" {
+			item.Avatar = strings.TrimSpace(avatar)
+		}
+		return true
+	}
+	return false
+}
+
 // UpdateGiftImage enriches recent gift events after the asynchronous gift catalog refresh.
 func (b *Buffer) UpdateGiftImage(platformID string, roomID, giftID int, imageURL string) int {
 	if b == nil || platformID == "" || roomID <= 0 || giftID <= 0 || imageURL == "" { return 0 }

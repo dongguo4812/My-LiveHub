@@ -137,7 +137,7 @@ type Adapter struct {
 	giftCatalog *giftCatalog
 	mediaCatalog *resource.Catalog
 	guardMu sync.Mutex
-	recentGuardEvents map[string]time.Time
+	recentGuardEvents map[string]guardEventRecord
 	mu sync.Mutex
 	roomID int
 	client streamClient
@@ -149,7 +149,7 @@ func NewAdapter(auth *AuthManager, roomID int, events *eventstream.Buffer) (*Ada
 	if auth == nil { return nil, errors.New("Bilibili authentication manager is required") }
 	if roomID < 0 { return nil, errors.New("Bilibili room ID cannot be negative") }
 	if events == nil { events = eventstream.NewBuffer() }
-	return &Adapter{auth: auth, roomID: roomID, events: events, newStream: func(roomID int) streamClient { return client.NewClient(roomID) }, giftCatalog: newGiftCatalog(nil), recentGuardEvents: make(map[string]time.Time)}, nil
+	return &Adapter{auth: auth, roomID: roomID, events: events, newStream: func(roomID int) streamClient { return client.NewClient(roomID) }, giftCatalog: newGiftCatalog(nil), recentGuardEvents: make(map[string]guardEventRecord)}, nil
 }
 
 func medalName(m *message.Medal) string { if m == nil { return "" }; return m.Name }
@@ -166,23 +166,9 @@ func normalizeTimestamp(timestamp int64) int64 {
 	return timestamp
 }
 
-func (a *Adapter) shouldEmitGuard(key string) bool {
-	if key == "" {
-		return true
-	}
-	now := time.Now()
-	a.guardMu.Lock()
-	defer a.guardMu.Unlock()
-	for existing, seenAt := range a.recentGuardEvents {
-		if now.Sub(seenAt) > 10*time.Second {
-			delete(a.recentGuardEvents, existing)
-		}
-	}
-	if seenAt, exists := a.recentGuardEvents[key]; exists && now.Sub(seenAt) <= 10*time.Second {
-		return false
-	}
-	a.recentGuardEvents[key] = now
-	return true
+type guardEventRecord struct {
+	eventID uint64
+	seenAt  time.Time
 }
 
 func guardEventKey(uid, level, months, startTime int) string {
@@ -229,17 +215,37 @@ func (a *Adapter) addLikeEvent(roomID int, raw []byte) {
 }
 
 func (a *Adapter) addGuardEvent(roomID, uid int, name, avatar string, level, months int, price int, timestamp int, key string) {
-	if a == nil || a.events == nil || level < 1 || level > 3 || months < 1 || !a.shouldEmitGuard(key) {
+	if a == nil || a.events == nil || level < 1 || level > 3 || months < 1 {
 		return
 	}
-	labels := map[int]string{1: "总督", 2: "提督", 3: "舰长"}
-	a.events.Add(eventstream.Event{
+	event := eventstream.Event{
 		PlatformID: "bilibili", Source: "live", Type: "guard", RoomID: roomID,
-		UserID: uid, UserName: name, Avatar: avatar,
-		Content: fmt.Sprintf("开通了 %s × %d 个月", labels[level], months),
+		UserID: uid, UserName: strings.TrimSpace(name), Avatar: strings.TrimSpace(avatar),
+		Content: fmt.Sprintf("开通了 %s × %d 个月", map[int]string{1: "总督", 2: "提督", 3: "舰长"}[level], months),
 		Timestamp: normalizeTimestamp(int64(timestamp)), GuardLevel: level, Months: months,
 		Amount: float64(price) / 1000,
-	})
+	}
+	if key == "" {
+		a.events.Add(event)
+		return
+	}
+
+	now := time.Now()
+	a.guardMu.Lock()
+	defer a.guardMu.Unlock()
+	for existing, record := range a.recentGuardEvents {
+		if now.Sub(record.seenAt) > 10*time.Second {
+			delete(a.recentGuardEvents, existing)
+		}
+	}
+	if record, exists := a.recentGuardEvents[key]; exists && now.Sub(record.seenAt) <= 10*time.Second {
+		// GUARD_BUY and USER_TOAST_MSG describe the same order. Keep one
+		// event, but fill fields that the first protocol did not provide.
+		a.events.EnrichGuardEvent(record.eventID, event.UserName, event.Avatar)
+		return
+	}
+	created := a.events.Add(event)
+	a.recentGuardEvents[key] = guardEventRecord{eventID: created.ID, seenAt: now}
 }
 
 func firstNonEmpty(values ...string) string {

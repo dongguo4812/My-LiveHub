@@ -275,12 +275,51 @@ func TestAdapterReceivesSCGuardFollowWelcomeAndShare(t *testing.T) {
 	if got[1].Type != "guard" || got[1].GuardLevel != 3 || got[1].Months != 2 || got[1].Amount != 138 || !strings.Contains(got[1].Content, "舰长") {
 		t.Fatalf("unexpected guard event: %+v", got[1])
 	}
+	if got[1].Avatar != "https://img.test/captain.png" {
+		t.Fatalf("guard event avatar was not enriched from USER_TOAST_MSG: %+v", got[1])
+	}
 	if got[2].Type != "follow" || got[2].UserID != 9 { t.Fatalf("unexpected follow event: %+v", got[2]) }
 	if got[3].Type != "welcome" || got[3].UserID != 10 { t.Fatalf("unexpected welcome event: %+v", got[3]) }
 	if got[4].Type != "share" || got[4].UserID != 11 || got[4].Content != "分享了直播间" || got[4].Timestamp != 1_700_000_004_000 {
 		t.Fatalf("unexpected share event: %+v", got[4])
 	}
 	if err := a.Disconnect(context.Background()); err != nil { t.Fatal(err) }
+}
+
+func TestAdapterEnrichesGuardEventRegardlessOfProtocolOrder(t *testing.T) {
+	tests := []struct {
+		name       string
+		toastFirst bool
+	}{
+		{name: "GUARD_BUY first"},
+		{name: "USER_TOAST_MSG first", toastFirst: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a, err := NewAdapter(newAdapterTestAuth(t), 12345, eventstream.NewBuffer())
+			if err != nil { t.Fatal(err) }
+			a.giftCatalog = nil
+			fake := newFakeStreamClient(12345)
+			a.newStream = func(int) streamClient { return fake }
+			if err := a.Connect(context.Background()); err != nil { t.Fatal(err) }
+
+			guard := &message.GuardBuy{Uid: 88, Username: "captain", GuardLevel: 3, Num: 1, Price: 138000, StartTime: 1_700_000_010}
+			toast := &message.UserToast{Uid: 88, Username: "captain", Face: "https://img.test/captain.png", GuardLevel: 3, Num: 1, Price: 138000, StartTime: 1_700_000_010}
+			if tt.toastFirst {
+				fake.emitUserToast(toast)
+				fake.emitGuardBuy(guard)
+			} else {
+				fake.emitGuardBuy(guard)
+				fake.emitUserToast(toast)
+			}
+			got := a.events.Snapshot()
+			if len(got) != 1 { t.Fatalf("got %d guard events, want one: %+v", len(got), got) }
+			if got[0].Type != "guard" || got[0].UserName != "captain" || got[0].Avatar != "https://img.test/captain.png" {
+				t.Fatalf("guard event was not fully enriched: %+v", got[0])
+			}
+			if err := a.Disconnect(context.Background()); err != nil { t.Fatal(err) }
+		})
+	}
 }
 
 func TestAdapterReceivesLikeClickAndIgnoresRoomLikeUpdates(t *testing.T) {
