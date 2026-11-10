@@ -248,6 +248,7 @@ func (e *MpvEngine) Close() error {
 	e.done = nil
 	e.pipePath = ""
 	e.track = nil
+	e.loadStartedAt = time.Time{}
 	e.mu.Unlock()
 	if cmd == nil || cmd.Process == nil { return nil }
 	_ = cmd.Process.Kill()
