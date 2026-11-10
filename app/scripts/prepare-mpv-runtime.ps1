@@ -6,7 +6,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 if ([string]::IsNullOrWhiteSpace($Destination)) {
-    $Destination = Join-Path $PSScriptRoot "..\\runtime\\mpv"
+    $Destination = Join-Path $PSScriptRoot "../runtime/mpv"
 }
 
 $version = "0.42.0"
