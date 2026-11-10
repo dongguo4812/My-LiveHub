@@ -35,6 +35,7 @@ type Catalog struct {
 	imageURLIndex   map[string]map[string]struct{}
 	provisionalURLs map[string]string
 	refreshes       map[string]time.Time
+	scopeDirectories map[string]string
 	persistence     *catalogPersistence
 	closed          bool
 }
@@ -45,7 +46,29 @@ func NewCatalog() *Catalog {
 		imageURLIndex: make(map[string]map[string]struct{}),
 		provisionalURLs: make(map[string]string),
 		refreshes: make(map[string]time.Time),
+		scopeDirectories: make(map[string]string),
 	}
+}
+
+
+// SetPlatformScopeDirectory configures the directory name used for this
+// platform's non-common resource scope. Platform adapters own this terminology.
+func (c *Catalog) SetPlatformScopeDirectory(platformID, directory string) bool {
+	if c == nil {
+		return false
+	}
+	platformID = strings.TrimSpace(platformID)
+	directory = strings.TrimSpace(directory)
+	if platformID == "" || directory == "" || directory == "common" || safeCatalogSegment(directory) != directory {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return false
+	}
+	c.scopeDirectories[platformID] = directory
+	return true
 }
 
 func imageURLIdentity(platformID string, kind Type, imageURL string) string {
