@@ -53,7 +53,7 @@ func TestBilibiliAuthServiceStartupWithoutAuthDoesNotConnect(t *testing.T) {
 	}
 
 	service := NewBilibiliAuthService(nil, manager)
-	if err := service.ServiceStartup(context.Background(), struct{}); err != nil {
+	if err := service.ServiceStartup(context.Background(), application.ServiceOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if adapter.connects != 0 {
