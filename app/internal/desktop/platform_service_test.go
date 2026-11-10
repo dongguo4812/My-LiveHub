@@ -7,6 +7,34 @@ import (
 	"github.com/dongguo4812/My-LiveHub/app/internal/media/resource"
 )
 
+func TestSimulateBilibiliInteractionEventsUseSharedSimulationPipeline(t *testing.T) {
+	service := NewPlatformService(nil, eventstream.NewBuffer())
+	tests := []struct {
+		name string
+		kind string
+		content string
+		amount float64
+		duration int
+		level int
+		months int
+	}{
+		{name: "SC", kind: "super_chat", content: "模拟留言", amount: 30, duration: 60},
+		{name: "guard", kind: "guard", amount: 198, level: 3, months: 3},
+		{name: "follow", kind: "follow"},
+		{name: "welcome", kind: "welcome"},
+	}
+	for _, tc := range tests {
+		event, err := service.SimulatePlatformEventWithMediaResources("bilibili", tc.kind, 123, "模拟用户", tc.content, "", 0, 0, tc.amount, tc.duration, tc.level, tc.months, 0, "", "", nil)
+		if err != nil { t.Fatalf("%s simulation failed: %v", tc.name, err) }
+		if event.Type != tc.kind || event.Source != "simulation" || !event.IsSimulation || event.PlatformID != "bilibili" {
+			t.Fatalf("%s event did not use shared simulation pipeline: %+v", tc.name, event)
+		}
+		if event.Amount != tc.amount || event.Duration != tc.duration || event.GuardLevel != tc.level || event.Months != tc.months {
+			t.Fatalf("%s payload mismatch: %+v", tc.name, event)
+		}
+	}
+}
+
 func TestSimulatePlatformEventWithResourceKeepsGiftMetadata(t *testing.T) {
 	service := NewPlatformService(nil, eventstream.NewBuffer())
 	event, err := service.SimulatePlatformEventWithResource("bilibili", "gift", 7, "viewer", "", "小心心", 2, 0.1, 0, 0, 0, 0, 30607, "https://img.test/gift.png", "30607")
