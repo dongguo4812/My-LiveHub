@@ -40,6 +40,7 @@ type MusicService struct {
 	sources *music.SourceRegistry
 	engine music.PlaybackEngine
 	queue *music.Queue
+	history []music.QueueItem
 
 	started bool
 	ctx context.Context
@@ -353,9 +354,47 @@ func (s *MusicService) SetVolume(volume int) error {
 func (s *MusicService) Next() error {
 	if s == nil || s.engine == nil || s.queue == nil { return errors.New("music playback service is unavailable") }
 	s.cancelPlaybackWatcher()
+	if current := s.queue.Snapshot().Current; current != nil { s.pushHistory(*current) }
 	_ = s.engine.Stop(context.Background())
 	s.queue.FinishCurrent()
 	return s.PlayNext()
+}
+
+func (s *MusicService) Previous() error {
+	if s == nil || s.engine == nil || s.queue == nil { return errors.New("music playback service is unavailable") }
+	s.mu.RLock()
+	if len(s.history) == 0 {
+		s.mu.RUnlock()
+		return errors.New("no previous track in playback history")
+	}
+	previous := s.history[len(s.history)-1]
+	s.mu.RUnlock()
+
+	s.cancelPlaybackWatcher()
+	if current := s.queue.Snapshot().Current; current != nil {
+		if err := s.queue.EnqueueFront(*current); err != nil {
+			s.startPlaybackWatcher()
+			return fmt.Errorf("cannot preserve current track before going back: %w", err)
+		}
+	}
+	s.mu.Lock()
+	if len(s.history) > 0 && s.history[len(s.history)-1].ID == previous.ID {
+		s.history = s.history[:len(s.history)-1]
+	}
+	s.mu.Unlock()
+	_ = s.engine.Stop(context.Background())
+	if err := s.queue.SetCurrent(previous); err != nil { return err }
+	return s.PlayNext()
+}
+
+func (s *MusicService) pushHistory(item music.QueueItem) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.history) >= 100 {
+		copy(s.history, s.history[1:])
+		s.history = s.history[:len(s.history)-1]
+	}
+	s.history = append(s.history, item)
 }
 func (s *MusicService) Stop() error {
 	if s == nil || s.engine == nil || s.queue == nil { return nil }
@@ -433,6 +472,7 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 			s.mu.RUnlock()
 			if !current { return }
 			if sawEndPosition {
+				if currentItem := s.queue.Snapshot().Current; currentItem != nil { s.pushHistory(*currentItem) }
 				s.queue.FinishCurrent()
 				_ = s.PlayNext()
 				return
