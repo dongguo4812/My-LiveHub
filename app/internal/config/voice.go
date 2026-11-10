@@ -10,8 +10,8 @@ import (
 const CurrentVoiceConfigVersion = 1
 
 var (
-	voiceRatePattern  = regexp.MustCompile(`^[+-]?(?:0|[1-9][0-9]?|100)%$`)
-	voicePitchPattern = regexp.MustCompile(`^[+-]?(?:0|[1-9][0-9]?|100)Hz$`)
+	voiceRatePattern  = regexp.MustCompile(`^[+-](?:0|[1-9][0-9]?|100)%$`)
+	voicePitchPattern = regexp.MustCompile(`^[+-](?:0|[1-9][0-9]?|100)Hz$`)
 )
 
 type VoiceEventConfig struct {

@@ -23,8 +23,10 @@ func TestVoiceConfigRejectsInvalidEngineAndProsody(t *testing.T) {
 		{"engine", func(c *VoiceConfig) { c.Engine = "" }},
 		{"voice", func(c *VoiceConfig) { c.Voice = "" }},
 		{"rate", func(c *VoiceConfig) { c.Rate = "+101%" }},
+		{"rate sign", func(c *VoiceConfig) { c.Rate = "0%" }},
 		{"volume", func(c *VoiceConfig) { c.Volume = "fast" }},
 		{"pitch", func(c *VoiceConfig) { c.Pitch = "+101Hz" }},
+		{"pitch sign", func(c *VoiceConfig) { c.Pitch = "0Hz" }},
 		{"version", func(c *VoiceConfig) { c.ConfigVersion++ }},
 	}
 	for _, tt := range tests {

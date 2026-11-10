@@ -119,10 +119,6 @@ jobs:
             go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
           }
 
-      - name: Resolve voice engine checksum
-        shell: pwsh
-        run: go mod download -json github.com/leopold7/edge-tts-go@v0.1.6
-
       - name: Generate frontend bindings
         shell: pwsh
         run: wails3 generate bindings -ts
