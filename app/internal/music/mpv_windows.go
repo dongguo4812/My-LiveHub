@@ -20,6 +20,7 @@ import (
 )
 
 type MpvEngine struct {
+	lifecycleMu sync.Mutex
 	mu sync.RWMutex
 	commandMu sync.Mutex
 	executable string
@@ -39,6 +40,8 @@ func NewMpvEngine(executable string) *MpvEngine {
 func (e *MpvEngine) Start(ctx context.Context) error {
 	if e == nil { return ErrPlaybackEngineUnavailable }
 	if ctx == nil { return errors.New("mpv startup context is required") }
+	e.lifecycleMu.Lock()
+	defer e.lifecycleMu.Unlock()
 	e.mu.Lock()
 	if e.command != nil && e.command.Process != nil {
 		e.mu.Unlock()
@@ -88,10 +91,10 @@ func (e *MpvEngine) Start(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			_ = e.Close()
+			_ = e.closeLocked()
 			return ctx.Err()
 		case <-deadline.C:
-			_ = e.Close()
+			_ = e.closeLocked()
 			return errors.New("mpv IPC did not become ready within 5 seconds")
 		case waitErr := <-done:
 				e.mu.Lock(); e.command = nil; e.pipePath = ""; e.mu.Unlock()
@@ -241,6 +244,12 @@ func (e *MpvEngine) Snapshot(ctx context.Context) (PlaybackSnapshot, error) {
 
 func (e *MpvEngine) Close() error {
 	if e == nil { return nil }
+	e.lifecycleMu.Lock()
+	defer e.lifecycleMu.Unlock()
+	return e.closeLocked()
+}
+
+func (e *MpvEngine) closeLocked() error {
 	e.mu.Lock()
 	cmd := e.command
 	done := e.done
