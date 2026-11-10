@@ -88,6 +88,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Go for mpv integration tests
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+          cache: true
+          cache-dependency-path: app/go.sum
+
       - name: Cache upstream mpv archive
         uses: actions/cache@v4
         with:
@@ -152,3 +159,12 @@ jobs:
             throw "Unexpected mpv version output: $versionText"
           }
           $output | Select-Object -First 5 | ForEach-Object { Write-Host $_ }
+
+      - name: Verify decoded audio playback and JSON IPC controls
+        working-directory: app
+        shell: pwsh
+        run: |
+          if (!(Test-Path $env:MPV_EXECUTABLE)) {
+            throw "Pinned mpv executable is unavailable for playback integration testing"
+          }
+          go test ./internal/music -run '^TestMpvPlaybackIntegration -count=1 -v
