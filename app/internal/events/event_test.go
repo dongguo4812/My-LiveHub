@@ -29,10 +29,38 @@ func TestSimulationEventValidation(t *testing.T) {
 		{Type:"gift",GiftName:"礼物",GiftCount:0},
 		{Type:"super_chat",Amount:0,Content:"留言"},
 		{Type:"guard",GuardLevel:4,Months:1},
+		{Type:"guard",GuardLevel:3,Months:1,Amount:-1},
 		{Type:"unknown"},
 	}
 	for _,input:=range tests { if _,err:=NewBuffer().AddSimulationEvent("bilibili",input);err==nil { t.Fatalf("expected validation error for %+v",input) } }
 	if _,err:=NewBuffer().AddSimulationEvent("",SimulationEventInput{Type:"danmaku",Content:"hello"});err==nil { t.Fatal("expected platform ID validation error") }
+}
+
+func TestSimulationInteractionEventsPreservePayloads(t *testing.T) {
+	buffer := NewBuffer()
+	inputs := []SimulationEventInput{
+		{Type: "super_chat", UserID: 11, UserName: "SC用户", Content: "支持主播", Amount: 30, Duration: 60},
+		{Type: "guard", UserID: 12, UserName: "舰长用户", GuardLevel: 3, Months: 3, Amount: 198},
+		{Type: "follow", UserID: 13, UserName: "关注用户"},
+		{Type: "welcome", UserID: 14, UserName: "进场用户"},
+	}
+	wantTypes := []string{"super_chat", "guard", "follow", "welcome"}
+	for i, input := range inputs {
+		event, err := buffer.AddSimulationEvent("bilibili", input)
+		if err != nil { t.Fatalf("%s simulation failed: %v", input.Type, err) }
+		if event.Type != wantTypes[i] || event.Source != "simulation" || !event.IsSimulation {
+			t.Fatalf("unexpected simulated event metadata: %+v", event)
+		}
+		if event.UserID != input.UserID || event.UserName != input.UserName {
+			t.Fatalf("user fields were not preserved for %s: %+v", input.Type, event)
+		}
+		if event.Type == "super_chat" && (event.Amount != 30 || event.Duration != 60 || event.Content != "支持主播") {
+			t.Fatalf("SC payload was not preserved: %+v", event)
+		}
+		if event.Type == "guard" && (event.Amount != 198 || event.GuardLevel != 3 || event.Months != 3) {
+			t.Fatalf("guard payload was not preserved: %+v", event)
+		}
+	}
 }
 
 func TestSimulationWelcomeEvent(t *testing.T) {
