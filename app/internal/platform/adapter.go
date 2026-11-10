@@ -19,3 +19,8 @@ type Adapter interface {
 type ConnectionFailureReporter interface {
 	SetConnectionFailureHandler(func(error))
 }
+
+// LiveStatusProvider exposes the latest platform-reported broadcast state.
+type LiveStatusProvider interface {
+	LiveStatus() string
+}

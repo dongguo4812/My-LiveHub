@@ -23,6 +23,7 @@ type ConnectionSnapshot struct {
 	PlatformID string           `json:"platform_id"`
 	Status     ConnectionStatus `json:"status"`
 	Error      string           `json:"error,omitempty"`
+	LiveStatus string           `json:"live_status,omitempty"`
 }
 
 type connectionEntry struct {
@@ -260,6 +261,9 @@ func (m *Manager) Snapshot() []ConnectionSnapshot {
 	result := make([]ConnectionSnapshot, 0, len(m.adapters))
 	for _, entry := range m.adapters {
 		snapshot := ConnectionSnapshot{PlatformID: entry.adapter.ID(), Status: entry.status}
+		if provider, ok := entry.adapter.(LiveStatusProvider); ok {
+			snapshot.LiveStatus = provider.LiveStatus()
+		}
 		if entry.err != nil {
 			snapshot.Error = entry.err.Error()
 		}

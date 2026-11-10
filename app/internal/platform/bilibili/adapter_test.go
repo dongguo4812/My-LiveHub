@@ -24,6 +24,8 @@ type fakeStreamClient struct {
 	guardBuyHandler func(*message.GuardBuy)
 	userToastHandler func(*message.UserToast)
 	interactWordHandler func(*message.InteractWord)
+	liveStartHandler func(*message.LiveStart)
+	liveStopHandler func(*message.LiveStop)
 	rawHandler func(string, []byte)
 	started bool
 	stopCalls int
@@ -43,6 +45,8 @@ func (f *fakeStreamClient) OnSuperChat(handler func(*message.SuperChat)) { f.mu.
 func (f *fakeStreamClient) OnGuardBuy(handler func(*message.GuardBuy)) { f.mu.Lock(); f.guardBuyHandler = handler; f.mu.Unlock() }
 func (f *fakeStreamClient) OnUserToast(handler func(*message.UserToast)) { f.mu.Lock(); f.userToastHandler = handler; f.mu.Unlock() }
 func (f *fakeStreamClient) OnInteractWord(handler func(*message.InteractWord)) { f.mu.Lock(); f.interactWordHandler = handler; f.mu.Unlock() }
+func (f *fakeStreamClient) OnLiveStart(handler func(*message.LiveStart)) { f.mu.Lock(); f.liveStartHandler = handler; f.mu.Unlock() }
+func (f *fakeStreamClient) OnLiveStop(handler func(*message.LiveStop)) { f.mu.Lock(); f.liveStopHandler = handler; f.mu.Unlock() }
 func (f *fakeStreamClient) OnRawEvent(handler func(string, []byte)) { f.mu.Lock(); f.rawHandler = handler; f.mu.Unlock() }
 func (f *fakeStreamClient) StartContext(ctx context.Context) error {
 	f.startOnce.Do(func(){ close(f.startEntered) })
@@ -60,6 +64,8 @@ func (f *fakeStreamClient) emitSuperChat(sc *message.SuperChat) { f.mu.Lock(); h
 func (f *fakeStreamClient) emitGuardBuy(g *message.GuardBuy) { f.mu.Lock(); handler := f.guardBuyHandler; f.mu.Unlock(); if handler != nil { handler(g) } }
 func (f *fakeStreamClient) emitUserToast(u *message.UserToast) { f.mu.Lock(); handler := f.userToastHandler; f.mu.Unlock(); if handler != nil { handler(u) } }
 func (f *fakeStreamClient) emitInteractWord(i *message.InteractWord) { f.mu.Lock(); handler := f.interactWordHandler; f.mu.Unlock(); if handler != nil { handler(i) } }
+func (f *fakeStreamClient) emitLiveStart(l *message.LiveStart) { f.mu.Lock(); handler := f.liveStartHandler; f.mu.Unlock(); if handler != nil { handler(l) } }
+func (f *fakeStreamClient) emitLiveStop(l *message.LiveStop) { f.mu.Lock(); handler := f.liveStopHandler; f.mu.Unlock(); if handler != nil { handler(l) } }
 func (f *fakeStreamClient) emitRaw(cmd string, raw []byte) { f.mu.Lock(); handler := f.rawHandler; f.mu.Unlock(); if handler != nil { handler(cmd, raw) } }
 
 func newAdapterTestAuth(t *testing.T) *AuthManager {
@@ -247,6 +253,21 @@ func TestAdapterMapsSingleProtobufEmoticon(t *testing.T) {
 	if len(got) != 1 || got[0].Text != "[dog]" || got[0].URL == "" { t.Fatalf("unexpected emoticon mapping: %+v", got) }
 }
 
+
+func TestAdapterMapsLiveStartAndStopStatus(t *testing.T) {
+	a, err := NewAdapter(newAdapterTestAuth(t), 12345, eventstream.NewBuffer())
+	if err != nil { t.Fatal(err) }
+	a.giftCatalog = nil
+	fake := newFakeStreamClient(12345)
+	a.newStream = func(int) streamClient { return fake }
+	if got := a.LiveStatus(); got != "unknown" { t.Fatalf("initial live status = %q, want unknown", got) }
+	if err := a.Connect(context.Background()); err != nil { t.Fatal(err) }
+	fake.emitLiveStart(&message.LiveStart{Roomid: 12345, LiveTime: 1700000000})
+	if got := a.LiveStatus(); got != "live" { t.Fatalf("live status after LIVE = %q, want live", got) }
+	fake.emitLiveStop(&message.LiveStop{Roomid: "12345", SendTime: 1700000100})
+	if got := a.LiveStatus(); got != "offline" { t.Fatalf("live status after PREPARING = %q, want offline", got) }
+	if err := a.Disconnect(context.Background()); err != nil { t.Fatal(err) }
+}
 
 func TestAdapterReceivesSCGuardFollowWelcomeAndShare(t *testing.T) {
 	a, err := NewAdapter(newAdapterTestAuth(t), 12345, eventstream.NewBuffer())

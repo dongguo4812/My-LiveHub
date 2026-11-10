@@ -10,6 +10,7 @@ import (
 
 type simulatedAdapter struct {
 	id           string
+	liveStatus   string
 	calls        *[]string
 	connectError error
 	stopError    error
@@ -17,6 +18,7 @@ type simulatedAdapter struct {
 }
 
 func (a *simulatedAdapter) ID() string { return a.id }
+func (a *simulatedAdapter) LiveStatus() string { return a.liveStatus }
 func (a *simulatedAdapter) SetConnectionFailureHandler(handler func(error)) { a.failureHandler = handler }
 func (a *simulatedAdapter) fail(err error) { if a.failureHandler != nil { a.failureHandler(err) } }
 
@@ -167,6 +169,15 @@ func TestManagerContinuesShutdownAfterDisconnectFailure(t *testing.T) {
 	}
 }
 
+
+func TestManagerSnapshotIncludesOptionalLiveStatus(t *testing.T) {
+	manager := NewManager()
+	var calls []string
+	if err := manager.Register(&simulatedAdapter{id: "bilibili", calls: &calls, liveStatus: "live"}); err != nil { t.Fatal(err) }
+	if err := manager.Start(context.Background()); err != nil { t.Fatal(err) }
+	snapshot := manager.Snapshot()[0]
+	if snapshot.LiveStatus != "live" { t.Fatalf("live status = %q, want live", snapshot.LiveStatus) }
+}
 
 func TestManagerMarksUnexpectedAdapterDisconnectAsFailed(t *testing.T) {
 	manager := NewManager()

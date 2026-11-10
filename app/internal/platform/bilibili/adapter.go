@@ -646,6 +646,7 @@ func (a *Adapter) Connect(ctx context.Context) error {
 		if unexpected {
 			cancelStream = a.cancel
 			a.client, a.cancel = nil, nil
+			a.liveStatus = "unknown"
 			failureHandler = a.connectionFailureHandler
 		}
 		a.mu.Unlock()
@@ -663,6 +664,7 @@ func (a *Adapter) Disconnect(ctx context.Context) error {
 	a.mu.Lock()
 	stream, cancel := a.client, a.cancel
 	a.client, a.cancel = nil, nil
+	a.liveStatus = "unknown"
 	a.mu.Unlock()
 	if stream == nil { return nil }
 	if cancel != nil { cancel() }
