@@ -21,7 +21,7 @@ type MusicService struct {
 	mu sync.RWMutex
 	value config.MusicConfig
 	sources *music.SourceRegistry
-	engine *music.MpvEngine
+	engine music.PlaybackEngine
 	queue *music.Queue
 	watchCancel context.CancelFunc
 	playGeneration uint64
@@ -30,11 +30,17 @@ type MusicService struct {
 func NewMusicService(manager *config.Manager, value config.MusicConfig) *MusicService {
 	sources := music.NewSourceRegistry()
 	_ = sources.Register(music.NewNetEaseSource(nil, ""))
+	return NewMusicServiceWithDependencies(manager, value, sources, music.NewMpvEngine(""))
+}
+
+func NewMusicServiceWithDependencies(manager *config.Manager, value config.MusicConfig, sources *music.SourceRegistry, engine music.PlaybackEngine) *MusicService {
+	if sources == nil { sources = music.NewSourceRegistry() }
+	if engine == nil { engine = music.NewMpvEngine("") }
 	return &MusicService{
 		manager: manager,
 		value: cloneMusicConfig(value),
 		sources: sources,
-		engine: music.NewMpvEngine(""),
+		engine: engine,
 		queue: music.NewQueue(value.QueueCapacity),
 	}
 }
@@ -104,7 +110,9 @@ func (s *MusicService) PlayNext() error {
 	if !ok { s.queue.FinishCurrent(); return fmt.Errorf("music source %q is not available", item.Track.SourceID) }
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if err := s.engine.Start(ctx); err != nil { s.queue.FinishCurrent(); return err }
+	if lifecycle, ok := s.engine.(music.PlaybackEngineLifecycle); ok {
+		if err := lifecycle.Start(ctx); err != nil { s.queue.FinishCurrent(); return err }
+	}
 	resource, err := source.Resolve(ctx, item.Track)
 	if err != nil { s.queue.FinishCurrent(); return fmt.Errorf("resolve %q from %s: %w", item.Track.Title, source.Name(), err) }
 	if err := s.engine.Load(ctx, resource, item.Track); err != nil {
@@ -152,7 +160,8 @@ func (s *MusicService) GetPlaybackStatus() (music.PlaybackSnapshot, error) {
 func (s *MusicService) Shutdown() error {
 	if s == nil || s.engine == nil { return nil }
 	s.cancelPlaybackWatcher()
-	return s.engine.Close()
+	if lifecycle, ok := s.engine.(music.PlaybackEngineLifecycle); ok { return lifecycle.Close() }
+	return nil
 }
 
 func (s *MusicService) cancelPlaybackWatcher() {
