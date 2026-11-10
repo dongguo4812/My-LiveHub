@@ -19,6 +19,7 @@ func TestPersistentCatalogRestoresPartitionedResourcesAndRefreshes(t *testing.T)
 		{PlatformID: "bilibili", SourceID: "12345", Type: TypeEmoticon, ID: "room_12345_9", Name: "房间表情", ImageURL: "https://img.test/room.png"},
 		{PlatformID: "bilibili", SourceID: "12345", Type: TypeGift, ID: "30607", Name: "小心心", ImageURL: "https://img.test/gift.png"},
 		{PlatformID: "douyin", SourceID: "common", Type: TypeEmoticon, ID: "douyin_1", Name: "抖音表情", ImageURL: "https://img.test/douyin.png"},
+		{PlatformID: "douyin", SourceID: "live-67890", Type: TypeEmoticon, ID: "douyin_live_1", Name: "抖音直播表情", ImageURL: "https://img.test/douyin-live.png"},
 	}
 	for _, item := range items {
 		if !catalog.Register(item) {
@@ -48,6 +49,7 @@ func TestPersistentCatalogRestoresPartitionedResourcesAndRefreshes(t *testing.T)
 		filepath.Join(root, "bilibili", "rooms", "12345", "emoticon.json"),
 		filepath.Join(root, "bilibili", "rooms", "12345", "gift.json"),
 		filepath.Join(root, "douyin", "common", "emoticon.json"),
+		filepath.Join(root, "douyin", "scopes", "live-67890", "emoticon.json"),
 	}
 	for _, path := range expectedFiles {
 		if info, err := os.Stat(path); err != nil || info.IsDir() {
@@ -69,8 +71,11 @@ func TestPersistentCatalogRestoresPartitionedResourcesAndRefreshes(t *testing.T)
 	if got := len(restored.List("bilibili", "12345", TypeEmoticon)); got != 1 {
 		t.Fatalf("room emoticon count = %d, want 1", got)
 	}
-	if got := len(restored.List("douyin", "", TypeEmoticon)); got != 1 {
-		t.Fatalf("platform isolation failed, count = %d", got)
+	if got := len(restored.List("douyin", "", TypeEmoticon)); got != 2 {
+		t.Fatalf("platform isolation failed, count = %d, want 2", got)
+	}
+	if got := len(restored.List("douyin", "live-67890", TypeEmoticon)); got != 1 {
+		t.Fatalf("platform-specific scope resource count = %d, want 1", got)
 	}
 	if got := len(restored.List("bilibili", "12345", TypeGift)); got != 1 {
 		t.Fatalf("gift was not restored, count = %d", got)
