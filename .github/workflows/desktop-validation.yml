@@ -129,11 +129,25 @@ jobs:
       - name: Verify mpv starts
         shell: pwsh
         run: |
-          $output = & $env:MPV_EXECUTABLE --no-config --version 2>&1
-          if ($LASTEXITCODE -ne 0) {
-            throw "mpv failed to start (exit code $LASTEXITCODE): $($output -join [Environment]::NewLine)"
+          $stdout = Join-Path $env:RUNNER_TEMP "mpv-version.stdout.txt"
+          $stderr = Join-Path $env:RUNNER_TEMP "mpv-version.stderr.txt"
+          $workingDirectory = Split-Path -Parent $env:MPV_EXECUTABLE
+
+          try {
+            $process = Start-Process -FilePath $env:MPV_EXECUTABLE -ArgumentList @("--no-config", "--version") -WorkingDirectory $workingDirectory -Wait -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
           }
-          $version = $output | Select-String -Pattern "^mpv v?0\.42\.0"
+          catch {
+            throw "Windows could not start the bundled mpv executable: $($_.Exception.Message)"
+          }
+
+          $output = @()
+          if (Test-Path $stdout) { $output += Get-Content $stdout }
+          if (Test-Path $stderr) { $output += Get-Content $stderr }
+          if ($process.ExitCode -ne 0) {
+            throw "mpv failed to start (exit code $($process.ExitCode)): $($output -join [Environment]::NewLine)"
+          }
+
+          $version = $output | Select-String -Pattern "^mpv v?0\\.42\\.0"
           if (!$version) {
             throw "Unexpected mpv version output: $($output -join [Environment]::NewLine)"
           }
