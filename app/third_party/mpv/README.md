@@ -25,4 +25,4 @@ The exact corresponding-source bundle and complete third-party component/license
 
 ## Validation
 
-The dedicated GitHub Actions workflow downloads the pinned asset, verifies SHA-256, extracts it, checks that `mpv.exe` and `LICENSE.GPL` exist, and runs `mpv.exe --no-config --version`. It does not publish the runtime as a release artifact.
+The `mpv-runtime` job in `.github/workflows/desktop-validation.yml` downloads the pinned asset, verifies SHA-256, extracts it, checks that `mpv.exe` and `LICENSE.GPL` exist, and runs `mpv.exe --no-config --version`. It runs in parallel with the regular client validation and does not publish the runtime as a release artifact.
