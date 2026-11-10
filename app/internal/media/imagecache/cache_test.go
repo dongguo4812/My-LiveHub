@@ -157,3 +157,64 @@ func TestRefreshStatsCountsImageFilesByPlatformWithoutModifyingCache(t *testing.
 		if b, err := os.ReadFile(path); err != nil || string(b) != content { t.Fatalf("stats scan modified %s: %v", path, err) }
 	}
 }
+
+
+func TestCleanupFailedUntilRemovesExpiredEntries(t *testing.T) {
+	manager, err := New(t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	manager.failedUntil["expired"] = now.Add(-time.Second)
+	manager.failedUntil["active"] = now.Add(time.Minute)
+
+	manager.mu.Lock()
+	manager.cleanupFailedUntilLocked(now)
+	manager.mu.Unlock()
+
+	if _, ok := manager.failedUntil["expired"]; ok {
+		t.Fatal("expired failure cooldown was not removed")
+	}
+	if _, ok := manager.failedUntil["active"]; !ok {
+		t.Fatal("active failure cooldown was removed too early")
+	}
+	if manager.nextFailedCleanup.IsZero() {
+		t.Fatal("next cleanup time was not scheduled")
+	}
+}
+
+func TestRefreshStatsCanRefreshAfterNewCacheFilesAppear(t *testing.T) {
+	root := t.TempDir()
+	manager, err := New(root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	platformRoot := filepath.Join(root, "bilibili")
+	if err := os.MkdirAll(platformRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	first := filepath.Join(platformRoot, strings.Repeat("a", 64)+".png")
+	if err := os.WriteFile(first, []byte("first"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager.RefreshStats()
+	if !manager.WaitForStats(2 * time.Second) {
+		t.Fatal("initial background cache stats scan did not complete")
+	}
+	if got := manager.GetStats(); got.TotalFiles != 1 || got.TotalBytes != 5 {
+		t.Fatalf("unexpected initial stats: %+v", got)
+	}
+
+	second := filepath.Join(platformRoot, strings.Repeat("b", 64)+".webp")
+	if err := os.WriteFile(second, []byte("second"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager.RefreshStats()
+	if !manager.WaitForStats(2 * time.Second) {
+		t.Fatal("updated background cache stats scan did not complete")
+	}
+	if got := manager.GetStats(); got.TotalFiles != 2 || got.TotalBytes != 11 {
+		t.Fatalf("statistics did not include the newly added cache file: %+v", got)
+	}
+}
