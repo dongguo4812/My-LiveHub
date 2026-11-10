@@ -124,7 +124,7 @@ func main() {
 		Services: []application.Service{
 			application.NewService(desktop.NewCoreService(coreApp)),
 			application.NewService(platformService),
-			application.NewService(desktop.NewBilibiliAuthService(bilibiliAuth)),
+			application.NewService(desktop.NewBilibiliAuthService(bilibiliAuth, platformManager)),
 			application.NewService(desktop.NewBilibiliSettingsService(configManager, bilibiliConfig, bilibiliAdapter)),
 			application.NewService(desktop.NewAppearanceService(configManager, appConfig)),
 			application.NewService(danmakuDisplayService),
