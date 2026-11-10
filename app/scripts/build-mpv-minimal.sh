@@ -9,7 +9,7 @@ set -euo pipefail
 prefix_dir="$PWD/mingw_prefix"
 cross_file="$prefix_dir/crossfile"
 if [[ ! -f "$cross_file" || ! -f "$prefix_dir/lib/libavcodec.dll.a" ]]; then
-    echo "Run ./ci/build-mingw64.sh first to build mpv's MinGW dependencies." >&2
+    echo "Run the trimmed ./ci/build-mingw64.sh bootstrap from the workflow first." >&2
     exit 2
 fi
 
