@@ -159,13 +159,21 @@ func (s *PlatformService) SimulatePlatformEventWithMediaResources(platformID, ev
 	if s == nil || s.events == nil { return eventstream.Event{}, errors.New("platform event service is unavailable") }
 	var emoticons []eventstream.EmoticonToken
 	if eventType == "danmaku" && s.mediaCatalog != nil && len(emoticonResourceIDs) > 0 {
-		selected := make(map[string]struct{}, len(emoticonResourceIDs))
-		for _, id := range emoticonResourceIDs { if id = strings.TrimSpace(id); id != "" { selected[id] = struct{}{} } }
-		seen := make(map[string]struct{}, len(selected))
+		// The simulator passes a composite sourceID/resourceID key so resources
+		// with the same platform ID in different scopes remain distinguishable.
+		catalogItems := make(map[string]resource.Resource)
 		for _, item := range s.mediaCatalog.List(platformID, "", resource.TypeEmoticon) {
-			if _, ok := selected[item.ID]; !ok || item.Name == "" || item.ImageURL == "" || !strings.Contains(content, item.Name) { continue }
-			if _, ok := seen[item.Name]; ok { continue }
-			seen[item.Name] = struct{}{}
+			key := item.SourceID + "\x00" + item.ID
+			catalogItems[key] = item
+		}
+		seen := make(map[string]struct{}, len(emoticonResourceIDs))
+		for _, selectedKey := range emoticonResourceIDs {
+			selectedKey = strings.TrimSpace(selectedKey)
+			if selectedKey == "" { continue }
+			if _, duplicate := seen[selectedKey]; duplicate { continue }
+			seen[selectedKey] = struct{}{}
+			item, ok := catalogItems[selectedKey]
+			if !ok || item.Name == "" || item.ImageURL == "" || !strings.Contains(content, item.Name) { continue }
 			emoticons = append(emoticons, eventstream.EmoticonToken{Text: item.Name, ResourceID: item.SourceID + ":" + item.ID, URL: item.ImageURL, Width: item.Width, Height: item.Height})
 		}
 	}
