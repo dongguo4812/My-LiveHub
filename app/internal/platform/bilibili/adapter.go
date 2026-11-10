@@ -28,6 +28,7 @@ type streamClient interface {
 	OnGuardBuy(func(*message.GuardBuy))
 	OnUserToast(func(*message.UserToast))
 	OnInteractWord(func(*message.InteractWord))
+	OnRawEvent(func(string, []byte))
 	StartContext(context.Context) error
 	Stop()
 	Wait()
@@ -188,6 +189,42 @@ func guardEventKey(uid, level, months, startTime int) string {
 		return ""
 	}
 	return fmt.Sprintf("%d:%d:%d:%d", uid, level, months, startTime)
+}
+
+// addLikeEvent maps Bilibili's per-user LIKE_INFO_V3_CLICK notification.
+// LIKE_INFO_V3_UPDATE is deliberately ignored because it only reports room totals.
+func (a *Adapter) addLikeEvent(roomID int, raw []byte) {
+	if a == nil || a.events == nil {
+		return
+	}
+	var envelope struct {
+		Data struct {
+			UID       int64  `json:"uid"`
+			UName     string `json:"uname"`
+			LikeText  string `json:"like_text"`
+			Timestamp int64  `json:"timestamp"`
+			FansMedal struct {
+				Name  string `json:"medal_name"`
+				Level int    `json:"medal_level"`
+				Color uint32 `json:"medal_color"`
+			} `json:"fans_medal"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return
+	}
+	data := envelope.Data
+	if data.UID <= 0 || strings.TrimSpace(data.UName) == "" {
+		return
+	}
+	a.events.Add(eventstream.Event{
+		PlatformID: "bilibili", Source: "live", Type: "like", RoomID: roomID,
+		UserID: int(data.UID), UserName: data.UName,
+		Content: firstNonEmpty(data.LikeText, "为直播间点赞"),
+		Timestamp: normalizeTimestamp(data.Timestamp),
+		FanMedalName: data.FansMedal.Name, FanMedalLevel: data.FansMedal.Level,
+		FanMedalColor: data.FansMedal.Color,
+	})
 }
 
 func (a *Adapter) addGuardEvent(roomID, uid int, name, avatar string, level, months int, price int, timestamp int, key string) {
@@ -375,6 +412,14 @@ func (a *Adapter) Connect(ctx context.Context) error {
 	if err != nil { return err }
 	stream := a.newStream(roomID)
 	stream.SetCookie(credentials.Cookie)
+	stream.OnRawEvent(func(cmd string, raw []byte) {
+		baseCmd, _, _ := strings.Cut(cmd, ":")
+		if baseCmd != "LIKE_INFO_V3_CLICK" {
+			return
+		}
+		a.addLikeEvent(roomID, raw)
+	})
+
 	stream.OnDanmaku(func(d *message.Danmaku) {
 		if d == nil || d.Sender == nil { return }
 		timestamp := d.Timestamp
