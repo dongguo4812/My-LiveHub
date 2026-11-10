@@ -8,6 +8,7 @@ on:
     paths:
       - .github/workflows/mpv-minimal-prototype.yml
       - app/scripts/build-mpv-minimal.sh
+      - app/scripts/trim-mpv-mingw-bootstrap.sh
       - app/third_party/mpv/**
 
 permissions:
@@ -27,9 +28,20 @@ jobs:
       WINEPREFIX: /tmp/wine
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_DIR: ${{ github.workspace }}/.ccache
-      CCACHE_MAXSIZE: 500M
+      CCACHE_MAXSIZE: 2G
       DOWNLOAD_CACHE: ${{ github.workspace }}/.ccache/downloads
     steps:
+      - name: Checkout My-LiveHub
+        uses: actions/checkout@v4
+
+      - name: Restore compiler and source download cache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: mpv-minimal-ubuntu26-mingw64-${{ hashFiles('app/scripts/build-mpv-minimal.sh', 'app/scripts/trim-mpv-mingw-bootstrap.sh') }}
+          restore-keys: |
+            mpv-minimal-ubuntu26-mingw64-
+
       - name: Install build dependencies
         run: |
           dpkg --add-architecture i386
@@ -38,13 +50,15 @@ jobs:
           rustup default stable
           rustup target add ${RUST_TARGET}
 
-      - name: Checkout My-LiveHub
-        uses: actions/checkout@v4
-
       - name: Checkout pinned mpv source
         run: |
           git clone --depth=1 --branch v0.42.0 https://github.com/mpv-player/mpv.git mpv-src
           cp app/scripts/build-mpv-minimal.sh mpv-src/build-mpv-minimal.sh
+
+      - name: Apply minimal upstream dependency profile
+        run: |
+          chmod +x app/scripts/trim-mpv-mingw-bootstrap.sh
+          app/scripts/trim-mpv-mingw-bootstrap.sh "$PWD/mpv-src"
 
       - name: Install Meson wraps
         run: |
@@ -53,7 +67,7 @@ jobs:
           meson wrap install mujs
           meson subprojects download
 
-      - name: Build upstream MinGW dependencies
+      - name: Build selected MinGW dependencies
         working-directory: mpv-src
         run: ./ci/build-mingw64.sh
 
