@@ -10,6 +10,7 @@ import (
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/platform"
 	"github.com/dongguo4812/My-LiveHub/app/internal/media/resource"
+	"github.com/dongguo4812/My-LiveHub/app/internal/media/emoticoncache"
 	eventstream "github.com/dongguo4812/My-LiveHub/app/internal/events"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -18,6 +19,7 @@ type PlatformService struct {
 	manager    *platform.Manager
 	events     *eventstream.Buffer
 	mediaCatalog *resource.Catalog
+	imageCache *emoticoncache.Manager
 	app        *application.App
 	lightTheme bool
 }
@@ -178,4 +180,21 @@ func (s *PlatformService) SimulatePlatformEventWithMediaResources(platformID, ev
 // SimulateBilibiliEvent is retained for compatibility with the current simulator UI.
 func (s *PlatformService) SimulateBilibiliEvent(eventType string, userID int, userName, content, giftName string, giftCount int, unitPrice, amount float64, duration, guardLevel, months int) (eventstream.Event, error) {
 	return s.SimulatePlatformEvent("bilibili", eventType, userID, userName, content, giftName, giftCount, unitPrice, amount, duration, guardLevel, months)
+}
+
+
+// SetMediaImageCache attaches the local image cache statistics provider.
+func (s *PlatformService) SetMediaImageCache(cache *emoticoncache.Manager) {
+	if s != nil { s.imageCache = cache }
+}
+
+// RefreshMediaCacheStats starts a non-blocking, read-only disk scan.
+func (s *PlatformService) RefreshMediaCacheStats() {
+	if s != nil && s.imageCache != nil { s.imageCache.RefreshStats() }
+}
+
+// GetMediaCacheStats returns the latest completed statistics snapshot.
+func (s *PlatformService) GetMediaCacheStats() emoticoncache.CacheStats {
+	if s == nil || s.imageCache == nil { return emoticoncache.CacheStats{Platforms: []emoticoncache.PlatformCacheStats{}} }
+	return s.imageCache.GetStats()
 }
