@@ -31,9 +31,9 @@ func DefaultMusicConfig() MusicConfig {
 		SearchLimit: 20,
 		Sources: map[string]bool{
 			"netease": true,
-			"qq_music": true,
-			"kugou": true,
-			"kuwo": true,
+			"qq_music": false,
+			"kugou": false,
+			"kuwo": false,
 		},
 	}
 }
