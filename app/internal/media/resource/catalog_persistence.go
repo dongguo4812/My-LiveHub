@@ -12,7 +12,12 @@ import (
 	"time"
 )
 
-const catalogFileVersion = 1
+const (
+	catalogFileVersion       = 1
+	catalogFlushDebounce     = 250 * time.Millisecond
+	catalogRetryInitialDelay = time.Second
+	catalogRetryMaxDelay     = 30 * time.Second
+)
 
 type catalogFile struct {
 	Version   int                  `json:"version"`
@@ -162,20 +167,30 @@ func (p *catalogPersistence) run() {
 		<-timer.C
 	}
 	var timerC <-chan time.Time
+	var retryDelay time.Duration
+	resetTimer := func(delay time.Duration) {
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timer.Reset(delay)
+		timerC = timer.C
+	}
 	for {
 		select {
 		case <-p.dirty:
-			if !timer.Stop() {
-				select {
-				case <-timer.C:
-				default:
-				}
-			}
-			timer.Reset(250 * time.Millisecond)
-			timerC = timer.C
+			// Coalesce changes. A new change can also bring a pending retry forward.
+			resetTimer(catalogFlushDebounce)
 		case <-timerC:
-			p.flush()
 			timerC = nil
+			if err := p.flush(); err != nil {
+				retryDelay = nextCatalogRetryDelay(retryDelay)
+				resetTimer(retryDelay)
+				continue
+			}
+			retryDelay = 0
 		case <-p.stop:
 			if timerC != nil && !timer.Stop() {
 				select {
@@ -183,13 +198,24 @@ func (p *catalogPersistence) run() {
 				default:
 				}
 			}
-			p.flush()
+			// Shutdown makes one final attempt without delaying application exit.
+			_ = p.flush()
 			return
 		}
 	}
 }
 
-func (p *catalogPersistence) flush() {
+func nextCatalogRetryDelay(current time.Duration) time.Duration {
+	if current <= 0 {
+		return catalogRetryInitialDelay
+	}
+	if current >= catalogRetryMaxDelay/2 {
+		return catalogRetryMaxDelay
+	}
+	return current * 2
+}
+
+func (p *catalogPersistence) flush() error {
 	p.catalog.mu.RLock()
 	partitions := make(map[string]*catalogFile)
 	for _, item := range p.catalog.items {
@@ -227,10 +253,11 @@ func (p *catalogPersistence) flush() {
 	for _, path := range paths {
 		if err := writeCatalogFile(path, partitions[path]); err != nil {
 			p.setError(err)
-			return
+			return err
 		}
 	}
 	p.setError(nil)
+	return nil
 }
 
 func writeCatalogFile(path string, snapshot *catalogFile) error {
