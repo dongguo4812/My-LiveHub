@@ -24,6 +24,7 @@ type Resource struct {
 	UnitPrice   float64   `json:"unit_price,omitempty"`
 	Width       int       `json:"width,omitempty"`
 	Height      int       `json:"height,omitempty"`
+	SortOrder   int       `json:"sort_order,omitempty"`
 	FirstSeenAt time.Time `json:"first_seen_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
@@ -126,7 +127,10 @@ func (c *Catalog) Register(r Resource) bool {
 		r.FirstSeenAt = old.FirstSeenAt
 		if r.FirstSeenAt.IsZero() { r.FirstSeenAt = now }
 		if r.Name == "" { r.Name = old.Name }
-		if !promoted && old.Name == r.Name && old.ImageURL == r.ImageURL && old.UnitPrice == r.UnitPrice && old.Width == r.Width && old.Height == r.Height {
+		// Live events may update an existing directory entry without carrying
+		// its source ordering. Preserve the last known directory position.
+		if r.SortOrder <= 0 && old.SortOrder > 0 { r.SortOrder = old.SortOrder }
+		if !promoted && old.Name == r.Name && old.ImageURL == r.ImageURL && old.UnitPrice == r.UnitPrice && old.Width == r.Width && old.Height == r.Height && old.SortOrder == r.SortOrder {
 			c.addImageIndex(key, old)
 			return true
 		}
@@ -229,6 +233,15 @@ func (c *Catalog) List(platformID, sourceID string, kind Type) []Resource {
 	}
 	c.mu.RUnlock()
 	sort.Slice(out, func(i, j int) bool {
+		// Positive positions come from the platform directory response and
+		// take precedence over the alphabetical fallback used by older or
+		// event-discovered resources.
+		if out[i].SortOrder > 0 && out[j].SortOrder > 0 && out[i].SortOrder != out[j].SortOrder {
+			return out[i].SortOrder < out[j].SortOrder
+		}
+		if (out[i].SortOrder > 0) != (out[j].SortOrder > 0) {
+			return out[i].SortOrder > 0
+		}
 		if out[i].Name != out[j].Name {
 			return out[i].Name < out[j].Name
 		}
