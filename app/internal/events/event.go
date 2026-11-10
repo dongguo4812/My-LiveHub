@@ -73,6 +73,15 @@ func NewBuffer(buses ...*Bus) *Buffer {
 	return buffer
 }
 
+// Subscribe registers an independent consumer for future events added to the
+// buffer. A nil buffer or history-only buffer returns a no-op cancellation.
+func (b *Buffer) Subscribe(handler Handler) func() {
+	if b == nil || b.bus == nil {
+		return func() {}
+	}
+	return b.bus.Subscribe(handler)
+}
+
 // Add normalizes source metadata, assigns a local sequence ID, and stores an event.
 func (b *Buffer) Add(event Event) Event {
 	if b == nil { return event }
