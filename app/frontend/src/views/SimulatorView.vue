@@ -265,6 +265,9 @@ onUnmounted(() => {
                 <el-form-item label="开通月份">
                   <el-input-number v-model="months" :min="1" :max="120" class="full-width" />
                 </el-form-item>
+                <el-form-item label="上舰金额（元）">
+                  <el-input-number v-model="amount" :min="0" :precision="2" :step="1" class="full-width" />
+                </el-form-item>
               </div>
             </template>
 
@@ -304,7 +307,8 @@ onUnmounted(() => {
             </el-table-column>
             <el-table-column label="事件内容" min-width="190" show-overflow-tooltip>
               <template #default="{ row }">
-                <span v-if="row.type === 'super_chat'">¥{{ row.amount }} · {{ row.content }}</span>
+                <span v-if="row.type === 'super_chat'">¥{{ Number(row.amount ?? 0).toFixed(2) }} · {{ row.content }}（{{ row.duration }} 秒）</span>
+                <span v-else-if="row.type === 'guard'">{{ row.content }}（¥{{ Number(row.amount ?? 0).toFixed(2) }}）</span>
                 <span v-else-if="row.type === 'gift'">{{ row.content }}（¥{{ row.total_price }}）</span>
                 <span v-else>{{ row.content }}</span>
               </template>
