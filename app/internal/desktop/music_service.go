@@ -521,6 +521,7 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 					}
 					cancel()
 				}
+				if ctx.Err() != nil { return }
 				s.setLastError(errors.New("音源未能开始播放；已尝试其他音源，当前歌曲仍保留，可重试或切歌"))
 				return
 			}
