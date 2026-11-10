@@ -16,3 +16,6 @@
 
 # Runtime media cache is local-only and must never enter Git or release packages
 /cache/
+
+# Downloaded mpv runtime is local-only until the corresponding-source audit is cleared
+/runtime/mpv/
