@@ -1,6 +1,6 @@
 # mpv Windows runtime candidate
 
-This directory records the pinned upstream runtime candidate used for compatibility validation. It is not yet the final redistribution/source-compliance bundle.
+This directory records the pinned upstream runtime candidate used for compatibility validation. It is not yet the final redistribution/source-compliance bundle. The binary is intentionally not committed to Git; run `powershell -ExecutionPolicy Bypass -File .\\scripts\\prepare-mpv-runtime.ps1` from the `app` directory to download and verify it into `app/runtime/mpv/` for local development.
 
 ## Selected candidate
 
@@ -26,4 +26,4 @@ The detailed provenance, component inventory, missing source revisions, and rele
 
 ## Validation
 
-The `mpv-runtime` job in `.github/workflows/desktop-validation.yml` downloads the pinned asset, verifies SHA-256, extracts it, checks that `mpv.exe` and `LICENSE.GPL` exist, and runs `mpv.exe --no-config --version`. It runs in parallel with the regular client validation and does not publish the runtime as a release artifact.
+The `app/scripts/prepare-mpv-runtime.ps1` script downloads the pinned asset, verifies SHA-256, extracts the complete directory containing `mpv.exe`, and checks that `mpv.exe` and `LICENSE.GPL` exist. The `mpv-runtime` job uses the same script before running `mpv.exe --no-config --version` and the playback/IPC integration test. The binary is kept out of Git and is not published as a release artifact while the source audit remains open.
