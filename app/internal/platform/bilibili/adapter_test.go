@@ -20,6 +20,10 @@ type fakeStreamClient struct {
 	cookie string
 	handler func(*message.Danmaku)
 	giftHandler func(*message.Gift)
+	superChatHandler func(*message.SuperChat)
+	guardBuyHandler func(*message.GuardBuy)
+	userToastHandler func(*message.UserToast)
+	interactWordHandler func(*message.InteractWord)
 	started bool
 	stopCalls int
 	done chan struct{}
@@ -34,6 +38,10 @@ func newFakeStreamClient(_ int) *fakeStreamClient { return &fakeStreamClient{don
 func (f *fakeStreamClient) SetCookie(cookie string) { f.mu.Lock(); f.cookie = cookie; f.mu.Unlock() }
 func (f *fakeStreamClient) OnDanmaku(handler func(*message.Danmaku)) { f.mu.Lock(); f.handler = handler; f.mu.Unlock() }
 func (f *fakeStreamClient) OnGift(handler func(*message.Gift)) { f.mu.Lock(); f.giftHandler = handler; f.mu.Unlock() }
+func (f *fakeStreamClient) OnSuperChat(handler func(*message.SuperChat)) { f.mu.Lock(); f.superChatHandler = handler; f.mu.Unlock() }
+func (f *fakeStreamClient) OnGuardBuy(handler func(*message.GuardBuy)) { f.mu.Lock(); f.guardBuyHandler = handler; f.mu.Unlock() }
+func (f *fakeStreamClient) OnUserToast(handler func(*message.UserToast)) { f.mu.Lock(); f.userToastHandler = handler; f.mu.Unlock() }
+func (f *fakeStreamClient) OnInteractWord(handler func(*message.InteractWord)) { f.mu.Lock(); f.interactWordHandler = handler; f.mu.Unlock() }
 func (f *fakeStreamClient) StartContext(ctx context.Context) error {
 	f.startOnce.Do(func(){ close(f.startEntered) })
 	if f.startGate != nil { select { case <-f.startGate: case <-ctx.Done(): return ctx.Err() } }
@@ -45,6 +53,11 @@ func (f *fakeStreamClient) Wait() { <-f.done }
 func (f *fakeStreamClient) Done() <-chan struct{} { return f.done }
 func (f *fakeStreamClient) emit(d *message.Danmaku) { f.mu.Lock(); handler := f.handler; f.mu.Unlock(); if handler != nil { handler(d) } }
 func (f *fakeStreamClient) emitGift(g *message.Gift) { f.mu.Lock(); handler := f.giftHandler; f.mu.Unlock(); if handler != nil { handler(g) } }
+
+func (f *fakeStreamClient) emitSuperChat(sc *message.SuperChat) { f.mu.Lock(); handler := f.superChatHandler; f.mu.Unlock(); if handler != nil { handler(sc) } }
+func (f *fakeStreamClient) emitGuardBuy(g *message.GuardBuy) { f.mu.Lock(); handler := f.guardBuyHandler; f.mu.Unlock(); if handler != nil { handler(g) } }
+func (f *fakeStreamClient) emitUserToast(u *message.UserToast) { f.mu.Lock(); handler := f.userToastHandler; f.mu.Unlock(); if handler != nil { handler(u) } }
+func (f *fakeStreamClient) emitInteractWord(i *message.InteractWord) { f.mu.Lock(); handler := f.interactWordHandler; f.mu.Unlock(); if handler != nil { handler(i) } }
 
 func newAdapterTestAuth(t *testing.T) *AuthManager {
 	t.Helper()
@@ -229,6 +242,39 @@ func TestAdapterMapsStandaloneLegacyEmoticon(t *testing.T) {
 func TestAdapterMapsSingleProtobufEmoticon(t *testing.T) {
 	got := extractDanmakuEmoticons(&message.Danmaku{Content: "[dog]", Emoticon: &message.Emoticon{Url: "https://i0.hdslb.com/bfs/live/dog.png", Width: 20, Height: 20}})
 	if len(got) != 1 || got[0].Text != "[dog]" || got[0].URL == "" { t.Fatalf("unexpected emoticon mapping: %+v", got) }
+}
+
+
+func TestAdapterReceivesSCGuardFollowAndWelcome(t *testing.T) {
+	a, err := NewAdapter(newAdapterTestAuth(t), 12345, eventstream.NewBuffer())
+	if err != nil { t.Fatal(err) }
+	a.giftCatalog = nil
+	fake := newFakeStreamClient(12345)
+	a.newStream = func(int) streamClient { return fake }
+	if err := a.Connect(context.Background()); err != nil { t.Fatal(err) }
+
+	sc := &message.SuperChat{Uid: 7, Price: 30, Message: "支持主播", StartTime: 1_700_000_000, Time: 60}
+	sc.UserInfo.Uname, sc.UserInfo.Face = "viewer", "https://img.test/avatar.png"
+	fake.emitSuperChat(sc)
+	fake.emitGuardBuy(&message.GuardBuy{Uid: 8, Username: "captain", GuardLevel: 3, Num: 2, Price: 138000, StartTime: 1_700_000_001})
+	// The matching toast is the richer duplicate representation of the same order.
+	fake.emitUserToast(&message.UserToast{Uid: 8, Username: "captain", Face: "https://img.test/captain.png", GuardLevel: 3, Num: 2, Price: 138000, StartTime: 1_700_000_001})
+	fake.emitInteractWord(&message.InteractWord{MsgType: 2, Timestamp: 1_700_000_002, User: &message.User{Uid: 9, Uname: "follower"}})
+	fake.emitInteractWord(&message.InteractWord{MsgType: 1, Timestamp: 1_700_000_003, User: &message.User{Uid: 10, Uname: "visitor"}})
+	// Share and other interaction types are intentionally outside this four-event scope.
+	fake.emitInteractWord(&message.InteractWord{MsgType: 3, Timestamp: 1_700_000_004, User: &message.User{Uid: 11, Uname: "sharer"}})
+
+	got := a.events.Snapshot()
+	if len(got) != 4 { t.Fatalf("got %d events, want SC + guard + follow + welcome: %+v", len(got), got) }
+	if got[0].Type != "super_chat" || got[0].Amount != 30 || got[0].Duration != 60 || got[0].Content != "支持主播" || got[0].UserName != "viewer" {
+		t.Fatalf("unexpected SC event: %+v", got[0])
+	}
+	if got[1].Type != "guard" || got[1].GuardLevel != 3 || got[1].Months != 2 || got[1].Amount != 138 || !strings.Contains(got[1].Content, "舰长") {
+		t.Fatalf("unexpected guard event: %+v", got[1])
+	}
+	if got[2].Type != "follow" || got[2].UserID != 9 { t.Fatalf("unexpected follow event: %+v", got[2]) }
+	if got[3].Type != "welcome" || got[3].UserID != 10 { t.Fatalf("unexpected welcome event: %+v", got[3]) }
+	if err := a.Disconnect(context.Background()); err != nil { t.Fatal(err) }
 }
 
 func TestAdapterDisconnectStopsAndWaitsForStream(t *testing.T) {
