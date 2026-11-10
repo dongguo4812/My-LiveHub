@@ -221,7 +221,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         <el-button type="primary" :loading="searching" :disabled="enabledCount === 0" @click="search">搜索</el-button>
       </div>
       <el-alert v-if="searchErrorText" :title="searchErrorText" type="warning" :closable="false" show-icon />
-      <el-table v-if="results.length" :data="results" row-key="id" style="width:100%;margin-top:14px">
+      <el-table v-if="results.length" :data="results" :row-key="row => `${row.source_id}:${row.id}`" style="width:100%;margin-top:14px">
         <el-table-column prop="title" label="歌曲" min-width="180" />
         <el-table-column prop="artist" label="歌手" min-width="140" />
         <el-table-column prop="album" label="专辑" min-width="140" />
