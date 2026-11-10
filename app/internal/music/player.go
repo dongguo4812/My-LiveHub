@@ -151,8 +151,14 @@ func (r *SourceRegistry) Search(ctx context.Context, keyword string, enabled map
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			tracks, searchErr := source.Search(ctx, keyword, limit)
-			results <- sourceResult{id: source.ID(), tracks: tracks, err: searchErr}
+			result := sourceResult{id: source.ID()}
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					result.err = fmt.Errorf("music source panic: %v", recovered)
+				}
+				results <- result
+			}()
+			result.tracks, result.err = source.Search(ctx, keyword, limit)
 		}()
 	}
 	wg.Wait()
