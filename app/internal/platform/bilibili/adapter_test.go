@@ -371,7 +371,7 @@ func TestAdapterEnrichesGuardEventRegardlessOfProtocolOrder(t *testing.T) {
 			a.newStream = func(int) streamClient { return fake }
 			if err := a.Connect(context.Background()); err != nil { t.Fatal(err) }
 
-			guard := &message.GuardBuy{Uid: 88, Username: "captain", GuardLevel: 3, Num: 1, Price: 138000, StartTime: 1_700_000_010}
+			guard := &message.GuardBuy{Uid: 88, Username: "captain", GuardLevel: 3, Num: 1, Price: 198000, StartTime: 1_700_000_010}
 			toast := &message.UserToast{Uid: 88, Username: "captain", Face: "https://img.test/captain.png", GuardLevel: 3, Num: 1, Price: 138000, StartTime: 1_700_000_010}
 			if tt.toastFirst {
 				fake.emitUserToast(toast)
@@ -384,6 +384,9 @@ func TestAdapterEnrichesGuardEventRegardlessOfProtocolOrder(t *testing.T) {
 			if len(got) != 1 { t.Fatalf("got %d guard events, want one: %+v", len(got), got) }
 			if got[0].Type != "guard" || got[0].UserName != "captain" || got[0].Avatar != "https://img.test/captain.png" {
 				t.Fatalf("guard event was not fully enriched: %+v", got[0])
+			}
+			if got[0].Amount != 138 {
+				t.Fatalf("guard amount = %.2f, want USER_TOAST_MSG actual payment 138.00", got[0].Amount)
 			}
 			if err := a.Disconnect(context.Background()); err != nil { t.Fatal(err) }
 		})
