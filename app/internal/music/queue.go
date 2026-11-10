@@ -69,6 +69,21 @@ func (q *Queue) Enqueue(track Track, requestedBy string) (QueueItem, error) {
 	return cloneQueueItem(item), nil
 }
 
+// EnqueueFront inserts an existing item before pending requests. It is used
+// when the user moves backward in playback history.
+func (q *Queue) EnqueueFront(item QueueItem) error {
+	if q == nil { return errors.New("music queue is unavailable") }
+	if strings.TrimSpace(item.ID) == "" { return errors.New("queue item ID is required") }
+	if err := validateTrack(item.Track); err != nil { return err }
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.items) >= q.capacity { return ErrQueueFull }
+	q.items = append(q.items, QueueItem{})
+	copy(q.items[1:], q.items[:len(q.items)-1])
+	q.items[0] = cloneQueueItem(item)
+	return nil
+}
+
 // TakeNext promotes the first pending item to current playback.
 func (q *Queue) TakeNext() (QueueItem, bool) {
 	if q == nil {
