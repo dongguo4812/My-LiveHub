@@ -256,3 +256,25 @@ The manifest asserts that the 20260610 CMake superbuild pins every component, in
 The upstream release URL named by the manifest (`https://github.com/shinchiro/mpv-winbuild-cmake/releases/tag/20260610`) returned a 404 through the current web fetch attempt, while the corresponding-source page remains accessible and identifies the asset hash. This is not proof that the release asset is deleted; it means binary availability must be rechecked through another route before adopting it.
 
 Consequently, status remains `CANDIDATE — NOT CLEARED`. The immediate blocker is obtaining the complete remaining source set under the written offer and verifying the actual binary/archive availability and hashes. No runtime pin has been changed.
+
+
+### CI and upstream workflow verification — 2026-11-10
+
+Additional evidence obtained after the previous review:
+
+- The upstream GitHub Actions run `27243718577` exists, completed with conclusion `success`, and its jobs include successful x86_64 build, packaging, and release-upload steps. The run's checked-out workflow commit is `5efd298cb51513c2410e4e9029b5e56b83c2aaac` (2026-05-16), not a commit named/tagged `20260610`. This is evidence that the build workflow succeeded, but does not by itself prove the exact source closure claimed by the manifest.
+- My-LiveHub's existing Windows x64 validation job in run `42824022692` successfully downloaded the pinned candidate archive, verified its SHA-256, and started mpv. This independently confirms the binary is obtainable through the CI download route, its published hash matches, and the executable starts in the CI Windows environment. It does NOT yet validate real media playback, IPC, or source completeness.
+- The same My-LiveHub workflow's general frontend/Go validation job was cancelled during dependency installation; frontend build, Go tests and Windows executable build were skipped. Therefore that workflow run is not a full CI pass.
+- GitHub's release-by-tag API lookup for `20260610` did not return a release object, despite the successful workflow run and successful My-LiveHub binary download. Do not infer that the binary is unavailable: the CI download route succeeded. The publisher's precise provenance path still needs clarification.
+
+### License metadata discrepancy
+
+The publisher's own pages are inconsistent: its corresponding-source page identifies the binary as `GPL-2.0-or-later` (with FFmpeg statically linked), and its third-party notices also identify MPV as GPL-2.0-or-later; however, its app terms page describes MPV as LGPL-2.1-or-later. These are materially different license statements. Treat the LGPL wording in the app terms as an apparent documentation inconsistency, not as permission to treat this binary as LGPL. For My-LiveHub's assessment, use the actual licenses of the exact shipped components and request written clarification from the publisher. The separate-process architecture is useful technical separation, but does not remove mpv's own source and notice obligations.
+
+References:
+- https://github.com/shinchiro/mpv-winbuild-cmake/actions/runs/27243718577
+- https://github.com/dongguo4812/My-LiveHub/actions/runs/42824022692
+- https://mediaboxmc.com/app/terms/
+- https://mediaboxmc.com/nl/legal/third-party-notices/
+
+Updated status: the binary itself has passed hash and startup validation in My-LiveHub CI, so the earlier binary availability/hash/startup blockers are cleared. The candidate remains `NOT CLEARED FOR REDISTRIBUTION` until complete corresponding source materials, archive contents, and license metadata are independently reconciled. Real playback/IPC validation remains outstanding.
