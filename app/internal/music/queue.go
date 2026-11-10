@@ -47,6 +47,20 @@ func NewQueue(capacity int) *Queue {
 	return &Queue{items: make([]QueueItem, 0, capacity), capacity: capacity}
 }
 
+func (q *Queue) Resize(capacity int) error {
+	if q == nil { return errors.New("music queue is unavailable") }
+	if capacity < 1 || capacity > MaxQueueCapacity {
+		return fmt.Errorf("music queue capacity must be between 1 and %d", MaxQueueCapacity)
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.items) > capacity {
+		return fmt.Errorf("queue has %d pending items; cannot reduce capacity to %d", len(q.items), capacity)
+	}
+	q.capacity = capacity
+	return nil
+}
+
 func (q *Queue) Enqueue(track Track, requestedBy string) (QueueItem, error) {
 	if q == nil {
 		return QueueItem{}, errors.New("music queue is unavailable")
