@@ -1,16 +1,14 @@
 {
-  "config_version": 1,
+  "config_version": 2,
   "enabled": false,
   "command_enabled": true,
   "command_prefix": "点歌",
-  "default_player": "",
   "queue_capacity": 100,
   "search_limit": 20,
-  "players": {
-    "qq_music": true,
+  "sources": {
     "netease": true,
+    "qq_music": true,
     "kugou": true,
-    "kuwo": true,
-    "luoxue": true
+    "kuwo": true
   }
 }
