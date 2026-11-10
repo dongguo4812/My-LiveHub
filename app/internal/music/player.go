@@ -158,17 +158,19 @@ func (r *SourceRegistry) Search(ctx context.Context, keyword string, enabled map
 	wg.Wait()
 	close(results)
 
+	resultByID := make(map[string]sourceResult, len(selected))
+	for result := range results { resultByID[result.id] = result }
 	tracks := make([]Track, 0, len(selected)*limit)
 	sourceErrors := make(map[string]string)
-	for result := range results {
+	for _, source := range selected {
+		result := resultByID[source.ID()]
 		if result.err != nil {
 			sourceErrors[result.id] = result.err.Error()
 			continue
 		}
+		if len(result.tracks) > limit { result.tracks = result.tracks[:limit] }
 		for _, track := range result.tracks {
-			if track.SourceID == "" {
-				track.SourceID = result.id
-			}
+			if track.SourceID == "" { track.SourceID = result.id }
 			if track.SourceID != result.id {
 				sourceErrors[result.id] = "source returned a track owned by another source"
 				continue
