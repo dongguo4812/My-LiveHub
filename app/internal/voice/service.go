@@ -50,7 +50,7 @@ type cachedVoices struct {
 	expiresAt time.Time
 }
 
-type Service struct {
+type VoiceService struct {
 	buffer         *eventstream.Buffer
 	configManager  *config.Manager
 	emit           EventEmitter
@@ -75,7 +75,7 @@ type Service struct {
 	voiceCache  map[string]cachedVoices
 }
 
-func NewService(buffer *eventstream.Buffer, manager *config.Manager, cfg config.VoiceConfig, emit EventEmitter) (*Service, error) {
+func NewService(buffer *eventstream.Buffer, manager *config.Manager, cfg config.VoiceConfig, emit EventEmitter) (*VoiceService, error) {
 	return NewServiceWithEngines(buffer, manager, cfg, emit, NewEdgeEngine())
 }
 
@@ -102,14 +102,14 @@ func NewServiceWithEngines(buffer *eventstream.Buffer, manager *config.Manager, 
 	if _, exists := registry[cfg.Engine]; !exists {
 		return nil, fmt.Errorf("voice engine %q is not registered", cfg.Engine)
 	}
-	return &Service{
+	return &VoiceService{
 		buffer: buffer, configManager: manager, emit: emit, engines: registry,
 		queue: make(chan queuedSpeech, QueueCapacity), config: cfg,
 		pending: make(map[string]chan struct{}), voiceCache: make(map[string]cachedVoices),
 	}, nil
 }
 
-func (s *Service) start(ctx context.Context) error {
+func (s *VoiceService) start(ctx context.Context) error {
 	if s == nil || ctx == nil {
 		return errors.New("voice service and startup context are required")
 	}

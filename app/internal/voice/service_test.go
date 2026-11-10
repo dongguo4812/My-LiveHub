@@ -29,7 +29,7 @@ func (e *fakeEngine) Synthesize(_ context.Context, text string, _ SynthesisOptio
 	return Audio{Data:[]byte("fake-mp3"),Format:"audio/mpeg"},nil
 }
 
-func newTestService(t *testing.T, enabled bool, emit EventEmitter) (*Service,*eventstream.Buffer,*fakeEngine) {
+func newTestService(t *testing.T, enabled bool, emit EventEmitter) (*VoiceService,*eventstream.Buffer,*fakeEngine) {
 	t.Helper()
 	bus:=eventstream.NewBus()
 	buffer:=eventstream.NewBuffer(bus)

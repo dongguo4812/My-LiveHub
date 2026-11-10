@@ -8,10 +8,10 @@ import (
 // Module adapts the voice service to the core module lifecycle without
 // exposing lifecycle methods as frontend service bindings.
 type Module struct {
-	service *Service
+	service *VoiceService
 }
 
-func NewModule(service *Service) *Module {
+func NewModule(service *VoiceService) *Module {
 	return &Module{service: service}
 }
 
