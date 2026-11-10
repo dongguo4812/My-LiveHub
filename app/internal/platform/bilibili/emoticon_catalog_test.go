@@ -52,6 +52,12 @@ func TestFetchRoomEmoticonResourcesSeparatesCommonAndRoomEmoticons(t *testing.T)
 	if len(items) != 4 {
 		t.Fatalf("resource count = %d, want 4: %+v", len(items), items)
 	}
+	wantOrder := []string{"[dog]", "[room]", "[dog-a]", "[dog-b]"}
+	for i, want := range wantOrder {
+		if items[i].Name != want || items[i].SortOrder != i+1 {
+			t.Fatalf("item %d = (%q, order %d), want (%q, order %d)", i, items[i].Name, items[i].SortOrder, want, i+1)
+		}
+	}
 	if items[0].SourceID != "common" && items[1].SourceID != "common" {
 		t.Fatalf("common emoticon was not shared: %+v", items)
 	}
