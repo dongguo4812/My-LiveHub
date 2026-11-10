@@ -297,6 +297,11 @@ func (s *MusicService) playNext(parent context.Context) error {
 	if !enabled { return fmt.Errorf("music source %q is disabled; the current queue item was kept for retry", item.Track.SourceID) }
 	source, ok := s.sources.Get(item.Track.SourceID)
 	if !ok { return fmt.Errorf("music source %q is not available; the current queue item was kept for retry", item.Track.SourceID) }
+	if validator, ok := s.engine.(music.PlaybackEngineValidator); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("music playback runtime validation failed: %w", err)
+		}
+	}
 	resource, selectedTrack, err := s.resolveWithFallback(ctx, item.Track, source)
 	if err != nil { return fmt.Errorf("resolve %q: %w; the current queue item was kept for retry", item.Track.Title, err) }
 	if selectedTrack.SourceID != item.Track.SourceID {
