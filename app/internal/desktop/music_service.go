@@ -154,8 +154,10 @@ func (s *MusicService) worker() {
 
 func (s *MusicService) processSongRequest(ctx context.Context, event events.Event) {
 	s.mu.RLock()
+	enabled := s.value.Enabled && s.value.CommandEnabled && s.started
 	prefix := s.value.CommandPrefix
 	s.mu.RUnlock()
+	if !enabled { return }
 	keyword, ok := parseSongRequest(event.Content, prefix)
 	if !ok { return }
 	response, err := s.search(ctx, keyword)
