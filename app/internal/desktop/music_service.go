@@ -413,6 +413,7 @@ func (s *MusicService) startPlaybackWatcher() {
 func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
+	startedAt := time.Now()
 	sawEndPosition := false
 	for {
 		select {
@@ -421,17 +422,25 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 		case <-ticker.C:
 			snapshot, err := s.engine.Snapshot(ctx)
 			if err != nil { continue }
-			if snapshot.DurationMS > 0 && snapshot.PositionMS >= snapshot.DurationMS-1000 {
-				sawEndPosition = true
+			if snapshot.DurationMS > 0 {
+				threshold := snapshot.DurationMS - 1000
+				if threshold < snapshot.DurationMS/2 { threshold = snapshot.DurationMS/2 }
+				if snapshot.PositionMS >= threshold { sawEndPosition = true }
 			}
-			if !sawEndPosition || snapshot.State != music.PlaybackStopped { continue }
+			if snapshot.State != music.PlaybackStopped { continue }
 			s.mu.RLock()
 			current := s.playGeneration == generation
 			s.mu.RUnlock()
 			if !current { return }
-			s.queue.FinishCurrent()
-			_ = s.PlayNext()
-			return
+			if sawEndPosition {
+				s.queue.FinishCurrent()
+				_ = s.PlayNext()
+				return
+			}
+			if time.Since(startedAt) >= 20*time.Second {
+				s.setLastError(errors.New("音源未能开始播放；当前歌曲已保留，可重试或切歌"))
+				return
+			}
 		}
 	}
 }
