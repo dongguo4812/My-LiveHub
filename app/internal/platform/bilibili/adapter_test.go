@@ -416,6 +416,8 @@ func TestAdapterResolvesNumericLiveEmoticonIDByCatalogURL(t *testing.T) {
 		PlatformID: "bilibili", SourceID: "common", Type: resource.TypeEmoticon,
 		ID: "emoji_331", Name: "[dog]", ImageURL: "https://i0.hdslb.com/bfs/live/dog.png",
 	})
+	catalog.MarkRefreshed("bilibili", "common", resource.TypeEmoticon, time.Now())
+	catalog.MarkRefreshed("bilibili", "12345", resource.TypeEmoticon, time.Now())
 
 	a, err := NewAdapter(newAdapterTestAuth(t), 12345, eventstream.NewBuffer())
 	if err != nil { t.Fatal(err) }
@@ -459,6 +461,8 @@ func TestAdapterResolvesLiveEmoticonToRoomResourceByURL(t *testing.T) {
 		PlatformID: "bilibili", SourceID: "12345", Type: resource.TypeEmoticon,
 		ID: "room_12345_9", Name: "[dog]", ImageURL: "https://i0.hdslb.com/bfs/live/room-dog.png",
 	})
+	catalog.MarkRefreshed("bilibili", "common", resource.TypeEmoticon, time.Now())
+	catalog.MarkRefreshed("bilibili", "12345", resource.TypeEmoticon, time.Now())
 
 	a, err := NewAdapter(newAdapterTestAuth(t), 12345, eventstream.NewBuffer())
 	if err != nil { t.Fatal(err) }
