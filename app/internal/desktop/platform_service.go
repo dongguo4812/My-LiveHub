@@ -161,11 +161,6 @@ func (s *PlatformService) SimulatePlatformEventWithMediaResources(platformID, ev
 	if eventType == "danmaku" && s.mediaCatalog != nil && len(emoticonResourceIDs) > 0 {
 		// The simulator passes a composite sourceID/resourceID key so resources
 		// with the same platform ID in different scopes remain distinguishable.
-		catalogItems := make(map[string]resource.Resource)
-		for _, item := range s.mediaCatalog.List(platformID, "", resource.TypeEmoticon) {
-			key := item.SourceID + "\x00" + item.ID
-			catalogItems[key] = item
-		}
 		seen := make(map[string]struct{}, len(emoticonResourceIDs))
 		seenNames := make(map[string]struct{}, len(emoticonResourceIDs))
 		for _, selectedKey := range emoticonResourceIDs {
@@ -173,7 +168,9 @@ func (s *PlatformService) SimulatePlatformEventWithMediaResources(platformID, ev
 			if selectedKey == "" { continue }
 			if _, duplicate := seen[selectedKey]; duplicate { continue }
 			seen[selectedKey] = struct{}{}
-			item, ok := catalogItems[selectedKey]
+			sourceID, resourceID, hasSeparator := strings.Cut(selectedKey, "\x00")
+			if !hasSeparator || sourceID == "" || resourceID == "" { continue }
+			item, ok := s.mediaCatalog.Find(platformID, sourceID, resource.TypeEmoticon, resourceID)
 			if !ok || item.Name == "" || item.ImageURL == "" || !strings.Contains(content, item.Name) { continue }
 			// One text token must resolve to one image. Keep the first explicitly
 			// selected resource when callers submit duplicate names from scopes.
