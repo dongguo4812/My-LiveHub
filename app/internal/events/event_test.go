@@ -40,7 +40,7 @@ func TestSimulationInteractionEventsPreservePayloads(t *testing.T) {
 	buffer := NewBuffer()
 	inputs := []SimulationEventInput{
 		{Type: "super_chat", UserID: 11, UserName: "SC用户", Content: "支持主播", Amount: 30, Duration: 60},
-		{Type: "guard", UserID: 12, UserName: "舰长用户", GuardLevel: 3, Months: 3, Amount: 198},
+		{Type: "guard", UserID: 12, UserName: "舰长用户", GuardLevel: 3, Months: 3, Amount: 594},
 		{Type: "follow", UserID: 13, UserName: "关注用户"},
 		{Type: "welcome", UserID: 14, UserName: "进场用户"},
 		{Type: "share", UserID: 15, UserName: "分享用户"},
@@ -58,7 +58,7 @@ func TestSimulationInteractionEventsPreservePayloads(t *testing.T) {
 		if event.Type == "super_chat" && (event.Amount != 30 || event.Duration != 60 || event.Content != "支持主播") {
 			t.Fatalf("SC payload was not preserved: %+v", event)
 		}
-		if event.Type == "guard" && (event.Amount != 198 || event.GuardLevel != 3 || event.Months != 3) {
+		if event.Type == "guard" && (event.Amount != 594 || event.GuardLevel != 3 || event.Months != 3) {
 			t.Fatalf("guard payload was not preserved: %+v", event)
 		}
 	}
