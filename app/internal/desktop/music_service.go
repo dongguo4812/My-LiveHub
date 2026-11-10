@@ -81,6 +81,10 @@ func (s *MusicService) Search(keyword string) (MusicSearchResponse, error) {
 
 func (s *MusicService) Enqueue(track music.Track, requestedBy string) (music.QueueItem, error) {
 	if s == nil || s.queue == nil { return music.QueueItem{}, errors.New("music queue is unavailable") }
+	s.mu.RLock()
+	enabled := s.value.Sources[track.SourceID]
+	s.mu.RUnlock()
+	if !enabled { return music.QueueItem{}, fmt.Errorf("music source %q is disabled", track.SourceID) }
 	if _, ok := s.sources.Get(track.SourceID); !ok { return music.QueueItem{}, fmt.Errorf("music source %q is not available", track.SourceID) }
 	return s.queue.Enqueue(track, requestedBy)
 }
