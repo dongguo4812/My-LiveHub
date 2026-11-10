@@ -112,21 +112,13 @@ func safeCatalogSegment(value string) string {
 	return value
 }
 
-// catalogScopeDirectory keeps platform-specific live-resource terminology
-// out of the shared catalog layout. Add a mapping only when that platform's
-// adapter is implemented and its resource scope is known.
-func catalogScopeDirectory(platformID string) string {
-	switch strings.ToLower(strings.TrimSpace(platformID)) {
-	case "bilibili":
-		return "rooms"
-	default:
-		// Unknown platforms must not inherit Bilibili's room terminology.
-		return "scopes"
+// catalogPartitionPath uses the directory name configured by the platform
+// adapter. Unconfigured platforms use a neutral "scopes" directory.
+func catalogPartitionPath(root, platformID, sourceID string, kind Type, scopeDirectory string) string {
+	scope := strings.TrimSpace(scopeDirectory)
+	if scope == "" || scope == "common" || safeCatalogSegment(scope) != scope {
+		scope = "scopes"
 	}
-}
-
-func catalogPartitionPath(root string, platformID, sourceID string, kind Type) string {
-	scope := catalogScopeDirectory(platformID)
 	scopeID := sourceID
 	if sourceID == "common" {
 		scope = "common"
@@ -198,7 +190,7 @@ func (p *catalogPersistence) flush() {
 	p.catalog.mu.RLock()
 	partitions := make(map[string]*catalogFile)
 	for _, item := range p.catalog.items {
-		path := catalogPartitionPath(p.root, item.PlatformID, item.SourceID, item.Type)
+		path := catalogPartitionPath(p.root, item.PlatformID, item.SourceID, item.Type, p.catalog.scopeDirectories[item.PlatformID])
 		file := partitions[path]
 		if file == nil {
 			file = &catalogFile{Version: catalogFileVersion}
@@ -211,7 +203,7 @@ func (p *catalogPersistence) flush() {
 		if len(parts) != 3 {
 			continue
 		}
-		path := catalogPartitionPath(p.root, parts[0], parts[1], Type(parts[2]))
+		path := catalogPartitionPath(p.root, parts[0], parts[1], Type(parts[2]), p.catalog.scopeDirectories[parts[0]])
 		file := partitions[path]
 		if file == nil {
 			file = &catalogFile{Version: catalogFileVersion}
