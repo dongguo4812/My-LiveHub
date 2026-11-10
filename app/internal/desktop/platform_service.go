@@ -167,6 +167,7 @@ func (s *PlatformService) SimulatePlatformEventWithMediaResources(platformID, ev
 			catalogItems[key] = item
 		}
 		seen := make(map[string]struct{}, len(emoticonResourceIDs))
+		seenNames := make(map[string]struct{}, len(emoticonResourceIDs))
 		for _, selectedKey := range emoticonResourceIDs {
 			selectedKey = strings.TrimSpace(selectedKey)
 			if selectedKey == "" { continue }
@@ -174,6 +175,10 @@ func (s *PlatformService) SimulatePlatformEventWithMediaResources(platformID, ev
 			seen[selectedKey] = struct{}{}
 			item, ok := catalogItems[selectedKey]
 			if !ok || item.Name == "" || item.ImageURL == "" || !strings.Contains(content, item.Name) { continue }
+			// One text token must resolve to one image. Keep the first explicitly
+			// selected resource when callers submit duplicate names from scopes.
+			if _, duplicate := seenNames[item.Name]; duplicate { continue }
+			seenNames[item.Name] = struct{}{}
 			emoticons = append(emoticons, eventstream.EmoticonToken{Text: item.Name, ResourceID: item.SourceID + ":" + item.ID, URL: item.ImageURL, Width: item.Width, Height: item.Height})
 		}
 	}
