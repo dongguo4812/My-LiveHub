@@ -256,28 +256,38 @@ func (s *MusicService) PlayNext() error { return s.playNext(context.Background()
 
 func (s *MusicService) playNext(parent context.Context) error {
 	if s == nil || s.engine == nil || s.queue == nil { return errors.New("music playback service is unavailable") }
-	item, ok := s.queue.TakeNext()
-	if !ok { return errors.New("music queue is empty") }
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+	defer cancel()
+	queueSnapshot := s.queue.Snapshot()
+	var item music.QueueItem
+	if queueSnapshot.Current != nil {
+		status, statusErr := s.engine.Snapshot(ctx)
+		if statusErr == nil && (status.State == music.PlaybackPlaying || status.State == music.PlaybackPaused || status.State == music.PlaybackLoading) {
+			return errors.New("a music track is already playing")
+		}
+		item = *queueSnapshot.Current
+	} else {
+		var ok bool
+		item, ok = s.queue.TakeNext()
+		if !ok { return errors.New("music queue is empty") }
+	}
 	s.mu.RLock()
 	enabled := s.value.Sources[item.Track.SourceID]
 	s.mu.RUnlock()
-	if !enabled { s.queue.FinishCurrent(); return fmt.Errorf("music source %q is disabled", item.Track.SourceID) }
+	if !enabled { return fmt.Errorf("music source %q is disabled; the current queue item was kept for retry", item.Track.SourceID) }
 	source, ok := s.sources.Get(item.Track.SourceID)
-	if !ok { s.queue.FinishCurrent(); return fmt.Errorf("music source %q is not available", item.Track.SourceID) }
-	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
-	defer cancel()
+	if !ok { return fmt.Errorf("music source %q is not available; the current queue item was kept for retry", item.Track.SourceID) }
 	resource, selectedTrack, err := s.resolveWithFallback(ctx, item.Track, source)
-	if err != nil { s.queue.FinishCurrent(); return fmt.Errorf("resolve %q: %w", item.Track.Title, err) }
+	if err != nil { return fmt.Errorf("resolve %q: %w; the current queue item was kept for retry", item.Track.Title, err) }
 	if selectedTrack.SourceID != item.Track.SourceID {
 		item.Track = selectedTrack
-		if err := s.queue.SetCurrent(item); err != nil { s.queue.FinishCurrent(); return err }
+		if err := s.queue.SetCurrent(item); err != nil { return err }
 	}
 	if lifecycle, ok := s.engine.(music.PlaybackEngineLifecycle); ok {
-		if err := lifecycle.Start(ctx); err != nil { s.queue.FinishCurrent(); return err }
+		if err := lifecycle.Start(ctx); err != nil { return err }
 	}
 	if err := s.engine.Load(ctx, resource, selectedTrack); err != nil {
-		s.queue.FinishCurrent()
-		return fmt.Errorf("play %q: %w", selectedTrack.Title, err)
+		return fmt.Errorf("play %q: %w; the current queue item was kept for retry", selectedTrack.Title, err)
 	}
 	s.startPlaybackWatcher()
 	return nil
