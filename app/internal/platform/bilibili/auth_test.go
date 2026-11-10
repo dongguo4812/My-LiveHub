@@ -22,11 +22,16 @@ func TestBeginLoginAndPollSuccess(t *testing.T) {
 		switch {
 		case strings.Contains(r.URL.Path,"qrcode/generate"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"code":0,"data":map[string]string{"url":"https://passport.bilibili.com/scan?key=abc","qrcode_key":"qr-key"}})
+		case strings.Contains(r.URL.Path, "crossDomain"):
+			if r.Header.Get("User-Agent") == "" {
+				t.Error("ticket request must include browser User-Agent")
+			}
+			http.SetCookie(w, &http.Cookie{Name: "SESSDATA", Value: "session-secret", Path: "/"})
+			http.SetCookie(w, &http.Cookie{Name: "DedeUserID", Value: "12345", Path: "/"})
+			http.SetCookie(w, &http.Cookie{Name: "bili_jct", Value: "csrf-secret", Path: "/"})
+			_, _ = w.Write([]byte("ok"))
 		case strings.Contains(r.URL.Path,"qrcode/poll"):
-			http.SetCookie(w,&http.Cookie{Name:"SESSDATA",Value:"session-secret",Path:"/"})
-			http.SetCookie(w,&http.Cookie{Name:"DedeUserID",Value:"12345",Path:"/"})
-			http.SetCookie(w,&http.Cookie{Name:"bili_jct",Value:"csrf-secret",Path:"/"})
-			_ = json.NewEncoder(w).Encode(map[string]any{"code":0,"data":map[string]any{"code":0,"refresh_token":"refresh-secret"}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"code":0,"data":map[string]any{"code":0,"url":"https://passport.biligame.com/x/passport-login/web/crossDomain?ticket=ticket-value","refresh_token":"refresh-secret"}})
 		case strings.Contains(r.URL.Path,"web-interface/nav"):
 			if !strings.Contains(r.Header.Get("Cookie"),"SESSDATA=session-secret") { t.Errorf("session cookie not forwarded") }
 			_ = json.NewEncoder(w).Encode(map[string]any{"code":0,"data":map[string]any{"isLogin":true,"mid":json.Number("12345"),"uname":"test-user","face":"https://example.com/avatar.png"}})
