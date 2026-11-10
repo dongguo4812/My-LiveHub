@@ -38,11 +38,14 @@ func NewPersistentCatalog(root string) (*Catalog, error) {
 		return nil, errors.New("media catalog persistence directory is required")
 	}
 	catalog := NewCatalog()
-	if err := loadCatalogDirectory(root, catalog); err != nil {
-		// Fail closed: never start a writer when any existing catalog file is
-		// unreadable, otherwise a later flush could erase recoverable data.
+	loaded := NewCatalog()
+	if err := loadCatalogDirectory(root, loaded); err != nil {
+		// Fail closed: discard the staging catalog so callers never observe a
+		// partially restored set of resources when any partition is invalid.
+		// Never start a writer, because a later flush could erase recoverable data.
 		return catalog, err
 	}
+	catalog = loaded
 
 	persistence := &catalogPersistence{
 		catalog: catalog,
