@@ -193,8 +193,14 @@ func (e *MpvEngine) Seek(ctx context.Context, positionMS int64) error {
 	return err
 }
 func (e *MpvEngine) SetVolume(ctx context.Context, volume int) error {
+	if e == nil { return ErrPlaybackEngineUnavailable }
 	if volume < 0 || volume > 100 { return errors.New("volume must be between 0 and 100") }
-	if _, err := e.commandIPC(ctx, "set_property", "volume", volume); err != nil { return err }
+	e.mu.RLock()
+	started := e.pipePath != ""
+	e.mu.RUnlock()
+	if started {
+		if _, err := e.commandIPC(ctx, "set_property", "volume", volume); err != nil { return err }
+	}
 	e.mu.Lock()
 	e.volume = volume
 	e.mu.Unlock()
