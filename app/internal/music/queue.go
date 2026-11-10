@@ -77,7 +77,6 @@ func (q *Queue) TakeNext() (QueueItem, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if len(q.items) == 0 {
-		q.current = nil
 		return QueueItem{}, false
 	}
 	item := q.items[0]
