@@ -7,10 +7,13 @@ v0.42.0 full runtime, the existing Go MpvEngine, or the current CI job.
 The full runtime remains the comparison baseline until the prototype passes the
 same playback tests and additional video tests.
 
-The first-stage build script is `app/scripts/build-mpv-minimal.sh`. It is intended
-to run from the mpv v0.42.0 source tree inside the FFmpeg-Builds Windows x64 GPL
-cross-build image. It builds into `build-minimal/` and writes only to
-`artifact-minimal/`; it never overwrites My-LiveHub's existing runtime.
+The first-stage build script is `app/scripts/build-mpv-minimal.sh`. It runs from
+the mpv v0.42.0 source tree after mpv's own `ci/build-mingw64.sh` has prepared
+the MinGW cross toolchain and dependencies. The manual workflow installs the
+same Ubuntu/MinGW/Meson/Rust prerequisites used by upstream mpv CI. It builds into
+`build-minimal/` and writes only to `artifact-minimal/`; it never overwrites
+My-LiveHub's existing runtime. The staged DLL bundle is intentionally unpruned
+for the first run so dependency trimming can be based on actual imports.
 
 ## Product requirements
 
@@ -42,11 +45,12 @@ evaluated separately.
 
 ## FFmpeg strategy: staged reduction
 
-**Stage 1 (current script):** pin FFmpeg to the commit observed in the validated
-v0.42.0 release build (`baa68e68b34e2de912eb7e94342cebd2545f05ed`) and build it
-using the same FFmpeg-Builds container configuration as the upstream recipe.
-This isolates the effect of removing mpv-side optional features and dependencies.
-It does not yet claim a minimal FFmpeg codec set.
+**Stage 1 (current script):** use mpv v0.42.0's own MinGW dependency bootstrap
+and FFmpeg configuration, then build mpv with optional features disabled. The
+bootstrap currently fetches FFmpeg's default branch, so the exact FFmpeg commit
+must be recorded from the build and pinned before calling this pipeline
+reproducible. This stage isolates mpv-side feature trimming; it does not yet
+claim a minimal FFmpeg codec set.
 
 **Stage 2 (after Stage 1 works):** introduce a separately tested FFmpeg configure
 profile, retaining only the demuxers, protocols, decoders, parsers and filters
