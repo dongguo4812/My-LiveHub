@@ -316,22 +316,30 @@ func (s *MusicService) playNext(parent context.Context) error {
 func (s *MusicService) resolveWithFallback(ctx context.Context, track music.Track, preferred music.Source) (music.PlaybackResource, music.Track, error) {
 	resource, originalErr := preferred.Resolve(ctx, track)
 	if originalErr == nil { return resource, track, nil }
+	resource, candidate, fallbackErr := s.resolveAlternate(ctx, track)
+	if fallbackErr != nil { return music.PlaybackResource{}, track, errors.Join(originalErr, fallbackErr) }
+	return resource, candidate, nil
+}
 
+func (s *MusicService) resolveAlternate(ctx context.Context, track music.Track) (music.PlaybackResource, music.Track, error) {
 	s.mu.RLock()
 	enabled := cloneBoolMap(s.value.Sources)
 	limit := s.value.SearchLimit
 	s.mu.RUnlock()
 	keyword := strings.TrimSpace(track.Title + " " + track.Artist)
 	candidates, _, searchErr := s.sources.Search(ctx, keyword, enabled, limit)
-	if searchErr != nil { return music.PlaybackResource{}, track, errors.Join(originalErr, searchErr) }
+	if searchErr != nil { return music.PlaybackResource{}, track, searchErr }
+	var resolveErrors []error
 	for _, candidate := range candidates {
 		if candidate.SourceID == track.SourceID || !sameTrack(track, candidate) { continue }
 		fallback, ok := s.sources.Get(candidate.SourceID)
 		if !ok { continue }
 		resource, err := fallback.Resolve(ctx, candidate)
 		if err == nil { return resource, candidate, nil }
+		resolveErrors = append(resolveErrors, fmt.Errorf("%s: %w", fallback.Name(), err))
 	}
-	return music.PlaybackResource{}, track, originalErr
+	if len(resolveErrors) > 0 { return music.PlaybackResource{}, track, errors.Join(resolveErrors...) }
+	return music.PlaybackResource{}, track, errors.New("no matching track found on another enabled source")
 }
 
 func sameTrack(left, right music.Track) bool {
@@ -498,7 +506,22 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 				return
 			}
 			if time.Since(startedAt) >= 20*time.Second {
-				s.setLastError(errors.New("音源未能开始播放；当前歌曲已保留，可重试或切歌"))
+				if currentItem := s.queue.Snapshot().Current; currentItem != nil {
+					fallbackCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+					resource, candidate, fallbackErr := s.resolveAlternate(fallbackCtx, currentItem.Track)
+					if fallbackErr == nil {
+						currentItem.Track = candidate
+						if setErr := s.queue.SetCurrent(*currentItem); setErr == nil {
+							if loadErr := s.engine.Load(fallbackCtx, resource, candidate); loadErr == nil {
+								cancel()
+							s.startPlaybackWatcher()
+								return
+							}
+						}
+					}
+					cancel()
+				}
+				s.setLastError(errors.New("音源未能开始播放；已尝试其他音源，当前歌曲仍保留，可重试或切歌"))
 				return
 			}
 		}
