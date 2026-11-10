@@ -167,4 +167,4 @@ jobs:
           if (!(Test-Path $env:MPV_EXECUTABLE)) {
             throw "Pinned mpv executable is unavailable for playback integration testing"
           }
-          go test ./internal/music -run '^TestMpvPlaybackIntegration -count=1 -v
+          go test ./internal/music -run TestMpvPlaybackIntegration -count=1 -v
