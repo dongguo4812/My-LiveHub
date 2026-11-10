@@ -28,9 +28,10 @@ func TestServeHTTPOnlyServesCacheFilesAndFallsBack(t *testing.T) {
 	m, err := New(root, fallback)
 	if err != nil { t.Fatal(err) }
 	key := strings.Repeat("a", 64)
-	path := filepath.Join(root, key+".png")
+	path := filepath.Join(root, "bilibili", key+".png")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil { t.Fatal(err) }
 	if err := os.WriteFile(path, []byte("image"), 0o600); err != nil { t.Fatal(err) }
-	req := httptest.NewRequest(http.MethodGet, routePrefix+key+".png", nil)
+	req := httptest.NewRequest(http.MethodGet, routePrefix+"bilibili/"+key+".png", nil)
 	res := httptest.NewRecorder()
 	m.ServeHTTP(res, req)
 	if res.Code != http.StatusOK || res.Body.String() != "image" { t.Fatalf("unexpected cache response: %d %q", res.Code, res.Body.String()) }
@@ -59,11 +60,12 @@ func TestCacheFileIdentityFollowsImageURLAndPreservesHistory(t *testing.T) {
 	}
 
 	root := t.TempDir()
-	oldPath := filepath.Join(root, oldKey+oldExt)
+	oldPath := filepath.Join(root, "bilibili", oldKey+oldExt)
+	if err := os.MkdirAll(filepath.Dir(oldPath), 0o755); err != nil { t.Fatal(err) }
 	if err := os.WriteFile(oldPath, []byte("historical image"), 0o600); err != nil { t.Fatal(err) }
 	manager, err := New(root, nil)
 	if err != nil { t.Fatal(err) }
-	if got := manager.CachedURLForResource("bilibili", "common:emoji_331", oldURL); got != routePrefix+oldKey+oldExt {
+	if got := manager.CachedURLForResource("bilibili", "common:emoji_331", oldURL); got != routePrefix+"bilibili/"+oldKey+oldExt {
 		t.Fatalf("historical image cache URL = %q", got)
 	}
 	if got := manager.CachedURLForResource("bilibili", "common:emoji_331", newURL); got != "" {
@@ -72,4 +74,30 @@ func TestCacheFileIdentityFollowsImageURLAndPreservesHistory(t *testing.T) {
 	if _, err := os.Stat(oldPath); err != nil {
 		t.Fatalf("historical image file was removed: %v", err)
 	}
+}
+
+func TestCacheFilesAreIsolatedByPlatform(t *testing.T) {
+	root := t.TempDir()
+	manager, err := NewWithPolicies(root, nil, map[string]URLPolicy{
+		"bilibili": BilibiliURLPolicy,
+		"other": func(u *url.URL) bool { return u.Scheme == "https" && u.Hostname() == "cdn.other.test" },
+	})
+	if err != nil { t.Fatal(err) }
+	key, ext, err := cacheKey("https://i0.hdslb.com/shared.png", BilibiliURLPolicy)
+	if err != nil { t.Fatal(err) }
+	for _, platformID := range []string{"bilibili", "other"} {
+		dir := filepath.Join(root, platformID)
+		if err := os.MkdirAll(dir, 0o755); err != nil { t.Fatal(err) }
+		if err := os.WriteFile(filepath.Join(dir, key+ext), []byte(platformID), 0o600); err != nil { t.Fatal(err) }
+	}
+	for _, tc := range []struct{ platform, want string }{{"bilibili", "bilibili"}, {"other", "other"}} {
+		req := httptest.NewRequest(http.MethodGet, routePrefix+tc.platform+"/"+key+ext, nil)
+		res := httptest.NewRecorder()
+		manager.ServeHTTP(res, req)
+		if res.Code != http.StatusOK || res.Body.String() != tc.want { t.Fatalf("%s served %d %q", tc.platform, res.Code, res.Body.String()) }
+	}
+	req := httptest.NewRequest(http.MethodGet, routePrefix+"unknown/"+key+ext, nil)
+	res := httptest.NewRecorder()
+	manager.ServeHTTP(res, req)
+	if res.Code != http.StatusNotFound { t.Fatalf("unknown platform route returned %d", res.Code) }
 }
