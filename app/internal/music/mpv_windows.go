@@ -31,6 +31,7 @@ type MpvEngine struct {
 	track *Track
 	loadStartedAt time.Time
 	volume int
+	audioOutput string // Optional mpv audio output override, used by deterministic integration tests.
 }
 
 func NewMpvEngine(executable string) *MpvEngine {
@@ -84,11 +85,18 @@ func (e *MpvEngine) Start(ctx context.Context) error {
 
 
 	pipePath := fmt.Sprintf("\\\\.\\pipe\\my-livehub-mpv-%d", os.Getpid())
-	cmd := exec.Command(executable,
+	args := []string{
 		"--no-config", "--no-video", "--force-window=no", "--terminal=no",
 		"--idle=yes", "--keep-open=no", "--really-quiet",
 		"--input-ipc-server="+pipePath,
-	)
+	}
+	e.mu.RLock()
+	audioOutput := strings.TrimSpace(e.audioOutput)
+	e.mu.RUnlock()
+	if audioOutput != "" {
+		args = append(args, "--ao="+audioOutput)
+	}
+	cmd := exec.Command(executable, args...)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow:true, CreationFlags:0x08000000}
@@ -154,30 +162,42 @@ func (e *MpvEngine) commandIPC(ctx context.Context, args ...any) (json.RawMessag
 	conn, err := os.OpenFile(pipePath, os.O_RDWR, 0)
 	if err != nil { return nil, fmt.Errorf("connect to mpv IPC: %w", err) }
 	defer conn.Close()
-	request := map[string]any{"command":args, "request_id":e.requestID.Add(1)}
+	requestID := e.requestID.Add(1)
+	request := map[string]any{"command":args, "request_id":requestID}
 	if err := json.NewEncoder(conn).Encode(request); err != nil { return nil, fmt.Errorf("send mpv command: %w", err) }
 
+	// mpv sends asynchronous event objects and command responses over the
+	// same JSON stream. Responses are top-level objects (not nested under a
+	// "response" field), so ignore events until this request ID is received.
 	type commandResponse struct {
-		response struct {
-			Error string `json:"error"`
-			Data json.RawMessage `json:"data"`
-		}
-		err error
+		RequestID uint64          `json:"request_id"`
+		Error     string          `json:"error"`
+		Data      json.RawMessage `json:"data"`
+		ReadErr   error
 	}
 	result := make(chan commandResponse, 1)
 	go func() {
-		var item commandResponse
-		item.err = json.NewDecoder(bufio.NewReader(conn)).Decode(&item.response)
-		result <- item
+		decoder := json.NewDecoder(bufio.NewReader(conn))
+		for {
+			var item commandResponse
+			if err := decoder.Decode(&item); err != nil {
+				result <- commandResponse{ReadErr:err}
+				return
+			}
+			if item.RequestID == requestID {
+				result <- item
+				return
+			}
+		}
 	}()
 	select {
 	case <-ctx.Done():
 		_ = conn.Close()
 		return nil, ctx.Err()
 	case item := <-result:
-		if item.err != nil { return nil, fmt.Errorf("read mpv response: %w", item.err) }
-		if item.response.Error != "success" { return nil, fmt.Errorf("mpv command failed: %s", item.response.Error) }
-		return item.response.Data, nil
+		if item.ReadErr != nil { return nil, fmt.Errorf("read mpv response: %w", item.ReadErr) }
+		if item.Error != "success" { return nil, fmt.Errorf("mpv command failed: %s", item.Error) }
+		return item.Data, nil
 	}
 }
 
