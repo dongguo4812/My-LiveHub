@@ -3,7 +3,6 @@ package desktop
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/platform"
