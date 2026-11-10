@@ -69,6 +69,14 @@ func (m *Manager) Register(adapter Adapter) error {
 		return fmt.Errorf("platform adapter %q is already registered", id)
 	}
 	entry := &connectionEntry{adapter: adapter, status: StatusDisconnected}
+	if reporter, ok := adapter.(ConnectionFailureReporter); ok {
+		reporter.SetConnectionFailureHandler(func(cause error) {
+			if cause == nil {
+				cause = errors.New("connection ended unexpectedly")
+			}
+			m.setStatus(entry, StatusFailed, fmt.Errorf("platform %q connection lost: %w", id, cause))
+		})
+	}
 	m.adapters = append(m.adapters, entry)
 	m.byID[id] = entry
 	return nil

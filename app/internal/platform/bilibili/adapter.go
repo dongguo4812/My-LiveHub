@@ -18,6 +18,7 @@ import (
 	"github.com/Akegarasu/blivedm-go/message"
 	eventstream "github.com/dongguo4812/My-LiveHub/app/internal/events"
 	"github.com/dongguo4812/My-LiveHub/app/internal/media/resource"
+	"github.com/dongguo4812/My-LiveHub/app/internal/platform"
 )
 
 type streamClient interface {
@@ -142,6 +143,7 @@ type Adapter struct {
 	roomID int
 	client streamClient
 	cancel context.CancelFunc
+	connectionFailureHandler func(error)
 }
 
 func NewAdapter(auth *AuthManager, roomID int, events *eventstream.Buffer) (*Adapter, error) {
@@ -384,6 +386,15 @@ func (a *Adapter) SetMediaCatalog(c *resource.Catalog) {
 }
 func (a *Adapter) ID() string { return "bilibili" }
 
+// SetConnectionFailureHandler registers the manager callback for an unexpected
+// stream termination. Intentional Disconnect calls never invoke this handler.
+func (a *Adapter) SetConnectionFailureHandler(handler func(error)) {
+	if a == nil { return }
+	a.mu.Lock()
+	a.connectionFailureHandler = handler
+	a.mu.Unlock()
+}
+
 func (a *Adapter) RoomID() int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -622,8 +633,19 @@ func (a *Adapter) Connect(ctx context.Context) error {
 	go func() {
 		stream.Wait()
 		a.mu.Lock()
-		if a.client == stream { a.client, a.cancel = nil, nil }
+		unexpected := a.client == stream
+		var cancelStream context.CancelFunc
+		var failureHandler func(error)
+		if unexpected {
+			cancelStream = a.cancel
+			a.client, a.cancel = nil, nil
+			failureHandler = a.connectionFailureHandler
+		}
 		a.mu.Unlock()
+		if cancelStream != nil { cancelStream() }
+		if unexpected && failureHandler != nil {
+			failureHandler(errors.New("Bilibili live stream stopped unexpectedly"))
+		}
 	}()
 	return nil
 }

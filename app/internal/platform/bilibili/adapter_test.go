@@ -322,6 +322,23 @@ func TestAdapterReceivesLikeClickAndIgnoresRoomLikeUpdates(t *testing.T) {
 	}
 }
 
+func TestAdapterReportsUnexpectedStreamTermination(t *testing.T) {
+	a, err := NewAdapter(newAdapterTestAuth(t), 12345, nil)
+	if err != nil { t.Fatal(err) }
+	fake := newFakeStreamClient(12345)
+	a.newStream = func(int) streamClient { return fake }
+	failure := make(chan error, 1)
+	a.SetConnectionFailureHandler(func(err error) { failure <- err })
+	if err := a.Connect(context.Background()); err != nil { t.Fatal(err) }
+	fake.Stop() // Simulate the underlying stream ending without Disconnect.
+	select {
+	case err := <-failure:
+		if err == nil || !strings.Contains(err.Error(), "unexpectedly") { t.Fatalf("unexpected failure: %v", err) }
+	case <-time.After(time.Second): t.Fatal("unexpected stream termination was not reported")
+	}
+	if a.client != nil { t.Fatal("adapter retained a terminated stream client") }
+}
+
 func TestAdapterDisconnectStopsAndWaitsForStream(t *testing.T) {
 	a, err := NewAdapter(newAdapterTestAuth(t), 12345, nil)
 	if err != nil { t.Fatal(err) }

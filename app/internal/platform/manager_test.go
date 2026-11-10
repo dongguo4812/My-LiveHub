@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -12,9 +13,12 @@ type simulatedAdapter struct {
 	calls        *[]string
 	connectError error
 	stopError    error
+	failureHandler func(error)
 }
 
 func (a *simulatedAdapter) ID() string { return a.id }
+func (a *simulatedAdapter) SetConnectionFailureHandler(handler func(error)) { a.failureHandler = handler }
+func (a *simulatedAdapter) fail(err error) { if a.failureHandler != nil { a.failureHandler(err) } }
 
 func (a *simulatedAdapter) Connect(context.Context) error {
 	*a.calls = append(*a.calls, "connect:"+a.id)
@@ -160,5 +164,20 @@ func TestManagerContinuesShutdownAfterDisconnectFailure(t *testing.T) {
 	snapshots := manager.Snapshot()
 	if snapshots[0].Status != StatusDisconnected || snapshots[1].Status != StatusFailed {
 		t.Fatalf("unexpected shutdown snapshots: %+v", snapshots)
+	}
+}
+
+
+func TestManagerMarksUnexpectedAdapterDisconnectAsFailed(t *testing.T) {
+	manager := NewManager()
+	var calls []string
+	adapter := &simulatedAdapter{id: "sample", calls: &calls}
+	if err := manager.Register(adapter); err != nil { t.Fatal(err) }
+	if err := manager.Start(context.Background()); err != nil { t.Fatal(err) }
+	if err := manager.Connect(context.Background(), "sample"); err != nil { t.Fatal(err) }
+	adapter.fail(errors.New("stream stopped"))
+	snapshot := manager.Snapshot()[0]
+	if snapshot.Status != StatusFailed || !strings.Contains(snapshot.Error, "stream stopped") {
+		t.Fatalf("unexpected connection failure snapshot: %+v", snapshot)
 	}
 }
