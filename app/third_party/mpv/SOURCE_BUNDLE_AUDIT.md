@@ -200,3 +200,48 @@ No ready-to-use Windows x64 standalone mpv.exe candidate reviewed so far has bot
 The lowest-risk next step is not to rebuild the entire mpv stack immediately. First request/locate a complete source bundle for a specific existing standalone mpv.exe build, including the actual dependency revisions and notices. In parallel, retain freeKC's source-locking workflow as a proven technical template if the existing prebuilt binary cannot be cleared.
 
 Do not switch to libmpv, Qt Multimedia, LAV Filters, or Windows Media Foundation without an explicit architecture decision. The selected My-LiveHub direction remains a separately packaged mpv.exe controlled through JSON IPC.
+
+
+## 20260610 Reelm / MediaBoxMc candidate — stronger corresponding-source evidence
+
+Review date: 2026-11-10.
+
+A substantially better prebuilt standalone candidate was found:
+
+- Binary: `mpv-x86_64-20260610-git-304426c.7z`
+- Upstream origin stated by publisher: `shinchiro/mpv-winbuild-cmake`, build batch `20260610`
+- SHA-256: `facac536baa73c7b925771af5e39a3c9cb16b8d75b59a6e9800de89799dffca7`
+- mpv commit: `304426c390901436fb1d4a63efbd582ae80c88f4`
+- FFmpeg commit: `2576e0943`
+- Build recipe archive SHA-256: `1697829974ed8fdda0f8e3b0c69c424d7a00f2f6534b5389ff17bf2cc3813f38`
+- mpv source archive SHA-256: `3a3802868d7883bc8496184b6a0c6ee91e49ce4ec9e4bb3d0b854663371fd740`
+- FFmpeg source archive SHA-256: `0b8ded4892189fbfb4fe0e0c74d399fc7ed6c0fb7933337736905a2ea567b31a`
+- uosc source archive SHA-256: `a84476d6826406f1eb0815c2ce0c1318858f18de8d77c47b4387175641a13ba9`
+- Published build workflow run: `https://github.com/shinchiro/mpv-winbuild-cmake/actions/runs/27243718577`, completed successfully on 2026-06-10.
+
+Publisher page: https://mediaboxmc.com/oss/mpv/20260610-304426c/
+Machine-readable manifest: https://mediaboxmc.com/oss/mpv/20260610-304426c/BUILD_MANIFEST.json
+
+The publisher explicitly describes this as complete corresponding source for its redistributed binary, and says the standalone mpv process is separate from its application. Its manifest says the build recipe pins every component and cross-compiles for Windows. The page mirrors the build recipe, mpv, FFmpeg and uosc source archives, and publishes a written offer for the complete corresponding source of remaining GPL/LGPL components for at least three years, at no charge beyond distribution cost.
+
+This is materially stronger than the earlier v0.42.0 official full ZIP candidate. It may allow My-LiveHub to reuse an already compiled standalone mpv.exe without rebuilding the media stack.
+
+### Remaining checks before My-LiveHub redistribution
+
+This candidate is NOT YET CLEARED for My-LiveHub. The publisher's source offer is issued by MediaBoxMc / Reelm for its own distribution. My-LiveHub must not assume that the offer automatically satisfies My-LiveHub's own obligations or recipients.
+
+Before adopting it:
+1. Obtain and retain the exact binary archive and verify the SHA-256 above.
+2. Download and hash-verify every published source archive and inspect the build recipe archive to confirm its actual immutable dependency pins and patch/wrap inputs.
+3. Request from the publisher the full corresponding source for every remaining GPL/LGPL component covered by its written offer, including source archives and all associated patches/build scripts/notices; alternatively obtain a written arrangement explicitly allowing My-LiveHub to rely on the offer for My-LiveHub's own recipients and distribution period.
+4. Verify the archive's included runtime files and license notices, including the uosc script/config asset and any other bundled files, against the manifest.
+5. Verify that the binary itself matches the published SHA-256 and starts on Windows x64. Then verify actual audio playback/IPC behavior in My-LiveHub before changing the pinned runtime.
+6. Have the final distribution method and notices reviewed for the applicable GPL/LGPL obligations.
+
+The web reader exposed the manifest and archive links, but the source archive bytes have not yet been downloaded and independently hash-verified in this review. The manifest is therefore publisher-provided evidence, not an independent reproduction result.
+
+### Candidate decision
+
+Keep the existing v0.42.0 ZIP as an internal validation artifact only. Prioritize the Reelm 20260610 standalone binary as the next candidate because it has a concrete binary hash, exact mpv/FFmpeg revisions, a pinned build-recipe archive, a successful build workflow reference, source archive hashes, and a published written offer for the remaining GPL/LGPL components.
+
+Do not switch runtime pins or publish this candidate in a My-LiveHub release until the checks above are completed.
