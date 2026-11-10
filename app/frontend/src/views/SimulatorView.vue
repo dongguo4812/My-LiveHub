@@ -52,10 +52,12 @@ const selectedGift = computed(() => mediaResources.value.find(item => (item.reso
 const giftTotalPrice = computed(() => Math.round(unitPrice.value * giftCount.value * 100) / 100)
 
 function resourceID(item: MediaResource): string { return item.resource_id ?? '' }
+function resourceKey(item: MediaResource): string { return `${item.source_id ?? ''}\u0000${resourceID(item)}` }
+function resourceScopeLabel(item: MediaResource): string { return item.source_id === 'common' ? '公共' : (item.source_id ?? '未知范围') }
 function resourceName(item: MediaResource): string { return item.name ?? '' }
 function resourceImageURL(item: MediaResource): string { return item.image_url ?? '' }
-function markResourceImageFailed(item: MediaResource) { failedResourceImages.value = new Set(failedResourceImages.value).add(resourceID(item)) }
-function resourceImageFailed(item: MediaResource): boolean { return failedResourceImages.value.has(resourceID(item)) }
+function markResourceImageFailed(item: MediaResource) { failedResourceImages.value = new Set(failedResourceImages.value).add(resourceKey(item)) }
+function resourceImageFailed(item: MediaResource): boolean { return failedResourceImages.value.has(resourceKey(item)) }
 const currentPlatformName = computed(() => platforms.value.find(item => item.platform_id === platformID.value)?.platform_id ?? platformID.value)
 
 async function refreshEvents() {
@@ -93,7 +95,7 @@ function selectGift(resourceID: string) {
 }
 
 function insertEmoticon(item: MediaResource) {
-  const id = resourceID(item)
+  const id = resourceKey(item)
   const name = resourceName(item)
   if (!id) return
   if (!selectedEmoticonIDs.value.includes(id)) selectedEmoticonIDs.value.push(id)
@@ -199,7 +201,7 @@ onUnmounted(() => {
               <el-form-item label="插入直播间表情">
                 <el-input v-model="resourceKeyword" placeholder="搜索表情名称或 ID" clearable><template #append><el-button :loading="resourcesBusy" @click="loadMediaResources">刷新</el-button></template></el-input>
                 <div v-if="mediaResources.length" class="resource-picker">
-                  <el-button v-for="item in mediaResources" :key="resourceID(item)" class="emoticon-option" :type="selectedEmoticonIDs.includes(resourceID(item)) ? 'primary' : 'default'" text @click="insertEmoticon(item)"><img v-if="!resourceImageFailed(item)" :src="resourceImageURL(item)" :alt="resourceName(item)" referrerpolicy="no-referrer" loading="lazy" @error="markResourceImageFailed(item)" /><span>{{ resourceName(item) }}</span></el-button>
+                  <el-button v-for="item in mediaResources" :key="resourceKey(item)" class="emoticon-option" :type="selectedEmoticonIDs.includes(resourceKey(item)) ? 'primary' : 'default'" text @click="insertEmoticon(item)"><img v-if="!resourceImageFailed(item)" :src="resourceImageURL(item)" :alt="resourceName(item)" referrerpolicy="no-referrer" loading="lazy" @error="markResourceImageFailed(item)" /><span>{{ resourceName(item) }}</span><small class="emoticon-scope">{{ resourceScopeLabel(item) }}</small></el-button>
                 </div>
                 <el-empty v-else-if="!resourcesBusy" description="暂无已发现的表情；连接平台并收到表情弹幕后可自动收录" :image-size="64" />
               </el-form-item>
@@ -321,7 +323,7 @@ h1{margin:0;font-size:24px;font-weight:650}
 .field-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .full-width{width:100%}
 .send-button{width:100%;margin-top:8px}
-.resource-picker{display:flex;flex-wrap:wrap;gap:6px;max-height:190px;overflow:auto;margin-top:10px}.emoticon-option{display:flex;align-items:center;gap:6px;height:34px;padding:4px 7px}.emoticon-option img,.gift-option img,.selected-gift img{width:24px;height:24px;object-fit:contain}.gift-option,.selected-gift{display:flex;align-items:center;gap:9px}.gift-option small{margin-left:auto;color:var(--app-text-secondary)}.selected-gift{margin-top:10px;color:var(--app-text-secondary);font-size:12px}.gift-total{margin-top:-8px;margin-bottom:12px;text-align:right;color:var(--app-text-secondary);font-size:13px}.simple-event-hint{padding:12px 14px;border-radius:7px;background:var(--app-bg-control);color:var(--app-text-secondary);font-size:13px}
+.resource-picker{display:flex;flex-wrap:wrap;gap:6px;max-height:190px;overflow:auto;margin-top:10px}.emoticon-option{display:flex;align-items:center;gap:6px;height:34px;padding:4px 7px}.emoticon-option img,.gift-option img,.selected-gift img{width:24px;height:24px;object-fit:contain}.emoticon-scope{color:var(--app-text-secondary);font-size:10px}.gift-option,.selected-gift{display:flex;align-items:center;gap:9px}.gift-option small{margin-left:auto;color:var(--app-text-secondary)}.selected-gift{margin-top:10px;color:var(--app-text-secondary);font-size:12px}.gift-total{margin-top:-8px;margin-bottom:12px;text-align:right;color:var(--app-text-secondary);font-size:13px}.simple-event-hint{padding:12px 14px;border-radius:7px;background:var(--app-bg-control);color:var(--app-text-secondary);font-size:13px}
 .form-error{margin-top:12px}
 .history-card{min-height:100%}
 @media(max-width:700px){.simulator-page{padding:18px}.field-grid{grid-template-columns:1fr}.simulator-heading{flex-direction:column}}
