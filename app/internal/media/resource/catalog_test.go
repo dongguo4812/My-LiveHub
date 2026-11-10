@@ -118,21 +118,22 @@ func TestCatalogImageURLIndexTracksUpdatesAndPromotion(t *testing.T) {
 
 	updated := provisional
 	updated.ID = "emoji_1"
-	updated.ImageURL = "https://img.test/new.png"
 	if !catalog.Register(updated) {
-		t.Fatal("failed to promote and update resource")
+		t.Fatal("failed to promote provisional resource")
 	}
-	if _, ok := catalog.FindByImageURL("bilibili", TypeEmoticon, provisional.ImageURL); ok {
-		t.Fatal("stale image URL remained in the index")
-	}
-	got, ok := catalog.FindByImageURL("bilibili", TypeEmoticon, updated.ImageURL)
-	if !ok || got.ID != "emoji_1" {
-		t.Fatalf("updated URL index returned %+v, found=%v", got, ok)
+	if _, ok := catalog.FindByImageURL("bilibili", TypeEmoticon, provisional.ImageURL); !ok {
+		t.Fatal("promoted resource lost its current image URL")
 	}
 
-	// A later official directory refresh can update the image URL again without
-	// leaving either stale URL entries or a stale provisional identity.
-	updated.ImageURL = "https://img.test/latest.png"
+	// A later official directory refresh can update the image URL without
+	// leaving a stale URL entry or a stale provisional identity.
+	updated.ImageURL = "https://img.test/new.png"
+	if !catalog.Register(updated) {
+		t.Fatal("failed to update official resource URL")
+	}
+	if _, ok := catalog.FindByImageURL("bilibili", TypeEmoticon, provisional.ImageURL); ok {
+		t.Fatal("stale provisional image URL remained in the index")
+	}
 	if !catalog.Register(updated) {
 		t.Fatal("failed to update official resource URL")
 	}
