@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"fmt"
 	"io/fs"
 	"log"
 	"os"
@@ -13,6 +14,7 @@ import (
 	eventstream "github.com/dongguo4812/My-LiveHub/app/internal/events"
 	"github.com/dongguo4812/My-LiveHub/app/internal/platform"
 	"github.com/dongguo4812/My-LiveHub/app/internal/platform/bilibili"
+	"github.com/dongguo4812/My-LiveHub/app/internal/voice"
 	"github.com/dongguo4812/My-LiveHub/app/internal/media/imagecache"
 	"github.com/dongguo4812/My-LiveHub/app/internal/media/resource"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -82,6 +84,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("load Bilibili configuration: %v", err)
 	}
+	voiceConfig, err := config.LoadTyped[config.VoiceConfig](configManager, "voice.json", func(value config.VoiceConfig) error {
+		return value.Validate()
+	})
+	if err != nil {
+		log.Fatalf("load voice configuration: %v", err)
+	}
 	eventBus := eventstream.NewBus()
 	bilibiliEvents := eventstream.NewBuffer(eventBus)
 	cacheDir := ""
@@ -114,6 +122,24 @@ func main() {
 	}
 
 	platformService := desktop.NewPlatformService(platformManager, bilibiliEvents, mediaCatalog)
+	var wailsApp *application.App
+	voiceService, err := voice.NewService(bilibiliEvents, configManager, voiceConfig, func(name string, data any) error {
+		if wailsApp == nil {
+			return fmt.Errorf("Wails application is not ready")
+		}
+		window, ok := wailsApp.Window.GetByName("main-window")
+		if !ok {
+			return fmt.Errorf("main window is not ready")
+		}
+		window.EmitEvent(name, data)
+		return nil
+	})
+	if err != nil {
+		log.Fatalf("initialize voice service: %v", err)
+	}
+	if err := coreApp.Modules().Register("voice", voice.NewModule(voiceService)); err != nil {
+		log.Fatalf("register voice module: %v", err)
+	}
 	assetHandler := application.AssetFileServerFS(assets)
 	imageCache, cacheErr := imagecache.NewWithPolicies(filepath.Join(cacheDir, "media-images"), assetHandler, map[string]imagecache.URLPolicy{"bilibili":imagecache.BilibiliURLPolicy})
 	if cacheErr != nil { log.Printf("initialize local media image cache: %v", cacheErr) } else { assetHandler = imageCache; platformService.SetMediaImageCache(imageCache); imageCache.RefreshStats() }
@@ -129,8 +155,10 @@ func main() {
 			application.NewService(desktop.NewBilibiliSettingsService(configManager, bilibiliConfig, bilibiliAdapter)),
 			application.NewService(desktop.NewAppearanceService(configManager, appConfig)),
 			application.NewService(danmakuDisplayService),
+			application.NewService(voiceService),
 		},
 	})
+	wailsApp = app
 	desktop.AttachApplication(platformService, app, appConfig.Appearance.Theme == "light")
 	desktop.AttachDanmakuDisplayApplication(danmakuDisplayService, app)
 	app.OnShutdown(func() {

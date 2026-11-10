@@ -1,0 +1,19 @@
+{
+  "config_version": 1,
+  "enabled": false,
+  "engine": "edge",
+  "voice": "zh-CN-XiaoxiaoNeural",
+  "rate": "+0%",
+  "volume": "+0%",
+  "pitch": "+0Hz",
+  "events": {
+    "danmaku": true,
+    "gift": true,
+    "super_chat": true,
+    "guard": true,
+    "follow": true,
+    "welcome": false,
+    "share": true,
+    "like": false
+  }
+}
