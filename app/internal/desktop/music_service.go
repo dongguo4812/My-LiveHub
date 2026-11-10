@@ -57,6 +57,11 @@ func (s *MusicService) SaveConfig(value config.MusicConfig) error {
 	value.LegacyDefaultPlayer = ""
 	value.LegacyPlayers = nil
 	if err := value.Validate(); err != nil { return err }
+	availableEnabled := false
+	for _, source := range s.sources.List(value.Sources) {
+		availableEnabled = availableEnabled || (source.Available && source.Enabled)
+	}
+	if !availableEnabled { return errors.New("at least one implemented music source must remain enabled") }
 	if err := config.SaveTyped(s.manager, "music.json", value, func(candidate config.MusicConfig) error {
 		return candidate.Validate()
 	}); err != nil { return err }
