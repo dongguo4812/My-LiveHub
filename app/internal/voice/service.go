@@ -40,8 +40,9 @@ type VoiceStatus struct {
 }
 
 type queuedSpeech struct {
-	text   string
-	config config.VoiceConfig
+	text       string
+	config     config.VoiceConfig
+	generation uint64
 }
 
 type cachedVoices struct {
@@ -68,6 +69,7 @@ type Service struct {
 	currentStop context.CancelFunc
 	pending     map[string]chan struct{}
 	nextID      atomic.Uint64
+	stopGeneration uint64
 	dropped     atomic.Uint64
 	lastError   string
 	voiceCache  map[string]cachedVoices
@@ -200,6 +202,9 @@ func eventEnabled(settings config.VoiceEventConfig, eventType string) bool {
 }
 
 func (s *Service) enqueue(item queuedSpeech) error {
+	s.mu.Lock()
+	item.generation = s.stopGeneration
+	s.mu.Unlock()
 	select {
 	case s.queue <- item:
 		return nil
@@ -230,8 +235,12 @@ func (s *Service) process(item queuedSpeech) {
 		s.setError(fmt.Errorf("voice engine %q is unavailable", item.config.Engine))
 		return
 	}
-	ctx, cancel := context.WithTimeout(s.ctx, SynthesisTimeLimit)
 	s.mu.Lock()
+	if item.generation != s.stopGeneration {
+		s.mu.Unlock()
+		return
+	}
+	ctx, cancel := context.WithTimeout(s.ctx, SynthesisTimeLimit)
 	s.currentText = item.text
 	s.currentStop = cancel
 	s.lastError = ""
@@ -246,7 +255,12 @@ func (s *Service) process(item queuedSpeech) {
 	cancel()
 	s.mu.Lock()
 	s.currentStop = nil
+	stopped := item.generation != s.stopGeneration
 	s.mu.Unlock()
+	if stopped || errors.Is(contextErr, context.Canceled) {
+		s.clearCurrent()
+		return
+	}
 	if err != nil {
 		if errors.Is(contextErr, context.Canceled) {
 			s.clearCurrent()
@@ -265,6 +279,11 @@ func (s *Service) process(item queuedSpeech) {
 	id := fmt.Sprintf("voice-%d", s.nextID.Add(1))
 	done := make(chan struct{})
 	s.mu.Lock()
+	if item.generation != s.stopGeneration {
+		s.mu.Unlock()
+		s.clearCurrent()
+		return
+	}
 	s.pending[id] = done
 	s.mu.Unlock()
 	payload := AudioReadyEvent{
@@ -280,6 +299,20 @@ func (s *Service) process(item queuedSpeech) {
 	if err := s.emit("voice:audio-ready", payload); err != nil {
 		s.CompletePlayback(id)
 		s.setError(fmt.Errorf("发送语音音频失败：%w", err))
+		s.clearCurrent()
+		return
+	}
+	s.mu.Lock()
+	stopped = item.generation != s.stopGeneration
+	if stopped {
+		if pending, exists := s.pending[id]; exists {
+			delete(s.pending, id)
+			close(pending)
+		}
+	}
+	s.mu.Unlock()
+	if stopped {
+		_ = s.emit("voice:control", map[string]string{"action": "stop"})
 		s.clearCurrent()
 		return
 	}
@@ -321,6 +354,7 @@ func (s *Service) emitStatus() {
 
 func (s *Service) stopPendingPlayback() {
 	s.mu.Lock()
+	s.stopGeneration++
 	if s.currentStop != nil {
 		s.currentStop()
 		s.currentStop = nil

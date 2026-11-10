@@ -151,3 +151,50 @@ func TestServiceRegistrySupportsAdditionalEngineImplementations(t *testing.T) {
 	}
 }
 
+
+func TestStopSpeechClearsQueuedEventsAndCurrentPlayback(t *testing.T) {
+	var mu sync.Mutex
+	var payloads []AudioReadyEvent
+	service, buffer, _ := newTestService(t, true, func(name string, data any) error {
+		if name == "voice:audio-ready" {
+			mu.Lock()
+			payloads = append(payloads, data.(AudioReadyEvent))
+			mu.Unlock()
+		}
+		return nil
+	})
+	buffer.Add(eventstream.Event{Type: "danmaku", UserName: "观众一", Content: "第一条"})
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		ready := len(payloads) == 1
+		mu.Unlock()
+		if ready {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	mu.Lock()
+	firstCount := len(payloads)
+	mu.Unlock()
+	if firstCount != 1 {
+		t.Fatalf("first audio payload count = %d, want 1", firstCount)
+	}
+
+	buffer.Add(eventstream.Event{Type: "danmaku", UserName: "观众二", Content: "停止后不应播报"})
+	if got := service.GetStatus().Queued; got != 1 {
+		t.Fatalf("queued before stop = %d, want 1", got)
+	}
+	service.StopSpeech()
+	time.Sleep(50 * time.Millisecond)
+	mu.Lock()
+	got := len(payloads)
+	mu.Unlock()
+	if got != 1 {
+		t.Fatalf("audio payload count after stop = %d, want 1", got)
+	}
+	if status := service.GetStatus(); status.Queued != 0 || status.Speaking {
+		t.Fatalf("status after stop = %+v, want empty and idle", status)
+	}
+}
+
