@@ -79,7 +79,7 @@ func NewService(buffer *eventstream.Buffer, manager *config.Manager, cfg config.
 	return NewServiceWithEngines(buffer, manager, cfg, emit, NewEdgeEngine())
 }
 
-func NewServiceWithEngines(buffer *eventstream.Buffer, manager *config.Manager, cfg config.VoiceConfig, emit EventEmitter, engines ...Engine) (*Service, error) {
+func NewServiceWithEngines(buffer *eventstream.Buffer, manager *config.Manager, cfg config.VoiceConfig, emit EventEmitter, engines ...Engine) (*VoiceService, error) {
 	if buffer == nil {
 		return nil, errors.New("event buffer is required")
 	}
@@ -128,7 +128,7 @@ func (s *VoiceService) start(ctx context.Context) error {
 	return nil
 }
 
-func (s *Service) stop(ctx context.Context) error {
+func (s *VoiceService) stop(ctx context.Context) error {
 	if s == nil {
 		return nil
 	}
@@ -164,7 +164,7 @@ func (s *Service) stop(ctx context.Context) error {
 	}
 }
 
-func (s *Service) handleEvent(event eventstream.Event) {
+func (s *VoiceService) handleEvent(event eventstream.Event) {
 	s.mu.Lock()
 	cfg := s.config
 	s.mu.Unlock()
@@ -201,7 +201,7 @@ func eventEnabled(settings config.VoiceEventConfig, eventType string) bool {
 	}
 }
 
-func (s *Service) enqueue(item queuedSpeech) error {
+func (s *VoiceService) enqueue(item queuedSpeech) error {
 	s.mu.Lock()
 	item.generation = s.stopGeneration
 	s.mu.Unlock()
@@ -214,7 +214,7 @@ func (s *Service) enqueue(item queuedSpeech) error {
 	}
 }
 
-func (s *Service) worker() {
+func (s *VoiceService) worker() {
 	defer close(s.workerDone)
 	for {
 		select {
@@ -229,7 +229,7 @@ func (s *Service) worker() {
 	}
 }
 
-func (s *Service) process(item queuedSpeech) {
+func (s *VoiceService) process(item queuedSpeech) {
 	engine := s.engines[item.config.Engine]
 	if engine == nil {
 		s.setError(fmt.Errorf("voice engine %q is unavailable", item.config.Engine))
@@ -327,7 +327,7 @@ func (s *Service) process(item queuedSpeech) {
 	s.clearCurrent()
 }
 
-func (s *Service) clearCurrent() {
+func (s *VoiceService) clearCurrent() {
 	s.mu.Lock()
 	s.currentText = ""
 	s.currentStop = nil
@@ -335,7 +335,7 @@ func (s *Service) clearCurrent() {
 	s.emitStatus()
 }
 
-func (s *Service) setError(err error) {
+func (s *VoiceService) setError(err error) {
 	if err == nil {
 		return
 	}
@@ -345,14 +345,14 @@ func (s *Service) setError(err error) {
 	s.emitStatus()
 }
 
-func (s *Service) emitStatus() {
+func (s *VoiceService) emitStatus() {
 	if s.emit == nil {
 		return
 	}
 	_ = s.emit("voice:status", s.GetStatus())
 }
 
-func (s *Service) stopPendingPlayback() {
+func (s *VoiceService) stopPendingPlayback() {
 	s.mu.Lock()
 	s.stopGeneration++
 	if s.currentStop != nil {
@@ -377,13 +377,13 @@ func (s *Service) stopPendingPlayback() {
 	}
 }
 
-func (s *Service) GetConfig() config.VoiceConfig {
+func (s *VoiceService) GetConfig() config.VoiceConfig {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.config
 }
 
-func (s *Service) SaveConfig(cfg config.VoiceConfig) error {
+func (s *VoiceService) SaveConfig(cfg config.VoiceConfig) error {
 	if s == nil {
 		return errors.New("voice service is unavailable")
 	}
@@ -408,7 +408,7 @@ func (s *Service) SaveConfig(cfg config.VoiceConfig) error {
 	return nil
 }
 
-func (s *Service) GetVoices(locale string) ([]VoiceOption, error) {
+func (s *VoiceService) GetVoices(locale string) ([]VoiceOption, error) {
 	if s == nil {
 		return nil, errors.New("voice service is unavailable")
 	}
@@ -438,7 +438,7 @@ func (s *Service) GetVoices(locale string) ([]VoiceOption, error) {
 	return items, nil
 }
 
-func (s *Service) TestSpeech(text string) error {
+func (s *VoiceService) TestSpeech(text string) error {
 	if s == nil {
 		return errors.New("voice service is unavailable")
 	}
@@ -452,25 +452,25 @@ func (s *Service) TestSpeech(text string) error {
 	return s.enqueue(queuedSpeech{text: text, config: s.GetConfig()})
 }
 
-func (s *Service) PauseSpeech() {
+func (s *VoiceService) PauseSpeech() {
 	if s != nil && s.emit != nil {
 		_ = s.emit("voice:control", map[string]string{"action": "pause"})
 	}
 }
 
-func (s *Service) ResumeSpeech() {
+func (s *VoiceService) ResumeSpeech() {
 	if s != nil && s.emit != nil {
 		_ = s.emit("voice:control", map[string]string{"action": "resume"})
 	}
 }
 
-func (s *Service) StopSpeech() {
+func (s *VoiceService) StopSpeech() {
 	if s != nil {
 		s.stopPendingPlayback()
 	}
 }
 
-func (s *Service) CompletePlayback(id string) bool {
+func (s *VoiceService) CompletePlayback(id string) bool {
 	if s == nil || strings.TrimSpace(id) == "" {
 		return false
 	}
@@ -484,7 +484,7 @@ func (s *Service) CompletePlayback(id string) bool {
 	return exists
 }
 
-func (s *Service) GetStatus() VoiceStatus {
+func (s *VoiceService) GetStatus() VoiceStatus {
 	if s == nil {
 		return VoiceStatus{}
 	}
