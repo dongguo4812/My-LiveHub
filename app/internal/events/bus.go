@@ -15,10 +15,9 @@ type subscription struct {
 // Bus distributes normalized events to independent subscribers in registration
 // order. Publish calls handlers synchronously and isolates panics per handler.
 type Bus struct {
-	publishMu sync.Mutex
-	mu        sync.RWMutex
-	nextID    uint64
-	handlers  []subscription
+	mu       sync.RWMutex
+	nextID   uint64
+	handlers []subscription
 }
 
 func NewBus() *Bus {
@@ -56,13 +55,12 @@ func (b *Bus) Subscribe(handler Handler) func() {
 
 // Publish delivers an event to a stable subscriber snapshot. A panic in one
 // handler is recovered so remaining subscribers still receive the event.
+// Concurrent Publish calls may invoke a handler concurrently; handlers must
+// provide their own synchronization for mutable state.
 func (b *Bus) Publish(event Event) {
 	if b == nil {
 		return
 	}
-	b.publishMu.Lock()
-	defer b.publishMu.Unlock()
-
 	b.mu.RLock()
 	handlers := append([]subscription(nil), b.handlers...)
 	b.mu.RUnlock()
