@@ -280,7 +280,15 @@ func extractDanmakuEmoticons(d *message.Danmaku) []eventstream.EmoticonToken {
 	return tokens
 }
 
-func(a *Adapter)SetMediaCatalog(c *resource.Catalog){if a!=nil{a.mediaCatalog=c}}
+func (a *Adapter) SetMediaCatalog(c *resource.Catalog) {
+	if a == nil {
+		return
+	}
+	a.mediaCatalog = c
+	if c != nil {
+		c.SetPlatformScopeDirectory(a.ID(), "rooms")
+	}
+}
 func (a *Adapter) ID() string { return "bilibili" }
 
 func (a *Adapter) RoomID() int {
