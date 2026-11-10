@@ -63,6 +63,15 @@ func emoticonSourceID(roomID int, unique string) string {
 	return emoticonSourceIDForPackage(roomID, unique, 0)
 }
 
+// hasExplicitEmoticonScope reports whether a live resource ID carries a
+// Bilibili prefix that unambiguously identifies its shared or room scope.
+func hasExplicitEmoticonScope(unique string) bool {
+	value := strings.TrimSpace(unique)
+	return strings.HasPrefix(value, "room_") ||
+		strings.HasPrefix(value, "emoji_") ||
+		strings.HasPrefix(value, "official_")
+}
+
 func emoticonResourceID(unique string, packageID, emoticonID int, imageURL string) string {
 	if value := strings.TrimSpace(unique); value != "" {
 		return value
