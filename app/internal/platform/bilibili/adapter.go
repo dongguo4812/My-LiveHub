@@ -372,11 +372,8 @@ func (a *Adapter) Connect(ctx context.Context) error {
 		if totalPrice <= 0 { totalPrice = unitPrice * float64(count) }
 		giftImageURL := a.giftCatalog.ImageURL(roomID, g.GiftId)
 		if a.mediaCatalog != nil {
-			for _, item := range a.mediaCatalog.List("bilibili", fmt.Sprint(roomID), resource.TypeGift) {
-				if item.ID == strconv.Itoa(g.GiftId) {
-					giftImageURL = item.ImageURL
-					break
-				}
+			if item, ok := a.mediaCatalog.Find("bilibili", strconv.Itoa(roomID), resource.TypeGift, strconv.Itoa(g.GiftId)); ok {
+				giftImageURL = item.ImageURL
 			}
 		}
 		a.events.Add(eventstream.Event{
