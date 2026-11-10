@@ -102,7 +102,7 @@ func (e *MpvEngine) Start(ctx context.Context) error {
 		case <-ticker.C:
 			if pipe, err := os.OpenFile(pipePath, os.O_RDWR, 0); err == nil {
 				_ = pipe.Close()
-				return nil
+				return e.SetVolume(ctx, e.volume)
 			}
 		}
 	}
@@ -206,6 +206,11 @@ func (e *MpvEngine) Stop(ctx context.Context) error {
 	return err
 }
 func (e *MpvEngine) Snapshot(ctx context.Context) (PlaybackSnapshot, error) {
+	if e == nil { return PlaybackSnapshot{}, ErrPlaybackEngineUnavailable }
+	e.mu.RLock()
+	pipePath, fallbackVolume := e.pipePath, e.volume
+	e.mu.RUnlock()
+	if pipePath == "" { return PlaybackSnapshot{State:PlaybackIdle, Volume:fallbackVolume}, nil }
 	snapshot := PlaybackSnapshot{State:PlaybackIdle}
 	readNumber := func(property string) int64 {
 		data, err := e.commandIPC(ctx, "get_property", property)
@@ -222,7 +227,7 @@ func (e *MpvEngine) Snapshot(ctx context.Context) (PlaybackSnapshot, error) {
 	if pauseErr == nil { _ = json.Unmarshal(pauseData, &paused) }
 	if idleErr == nil { _ = json.Unmarshal(idleData, &idle) }
 	volumeData, volumeErr := e.commandIPC(ctx, "get_property", "volume")
-	var volume float64
+	volume := float64(fallbackVolume)
 	if volumeErr == nil { _ = json.Unmarshal(volumeData, &volume) }
 	e.mu.RLock()
 	if e.track != nil { copy := *e.track; snapshot.Track = &copy }
