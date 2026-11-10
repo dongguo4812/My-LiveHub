@@ -23,6 +23,8 @@ type MusicService struct {
 	sources *music.SourceRegistry
 	engine *music.MpvEngine
 	queue *music.Queue
+	watchCancel context.CancelFunc
+	playGeneration uint64
 }
 
 func NewMusicService(manager *config.Manager, value config.MusicConfig) *MusicService {
@@ -109,6 +111,7 @@ func (s *MusicService) PlayNext() error {
 		s.queue.FinishCurrent()
 		return fmt.Errorf("play %q: %w", item.Track.Title, err)
 	}
+	s.startPlaybackWatcher()
 	return nil
 }
 
@@ -130,11 +133,14 @@ func (s *MusicService) SetVolume(volume int) error {
 }
 func (s *MusicService) Next() error {
 	if s == nil || s.engine == nil || s.queue == nil { return errors.New("music playback service is unavailable") }
+	s.cancelPlaybackWatcher()
 	_ = s.engine.Stop(context.Background())
+	s.queue.FinishCurrent()
 	return s.PlayNext()
 }
 func (s *MusicService) Stop() error {
 	if s == nil || s.engine == nil || s.queue == nil { return nil }
+	s.cancelPlaybackWatcher()
 	err := s.engine.Stop(context.Background())
 	s.queue.FinishCurrent()
 	return err
@@ -145,7 +151,53 @@ func (s *MusicService) GetPlaybackStatus() (music.PlaybackSnapshot, error) {
 }
 func (s *MusicService) Shutdown() error {
 	if s == nil || s.engine == nil { return nil }
+	s.cancelPlaybackWatcher()
 	return s.engine.Close()
+}
+
+func (s *MusicService) cancelPlaybackWatcher() {
+	s.mu.Lock()
+	if s.watchCancel != nil {
+		s.watchCancel()
+		s.watchCancel = nil
+	}
+	s.playGeneration++
+	s.mu.Unlock()
+}
+
+func (s *MusicService) startPlaybackWatcher() {
+	s.mu.Lock()
+	if s.watchCancel != nil { s.watchCancel() }
+	ctx, cancel := context.WithCancel(context.Background())
+	s.watchCancel = cancel
+	s.playGeneration++
+	generation := s.playGeneration
+	s.mu.Unlock()
+	go s.watchPlayback(ctx, generation)
+}
+
+func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			snapshot, err := s.engine.Snapshot(ctx)
+			if err != nil { continue }
+			if snapshot.State != music.PlaybackStopped || snapshot.DurationMS <= 0 || snapshot.PositionMS < snapshot.DurationMS-1200 {
+				continue
+			}
+			s.mu.RLock()
+			current := s.playGeneration == generation
+			s.mu.RUnlock()
+			if !current { return }
+			s.queue.FinishCurrent()
+			_ = s.PlayNext()
+			return
+		}
+	}
 }
 
 func cloneMusicConfig(value config.MusicConfig) config.MusicConfig {
