@@ -2,6 +2,31 @@ package resource
 
 import "testing"
 
+func TestCatalogFindUsesCompleteResourceIdentity(t *testing.T) {
+	catalog := NewCatalog()
+	items := []Resource{
+		{PlatformID: "bilibili", SourceID: "12345", Type: TypeGift, ID: "30607", Name: "room gift", ImageURL: "https://img.test/room.png"},
+		{PlatformID: "bilibili", SourceID: "54321", Type: TypeGift, ID: "30607", Name: "other room gift", ImageURL: "https://img.test/other-room.png"},
+		{PlatformID: "douyin", SourceID: "12345", Type: TypeGift, ID: "30607", Name: "other platform gift", ImageURL: "https://img.test/douyin.png"},
+		{PlatformID: "bilibili", SourceID: "12345", Type: TypeEmoticon, ID: "30607", Name: "emoticon", ImageURL: "https://img.test/emoticon.png"},
+	}
+	for _, item := range items {
+		if !catalog.Register(item) { t.Fatalf("failed to register %+v", item) }
+	}
+	got, ok := catalog.Find("bilibili", "12345", TypeGift, "30607")
+	if !ok || got.ImageURL != items[0].ImageURL { t.Fatalf("Find returned %+v, found=%v", got, ok) }
+	for _, query := range [][4]string{
+		{"bilibili", "54321", string(TypeGift), "30607"},
+		{"douyin", "12345", string(TypeGift), "30607"},
+		{"bilibili", "12345", string(TypeEmoticon), "30607"},
+		{"bilibili", "12345", string(TypeGift), "missing"},
+	} {
+		if _, ok := catalog.Find(query[0], query[1], Type(query[2]), query[3]); ok {
+			t.Fatalf("unexpected match for identity %v", query)
+		}
+	}
+}
+
 func TestCatalogSeparatesPlatformAndSource(t *testing.T) {
 	c := NewCatalog()
 	for _, r := range []Resource{
