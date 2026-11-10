@@ -9,7 +9,7 @@ set -euo pipefail
 prefix_dir="$PWD/mingw_prefix"
 cross_file="$prefix_dir/crossfile"
 if [[ ! -f "$cross_file" || ! -f "$prefix_dir/lib/libavcodec.dll.a" ]]; then
-    echo "Run ./ci/build-mingw64.sh first to build mpv's pinned MinGW dependencies." >&2
+    echo "Run ./ci/build-mingw64.sh first to build mpv's MinGW dependencies." >&2
     exit 2
 fi
 
@@ -109,7 +109,8 @@ cp -p LICENSE.GPL "$artifact_dir/" 2>/dev/null || true
 {
     echo "mpv source: v0.42.0"
     echo "target: $TARGET"
-    echo "FFmpeg/dependency configuration: upstream ci/build-mingw64.sh"
+    echo "FFmpeg commit: $(git -C ffmpeg rev-parse HEAD)"
+    echo "Dependency configuration: upstream ci/build-mingw64.sh"
     echo "NOTE: DLL directory is intentionally unpruned staging output."
     echo
     echo "Executable sizes:"
