@@ -17,8 +17,8 @@ text = path.read_text()
 replacements = [
     (
         "for x in iconv zlib-ng shaderc spirv-cross amf-headers nv-headers dav1d lcms2; do",
-        "for x in iconv zlib-ng dav1d; do",
-        "base dependencies",
+        "for x in iconv zlib-ng shaderc spirv-cross dav1d; do",
+        "base dependencies (D3D11 requires shaderc and SPIRV-Cross)",
     ),
     (
         'if [[ "$TARGET" != "i686-"* ]]; then\n    build_if_missing vulkan-headers\n    build_if_missing vulkan-loader\nfi',
@@ -50,6 +50,7 @@ for old, new, label in replacements:
 
 path.write_text(text)
 print("Applied My-LiveHub minimal MinGW dependency profile:")
-print("- kept iconv, zlib-ng, dav1d, FFmpeg, libplacebo, font/subtitle stack")
-print("- skipped shaderc, SPIRV-Cross, AMF, NV headers, LCMS, Vulkan, LuaJIT, curl, subrandr")
+print("- kept shaderc + SPIRV-Cross for D3D11, plus iconv, zlib-ng, dav1d")
+print("- kept FFmpeg, libplacebo, and font/subtitle stack")
+print("- skipped AMF, NV headers, LCMS, Vulkan, LuaJIT, curl, and subrandr")
 PY
