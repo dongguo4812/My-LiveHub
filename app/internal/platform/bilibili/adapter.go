@@ -218,7 +218,7 @@ func (a *Adapter) addLikeEvent(roomID int, raw []byte) {
 	})
 }
 
-func (a *Adapter) addGuardEvent(roomID, uid int, name, avatar string, level, months int, price int, timestamp int, key string) {
+func (a *Adapter) addGuardEvent(roomID, uid int, name, avatar string, level, months int, price int, timestamp int, key string, actualPayment bool) {
 	if a == nil || a.events == nil || level < 1 || level > 3 || months < 1 {
 		return
 	}
@@ -245,7 +245,12 @@ func (a *Adapter) addGuardEvent(roomID, uid int, name, avatar string, level, mon
 	if record, exists := a.recentGuardEvents[key]; exists && now.Sub(record.seenAt) <= 10*time.Second {
 		// GUARD_BUY and USER_TOAST_MSG describe the same order. Keep one
 		// event, but fill fields that the first protocol did not provide.
-		a.events.EnrichGuardEvent(record.eventID, event.UserName, event.Avatar)
+		var actualAmount *float64
+		if actualPayment {
+			amount := event.Amount
+			actualAmount = &amount
+		}
+		a.events.EnrichGuardEvent(record.eventID, event.UserName, event.Avatar, actualAmount)
 		return
 	}
 	created := a.events.Add(event)
@@ -573,12 +578,12 @@ func (a *Adapter) Connect(ctx context.Context) error {
 	stream.OnGuardBuy(func(guard *message.GuardBuy) {
 		if guard == nil { return }
 		key := guardEventKey(guard.Uid, guard.GuardLevel, guard.Num, guard.StartTime)
-		a.addGuardEvent(roomID, guard.Uid, guard.Username, "", guard.GuardLevel, guard.Num, guard.Price, guard.StartTime, key)
+		a.addGuardEvent(roomID, guard.Uid, guard.Username, "", guard.GuardLevel, guard.Num, guard.Price, guard.StartTime, key, false)
 	})
 	stream.OnUserToast(func(toast *message.UserToast) {
 		if toast == nil { return }
 		key := guardEventKey(toast.Uid, toast.GuardLevel, toast.Num, toast.StartTime)
-		a.addGuardEvent(roomID, toast.Uid, toast.Username, toast.Face, toast.GuardLevel, toast.Num, toast.Price, toast.StartTime, key)
+		a.addGuardEvent(roomID, toast.Uid, toast.Username, toast.Face, toast.GuardLevel, toast.Num, toast.Price, toast.StartTime, key, true)
 	})
 	stream.OnInteractWord(func(interaction *message.InteractWord) {
 		if interaction == nil || interaction.User == nil { return }
