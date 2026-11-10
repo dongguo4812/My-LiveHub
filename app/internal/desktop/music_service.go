@@ -8,6 +8,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
 	"github.com/dongguo4812/My-LiveHub/app/internal/events"
@@ -177,11 +179,12 @@ func parseSongRequest(content, prefix string) (string, bool) {
 	content = strings.TrimSpace(content)
 	prefix = strings.TrimSpace(prefix)
 	if content == "" || prefix == "" || !strings.HasPrefix(content, prefix) { return "", false }
-	if len(content) > len(prefix) {
-		next := rune(content[len(prefix)])
-		if next != ' ' && next != '\t' && next != '　' { return "", false }
+	remainder := strings.TrimPrefix(content, prefix)
+	if remainder != "" {
+		next, _ := utf8.DecodeRuneInString(remainder)
+		if !unicode.IsSpace(next) { return "", false }
 	}
-	keyword := strings.TrimSpace(strings.TrimPrefix(content, prefix))
+	keyword := strings.TrimSpace(remainder)
 	return keyword, keyword != ""
 }
 
