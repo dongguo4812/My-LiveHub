@@ -24,6 +24,10 @@ type streamClient interface {
 	SetCookie(string)
 	OnDanmaku(func(*message.Danmaku))
 	OnGift(func(*message.Gift))
+	OnSuperChat(func(*message.SuperChat))
+	OnGuardBuy(func(*message.GuardBuy))
+	OnUserToast(func(*message.UserToast))
+	OnInteractWord(func(*message.InteractWord))
 	StartContext(context.Context) error
 	Stop()
 	Wait()
@@ -131,6 +135,8 @@ type Adapter struct {
 	newStream func(int) streamClient
 	giftCatalog *giftCatalog
 	mediaCatalog *resource.Catalog
+	guardMu sync.Mutex
+	recentGuardEvents map[string]time.Time
 	mu sync.Mutex
 	roomID int
 	client streamClient
@@ -141,12 +147,62 @@ func NewAdapter(auth *AuthManager, roomID int, events *eventstream.Buffer) (*Ada
 	if auth == nil { return nil, errors.New("Bilibili authentication manager is required") }
 	if roomID < 0 { return nil, errors.New("Bilibili room ID cannot be negative") }
 	if events == nil { events = eventstream.NewBuffer() }
-	return &Adapter{auth: auth, roomID: roomID, events: events, newStream: func(roomID int) streamClient { return client.NewClient(roomID) }, giftCatalog: newGiftCatalog(nil)}, nil
+	return &Adapter{auth: auth, roomID: roomID, events: events, newStream: func(roomID int) streamClient { return client.NewClient(roomID) }, giftCatalog: newGiftCatalog(nil), recentGuardEvents: make(map[string]time.Time)}, nil
 }
 
 func medalName(m *message.Medal) string { if m == nil { return "" }; return m.Name }
 func medalLevel(m *message.Medal) int { if m == nil { return 0 }; return m.Level }
 func medalColor(m *message.Medal) uint32 { if m == nil { return 0 }; return uint32(m.Color) }
+
+func normalizeTimestamp(timestamp int64) int64 {
+	if timestamp <= 0 {
+		return time.Now().UnixMilli()
+	}
+	if timestamp < 1_000_000_000_000 {
+		return timestamp * 1000
+	}
+	return timestamp
+}
+
+func (a *Adapter) shouldEmitGuard(key string) bool {
+	if key == "" {
+		return true
+	}
+	now := time.Now()
+	a.guardMu.Lock()
+	defer a.guardMu.Unlock()
+	for existing, seenAt := range a.recentGuardEvents {
+		if now.Sub(seenAt) > 10*time.Second {
+			delete(a.recentGuardEvents, existing)
+		}
+	}
+	if seenAt, exists := a.recentGuardEvents[key]; exists && now.Sub(seenAt) <= 10*time.Second {
+		return false
+	}
+	a.recentGuardEvents[key] = now
+	return true
+}
+
+func guardEventKey(uid, level, months, startTime int) string {
+	if uid <= 0 || level < 1 || level > 3 || months <= 0 || startTime <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d:%d:%d:%d", uid, level, months, startTime)
+}
+
+func (a *Adapter) addGuardEvent(roomID, uid int, name, avatar string, level, months int, price int, timestamp int, key string) {
+	if a == nil || a.events == nil || level < 1 || level > 3 || months < 1 || !a.shouldEmitGuard(key) {
+		return
+	}
+	labels := map[int]string{1: "总督", 2: "提督", 3: "舰长"}
+	a.events.Add(eventstream.Event{
+		PlatformID: "bilibili", Source: "live", Type: "guard", RoomID: roomID,
+		UserID: uid, UserName: name, Avatar: avatar,
+		Content: fmt.Sprintf("开通了 %s × %d 个月", labels[level], months),
+		Timestamp: normalizeTimestamp(int64(timestamp)), GuardLevel: level, Months: months,
+		Amount: float64(price) / 1000,
+	})
+}
 
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
@@ -352,7 +408,7 @@ func (a *Adapter) Connect(ctx context.Context) error {
 				emoticons[i].ResourceID = sourceID + ":" + rawResourceID
 			}
 		}
-		if timestamp <= 0 { timestamp = time.Now().UnixMilli() } else if timestamp < 1_000_000_000_000 { timestamp *= 1000 }
+		timestamp = normalizeTimestamp(timestamp)
 		a.events.Add(eventstream.Event{
 			PlatformID: "bilibili", Source: "live", Type: "danmaku", RoomID: roomID,
 			UserID: d.Sender.Uid, UserName: d.Sender.Uname, Avatar: d.Sender.Face,
@@ -361,6 +417,68 @@ func (a *Adapter) Connect(ctx context.Context) error {
 			FanMedalName: medalName(d.Sender.Medal), FanMedalLevel: medalLevel(d.Sender.Medal), FanMedalColor: medalColor(d.Sender.Medal),
 		})
 	})
+
+	stream.OnSuperChat(func(sc *message.SuperChat) {
+		if sc == nil {
+			return
+		}
+		userID, userName, avatar := sc.Uid, sc.UserInfo.Uname, sc.UserInfo.Face
+		guardLevel := sc.UserInfo.GuardLevel
+		var medal *message.Medal
+		if sc.Sender != nil {
+			if userID <= 0 { userID = sc.Sender.Uid }
+			userName = firstNonEmpty(sc.Sender.Uname, userName)
+			avatar = firstNonEmpty(sc.Sender.Face, avatar)
+			guardLevel = sc.Sender.GuardLevel
+			medal = sc.Sender.Medal
+		}
+		if sc.Medal != nil { medal = sc.Medal }
+		if userID <= 0 || strings.TrimSpace(userName) == "" || sc.Price <= 0 || strings.TrimSpace(sc.Message) == "" {
+			return
+		}
+		a.events.Add(eventstream.Event{
+			PlatformID: "bilibili", Source: "live", Type: "super_chat", RoomID: roomID,
+			UserID: userID, UserName: userName, Avatar: avatar,
+			Content: sc.Message, Timestamp: normalizeTimestamp(int64(sc.StartTime)),
+			Amount: float64(sc.Price), Duration: sc.Time, GuardLevel: guardLevel,
+			FanMedalName: medalName(medal), FanMedalLevel: medalLevel(medal), FanMedalColor: medalColor(medal),
+		})
+	})
+	stream.OnGuardBuy(func(guard *message.GuardBuy) {
+		if guard == nil { return }
+		key := guardEventKey(guard.Uid, guard.GuardLevel, guard.Num, guard.StartTime)
+		a.addGuardEvent(roomID, guard.Uid, guard.Username, "", guard.GuardLevel, guard.Num, guard.Price, guard.StartTime, key)
+	})
+	stream.OnUserToast(func(toast *message.UserToast) {
+		if toast == nil { return }
+		key := guardEventKey(toast.Uid, toast.GuardLevel, toast.Num, toast.StartTime)
+		a.addGuardEvent(roomID, toast.Uid, toast.Username, toast.Face, toast.GuardLevel, toast.Num, toast.Price, toast.StartTime, key)
+	})
+	stream.OnInteractWord(func(interaction *message.InteractWord) {
+		if interaction == nil || interaction.User == nil { return }
+		eventType, content := "", ""
+		switch interaction.MsgType {
+		case 1:
+			eventType, content = "welcome", "进入了直播间"
+		case 2:
+			eventType, content = "follow", "关注了直播间"
+		default:
+			return
+		}
+		user := interaction.User
+		timestamp := normalizeTimestamp(int64(interaction.Timestamp))
+		if interaction.TriggerTime > 0 {
+			timestamp = normalizeTimestamp(interaction.TriggerTime / 1_000_000)
+		}
+		medal := user.Medal
+		a.events.Add(eventstream.Event{
+			PlatformID: "bilibili", Source: "live", Type: eventType, RoomID: roomID,
+			UserID: user.Uid, UserName: user.Uname, Avatar: user.Face, Content: content,
+			Timestamp: timestamp, GuardLevel: user.GuardLevel, UserLevel: int(user.UserLevel),
+			FanMedalName: medalName(medal), FanMedalLevel: medalLevel(medal), FanMedalColor: medalColor(medal),
+		})
+	})
+
 	stream.OnGift(func(g *message.Gift) {
 		if g == nil { return }
 		count := g.Num
