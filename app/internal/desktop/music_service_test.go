@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 	"time"
+	"sync"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
 	"github.com/dongguo4812/My-LiveHub/app/internal/events"
@@ -22,6 +23,7 @@ func (serviceTestSource) Resolve(context.Context, music.Track) (music.PlaybackRe
 }
 
 type serviceTestEngine struct {
+	mu sync.Mutex
 	loaded *music.Track
 	state music.PlaybackState
 	volume int
@@ -29,20 +31,32 @@ type serviceTestEngine struct {
 }
 func (e *serviceTestEngine) Load(_ context.Context, _ music.PlaybackResource, track music.Track) error {
 	copy := track
+	e.mu.Lock()
 	e.loaded = &copy
 	e.state = music.PlaybackPlaying
-	if e.loadedCh != nil { select { case e.loadedCh <- copy: default: } }
+	loadedCh := e.loadedCh
+	e.mu.Unlock()
+	if loadedCh != nil { select { case loadedCh <- copy: default: } }
 	return nil
 }
-func (e *serviceTestEngine) Pause(context.Context) error { e.state = music.PlaybackPaused; return nil }
-func (e *serviceTestEngine) Resume(context.Context) error { e.state = music.PlaybackPlaying; return nil }
+func (e *serviceTestEngine) Pause(context.Context) error { e.mu.Lock(); e.state = music.PlaybackPaused; e.mu.Unlock(); return nil }
+func (e *serviceTestEngine) Resume(context.Context) error { e.mu.Lock(); e.state = music.PlaybackPlaying; e.mu.Unlock(); return nil }
 func (*serviceTestEngine) Seek(context.Context, int64) error { return nil }
-func (e *serviceTestEngine) SetVolume(_ context.Context, value int) error { e.volume = value; return nil }
-func (e *serviceTestEngine) Stop(context.Context) error { e.loaded = nil; e.state = music.PlaybackStopped; return nil }
+func (e *serviceTestEngine) SetVolume(_ context.Context, value int) error { e.mu.Lock(); e.volume = value; e.mu.Unlock(); return nil }
+func (e *serviceTestEngine) Stop(context.Context) error { e.mu.Lock(); e.loaded = nil; e.state = music.PlaybackStopped; e.mu.Unlock(); return nil }
 func (e *serviceTestEngine) Snapshot(context.Context) (music.PlaybackSnapshot, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	snapshot := music.PlaybackSnapshot{State:e.state, Volume:e.volume}
 	if e.loaded != nil { copy := *e.loaded; snapshot.Track = &copy }
 	return snapshot, nil
+}
+func (e *serviceTestEngine) CurrentLoaded() *music.Track {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.loaded == nil { return nil }
+	copy := *e.loaded
+	return &copy
 }
 
 func newTestMusicService(t *testing.T, enabled bool) (*MusicService, *serviceTestEngine) {
@@ -136,9 +150,9 @@ func TestMusicServicePreviousRestoresHistoryAndKeepsCurrentAsNext(t *testing.T) 
 	if err := service.PlayNext(); err != nil { t.Fatal(err) }
 	if _, err := service.Enqueue(second, ""); err != nil { t.Fatal(err) }
 	if err := service.Next(); err != nil { t.Fatal(err) }
-	if engine.loaded == nil || engine.loaded.ID != "second" { t.Fatalf("expected second track, got %#v", engine.loaded) }
+	if loaded := engine.CurrentLoaded(); loaded == nil || loaded.ID != "second" { t.Fatalf("expected second track, got %#v", loaded) }
 	if err := service.Previous(); err != nil { t.Fatal(err) }
-	if engine.loaded == nil || engine.loaded.ID != "first" { t.Fatalf("previous did not restore first track: %#v", engine.loaded) }
+	if loaded := engine.CurrentLoaded(); loaded == nil || loaded.ID != "first" { t.Fatalf("previous did not restore first track: %#v", loaded) }
 	if err := service.Next(); err != nil { t.Fatal(err) }
-	if engine.loaded == nil || engine.loaded.ID != "second" { t.Fatalf("next did not restore second track: %#v", engine.loaded) }
+	if loaded := engine.CurrentLoaded(); loaded == nil || loaded.ID != "second" { t.Fatalf("next did not restore second track: %#v", loaded) }
 }
