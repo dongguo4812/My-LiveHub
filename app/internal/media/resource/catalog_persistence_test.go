@@ -13,6 +13,12 @@ func TestPersistentCatalogRestoresPartitionedResourcesAndRefreshes(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !catalog.SetPlatformScopeDirectory("bilibili", "rooms") {
+		t.Fatal("Bilibili scope directory configuration failed")
+	}
+	if !catalog.SetPlatformScopeDirectory("douyin", "houses") {
+		t.Fatal("Douyin scope directory configuration failed")
+	}
 
 	items := []Resource{
 		{PlatformID: "bilibili", SourceID: "common", Type: TypeEmoticon, ID: "official_331", Name: "通用表情", ImageURL: "https://img.test/common.png"},
@@ -49,7 +55,7 @@ func TestPersistentCatalogRestoresPartitionedResourcesAndRefreshes(t *testing.T)
 		filepath.Join(root, "bilibili", "rooms", "12345", "emoticon.json"),
 		filepath.Join(root, "bilibili", "rooms", "12345", "gift.json"),
 		filepath.Join(root, "douyin", "common", "emoticon.json"),
-		filepath.Join(root, "douyin", "scopes", "live-67890", "emoticon.json"),
+		filepath.Join(root, "douyin", "houses", "live-67890", "emoticon.json"),
 	}
 	for _, path := range expectedFiles {
 		if info, err := os.Stat(path); err != nil || info.IsDir() {
