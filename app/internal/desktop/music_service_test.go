@@ -126,3 +126,19 @@ func TestMusicModuleTurnsDanmakuIntoQueuedPlayback(t *testing.T) {
 		t.Fatalf("expected viewer request to be current: %#v", snapshot.Current)
 	}
 }
+
+func TestMusicServicePreviousRestoresHistoryAndKeepsCurrentAsNext(t *testing.T) {
+	service, engine := newTestMusicService(t, true)
+	defer service.Shutdown()
+	first := music.Track{ID:"first", SourceID:"test", Title:"First song"}
+	second := music.Track{ID:"second", SourceID:"test", Title:"Second song"}
+	if _, err := service.Enqueue(first, ""); err != nil { t.Fatal(err) }
+	if err := service.PlayNext(); err != nil { t.Fatal(err) }
+	if _, err := service.Enqueue(second, ""); err != nil { t.Fatal(err) }
+	if err := service.Next(); err != nil { t.Fatal(err) }
+	if engine.loaded == nil || engine.loaded.ID != "second" { t.Fatalf("expected second track, got %#v", engine.loaded) }
+	if err := service.Previous(); err != nil { t.Fatal(err) }
+	if engine.loaded == nil || engine.loaded.ID != "first" { t.Fatalf("previous did not restore first track: %#v", engine.loaded) }
+	if err := service.Next(); err != nil { t.Fatal(err) }
+	if engine.loaded == nil || engine.loaded.ID != "second" { t.Fatalf("next did not restore second track: %#v", engine.loaded) }
+}
