@@ -47,3 +47,16 @@ func TestQueueRejectsInvalidTrack(t *testing.T) {
 	if got := NewQueue(0).Snapshot().Capacity; got != DefaultQueueCapacity { t.Fatalf("default capacity = %d", got) }
 	if got := NewQueue(MaxQueueCapacity + 1).Snapshot().Capacity; got != MaxQueueCapacity { t.Fatalf("max capacity = %d", got) }
 }
+
+func TestQueueEnqueueFrontPreservesPendingOrder(t *testing.T) {
+	queue := NewQueue(3)
+	first, _ := queue.Enqueue(testTrack("first"), "")
+	second, _ := queue.Enqueue(testTrack("second"), "")
+	front := QueueItem{ID:"previous", Track:testTrack("previous"), AddedAt:first.AddedAt}
+	if err := queue.EnqueueFront(front); err != nil { t.Fatal(err) }
+	snapshot := queue.Snapshot()
+	if len(snapshot.Items) != 3 || snapshot.Items[0].ID != front.ID || snapshot.Items[1].ID != first.ID || snapshot.Items[2].ID != second.ID {
+		t.Fatalf("unexpected front-inserted order: %#v", snapshot.Items)
+	}
+	if err := queue.EnqueueFront(front); err != ErrQueueFull { t.Fatalf("expected full queue error, got %v", err) }
+}
