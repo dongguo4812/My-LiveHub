@@ -18,7 +18,6 @@ import (
 	"github.com/Akegarasu/blivedm-go/message"
 	eventstream "github.com/dongguo4812/My-LiveHub/app/internal/events"
 	"github.com/dongguo4812/My-LiveHub/app/internal/media/resource"
-	"github.com/dongguo4812/My-LiveHub/app/internal/platform"
 )
 
 type streamClient interface {
