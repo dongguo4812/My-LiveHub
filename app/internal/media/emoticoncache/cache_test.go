@@ -101,3 +101,30 @@ func TestCacheFilesAreIsolatedByPlatform(t *testing.T) {
 	manager.ServeHTTP(res, req)
 	if res.Code != http.StatusNotFound { t.Fatalf("unknown platform route returned %d", res.Code) }
 }
+
+func TestImageExtensionUsesDetectedImageFormat(t *testing.T) {
+	for _, tc := range []struct { header, detected, want string; ok bool }{
+		{"image/jpeg", "image/png", ".png", true},
+		{"image/png; charset=binary", "application/octet-stream", ".png", true},
+		{"image/webp", "application/octet-stream", ".webp", true},
+		{"text/html", "text/html; charset=utf-8", "", false},
+		{"image/png", "text/html; charset=utf-8", "", false},
+	} {
+		got, ok := imageExtension(tc.header, tc.detected)
+		if got != tc.want || ok != tc.ok { t.Errorf("imageExtension(%q, %q) = %q, %v; want %q, %v", tc.header, tc.detected, got, ok, tc.want, tc.ok) }
+	}
+}
+
+func TestCachedURLFindsFileByDetectedExtension(t *testing.T) {
+	root := t.TempDir()
+	manager, err := New(root, nil)
+	if err != nil { t.Fatal(err) }
+	raw := "https://i0.hdslb.com/bfs/live/image"
+	key, _, err := cacheKey(raw, BilibiliURLPolicy)
+	if err != nil { t.Fatal(err) }
+	platformRoot := filepath.Join(root, "bilibili")
+	if err := os.MkdirAll(platformRoot, 0o755); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(platformRoot, key+".png"), []byte("png"), 0o600); err != nil { t.Fatal(err) }
+	want := routePrefix + "bilibili/" + key + ".png"
+	if got := manager.CachedURLFor("bilibili", raw); got != want { t.Fatalf("cached URL = %q, want %q", got, want) }
+}
