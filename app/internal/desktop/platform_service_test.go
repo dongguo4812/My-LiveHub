@@ -81,3 +81,15 @@ func TestSimulatePlatformEventDistinguishesSameEmoticonIDAcrossScopes(t *testing
 		t.Fatalf("common emoticon resolved incorrectly: %+v", commonEvent.Emoticons)
 	}
 }
+func TestSimulatePlatformEventUsesOneResourceForSameNameAcrossScopes(t *testing.T) {
+	catalog := resource.NewCatalog()
+	catalog.Register(resource.Resource{PlatformID: "bilibili", SourceID: "common", Type: resource.TypeEmoticon, ID: "same-id", Name: "[dog]", ImageURL: "https://img.test/common-dog.png"})
+	catalog.Register(resource.Resource{PlatformID: "bilibili", SourceID: "123", Type: resource.TypeEmoticon, ID: "same-id", Name: "[dog]", ImageURL: "https://img.test/room-dog.png"})
+	service := NewPlatformService(nil, eventstream.NewBuffer(), catalog)
+
+	event, err := service.SimulatePlatformEventWithMediaResources("bilibili", "danmaku", 7, "viewer", "[dog][dog]", "", 0, 0, 0, 0, 0, 0, 0, "", "", []string{"common\\x00same-id", "123\\x00same-id"})
+	if err != nil { t.Fatal(err) }
+	if len(event.Emoticons) != 1 || event.Emoticons[0].URL != "https://img.test/common-dog.png" || event.Emoticons[0].ResourceID != "common:same-id" {
+		t.Fatalf("same-name emoticon token resolved to multiple resources: %+v", event.Emoticons)
+	}
+}
