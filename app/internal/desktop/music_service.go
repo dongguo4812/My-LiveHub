@@ -216,8 +216,18 @@ func (s *MusicService) SaveConfig(value config.MusicConfig) error {
 		return err
 	}
 	s.mu.Lock()
+	wasEnabled := s.value.Enabled
 	s.value = cloneMusicConfig(value)
 	s.mu.Unlock()
+	if wasEnabled && !value.Enabled {
+		s.cancelPlaybackWatcher()
+		_ = s.engine.Stop(context.Background())
+		s.queue.Clear()
+		s.queue.FinishCurrent()
+		s.mu.Lock()
+		s.history = nil
+		s.mu.Unlock()
+	}
 	return nil
 }
 
@@ -248,8 +258,10 @@ func (s *MusicService) search(parent context.Context, keyword string) (MusicSear
 func (s *MusicService) Enqueue(track music.Track, requestedBy string) (music.QueueItem, error) {
 	if s == nil || s.queue == nil { return music.QueueItem{}, errors.New("music queue is unavailable") }
 	s.mu.RLock()
+	moduleEnabled := s.value.Enabled
 	enabled := s.value.Sources[track.SourceID]
 	s.mu.RUnlock()
+	if !moduleEnabled { return music.QueueItem{}, errors.New("music module is disabled") }
 	if !enabled { return music.QueueItem{}, fmt.Errorf("music source %q is disabled", track.SourceID) }
 	if _, ok := s.sources.Get(track.SourceID); !ok { return music.QueueItem{}, fmt.Errorf("music source %q is not available", track.SourceID) }
 	return s.queue.Enqueue(track, requestedBy)
