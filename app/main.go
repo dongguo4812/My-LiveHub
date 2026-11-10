@@ -99,7 +99,9 @@ func main() {
 		}); err != nil {
 			log.Fatalf("migrate music configuration: %v", err)
 		}
+		musicConfig = migratedMusicConfig
 	}
+	musicService := desktop.NewMusicService(configManager, musicConfig)
 	voiceConfig, err := config.LoadTyped[config.VoiceConfig](configManager, "voice.json", func(value config.VoiceConfig) error {
 		return value.Validate()
 	})
@@ -172,6 +174,7 @@ func main() {
 			application.NewService(desktop.NewAppearanceService(configManager, appConfig)),
 			application.NewService(danmakuDisplayService),
 			application.NewService(voiceService),
+			application.NewService(musicService),
 		},
 	})
 	wailsApp = app
