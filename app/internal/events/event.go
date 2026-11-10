@@ -150,7 +150,7 @@ func (b *Buffer) AddSimulationEvent(platformID string, input SimulationEventInpu
 }
 
 // EnrichGuardEvent fills missing user profile fields on a recent guard event.
-func (b *Buffer) EnrichGuardEvent(eventID uint64, userName, avatar string) bool {
+func (b *Buffer) EnrichGuardEvent(eventID uint64, userName, avatar string, actualAmount *float64) bool {
 	if b == nil || eventID == 0 {
 		return false
 	}
@@ -166,6 +166,9 @@ func (b *Buffer) EnrichGuardEvent(eventID uint64, userName, avatar string) bool 
 		}
 		if item.Avatar == "" {
 			item.Avatar = strings.TrimSpace(avatar)
+		}
+		if actualAmount != nil {
+			item.Amount = *actualAmount
 		}
 		return true
 	}
