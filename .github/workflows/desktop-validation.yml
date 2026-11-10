@@ -147,8 +147,8 @@ jobs:
             throw "mpv failed to start (exit code $($process.ExitCode)): $($output -join [Environment]::NewLine)"
           }
 
-          $version = $output | Select-String -Pattern "^mpv v?0\\.42\\.0"
-          if (!$version) {
-            throw "Unexpected mpv version output: $($output -join [Environment]::NewLine)"
+          $versionText = ($output -join [Environment]::NewLine).TrimStart([char]0xFEFF)
+          if ($versionText -notlike "*mpv v0.42.0*") {
+            throw "Unexpected mpv version output: $versionText"
           }
           $output | Select-Object -First 5 | ForEach-Object { Write-Host $_ }
