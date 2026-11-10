@@ -7,8 +7,8 @@
   "search_limit": 20,
   "sources": {
     "netease": true,
-    "qq_music": true,
-    "kugou": true,
+    "qq_music": false,
+    "kugou": false,
     "kuwo": true
   }
 }
