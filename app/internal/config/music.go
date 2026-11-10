@@ -5,17 +5,20 @@ import (
 	"strings"
 )
 
-const CurrentMusicConfigVersion = 1
+const CurrentMusicConfigVersion = 2
 
 type MusicConfig struct {
 	ConfigVersion  int             `json:"config_version"`
 	Enabled        bool            `json:"enabled"`
 	CommandEnabled bool            `json:"command_enabled"`
 	CommandPrefix  string          `json:"command_prefix"`
-	DefaultPlayer  string          `json:"default_player"`
 	QueueCapacity  int             `json:"queue_capacity"`
 	SearchLimit    int             `json:"search_limit"`
-	Players        map[string]bool `json:"players"`
+	Sources        map[string]bool `json:"sources"`
+
+	// Legacy fields are accepted only to migrate existing local configuration.
+	LegacyDefaultPlayer string          `json:"default_player,omitempty"`
+	LegacyPlayers       map[string]bool `json:"players,omitempty"`
 }
 
 func DefaultMusicConfig() MusicConfig {
@@ -24,17 +27,53 @@ func DefaultMusicConfig() MusicConfig {
 		Enabled: false,
 		CommandEnabled: true,
 		CommandPrefix: "点歌",
-		DefaultPlayer: "",
 		QueueCapacity: 100,
 		SearchLimit: 20,
-		Players: map[string]bool{
-			"qq_music": true,
+		Sources: map[string]bool{
 			"netease": true,
+			"qq_music": true,
 			"kugou": true,
 			"kuwo": true,
-			"luoxue": true,
 		},
 	}
+}
+
+// MigrateMusicConfig converts the former independent-player settings into
+// source preferences. Luoxue was a player, not a source, so it is not carried
+// forward as an enabled source.
+func MigrateMusicConfig(c MusicConfig) (MusicConfig, bool) {
+	if c.ConfigVersion >= CurrentMusicConfigVersion && c.LegacyPlayers == nil && c.LegacyDefaultPlayer == "" {
+		return c, false
+	}
+	migrated := DefaultMusicConfig()
+	migrated.Enabled = c.Enabled
+	migrated.CommandEnabled = c.CommandEnabled
+	if strings.TrimSpace(c.CommandPrefix) != "" {
+		migrated.CommandPrefix = c.CommandPrefix
+	}
+	if c.QueueCapacity >= 1 && c.QueueCapacity <= 1000 {
+		migrated.QueueCapacity = c.QueueCapacity
+	}
+	if c.SearchLimit >= 1 && c.SearchLimit <= 50 {
+		migrated.SearchLimit = c.SearchLimit
+	}
+	if c.LegacyPlayers != nil {
+		for id, enabled := range c.LegacyPlayers {
+			if id == "netease" || id == "qq_music" || id == "kugou" || id == "kuwo" {
+				migrated.Sources[id] = enabled
+			}
+		}
+	}
+	// A usable source must remain selected. The old "luoxue only" selection
+	// cannot be migrated because Luoxue is no longer a playback backend.
+	hasEnabled := false
+	for _, enabled := range migrated.Sources {
+		hasEnabled = hasEnabled || enabled
+	}
+	if !hasEnabled {
+		migrated.Sources["netease"] = true
+	}
+	return migrated, true
 }
 
 func (c MusicConfig) Validate() error {
@@ -53,18 +92,18 @@ func (c MusicConfig) Validate() error {
 	if c.SearchLimit < 1 || c.SearchLimit > 50 {
 		return fmt.Errorf("music search limit must be between 1 and 50")
 	}
-	for id := range c.Players {
-		if strings.TrimSpace(id) == "" {
-			return fmt.Errorf("music player ID cannot be empty")
-		}
+	if len(c.Sources) == 0 {
+		return fmt.Errorf("at least one music source must be configured")
 	}
-	if c.DefaultPlayer != "" {
-		if _, ok := c.Players[c.DefaultPlayer]; !ok {
-			return fmt.Errorf("default music player %q is not configured", c.DefaultPlayer)
+	hasEnabled := false
+	for id, enabled := range c.Sources {
+		if strings.TrimSpace(id) == "" {
+			return fmt.Errorf("music source ID cannot be empty")
 		}
-		if !c.Players[c.DefaultPlayer] {
-			return fmt.Errorf("default music player %q is disabled", c.DefaultPlayer)
-		}
+		hasEnabled = hasEnabled || enabled
+	}
+	if !hasEnabled {
+		return fmt.Errorf("at least one music source must be enabled")
 	}
 	return nil
 }
