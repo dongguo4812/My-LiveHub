@@ -67,6 +67,10 @@ $installedExecutable = Join-Path $destinationPath "mpv.exe"
 if (!(Test-Path -LiteralPath $installedExecutable -PathType Leaf)) {
     throw "mpv.exe was not installed at the expected destination: $installedExecutable"
 }
+$installedLicense = Join-Path $destinationPath $licenseFile.Name
+if (!(Test-Path -LiteralPath $installedLicense -PathType Leaf)) {
+    Copy-Item -LiteralPath $licenseFile.FullName -Destination $installedLicense -Force
+}
 
 Write-Host "mpv $version runtime installed locally."
 Write-Host "Executable: $installedExecutable"
