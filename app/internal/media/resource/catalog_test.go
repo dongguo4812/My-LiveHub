@@ -17,7 +17,7 @@ func TestCatalogFindUsesCompleteResourceIdentity(t *testing.T) {
 	if !ok || got.ImageURL != items[0].ImageURL { t.Fatalf("Find returned %+v, found=%v", got, ok) }
 	for _, query := range [][4]string{
 		{"bilibili", "99999", string(TypeGift), "30607"},
-		{"douyin", "12345", string(TypeGift), "30607"},
+		{"twitch", "12345", string(TypeGift), "30607"},
 		{"bilibili", "12345", string(TypeEmoticon), "30607"},
 		{"bilibili", "12345", string(TypeGift), "missing"},
 	} {
