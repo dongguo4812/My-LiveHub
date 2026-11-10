@@ -11,14 +11,14 @@ import (
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
 	"github.com/dongguo4812/My-LiveHub/app/internal/danmaku"
 	eventstream "github.com/dongguo4812/My-LiveHub/app/internal/events"
-	"github.com/dongguo4812/My-LiveHub/app/internal/media/emoticoncache"
+	"github.com/dongguo4812/My-LiveHub/app/internal/media/imagecache"
 )
 
 type DanmakuDisplayService struct {
 	manager   *config.Manager
 	events    *eventstream.Buffer
 	processor *danmaku.Processor
-	imageCache *emoticoncache.Manager
+	imageCache *imagecache.Manager
 	mu        sync.RWMutex
 	current   config.DanmakuDisplayConfig
 	windowCfg config.DanmakuWindowConfig
@@ -28,7 +28,7 @@ type DanmakuDisplayService struct {
 	saveTimer *time.Timer
 }
 
-func NewDanmakuDisplayService(manager *config.Manager, current config.DanmakuDisplayConfig, windowCfg config.DanmakuWindowConfig, buffer *eventstream.Buffer, imageCache *emoticoncache.Manager) *DanmakuDisplayService {
+func NewDanmakuDisplayService(manager *config.Manager, current config.DanmakuDisplayConfig, windowCfg config.DanmakuWindowConfig, buffer *eventstream.Buffer, imageCache *imagecache.Manager) *DanmakuDisplayService {
 	return &DanmakuDisplayService{
 		manager: manager, current: current, windowCfg: windowCfg,
 		events: buffer, processor: danmaku.NewProcessor(), imageCache: imageCache,
