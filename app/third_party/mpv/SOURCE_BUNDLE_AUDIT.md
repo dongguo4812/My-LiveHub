@@ -112,3 +112,20 @@ For the exact FFmpeg-Builds image digest used by mpv, obtain and preserve:
 6. License texts and corresponding source for all statically linked libraries, including transitive dependencies.
 
 If these records cannot be recovered from the historical build, the defensible route is to build a new pinned toolchain and dependency image under My-LiveHub-controlled CI, then generate the SBOM and corresponding-source archive during that build. Do not represent a new rebuild as the source for the already-published upstream mpv ZIP.
+
+
+## Follow-up refinement: distinguish FFmpeg source from dependency recipes
+
+A further review of the current FFmpeg-Builds `build.sh` narrows the earlier finding:
+
+- The script sets `GIT_BRANCH` to `master` by default (unless overridden) and performs `git clone --branch='$GIT_BRANCH'` for FFmpeg inside the image. This is a floating FFmpeg source selection, not an immutable commit pin.
+- The script packages the installed FFmpeg prefix and copies the selected FFmpeg license file into the output. It does not package the FFmpeg source checkout or the complete dependency source tree.
+- The repository README points to `scripts.d/` as the per-package build recipe inventory. Those package scripts must be audited individually at the exact FFmpeg-Builds commit used for the image. It would be inaccurate to infer from the FFmpeg clone behavior alone that every third-party package is also floating; equally, it would be unsafe to assume their revisions are pinned without inspecting the exact scripts and generated Dockerfile.
+- The current GitHub Actions workflow includes a `download-cache` artifact flow for cached dependency downloads. This is a possible source of additional historical evidence, but no such artifact has yet been tied to the exact image digest observed in the mpv build. It therefore does not currently close the provenance gap.
+
+References reviewed:
+- https://github.com/BtbN/FFmpeg-Builds/blob/master/build.sh
+- https://github.com/BtbN/FFmpeg-Builds/blob/master/README.md
+- https://github.com/BtbN/FFmpeg-Builds/blob/master/.github/workflows/build.yml
+
+The remaining blocking question is not whether FFmpeg-Builds has package recipes; it is whether we can associate one exact repository revision, generated build definition, downloaded source set, base/toolchain image set, and build configuration with the specific historical image digest consumed by mpv v0.42.0. Until that association is proven, the historical ZIP's full corresponding-source closure remains unverified.
