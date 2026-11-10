@@ -82,7 +82,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("load Bilibili configuration: %v", err)
 	}
-	bilibiliEvents := eventstream.NewBuffer()
+	eventBus := eventstream.NewBus()
+	bilibiliEvents := eventstream.NewBuffer(eventBus)
 	cacheDir := ""
 	if environment == config.EnvironmentDevelopment {
 		if workingDir, getwdErr := os.Getwd(); getwdErr == nil {
