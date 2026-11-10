@@ -83,7 +83,7 @@ onUnmounted(() => {
       <div class="planned-platform-content"><span>抖音直播平台</span><p>已预留平台入口，登录、直播间连接及弹幕功能将在后续版本开发。</p></div>
     </el-card>
     <el-card shadow="never">
-      <template #header><div class="card-heading"><span>连接状态</span><el-tag size="small" effect="plain">{{ platforms.length }} 个适配器</el-tag></div></template>
+      <template #header><div class="card-heading"><span>直播间连接状态</span><el-tag size="small" effect="plain">{{ platforms.length }} 个适配器</el-tag></div></template>
       <el-empty v-if="platforms.length === 0" description="尚未接入直播平台适配器" :image-size="100"><template #default><p class="empty-note">平台连接管理服务已就绪。</p></template></el-empty>
       <el-table v-else :data="platforms" row-key="platform_id">
         <el-table-column label="直播平台" min-width="110"><template #default="{ row }">{{ row.platform_id === 'bilibili' ? '哔哩哔哩' : row.platform_id }}</template></el-table-column>
