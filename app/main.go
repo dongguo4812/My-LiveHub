@@ -84,6 +84,22 @@ func main() {
 	if err != nil {
 		log.Fatalf("load Bilibili configuration: %v", err)
 	}
+	musicConfig, err := config.LoadTyped[config.MusicConfig](configManager, "music.json", func(value config.MusicConfig) error {
+		if value.ConfigVersion == 1 {
+			return nil
+		}
+		return value.Validate()
+	})
+	if err != nil {
+		log.Fatalf("load music configuration: %v", err)
+	}
+	if migratedMusicConfig, changed := config.MigrateMusicConfig(musicConfig); changed {
+		if err := config.SaveTyped(configManager, "music.json", migratedMusicConfig, func(value config.MusicConfig) error {
+			return value.Validate()
+		}); err != nil {
+			log.Fatalf("migrate music configuration: %v", err)
+		}
+	}
 	voiceConfig, err := config.LoadTyped[config.VoiceConfig](configManager, "voice.json", func(value config.VoiceConfig) error {
 		return value.Validate()
 	})
