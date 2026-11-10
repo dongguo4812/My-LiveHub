@@ -106,29 +106,43 @@ func (e *MpvEngine) Start(ctx context.Context) error {
 func (e *MpvEngine) commandIPC(ctx context.Context, args ...any) (json.RawMessage, error) {
 	if e == nil { return nil, ErrPlaybackEngineUnavailable }
 	if ctx == nil { return nil, errors.New("mpv command context is required") }
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	e.commandMu.Lock()
 	defer e.commandMu.Unlock()
 	e.mu.RLock()
 	pipePath := e.pipePath
 	e.mu.RUnlock()
 	if pipePath == "" { return nil, ErrPlaybackEngineUnavailable }
-	select { case <-ctx.Done(): return nil, ctx.Err(); default: }
 
 	conn, err := os.OpenFile(pipePath, os.O_RDWR, 0)
 	if err != nil { return nil, fmt.Errorf("connect to mpv IPC: %w", err) }
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(5*time.Second))
 	request := map[string]any{"command":args, "request_id":e.requestID.Add(1)}
 	if err := json.NewEncoder(conn).Encode(request); err != nil { return nil, fmt.Errorf("send mpv command: %w", err) }
-	var response struct {
-		Error string `json:"error"`
-		Data json.RawMessage `json:"data"`
+
+	type commandResponse struct {
+		response struct {
+			Error string `json:"error"`
+			Data json.RawMessage `json:"data"`
+		}
+		err error
 	}
-	if err := json.NewDecoder(bufio.NewReader(conn)).Decode(&response); err != nil {
-		return nil, fmt.Errorf("read mpv response: %w", err)
+	result := make(chan commandResponse, 1)
+	go func() {
+		var item commandResponse
+		item.err = json.NewDecoder(bufio.NewReader(conn)).Decode(&item.response)
+		result <- item
+	}()
+	select {
+	case <-ctx.Done():
+		_ = conn.Close()
+		return nil, ctx.Err()
+	case item := <-result:
+		if item.err != nil { return nil, fmt.Errorf("read mpv response: %w", item.err) }
+		if item.response.Error != "success" { return nil, fmt.Errorf("mpv command failed: %s", item.response.Error) }
+		return item.response.Data, nil
 	}
-	if response.Error != "success" { return nil, fmt.Errorf("mpv command failed: %s", response.Error) }
-	return response.Data, nil
 }
 
 func (e *MpvEngine) Load(ctx context.Context, resource PlaybackResource, track Track) error {
