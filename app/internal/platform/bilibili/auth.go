@@ -249,11 +249,11 @@ func (m *AuthManager) exchangeLoginTicket(ctx context.Context, rawURL string) (m
 				values[name] = value
 			}
 		}
-		if previousCheckRedirect != nil {
-			return previousCheckRedirect(req, via)
-		}
 		if len(via) >= 10 {
 			return errors.New("too many Bilibili ticket redirects")
+		}
+		if previousCheckRedirect != nil {
+			return previousCheckRedirect(req, via)
 		}
 		return nil
 	}
