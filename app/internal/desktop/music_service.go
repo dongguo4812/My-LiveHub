@@ -177,8 +177,9 @@ func (s *MusicService) startPlaybackWatcher() {
 }
 
 func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
-	ticker := time.NewTicker(time.Second)
+	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
+	sawEndPosition := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -186,7 +187,10 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 		case <-ticker.C:
 			snapshot, err := s.engine.Snapshot(ctx)
 			if err != nil { continue }
-			if snapshot.State != music.PlaybackStopped || snapshot.DurationMS <= 0 || snapshot.PositionMS < snapshot.DurationMS-1200 {
+			if snapshot.DurationMS > 0 && snapshot.PositionMS >= snapshot.DurationMS-1000 {
+				sawEndPosition = true
+			}
+			if !sawEndPosition || snapshot.State != music.PlaybackStopped {
 				continue
 			}
 			s.mu.RLock()
