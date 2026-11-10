@@ -114,3 +114,28 @@ func TestBusSerializesConcurrentPublishCalls(t *testing.T) {
 		seen[id] = true
 	}
 }
+
+func TestBusAllowsReentrantPublish(t *testing.T) {
+	bus := NewBus()
+	var received []string
+	bus.Subscribe(func(event Event) {
+		received = append(received, event.Content)
+		if event.Content == "outer" {
+			bus.Publish(Event{Content: "inner"})
+		}
+	})
+	bus.Publish(Event{Content: "outer"})
+	if !reflect.DeepEqual(received, []string{"outer", "inner"}) {
+		t.Fatalf("received=%v want outer then inner", received)
+	}
+}
+
+func TestBufferSubscriptionReceivesAddedEvents(t *testing.T) {
+	buffer := NewBuffer(NewBus())
+	var received Event
+	buffer.Subscribe(func(event Event) { received = event })
+	added := buffer.Add(Event{PlatformID: "bilibili", Type: "follow"})
+	if received.ID != added.ID || received.Type != "follow" {
+		t.Fatalf("subscription did not receive buffer event: %+v", received)
+	}
+}
