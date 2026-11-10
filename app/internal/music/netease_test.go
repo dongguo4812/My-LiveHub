@@ -9,8 +9,8 @@ import (
 
 func TestNetEaseSourceSearch(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/search/get/web" { t.Fatalf("unexpected path %s", r.URL.Path) }
-		if r.URL.Query().Get("s") != "稻香" || r.URL.Query().Get("limit") != "5" { t.Fatalf("unexpected query: %s", r.URL.RawQuery) }
+		if r.URL.Path != "/api/search/get/web" { t.Errorf("unexpected path %s", r.URL.Path) }
+		if r.URL.Query().Get("s") != "稻香" || r.URL.Query().Get("limit") != "5" { t.Errorf("unexpected query: %s", r.URL.RawQuery) }
 		if r.Header.Get("Referer") == "" { t.Fatal("expected platform referer") }
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"code":200,"result":{"songs":[{"id":123,"name":"稻香","duration":223000,"artists":[{"name":"周杰伦"}],"album":{"name":"魔杰座","picUrl":"https://img.invalid/cover.jpg"}}]}}`))
