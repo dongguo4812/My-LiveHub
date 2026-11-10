@@ -159,3 +159,50 @@ func TestPersistentCatalogMissingRootAndCorruptFileProtection(t *testing.T) {
 		t.Fatalf("unreadable catalog was overwritten: got %q want %q", preserved, original)
 	}
 }
+
+
+func TestPersistentCatalogPreservesEmoticonDirectoryOrder(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "media-resources")
+	catalog, err := NewPersistentCatalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Deliberately make alphabetical order differ from the platform order.
+	items := []Resource{
+		{PlatformID: "bilibili", SourceID: "common", Type: TypeEmoticon, ID: "emoji_2", Name: "[z-last]", ImageURL: "https://img.test/z.png", SortOrder: 2},
+		{PlatformID: "bilibili", SourceID: "12345", Type: TypeEmoticon, ID: "room_1", Name: "[a-first]", ImageURL: "https://img.test/a.png", SortOrder: 1},
+		{PlatformID: "bilibili", SourceID: "common", Type: TypeEmoticon, ID: "emoji_3", Name: "[m-third]", ImageURL: "https://img.test/m.png", SortOrder: 3},
+	}
+	for _, item := range items {
+		if !catalog.Register(item) {
+			t.Fatalf("register failed: %+v", item)
+		}
+	}
+	got := catalog.List("bilibili", "", TypeEmoticon)
+	if len(got) != len(items) {
+		t.Fatalf("resource count = %d, want %d", len(got), len(items))
+	}
+	for i, want := range []string{"[a-first]", "[z-last]", "[m-third]"} {
+		if got[i].Name != want {
+			t.Fatalf("before persistence item %d = %q, want %q", i, got[i].Name, want)
+		}
+	}
+	if err := catalog.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	restored, err := NewPersistentCatalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Close()
+	got = restored.List("bilibili", "", TypeEmoticon)
+	for i, want := range []string{"[a-first]", "[z-last]", "[m-third]"} {
+		if got[i].Name != want {
+			t.Fatalf("after restart item %d = %q, want %q", i, got[i].Name, want)
+		}
+		if got[i].SortOrder != i+1 {
+			t.Fatalf("after restart item %d sort order = %d, want %d", i, got[i].SortOrder, i+1)
+		}
+	}
+}
