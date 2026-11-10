@@ -129,8 +129,8 @@ func (b *Buffer) AddSimulationEvent(platformID string, input SimulationEventInpu
 		if input.Amount <= 0 || input.Content == "" || input.Duration < 0 { return Event{}, errors.New("SC 金额、留言或展示时长不正确") }
 		event.Amount, event.Duration = input.Amount, input.Duration
 	case "guard":
-		if input.GuardLevel < 1 || input.GuardLevel > 3 || input.Months < 1 { return Event{}, errors.New("舰队等级或开通月份不正确") }
-		event.GuardLevel, event.Months = input.GuardLevel, input.Months
+		if input.GuardLevel < 1 || input.GuardLevel > 3 || input.Months < 1 || input.Amount < 0 { return Event{}, errors.New("舰队等级、开通月份或金额不正确") }
+		event.GuardLevel, event.Months, event.Amount = input.GuardLevel, input.Months, input.Amount
 		labels := map[int]string{1: "总督", 2: "提督", 3: "舰长"}
 		event.Content = fmt.Sprintf("开通了 %s × %d 个月", labels[input.GuardLevel], input.Months)
 	case "follow":
