@@ -70,6 +70,11 @@ func (p *Processor) Process(input []events.Event, settings config.DanmakuDisplay
 							lastLikeIndex[existingKey] = likeIndex - 1
 						}
 					}
+					for existingKey, giftIndex := range lastGiftIndex {
+						if giftIndex > index {
+							lastGiftIndex[existingKey] = giftIndex - 1
+						}
+					}
 					lastLikeIndex[key] = len(result) - 1
 					continue
 				}
@@ -96,6 +101,11 @@ func (p *Processor) Process(input []events.Event, settings config.DanmakuDisplay
 					for giftKey, giftIndex := range lastGiftIndex {
 						if giftIndex > index {
 							lastGiftIndex[giftKey] = giftIndex - 1
+						}
+					}
+					for likeKey, likeIndex := range lastLikeIndex {
+						if likeIndex > index {
+							lastLikeIndex[likeKey] = likeIndex - 1
 						}
 					}
 					lastGiftIndex[key] = len(result) - 1
