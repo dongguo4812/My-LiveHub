@@ -254,6 +254,21 @@ func TestAdapterMapsSingleProtobufEmoticon(t *testing.T) {
 }
 
 
+func TestFetchRoomLiveStatusMapsAllBilibiliStates(t *testing.T) {
+	for _, test := range []struct { value int; want string }{{0, "offline"}, {1, "live"}, {2, "loop"}} {
+		t.Run(test.want, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if got := r.URL.Query().Get("id"); got != "12345" { t.Errorf("room ID query = %q, want 12345", got) }
+				_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{"live_status": test.value}})
+			}))
+			defer server.Close()
+			got, err := fetchRoomLiveStatus(context.Background(), server.Client(), server.URL, 12345)
+			if err != nil { t.Fatal(err) }
+			if got != test.want { t.Fatalf("live status = %q, want %q", got, test.want) }
+		})
+	}
+}
+
 func TestAdapterMapsLiveStartAndStopStatus(t *testing.T) {
 	a, err := NewAdapter(newAdapterTestAuth(t), 12345, eventstream.NewBuffer())
 	if err != nil { t.Fatal(err) }

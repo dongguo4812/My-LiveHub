@@ -20,8 +20,8 @@ const avatarSrc = computed(() => {
 watch(avatarSrc, () => { avatarLoadFailed.value = false })
 const statusLabels: Record<string, string> = { disconnected:'未连接', connecting:'连接中', connected:'已连接', disconnecting:'断开中', failed:'连接失败' }
 const statusTypes: Record<string, 'info'|'warning'|'success'|'danger'> = { disconnected:'info', connecting:'warning', connected:'success', disconnecting:'warning', failed:'danger' }
-const liveStatusLabels: Record<string, string> = { live: '直播中', offline: '未开播', unknown: '等待状态同步' }
-const liveStatusTypes: Record<string, 'info'|'success'> = { live: 'success', offline: 'info', unknown: 'info' }
+const liveStatusLabels: Record<string, string> = { live: '直播中', offline: '未开播', loop: '轮播中', unknown: '等待状态同步' }
+const liveStatusTypes: Record<string, 'info'|'success'> = { live: 'success', offline: 'info', loop: 'info', unknown: 'info' }
 let pollTimer: ReturnType<typeof setInterval> | undefined
 let eventTimer: ReturnType<typeof setInterval> | undefined
 const bilibiliConnected = computed(() => platforms.value.some(item => item.platform_id === 'bilibili' && item.status !== 'disconnected'))
