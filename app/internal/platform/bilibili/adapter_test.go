@@ -229,9 +229,34 @@ func TestAdapterConnectStartsAuthenticatedStreamAndReceivesDanmaku(t *testing.T)
 	if err := a.Connect(context.Background()); err != nil { t.Fatal(err) }
 	fake.mu.Lock(); started, cookie := fake.started, fake.cookie; fake.mu.Unlock()
 	if !started || cookie != "SESSDATA=test-session" { t.Fatalf("stream started=%v cookie=%q", started, cookie) }
-	fake.emit(&message.Danmaku{Sender: &message.User{Uid: 7, Uname: "viewer"}, Content: "hello", Timestamp: 1_700_000_000})
+	medal := &message.Medal{Name: "粉丝勋章", Level: 12, Color: 0x123456}
+	fake.emit(&message.Danmaku{
+		Sender: &message.User{
+			Uid: 7, Uname: "viewer", Face: "https://img.test/viewer.png",
+			Admin: true, UserLevel: 30, GuardLevel: 2, Medal: medal,
+		},
+		Content: "hello", Timestamp: 1_700_000_000, Color: 0xabcdef,
+	})
 	got := a.events.Snapshot()
-	if len(got) != 1 || got[0].RoomID != 12345 || got[0].Content != "hello" { t.Fatalf("unexpected received events: %+v", got) }
+	if len(got) != 1 {
+		t.Fatalf("unexpected received events: %+v", got)
+	}
+	event := got[0]
+	if event.PlatformID != "bilibili" || event.Source != "live" || event.Type != "danmaku" || event.RoomID != 12345 {
+		t.Fatalf("unexpected danmaku identity: %+v", event)
+	}
+	if event.UserID != 7 || event.UserName != "viewer" || event.Avatar != "https://img.test/viewer.png" {
+		t.Fatalf("danmaku sender identity was not preserved: %+v", event)
+	}
+	if !event.IsModerator || event.UserLevel != 30 || event.GuardLevel != 2 {
+		t.Fatalf("danmaku user levels were not preserved: %+v", event)
+	}
+	if event.FanMedalName != "粉丝勋章" || event.FanMedalLevel != 12 || event.FanMedalColor != 0x123456 {
+		t.Fatalf("danmaku fan medal was not preserved: %+v", event)
+	}
+	if event.Content != "hello" || event.Timestamp != 1_700_000_000_000 || event.Color != 0xabcdef {
+		t.Fatalf("danmaku content/time/color was not preserved: %+v", event)
+	}
 	if err := a.Disconnect(context.Background()); err != nil { t.Fatal(err) }
 	if len(a.events.Snapshot()) != 1 { t.Fatal("disconnect should not clear received event history") }
 }
