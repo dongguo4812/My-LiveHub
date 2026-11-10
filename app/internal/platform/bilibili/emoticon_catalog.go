@@ -121,8 +121,10 @@ func fetchRoomEmoticonResources(ctx context.Context, httpClient *http.Client, ro
 	}
 
 	items := make([]resource.Resource, 0)
+	sortOrder := 0
 	for _, pkg := range payload.Data.Packages {
 		for _, emoticon := range pkg.Emoticons {
+			sortOrder++
 			imageURL := normalizeEmoticonURL(emoticon.URL)
 			if imageURL == "" {
 				continue
@@ -141,6 +143,7 @@ func fetchRoomEmoticonResources(ctx context.Context, httpClient *http.Client, ro
 				ImageURL:   imageURL,
 				Width:      emoticon.Width,
 				Height:     emoticon.Height,
+				SortOrder:  sortOrder,
 			})
 		}
 	}
