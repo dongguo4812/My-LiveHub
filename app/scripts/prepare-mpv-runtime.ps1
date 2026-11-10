@@ -1,9 +1,13 @@
 [CmdletBinding()]
 param(
-    [string]$Destination = (Join-Path $PSScriptRoot "..\\runtime\\mpv")
+    [string]$Destination = ""
 )
 
 $ErrorActionPreference = "Stop"
+
+if ([string]::IsNullOrWhiteSpace($Destination)) {
+    $Destination = Join-Path $PSScriptRoot "..\\runtime\\mpv"
+}
 
 $version = "0.42.0"
 $assetName = "mpv-v$version-x86_64-w64-mingw32-full.zip"
