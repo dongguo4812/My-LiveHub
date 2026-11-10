@@ -182,6 +182,9 @@ func main() {
 	desktop.AttachDanmakuDisplayApplication(danmakuDisplayService, app)
 	app.OnShutdown(func() {
 		danmakuDisplayService.CloseWindowForShutdown()
+		if err := musicService.Shutdown(); err != nil {
+			log.Printf("stop music playback engine: %v", err)
+		}
 		if err := mediaCatalog.Close(); err != nil {
 			log.Printf("flush local media resource catalog: %v", err)
 		}
