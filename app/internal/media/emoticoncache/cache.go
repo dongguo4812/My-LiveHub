@@ -46,7 +46,7 @@ var cacheExtensions = []string{".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif"
 func imageExtension(contentType string, sniffed string) (string, bool) {
 	mediaType, _, err := mime.ParseMediaType(contentType)
 	if err != nil { return "", false }
-	if strings.HasPrefix(sniffed, "image/") { mediaType = sniffed }
+	if strings.HasPrefix(sniffed, "image/") { mediaType = sniffed } else if sniffed != "application/octet-stream" { return "", false }
 	switch strings.ToLower(mediaType) {
 	case "image/png": return ".png", true
 	case "image/jpeg", "image/jpg": return ".jpg", true
