@@ -309,3 +309,71 @@ func TestPollLoginDoesNotSaveCredentialsForUntrustedTicket(t *testing.T) {
 		t.Fatal("credentials must not be saved when ticket URL is untrusted")
 	}
 }
+
+
+func TestPollLoginPreservesLegacyDirectCookieResponse(t *testing.T) {
+	store := &memoryStore{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "qrcode/poll"):
+			http.SetCookie(w, &http.Cookie{Name: "SESSDATA", Value: "direct-session", Path: "/"})
+			http.SetCookie(w, &http.Cookie{Name: "DedeUserID", Value: "321", Path: "/"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{"code": 0}})
+		case strings.Contains(r.URL.Path, "web-interface/nav"):
+			if !strings.Contains(r.Header.Get("Cookie"), "SESSDATA=direct-session") {
+				t.Error("legacy poll cookie was not forwarded")
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
+				"isLogin": true, "mid": json.Number("321"), "uname": "legacy-user",
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client := server.Client()
+	client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		clone := req.Clone(req.Context())
+		u := *req.URL
+		u.Scheme = "http"
+		u.Host = strings.TrimPrefix(server.URL, "http://")
+		clone.URL = &u
+		return http.DefaultTransport.RoundTrip(clone)
+	})
+	manager, err := NewAuthManager(store, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.pending["legacy"] = pendingLogin{key: "qr", expiresAt: time.Now().Add(time.Minute)}
+	status, err := manager.PollLogin(context.Background(), "legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Status != "success" || status.Account == nil || status.Account.UID != "321" {
+		t.Fatalf("legacy direct-cookie login failed: %#v", status)
+	}
+}
+
+func TestExchangeLoginTicketRejectsUntrustedRedirect(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "https://attacker.example/collect", http.StatusFound)
+	}))
+	defer server.Close()
+	client := server.Client()
+	client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		clone := req.Clone(req.Context())
+		u := *req.URL
+		u.Scheme = "http"
+		u.Host = strings.TrimPrefix(server.URL, "http://")
+		clone.URL = &u
+		return http.DefaultTransport.RoundTrip(clone)
+	})
+	manager, err := NewAuthManager(&memoryStore{}, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.exchangeLoginTicket(context.Background(),
+		"https://passport.biligame.com/x/passport-login/web/crossDomain?ticket=redirect-test"); err == nil {
+		t.Fatal("ticket redirect to an untrusted host must be rejected")
+	}
+}
