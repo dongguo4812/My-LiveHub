@@ -17,6 +17,29 @@ fi
 
 source ./ci/build-common.sh
 
+# Pin the FFmpeg revision observed in the validated v0.42.0 release build.
+# This first experiment deliberately keeps the upstream container's FFmpeg
+# feature configuration unchanged so the size delta isolates mpv-side trimming.
+ffmpeg_commit="baa68e68b34e2de912eb7e94342cebd2545f05ed"
+if [[ ! -d ffmpeg/.git ]]; then
+    git clone https://github.com/FFmpeg/FFmpeg.git ffmpeg
+fi
+git -C ffmpeg fetch --depth=1 origin "$ffmpeg_commit"
+git -C ffmpeg checkout --detach "$ffmpeg_commit"
+(
+    cd ffmpeg
+    ./configure --prefix="$FFBUILD_PREFIX" --pkg-config-flags="--static" \
+        $FFBUILD_TARGET_FLAGS $FF_CONFIGURE \
+        --extra-cflags="$FF_CFLAGS" --extra-cxxflags="$FF_CXXFLAGS" \
+        --extra-libs="$FF_LIBS" --extra-ldflags="$FF_LDFLAGS" \
+        --extra-ldexeflags="$FF_LDEXEFLAGS" \
+        --cc="$CC" --cxx="$CXX" --ar="$AR" --ranlib="$RANLIB" --nm="$NM" \
+        --enable-static --disable-shared --disable-{doc,programs} \
+        --disable-{librav1e,librsvg,openal}
+    make -j"$(nproc)"
+    make install
+)
+
 build_dir="build-minimal"
 if [[ -e "$build_dir" ]]; then
     echo "$build_dir already exists; remove it explicitly before rebuilding." >&2
@@ -33,7 +56,7 @@ meson setup "$build_dir" \
     --prefer-static \
     -Dc_link_args="$FF_LIBS -L$FFBUILD_PREFIX/lib -liconv" \
     -Dcpp_link_args="$FF_LIBS -L$FFBUILD_PREFIX/lib -liconv" \
-    -Dgpl=false \
+    -Dgpl=true \
     -Dcplayer=true \
     -Dlibmpv=false \
     -Dtests=false \
