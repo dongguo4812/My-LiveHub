@@ -87,3 +87,28 @@ The upstream FFmpeg-Builds repository documents that its `gpl` variant includes 
 https://github.com/BtbN/FFmpeg-Builds
 
 **Audit conclusion:** the recipe is valuable provenance and a starting point for an independently controlled rebuild, but it does not establish the exact source closure for the already-published mpv ZIP. Do not infer missing commits from version strings or current upstream branches.
+
+
+## Additional audit: FFmpeg-Builds image does not close the source gap
+
+The FFmpeg-Builds source tree was reviewed separately from the mpv recipe. This confirms that the observed container digest is not, by itself, a corresponding-source bundle:
+
+- The FFmpeg-Builds README describes its GPL variant as including GPL-only dependencies, lists scripts.d as the per-package build recipe directory, and describes its latest image/release references as floating. See https://github.com/FFmpeg-Builds/FFmpeg-Builds
+- In the current FFmpeg-Builds build.sh, the FFmpeg source branch defaults to master (unless overridden), and the build container clones that branch at build time. The script then packages the installed prefix and copies the FFmpeg license file; it does not itself archive the source tree and all dependency sources into the output package. See https://github.com/FFmpeg-Builds/FFmpeg-Builds/blob/master/build.sh
+- makeimage.sh runs download.sh, generates a Dockerfile from the selected package scripts, and builds the image through Docker Buildx. See https://github.com/FFmpeg-Builds/FFmpeg-Builds/blob/master/makeimage.sh
+- generate.sh sources package scripts from scripts.d, resolves their declared dependencies, and emits Docker build stages. Consequently, the actual dependency closure depends on the exact FFmpeg-Builds repository revision, selected variant/addins, generated Dockerfile, downloaded source archives, and the base/target image contents. See https://github.com/FFmpeg-Builds/FFmpeg-Builds/blob/master/generate.sh
+
+This review does not prove that FFmpeg-Builds lacks all possible provenance records or that the exact image can never be traced. It establishes the narrower point that the public build scripts and an image digest alone do not give My-LiveHub the exact source closure for the image used by the observed mpv build. No complete SBOM, generated Dockerfile, package-source manifest, or full build log tied to the observed image digest has yet been collected.
+
+### What would be required to reuse this image in a compliant rebuild
+
+For the exact FFmpeg-Builds image digest used by mpv, obtain and preserve:
+
+1. The FFmpeg-Builds Git commit used to generate the image.
+2. The exact TARGET, VARIANT, and ADDINS values, plus the generated Dockerfile and all build scripts.
+3. Every downloaded source URL, immutable revision/archive hash, patch, and build option used by the resolved scripts.d dependency graph.
+4. The base and target image digests, their Dockerfiles, toolchain/compiler versions, and package inventory.
+5. The exact FFmpeg source commit and configure flags used by the mpv build.
+6. License texts and corresponding source for all statically linked libraries, including transitive dependencies.
+
+If these records cannot be recovered from the historical build, the defensible route is to build a new pinned toolchain and dependency image under My-LiveHub-controlled CI, then generate the SBOM and corresponding-source archive during that build. Do not represent a new rebuild as the source for the already-published upstream mpv ZIP.
