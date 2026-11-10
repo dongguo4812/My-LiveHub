@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -170,6 +171,81 @@ func TestPersistentCatalogMissingRootAndCorruptFileProtection(t *testing.T) {
 	}
 	if string(preserved) != string(original) {
 		t.Fatalf("unreadable catalog was overwritten: got %q want %q", preserved, original)
+	}
+}
+
+
+
+func TestPersistentCatalogDiscardsPartialLoadWhenLaterPartitionIsCorrupt(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "media-resources")
+	validPath := filepath.Join(root, "bilibili", "common", "emoticon.json")
+	corruptPath := filepath.Join(root, "z-platform", "common", "gift.json")
+	if err := os.MkdirAll(filepath.Dir(validPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(corruptPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	valid := catalogFile{
+		Version: catalogFileVersion,
+		Resources: []Resource{{
+			PlatformID: "bilibili", SourceID: "common", Type: TypeEmoticon,
+			ID: "official_valid", Name: "有效资源", ImageURL: "https://img.test/valid.png",
+		}},
+		Refreshes: map[string]time.Time{
+			refreshIdentity("bilibili", "common", TypeEmoticon): time.Now(),
+		},
+	}
+	validBytes, err := json.Marshal(valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(validPath, validBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	corruptBytes := []byte("{broken-json")
+	if err := os.WriteFile(corruptPath, corruptBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog, err := NewPersistentCatalog(root)
+	if err == nil {
+		t.Fatal("corrupt later partition should fail catalog loading")
+	}
+	if catalog == nil {
+		t.Fatal("load failure should return a usable empty in-memory catalog")
+	}
+	if got := len(catalog.List("", "", "")); got != 0 {
+		t.Fatalf("partial resources leaked from staging catalog: got %d entries", got)
+	}
+	if catalog.IsFresh("bilibili", "common", TypeEmoticon, time.Hour) {
+		t.Fatal("refresh markers leaked from staging catalog")
+	}
+
+	// The returned empty catalog remains usable, but has no persistence writer.
+	if !catalog.Register(Resource{
+		PlatformID: "bilibili", SourceID: "common", Type: TypeEmoticon,
+		ID: "recovery", Name: "恢复测试", ImageURL: "https://img.test/recovery.png",
+	}) {
+		t.Fatal("empty catalog should remain usable after load failure")
+	}
+	if err := catalog.Close(); err != nil {
+		t.Fatal(err)
+	}
+	gotValid, err := os.ReadFile(validPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotValid) != string(validBytes) {
+		t.Fatal("valid partition was modified after another partition failed to load")
+	}
+	gotCorrupt, err := os.ReadFile(corruptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotCorrupt) != string(corruptBytes) {
+		t.Fatal("corrupt partition was modified after load failure")
 	}
 }
 
