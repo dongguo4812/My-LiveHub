@@ -5,6 +5,7 @@ import SettingsView from './views/SettingsView.vue'
 import DanmakuView from './views/DanmakuView.vue'
 import DanmakuOverlayView from './views/DanmakuOverlayView.vue'
 import VoiceView from './views/VoiceView.vue'
+import MusicView from './views/MusicView.vue'
 import SimulatorView from './views/SimulatorView.vue'
 import PlaceholderView from './views/PlaceholderView.vue'
 const routes=[
@@ -21,6 +22,7 @@ const routes=[
 {path:'/extensions',component:PlaceholderView,meta:{title:'扩展管理',section:'扩展中心',description:'管理官方与第三方扩展、权限和独立进程状态。'}},
 {path:'/danmaku',component:DanmakuView,meta:{title:'弹幕显示',section:'功能模块'}},
 {path:'/voice',component:VoiceView,meta:{title:'语音播报',section:'功能模块'}},
+{path:'/music',component:MusicView,meta:{title:'音乐播放器',section:'功能模块'}},
 {path:'/danmaku/overlay',component:DanmakuOverlayView,meta:{title:'弹幕展示',standalone:true}},
 {path:'/settings',component:SettingsView,meta:{title:'系统设置',section:'系统管理'}},
 {path:'/logs',component:PlaceholderView,meta:{title:'日志诊断',section:'系统管理',description:'查看核心、平台适配器和扩展的运行日志。'}}]
