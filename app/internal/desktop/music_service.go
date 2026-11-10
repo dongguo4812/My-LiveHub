@@ -395,6 +395,7 @@ func (s *MusicService) Previous() error {
 func (s *MusicService) pushHistory(item music.QueueItem) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if len(s.history) > 0 && s.history[len(s.history)-1].ID == item.ID { return }
 	if len(s.history) >= 100 {
 		copy(s.history, s.history[1:])
 		s.history = s.history[:len(s.history)-1]
