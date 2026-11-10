@@ -96,7 +96,7 @@ func (s *NetEaseSource) Resolve(_ context.Context, track Track) (PlaybackResourc
 	if track.SourceID != s.ID() { return PlaybackResource{}, errors.New("track does not belong to NetEase source") }
 	id, err := strconv.ParseInt(track.ID, 10, 64)
 	if err != nil || id <= 0 { return PlaybackResource{}, errors.New("invalid NetEase song ID") }
-	return PlaybackResource{URL:fmt.Sprintf("%s/song/media/outer/url?id=%d.mp3", s.baseURL, id)}, nil
+	return PlaybackResource{URL:fmt.Sprintf("%s/song/media/outer/url?id=%d.mp3", s.baseURL, id), Headers:map[string]string{"Referer":"https://music.163.com/", "User-Agent":"Mozilla/5.0"}}, nil
 }
 
 var _ Source = (*NetEaseSource)(nil)
