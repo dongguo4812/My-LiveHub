@@ -245,3 +245,14 @@ The web reader exposed the manifest and archive links, but the source archive by
 Keep the existing v0.42.0 ZIP as an internal validation artifact only. Prioritize the Reelm 20260610 standalone binary as the next candidate because it has a concrete binary hash, exact mpv/FFmpeg revisions, a pinned build-recipe archive, a successful build workflow reference, source archive hashes, and a published written offer for the remaining GPL/LGPL components.
 
 Do not switch runtime pins or publish this candidate in a My-LiveHub release until the checks above are completed.
+
+
+### Follow-up verification on 2026-11-10
+
+The publisher's machine-readable manifest was opened and its full fields inspected. It explicitly lists only three directly mirrored source components (mpv, FFmpeg and uosc) plus the build-recipe archive. It does NOT enumerate every dependency as an individual source archive; instead, it states that all remaining GPL/LGPL components are available under its written offer. The page gives `contact@rvsg.net` as the contact address.
+
+The manifest asserts that the 20260610 CMake superbuild pins every component, including x264, x265, libass, fribidi and harfbuzz. This is a publisher assertion that still needs independent inspection of the actual recipe archive. The recipe archive download was attempted during this review but the retrieval client rejected the gzip content type; no archive bytes or SHA-256 were independently verified here.
+
+The upstream release URL named by the manifest (`https://github.com/shinchiro/mpv-winbuild-cmake/releases/tag/20260610`) returned a 404 through the current web fetch attempt, while the corresponding-source page remains accessible and identifies the asset hash. This is not proof that the release asset is deleted; it means binary availability must be rechecked through another route before adopting it.
+
+Consequently, status remains `CANDIDATE — NOT CLEARED`. The immediate blocker is obtaining the complete remaining source set under the written offer and verifying the actual binary/archive availability and hashes. No runtime pin has been changed.
