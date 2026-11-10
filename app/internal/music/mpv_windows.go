@@ -102,7 +102,10 @@ func (e *MpvEngine) Start(ctx context.Context) error {
 		case <-ticker.C:
 			if pipe, err := os.OpenFile(pipePath, os.O_RDWR, 0); err == nil {
 				_ = pipe.Close()
-				return e.SetVolume(ctx, e.volume)
+				e.mu.RLock()
+				volume := e.volume
+				e.mu.RUnlock()
+				return e.SetVolume(ctx, volume)
 			}
 		}
 	}
