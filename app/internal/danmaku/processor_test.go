@@ -219,3 +219,34 @@ func TestProcessorPreservesSCGuardFollowAndWelcomePayloads(t *testing.T) {
 		t.Fatalf("guard amount/level/months were lost: %+v", got[1].Event)
 	}
 }
+
+func TestProcessorAppliesBilibiliInteractionDisplaySwitches(t *testing.T) {
+	tests := []struct {
+		name    string
+		kind    string
+		disable func(*config.DanmakuDisplayConfig)
+	}{
+		{name: "super chat", kind: "super_chat", disable: func(c *config.DanmakuDisplayConfig) { c.ShowSuperChat = false }},
+		{name: "guard", kind: "guard", disable: func(c *config.DanmakuDisplayConfig) { c.ShowGuard = false }},
+		{name: "follow", kind: "follow", disable: func(c *config.DanmakuDisplayConfig) { c.ShowFollows = false }},
+		{name: "welcome", kind: "welcome", disable: func(c *config.DanmakuDisplayConfig) { c.ShowWelcome = false }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			settings := config.DefaultDanmakuDisplayConfig()
+			settings.DisplayDurationSeconds = 60
+			input := event(tc.kind, "bilibili", "live", 1, 100000)
+
+			visible := NewProcessor().Process([]events.Event{input}, settings, time.UnixMilli(100001))
+			if len(visible) != 1 || visible[0].Event.Type != tc.kind {
+				t.Fatalf("enabled %s event should be visible: %+v", tc.kind, visible)
+			}
+
+			tc.disable(&settings)
+			hidden := NewProcessor().Process([]events.Event{input}, settings, time.UnixMilli(100001))
+			if len(hidden) != 0 {
+				t.Fatalf("disabled %s event should be hidden: %+v", tc.kind, hidden)
+			}
+		})
+	}
+}
