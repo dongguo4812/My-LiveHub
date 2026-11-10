@@ -101,7 +101,6 @@ func main() {
 		}
 		musicConfig = migratedMusicConfig
 	}
-	musicService := desktop.NewMusicService(configManager, musicConfig)
 	voiceConfig, err := config.LoadTyped[config.VoiceConfig](configManager, "voice.json", func(value config.VoiceConfig) error {
 		return value.Validate()
 	})
@@ -110,6 +109,7 @@ func main() {
 	}
 	eventBus := eventstream.NewBus()
 	bilibiliEvents := eventstream.NewBuffer(eventBus)
+	musicService := desktop.NewMusicService(configManager, musicConfig, bilibiliEvents)
 	cacheDir := ""
 	if environment == config.EnvironmentDevelopment {
 		if workingDir, getwdErr := os.Getwd(); getwdErr == nil {
@@ -157,6 +157,9 @@ func main() {
 	}
 	if err := coreApp.Modules().Register("voice", voice.NewModule(voiceService)); err != nil {
 		log.Fatalf("register voice module: %v", err)
+	}
+	if err := coreApp.Modules().Register("music", desktop.NewMusicModule(musicService)); err != nil {
+		log.Fatalf("register music module: %v", err)
 	}
 	assetHandler := application.AssetFileServerFS(assets)
 	imageCache, cacheErr := imagecache.NewWithPolicies(filepath.Join(cacheDir, "media-images"), assetHandler, map[string]imagecache.URLPolicy{"bilibili":imagecache.BilibiliURLPolicy})
