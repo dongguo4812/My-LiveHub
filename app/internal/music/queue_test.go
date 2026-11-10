@@ -60,3 +60,13 @@ func TestQueueEnqueueFrontPreservesPendingOrder(t *testing.T) {
 	}
 	if err := queue.EnqueueFront(front); err != ErrQueueFull { t.Fatalf("expected full queue error, got %v", err) }
 }
+
+func TestQueueResizePreservesItemsAndRejectsTooSmallCapacity(t *testing.T) {
+	queue := NewQueue(3)
+	if _, err := queue.Enqueue(testTrack("one"), ""); err != nil { t.Fatal(err) }
+	if _, err := queue.Enqueue(testTrack("two"), ""); err != nil { t.Fatal(err) }
+	if err := queue.Resize(1); err == nil { t.Fatal("expected resize below pending item count to fail") }
+	if err := queue.Resize(2); err != nil { t.Fatal(err) }
+	if got := queue.Snapshot().Capacity; got != 2 { t.Fatalf("capacity = %d, want 2", got) }
+	if err := queue.Resize(MaxQueueCapacity + 1); err == nil { t.Fatal("expected out-of-range capacity to fail") }
+}
