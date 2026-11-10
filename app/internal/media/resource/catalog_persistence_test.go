@@ -297,6 +297,97 @@ func TestPersistentCatalogPreservesEmoticonDirectoryOrder(t *testing.T) {
 }
 
 
+
+func TestCatalogPersistenceRetriesAfterTransientWriteFailure(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "catalog-root")
+	if err := os.WriteFile(root, []byte("blocks-directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := NewPersistentCatalog(root)
+	if err != nil {
+		t.Fatalf("a non-directory root without JSON files should load as empty: %v", err)
+	}
+	if !catalog.Register(Resource{
+		PlatformID: "bilibili", SourceID: "common", Type: TypeEmoticon,
+		ID: "retry-resource", Name: "重试资源", ImageURL: "https://img.test/retry.png",
+	}) {
+		t.Fatal("register failed")
+	}
+	persistence := catalog.persistence
+	if persistence == nil {
+		t.Fatal("persistent catalog has no writer")
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	failed := false
+	for time.Now().Before(deadline) {
+		persistence.errMu.Lock()
+		failed = persistence.err != nil
+		persistence.errMu.Unlock()
+		if failed {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !failed {
+		t.Fatal("expected the first persistence attempt to fail")
+	}
+
+	if err := os.Remove(root); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	partition := filepath.Join(root, "bilibili", "common", "emoticon.json")
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(partition); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := os.Stat(partition); err != nil {
+		t.Fatalf("background retry did not create the catalog partition: %v", err)
+	}
+
+	persistence.errMu.Lock()
+	lastErr := persistence.err
+	persistence.errMu.Unlock()
+	if lastErr != nil {
+		t.Fatalf("successful retry did not clear persistence error: %v", lastErr)
+	}
+	if err := catalog.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	restored, err := NewPersistentCatalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Close()
+	items := restored.List("bilibili", "common", TypeEmoticon)
+	if len(items) != 1 || items[0].ID != "retry-resource" {
+		t.Fatalf("retried resource was not restored: %+v", items)
+	}
+}
+
+func TestCatalogPersistenceRetryDelayUsesBoundedExponentialBackoff(t *testing.T) {
+	delays := []time.Duration{
+		nextCatalogRetryDelay(0),
+		nextCatalogRetryDelay(time.Second),
+		nextCatalogRetryDelay(2 * time.Second),
+		nextCatalogRetryDelay(16 * time.Second),
+		nextCatalogRetryDelay(30 * time.Second),
+	}
+	want := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 30 * time.Second, 30 * time.Second}
+	for i := range want {
+		if delays[i] != want[i] {
+			t.Fatalf("retry delay %d = %v, want %v", i, delays[i], want[i])
+		}
+	}
+}
+
 func TestPersistentCatalogConcurrentAccessAndCloseFlushesLatestSnapshot(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "media-resources")
 	catalog, err := NewPersistentCatalog(root)
