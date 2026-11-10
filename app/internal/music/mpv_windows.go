@@ -28,6 +28,7 @@ type MpvEngine struct {
 	requestID atomic.Uint64
 	done chan error
 	track *Track
+	loadStartedAt time.Time
 	volume int
 }
 
@@ -70,7 +71,8 @@ func (e *MpvEngine) Start(ctx context.Context) error {
 		if e.command == cmd {
 			e.command = nil
 			e.pipePath = ""
-			e.track = nil
+				e.track = nil
+			e.loadStartedAt = time.Time{}
 		}
 		e.mu.Unlock()
 	}()
@@ -166,6 +168,7 @@ func (e *MpvEngine) Load(ctx context.Context, resource PlaybackResource, track T
 	copy := track
 	e.mu.Lock()
 	e.track = &copy
+	e.loadStartedAt = time.Now()
 	e.mu.Unlock()
 	return nil
 }
@@ -195,6 +198,7 @@ func (e *MpvEngine) Stop(ctx context.Context) error {
 	_, err := e.commandIPC(ctx, "stop")
 	e.mu.Lock()
 	e.track = nil
+	e.loadStartedAt = time.Time{}
 	e.mu.Unlock()
 	return err
 }
@@ -221,9 +225,14 @@ func (e *MpvEngine) Snapshot(ctx context.Context) (PlaybackSnapshot, error) {
 	if e.track != nil { copy := *e.track; snapshot.Track = &copy }
 	e.mu.RUnlock()
 	snapshot.PositionMS, snapshot.DurationMS, snapshot.Volume = position, duration, int(volume)
+	e.mu.RLock()
+	loadStartedAt := e.loadStartedAt
+	e.mu.RUnlock()
 	if snapshot.Track != nil && !idle {
 		snapshot.State = PlaybackPlaying
 		if paused { snapshot.State = PlaybackPaused }
+	} else if snapshot.Track != nil && time.Since(loadStartedAt) < 15*time.Second {
+		snapshot.State = PlaybackLoading
 	} else if snapshot.Track != nil {
 		snapshot.State = PlaybackStopped
 	}
