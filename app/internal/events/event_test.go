@@ -43,8 +43,9 @@ func TestSimulationInteractionEventsPreservePayloads(t *testing.T) {
 		{Type: "guard", UserID: 12, UserName: "舰长用户", GuardLevel: 3, Months: 3, Amount: 198},
 		{Type: "follow", UserID: 13, UserName: "关注用户"},
 		{Type: "welcome", UserID: 14, UserName: "进场用户"},
+		{Type: "share", UserID: 15, UserName: "分享用户"},
 	}
-	wantTypes := []string{"super_chat", "guard", "follow", "welcome"}
+	wantTypes := []string{"super_chat", "guard", "follow", "welcome", "share"}
 	for i, input := range inputs {
 		event, err := buffer.AddSimulationEvent("bilibili", input)
 		if err != nil { t.Fatalf("%s simulation failed: %v", input.Type, err) }

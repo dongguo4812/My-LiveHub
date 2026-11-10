@@ -148,6 +148,8 @@ func enabled(event events.Event, settings config.DanmakuDisplayConfig) bool {
 		return settings.ShowLikes
 	case "welcome", "entry":
 		return settings.ShowWelcome
+	case "share":
+		return settings.ShowShare
 	default:
 		return false
 	}

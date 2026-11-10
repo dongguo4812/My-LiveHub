@@ -517,6 +517,8 @@ func (a *Adapter) Connect(ctx context.Context) error {
 			eventType, content = "welcome", "进入了直播间"
 		case 2:
 			eventType, content = "follow", "关注了直播间"
+		case 3:
+			eventType, content = "share", "分享了直播间"
 		default:
 			return
 		}

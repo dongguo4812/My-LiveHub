@@ -136,6 +136,8 @@ func (b *Buffer) AddSimulationEvent(platformID string, input SimulationEventInpu
 		event.Content = fmt.Sprintf("开通了 %s × %d 个月", labels[input.GuardLevel], input.Months)
 	case "follow":
 		event.Content = "关注了直播间"
+	case "share":
+		event.Content = "分享了直播间"
 	case "like":
 		event.Content = "为直播间点赞"
 	case "welcome", "welcom":

@@ -248,7 +248,7 @@ func TestAdapterMapsSingleProtobufEmoticon(t *testing.T) {
 }
 
 
-func TestAdapterReceivesSCGuardFollowAndWelcome(t *testing.T) {
+func TestAdapterReceivesSCGuardFollowWelcomeAndShare(t *testing.T) {
 	a, err := NewAdapter(newAdapterTestAuth(t), 12345, eventstream.NewBuffer())
 	if err != nil { t.Fatal(err) }
 	a.giftCatalog = nil
@@ -264,11 +264,11 @@ func TestAdapterReceivesSCGuardFollowAndWelcome(t *testing.T) {
 	fake.emitUserToast(&message.UserToast{Uid: 8, Username: "captain", Face: "https://img.test/captain.png", GuardLevel: 3, Num: 2, Price: 138000, StartTime: 1_700_000_001})
 	fake.emitInteractWord(&message.InteractWord{MsgType: 2, Timestamp: 1_700_000_002, User: &message.User{Uid: 9, Uname: "follower"}})
 	fake.emitInteractWord(&message.InteractWord{MsgType: 1, Timestamp: 1_700_000_003, User: &message.User{Uid: 10, Uname: "visitor"}})
-	// Share and other interaction types are intentionally outside this four-event scope.
 	fake.emitInteractWord(&message.InteractWord{MsgType: 3, Timestamp: 1_700_000_004, User: &message.User{Uid: 11, Uname: "sharer"}})
+	fake.emitInteractWord(&message.InteractWord{MsgType: 4, Timestamp: 1_700_000_005, User: &message.User{Uid: 12, Uname: "other"}})
 
 	got := a.events.Snapshot()
-	if len(got) != 4 { t.Fatalf("got %d events, want SC + guard + follow + welcome: %+v", len(got), got) }
+	if len(got) != 5 { t.Fatalf("got %d events, want SC + guard + follow + welcome + share: %+v", len(got), got) }
 	if got[0].Type != "super_chat" || got[0].Amount != 30 || got[0].Duration != 60 || got[0].Content != "支持主播" || got[0].UserName != "viewer" {
 		t.Fatalf("unexpected SC event: %+v", got[0])
 	}
@@ -277,6 +277,9 @@ func TestAdapterReceivesSCGuardFollowAndWelcome(t *testing.T) {
 	}
 	if got[2].Type != "follow" || got[2].UserID != 9 { t.Fatalf("unexpected follow event: %+v", got[2]) }
 	if got[3].Type != "welcome" || got[3].UserID != 10 { t.Fatalf("unexpected welcome event: %+v", got[3]) }
+	if got[4].Type != "share" || got[4].UserID != 11 || got[4].Content != "分享了直播间" || got[4].Timestamp != 1_700_000_004_000 {
+		t.Fatalf("unexpected share event: %+v", got[4])
+	}
 	if err := a.Disconnect(context.Background()); err != nil { t.Fatal(err) }
 }
 

@@ -20,7 +20,7 @@ let refreshing = false
 const platformNames: Record<string, string> = { bilibili: 'B站', douyin: '抖音' }
 const eventNames: Record<string, string> = {
   danmaku: '弹幕', gift: '礼物', super_chat: '醒目留言',
-  guard: '上舰', follow: '关注', like: '点赞', welcome: '进场', entry: '进场',
+  guard: '上舰', follow: '关注', like: '点赞', welcome: '进场', entry: '进场', share: '分享',
 }
 const visibleItems = computed(() => items.value.slice(-40))
 

@@ -23,6 +23,17 @@ func TestProcessorAppliesMessageSwitches(t *testing.T) {
 	}
 }
 
+func TestProcessorRespectsShareDisplaySetting(t *testing.T) {
+	settings := config.DefaultDanmakuDisplayConfig()
+	share := event("share", "bilibili", "simulation", 7, 99000)
+	settings.ShowShare = false
+	got := NewProcessor().Process([]events.Event{share}, settings, time.UnixMilli(100000))
+	if len(got) != 0 { t.Fatalf("share event should be hidden: %+v", got) }
+	settings.ShowShare = true
+	got = NewProcessor().Process([]events.Event{share}, settings, time.UnixMilli(100000))
+	if len(got) != 1 || got[0].Event.Type != "share" { t.Fatalf("share event should be visible: %+v", got) }
+}
+
 func TestProcessorRespectsWelcomeDisplaySetting(t *testing.T) {
 	settings := config.DefaultDanmakuDisplayConfig()
 	welcome := event("welcome", "bilibili", "simulation", 7, 99000)
