@@ -23,6 +23,7 @@ type ConnectionSnapshot struct {
 	PlatformID string           `json:"platform_id"`
 	Status     ConnectionStatus `json:"status"`
 	Error      string           `json:"error,omitempty"`
+	LiveStatus string           `json:"live_status,omitempty"`
 }
 
 type connectionEntry struct {
@@ -69,6 +70,14 @@ func (m *Manager) Register(adapter Adapter) error {
 		return fmt.Errorf("platform adapter %q is already registered", id)
 	}
 	entry := &connectionEntry{adapter: adapter, status: StatusDisconnected}
+	if reporter, ok := adapter.(ConnectionFailureReporter); ok {
+		reporter.SetConnectionFailureHandler(func(cause error) {
+			if cause == nil {
+				cause = errors.New("connection ended unexpectedly")
+			}
+			m.setStatus(entry, StatusFailed, fmt.Errorf("platform %q connection lost: %w", id, cause))
+		})
+	}
 	m.adapters = append(m.adapters, entry)
 	m.byID[id] = entry
 	return nil
@@ -134,7 +143,14 @@ func (m *Manager) Connect(ctx context.Context, platformID string) error {
 		m.setStatus(entry, StatusFailed, wrapped)
 		return wrapped
 	}
-	m.setStatus(entry, StatusConnected, nil)
+	m.mu.Lock()
+	// An adapter may report that its stream ended while Connect was
+	// returning. Do not overwrite that terminal failure with connected.
+	if entry.status == StatusConnecting {
+		entry.status = StatusConnected
+		entry.err = nil
+	}
+	m.mu.Unlock()
 	return nil
 }
 
@@ -245,6 +261,9 @@ func (m *Manager) Snapshot() []ConnectionSnapshot {
 	result := make([]ConnectionSnapshot, 0, len(m.adapters))
 	for _, entry := range m.adapters {
 		snapshot := ConnectionSnapshot{PlatformID: entry.adapter.ID(), Status: entry.status}
+		if provider, ok := entry.adapter.(LiveStatusProvider); ok {
+			snapshot.LiveStatus = provider.LiveStatus()
+		}
 		if entry.err != nil {
 			snapshot.Error = entry.err.Error()
 		}

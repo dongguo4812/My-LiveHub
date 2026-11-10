@@ -20,6 +20,13 @@ type fakeStreamClient struct {
 	cookie string
 	handler func(*message.Danmaku)
 	giftHandler func(*message.Gift)
+	superChatHandler func(*message.SuperChat)
+	guardBuyHandler func(*message.GuardBuy)
+	userToastHandler func(*message.UserToast)
+	interactWordHandler func(*message.InteractWord)
+	liveStartHandler func(*message.LiveStart)
+	liveStopHandler func(*message.LiveStop)
+	rawHandler func(string, []byte)
 	started bool
 	stopCalls int
 	done chan struct{}
@@ -34,6 +41,13 @@ func newFakeStreamClient(_ int) *fakeStreamClient { return &fakeStreamClient{don
 func (f *fakeStreamClient) SetCookie(cookie string) { f.mu.Lock(); f.cookie = cookie; f.mu.Unlock() }
 func (f *fakeStreamClient) OnDanmaku(handler func(*message.Danmaku)) { f.mu.Lock(); f.handler = handler; f.mu.Unlock() }
 func (f *fakeStreamClient) OnGift(handler func(*message.Gift)) { f.mu.Lock(); f.giftHandler = handler; f.mu.Unlock() }
+func (f *fakeStreamClient) OnSuperChat(handler func(*message.SuperChat)) { f.mu.Lock(); f.superChatHandler = handler; f.mu.Unlock() }
+func (f *fakeStreamClient) OnGuardBuy(handler func(*message.GuardBuy)) { f.mu.Lock(); f.guardBuyHandler = handler; f.mu.Unlock() }
+func (f *fakeStreamClient) OnUserToast(handler func(*message.UserToast)) { f.mu.Lock(); f.userToastHandler = handler; f.mu.Unlock() }
+func (f *fakeStreamClient) OnInteractWord(handler func(*message.InteractWord)) { f.mu.Lock(); f.interactWordHandler = handler; f.mu.Unlock() }
+func (f *fakeStreamClient) OnLiveStart(handler func(*message.LiveStart)) { f.mu.Lock(); f.liveStartHandler = handler; f.mu.Unlock() }
+func (f *fakeStreamClient) OnLiveStop(handler func(*message.LiveStop)) { f.mu.Lock(); f.liveStopHandler = handler; f.mu.Unlock() }
+func (f *fakeStreamClient) OnRawEvent(handler func(string, []byte)) { f.mu.Lock(); f.rawHandler = handler; f.mu.Unlock() }
 func (f *fakeStreamClient) StartContext(ctx context.Context) error {
 	f.startOnce.Do(func(){ close(f.startEntered) })
 	if f.startGate != nil { select { case <-f.startGate: case <-ctx.Done(): return ctx.Err() } }
@@ -45,6 +59,14 @@ func (f *fakeStreamClient) Wait() { <-f.done }
 func (f *fakeStreamClient) Done() <-chan struct{} { return f.done }
 func (f *fakeStreamClient) emit(d *message.Danmaku) { f.mu.Lock(); handler := f.handler; f.mu.Unlock(); if handler != nil { handler(d) } }
 func (f *fakeStreamClient) emitGift(g *message.Gift) { f.mu.Lock(); handler := f.giftHandler; f.mu.Unlock(); if handler != nil { handler(g) } }
+
+func (f *fakeStreamClient) emitSuperChat(sc *message.SuperChat) { f.mu.Lock(); handler := f.superChatHandler; f.mu.Unlock(); if handler != nil { handler(sc) } }
+func (f *fakeStreamClient) emitGuardBuy(g *message.GuardBuy) { f.mu.Lock(); handler := f.guardBuyHandler; f.mu.Unlock(); if handler != nil { handler(g) } }
+func (f *fakeStreamClient) emitUserToast(u *message.UserToast) { f.mu.Lock(); handler := f.userToastHandler; f.mu.Unlock(); if handler != nil { handler(u) } }
+func (f *fakeStreamClient) emitInteractWord(i *message.InteractWord) { f.mu.Lock(); handler := f.interactWordHandler; f.mu.Unlock(); if handler != nil { handler(i) } }
+func (f *fakeStreamClient) emitLiveStart(l *message.LiveStart) { f.mu.Lock(); handler := f.liveStartHandler; f.mu.Unlock(); if handler != nil { handler(l) } }
+func (f *fakeStreamClient) emitLiveStop(l *message.LiveStop) { f.mu.Lock(); handler := f.liveStopHandler; f.mu.Unlock(); if handler != nil { handler(l) } }
+func (f *fakeStreamClient) emitRaw(cmd string, raw []byte) { f.mu.Lock(); handler := f.rawHandler; f.mu.Unlock(); if handler != nil { handler(cmd, raw) } }
 
 func newAdapterTestAuth(t *testing.T) *AuthManager {
 	t.Helper()
@@ -133,7 +155,7 @@ func TestAdapterReceivesGiftWithResolvedImage(t *testing.T) {
 	a.newStream = func(int) streamClient { return fake }
 	if err := a.Connect(context.Background()); err != nil { t.Fatal(err) }
 	fake.emitGift(&message.Gift{
-		GiftId: 30607, GiftName: "小心心", Num: 2, Price: 50, TotalCoin: 100,
+		GiftId: 30607, GiftName: "小心心", Num: 2, CoinType: "gold", Price: 50, TotalCoin: 100,
 		Uid: 7, Uname: "viewer", Face: "https://i0.hdslb.com/bfs/face/viewer.png", Timestamp: 1_700_000_000,
 	})
 	got := a.events.Snapshot()
@@ -146,12 +168,44 @@ func TestAdapterReceivesGiftWithResolvedImage(t *testing.T) {
 	for len(catalog.List("bilibili","12345",resource.TypeGift))==0&&time.Now().Before(deadline){time.Sleep(5*time.Millisecond)}
 	items:=catalog.List("bilibili","12345",resource.TypeGift)
 	if len(items)!=1||items[0].ImageURL!="https://i0.hdslb.com/bfs/live/gift.png" || items[0].UnitPrice!=1{t.Fatalf("catalog missing gift metadata or price: %+v",items)}
+	if event.UnitPrice != 0.05 || event.TotalPrice != 0.1 {
+		t.Fatalf("gold gift amount was not converted correctly: unit=%v total=%v", event.UnitPrice, event.TotalPrice)
+	}
 	if event.UserID != 7 || event.UserName != "viewer" || event.Avatar == "" {
 		t.Fatalf("gift sender metadata missing: %+v", event)
 	}
 	if err := a.Disconnect(context.Background()); err != nil { t.Fatal(err) }
 }
 
+
+
+func TestAdapterReceivesSilverGiftWithoutPaidAmount(t *testing.T) {
+	a, err := NewAdapter(newAdapterTestAuth(t), 12345, eventstream.NewBuffer())
+	if err != nil { t.Fatal(err) }
+	a.giftCatalog = nil
+	fake := newFakeStreamClient(12345)
+	a.newStream = func(int) streamClient { return fake }
+	if err := a.Connect(context.Background()); err != nil { t.Fatal(err) }
+
+	fake.emitGift(&message.Gift{
+		GiftId: 30608, GiftName: "银瓜子礼物", Num: 3, CoinType: "silver",
+		Price: 100, TotalCoin: 300, Uid: 8, Uname: "silver-viewer",
+		Face: "https://img.test/silver-viewer.png", Timestamp: 1_700_000_001,
+	})
+	got := a.events.Snapshot()
+	if len(got) != 1 { t.Fatalf("got %d events, want 1: %+v", len(got), got) }
+	event := got[0]
+	if event.Type != "gift" || event.GiftID != 30608 || event.GiftName != "银瓜子礼物" || event.GiftCount != 3 {
+		t.Fatalf("silver gift metadata was not preserved: %+v", event)
+	}
+	if event.UnitPrice != 0 || event.TotalPrice != 0 {
+		t.Fatalf("silver gift must not be counted as paid: unit=%v total=%v", event.UnitPrice, event.TotalPrice)
+	}
+	if event.UserID != 8 || event.UserName != "silver-viewer" || event.Avatar != "https://img.test/silver-viewer.png" {
+		t.Fatalf("silver gift sender metadata missing: %+v", event)
+	}
+	if err := a.Disconnect(context.Background()); err != nil { t.Fatal(err) }
+}
 
 func TestAdapterConnectDoesNotWaitForGiftCatalog(t *testing.T){
 	entered:=make(chan struct{},1);release:=make(chan struct{})
@@ -175,9 +229,34 @@ func TestAdapterConnectStartsAuthenticatedStreamAndReceivesDanmaku(t *testing.T)
 	if err := a.Connect(context.Background()); err != nil { t.Fatal(err) }
 	fake.mu.Lock(); started, cookie := fake.started, fake.cookie; fake.mu.Unlock()
 	if !started || cookie != "SESSDATA=test-session" { t.Fatalf("stream started=%v cookie=%q", started, cookie) }
-	fake.emit(&message.Danmaku{Sender: &message.User{Uid: 7, Uname: "viewer"}, Content: "hello", Timestamp: 1_700_000_000})
+	medal := &message.Medal{Name: "粉丝勋章", Level: 12, Color: 0x123456}
+	fake.emit(&message.Danmaku{
+		Sender: &message.User{
+			Uid: 7, Uname: "viewer", Face: "https://img.test/viewer.png",
+			Admin: true, UserLevel: 30, GuardLevel: 2, Medal: medal,
+		},
+		Content: "hello", Timestamp: 1_700_000_000, Color: 0xabcdef,
+	})
 	got := a.events.Snapshot()
-	if len(got) != 1 || got[0].RoomID != 12345 || got[0].Content != "hello" { t.Fatalf("unexpected received events: %+v", got) }
+	if len(got) != 1 {
+		t.Fatalf("unexpected received events: %+v", got)
+	}
+	event := got[0]
+	if event.PlatformID != "bilibili" || event.Source != "live" || event.Type != "danmaku" || event.RoomID != 12345 {
+		t.Fatalf("unexpected danmaku identity: %+v", event)
+	}
+	if event.UserID != 7 || event.UserName != "viewer" || event.Avatar != "https://img.test/viewer.png" {
+		t.Fatalf("danmaku sender identity was not preserved: %+v", event)
+	}
+	if !event.IsModerator || event.UserLevel != 30 || event.GuardLevel != 2 {
+		t.Fatalf("danmaku user levels were not preserved: %+v", event)
+	}
+	if event.FanMedalName != "粉丝勋章" || event.FanMedalLevel != 12 || event.FanMedalColor != 0x123456 {
+		t.Fatalf("danmaku fan medal was not preserved: %+v", event)
+	}
+	if event.Content != "hello" || event.Timestamp != 1_700_000_000_000 || event.Color != 0xabcdef {
+		t.Fatalf("danmaku content/time/color was not preserved: %+v", event)
+	}
 	if err := a.Disconnect(context.Background()); err != nil { t.Fatal(err) }
 	if len(a.events.Snapshot()) != 1 { t.Fatal("disconnect should not clear received event history") }
 }
@@ -229,6 +308,176 @@ func TestAdapterMapsStandaloneLegacyEmoticon(t *testing.T) {
 func TestAdapterMapsSingleProtobufEmoticon(t *testing.T) {
 	got := extractDanmakuEmoticons(&message.Danmaku{Content: "[dog]", Emoticon: &message.Emoticon{Url: "https://i0.hdslb.com/bfs/live/dog.png", Width: 20, Height: 20}})
 	if len(got) != 1 || got[0].Text != "[dog]" || got[0].URL == "" { t.Fatalf("unexpected emoticon mapping: %+v", got) }
+}
+
+
+func TestFetchRoomLiveStatusMapsAllBilibiliStates(t *testing.T) {
+	for _, test := range []struct { value int; want string }{{0, "offline"}, {1, "live"}, {2, "loop"}} {
+		t.Run(test.want, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if got := r.URL.Query().Get("id"); got != "12345" { t.Errorf("room ID query = %q, want 12345", got) }
+				_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{"live_status": test.value}})
+			}))
+			defer server.Close()
+			got, err := fetchRoomLiveStatus(context.Background(), server.Client(), server.URL, 12345)
+			if err != nil { t.Fatal(err) }
+			if got != test.want { t.Fatalf("live status = %q, want %q", got, test.want) }
+		})
+	}
+}
+
+func TestAdapterMapsLiveStartAndStopStatus(t *testing.T) {
+	a, err := NewAdapter(newAdapterTestAuth(t), 12345, eventstream.NewBuffer())
+	if err != nil { t.Fatal(err) }
+	a.giftCatalog = nil
+	fake := newFakeStreamClient(12345)
+	a.newStream = func(int) streamClient { return fake }
+	if got := a.LiveStatus(); got != "unknown" { t.Fatalf("initial live status = %q, want unknown", got) }
+	if err := a.Connect(context.Background()); err != nil { t.Fatal(err) }
+	fake.emitLiveStart(&message.LiveStart{Roomid: 12345, LiveTime: 1700000000})
+	if got := a.LiveStatus(); got != "live" { t.Fatalf("live status after LIVE = %q, want live", got) }
+	fake.emitLiveStop(&message.LiveStop{Roomid: "12345", SendTime: 1700000100})
+	if got := a.LiveStatus(); got != "offline" { t.Fatalf("live status after PREPARING = %q, want offline", got) }
+	if err := a.Disconnect(context.Background()); err != nil { t.Fatal(err) }
+}
+
+func TestAdapterReceivesSCGuardFollowWelcomeAndShare(t *testing.T) {
+	a, err := NewAdapter(newAdapterTestAuth(t), 12345, eventstream.NewBuffer())
+	if err != nil { t.Fatal(err) }
+	a.giftCatalog = nil
+	fake := newFakeStreamClient(12345)
+	a.newStream = func(int) streamClient { return fake }
+	if err := a.Connect(context.Background()); err != nil { t.Fatal(err) }
+
+	sc := &message.SuperChat{Uid: 7, Price: 30, Message: "支持主播", StartTime: 1_700_000_000, Time: 60}
+	sc.UserInfo.Uname, sc.UserInfo.Face = "viewer", "https://img.test/avatar.png"
+	fake.emitSuperChat(sc)
+	fake.emitGuardBuy(&message.GuardBuy{Uid: 8, Username: "captain", GuardLevel: 3, Num: 2, Price: 138000, StartTime: 1_700_000_001})
+	// The matching toast is the richer duplicate representation of the same order.
+	fake.emitUserToast(&message.UserToast{Uid: 8, Username: "captain", Face: "https://img.test/captain.png", GuardLevel: 3, Num: 2, Price: 138000, StartTime: 1_700_000_001})
+	fake.emitInteractWord(&message.InteractWord{MsgType: 2, Timestamp: 1_700_000_002, User: &message.User{Uid: 9, Uname: "follower"}})
+	fake.emitInteractWord(&message.InteractWord{MsgType: 1, Timestamp: 1_700_000_003, User: &message.User{Uid: 10, Uname: "visitor"}})
+	fake.emitInteractWord(&message.InteractWord{MsgType: 3, Timestamp: 1_700_000_004, User: &message.User{Uid: 11, Uname: "sharer"}})
+	fake.emitInteractWord(&message.InteractWord{MsgType: 4, Timestamp: 1_700_000_005, User: &message.User{Uid: 12, Uname: "other"}})
+
+	got := a.events.Snapshot()
+	if len(got) != 5 { t.Fatalf("got %d events, want SC + guard + follow + welcome + share: %+v", len(got), got) }
+	if got[0].Type != "super_chat" || got[0].Amount != 30 || got[0].Duration != 60 || got[0].Content != "支持主播" || got[0].UserName != "viewer" {
+		t.Fatalf("unexpected SC event: %+v", got[0])
+	}
+	if got[1].Type != "guard" || got[1].GuardLevel != 3 || got[1].Months != 2 || got[1].Amount != 138 || !strings.Contains(got[1].Content, "舰长") {
+		t.Fatalf("unexpected guard event: %+v", got[1])
+	}
+	if got[1].Avatar != "https://img.test/captain.png" {
+		t.Fatalf("guard event avatar was not enriched from USER_TOAST_MSG: %+v", got[1])
+	}
+	if got[2].Type != "follow" || got[2].UserID != 9 { t.Fatalf("unexpected follow event: %+v", got[2]) }
+	if got[3].Type != "welcome" || got[3].UserID != 10 { t.Fatalf("unexpected welcome event: %+v", got[3]) }
+	if got[4].Type != "share" || got[4].UserID != 11 || got[4].Content != "分享了直播间" || got[4].Timestamp != 1_700_000_004_000 {
+		t.Fatalf("unexpected share event: %+v", got[4])
+	}
+	if err := a.Disconnect(context.Background()); err != nil { t.Fatal(err) }
+}
+
+func TestAdapterEnrichesGuardEventRegardlessOfProtocolOrder(t *testing.T) {
+	tests := []struct {
+		name       string
+		toastFirst bool
+	}{
+		{name: "GUARD_BUY first"},
+		{name: "USER_TOAST_MSG first", toastFirst: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a, err := NewAdapter(newAdapterTestAuth(t), 12345, eventstream.NewBuffer())
+			if err != nil { t.Fatal(err) }
+			a.giftCatalog = nil
+			fake := newFakeStreamClient(12345)
+			a.newStream = func(int) streamClient { return fake }
+			if err := a.Connect(context.Background()); err != nil { t.Fatal(err) }
+
+			guard := &message.GuardBuy{Uid: 88, Username: "captain", GuardLevel: 3, Num: 1, Price: 198000, StartTime: 1_700_000_010}
+			toast := &message.UserToast{Uid: 88, Username: "captain", Face: "https://img.test/captain.png", GuardLevel: 3, Num: 1, Price: 138000, StartTime: 1_700_000_010}
+			if tt.toastFirst {
+				fake.emitUserToast(toast)
+				fake.emitGuardBuy(guard)
+			} else {
+				fake.emitGuardBuy(guard)
+				fake.emitUserToast(toast)
+			}
+			got := a.events.Snapshot()
+			if len(got) != 1 { t.Fatalf("got %d guard events, want one: %+v", len(got), got) }
+			if got[0].Type != "guard" || got[0].UserName != "captain" || got[0].Avatar != "https://img.test/captain.png" {
+				t.Fatalf("guard event was not fully enriched: %+v", got[0])
+			}
+			if got[0].Amount != 138 {
+				t.Fatalf("guard amount = %.2f, want USER_TOAST_MSG actual payment 138.00", got[0].Amount)
+			}
+			if err := a.Disconnect(context.Background()); err != nil { t.Fatal(err) }
+		})
+	}
+}
+
+func TestAdapterReceivesLikeClickAndIgnoresRoomLikeUpdates(t *testing.T) {
+	a, err := NewAdapter(newAdapterTestAuth(t), 12345, eventstream.NewBuffer())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.giftCatalog = nil
+	fake := newFakeStreamClient(12345)
+	a.newStream = func(int) streamClient { return fake }
+	if err := a.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	click := []byte(`{"cmd":"LIKE_INFO_V3_CLICK","data":{"uid":77,"uname":"点赞观众","like_text":"为主播点赞","timestamp":1700000000,"fans_medal":{"medal_name":"测试勋章","medal_level":12,"medal_color":123456}}}`)
+	fake.emitRaw("LIKE_INFO_V3_CLICK", click)
+	fake.emitRaw("LIKE_INFO_V3_UPDATE", []byte(`{"cmd":"LIKE_INFO_V3_UPDATE","data":{"click_count":999}}`))
+	fake.emitRaw("OTHER_EVENT", click)
+
+	got := a.events.Snapshot()
+	if len(got) != 1 {
+		t.Fatalf("got %d events, want one per-user like event: %+v", len(got), got)
+	}
+	event := got[0]
+	if event.Type != "like" || event.PlatformID != "bilibili" || event.RoomID != 12345 {
+		t.Fatalf("unexpected like event identity: %+v", event)
+	}
+	if event.LikeCount != 1 {
+		t.Fatalf("like count = %d, want 1", event.LikeCount)
+	}
+	if event.UserID != 77 || event.UserName != "点赞观众" || event.Content != "为主播点赞" {
+		t.Fatalf("unexpected like event user/content: %+v", event)
+	}
+	if event.FanMedalName != "测试勋章" || event.FanMedalLevel != 12 || event.FanMedalColor != 123456 {
+		t.Fatalf("like event fan medal was not preserved: %+v", event)
+	}
+	if event.Timestamp != 1700000000000 {
+		t.Fatalf("like event timestamp = %d, want milliseconds", event.Timestamp)
+	}
+	if err := a.Disconnect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAdapterReportsUnexpectedStreamTermination(t *testing.T) {
+	a, err := NewAdapter(newAdapterTestAuth(t), 12345, nil)
+	if err != nil { t.Fatal(err) }
+	fake := newFakeStreamClient(12345)
+	a.newStream = func(int) streamClient { return fake }
+	failure := make(chan error, 1)
+	a.SetConnectionFailureHandler(func(err error) { failure <- err })
+	if err := a.Connect(context.Background()); err != nil { t.Fatal(err) }
+	fake.Stop() // Simulate the underlying stream ending without Disconnect.
+	select {
+	case err := <-failure:
+		if err == nil || !strings.Contains(err.Error(), "unexpectedly") { t.Fatalf("unexpected failure: %v", err) }
+	case <-time.After(time.Second): t.Fatal("unexpected stream termination was not reported")
+	}
+	a.mu.Lock()
+	client := a.client
+	a.mu.Unlock()
+	if client != nil { t.Fatal("adapter retained a terminated stream client") }
 }
 
 func TestAdapterDisconnectStopsAndWaitsForStream(t *testing.T) {

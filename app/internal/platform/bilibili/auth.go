@@ -125,6 +125,7 @@ func (m *AuthManager) PollLogin(ctx context.Context, sessionID string) (LoginSta
 			Code int `json:"code"`
 			Message string `json:"message"`
 			RefreshToken string `json:"refresh_token"`
+			URL          string `json:"url"`
 		} `json:"data"`
 	}
 	if err := decodeResponse(resp, &result); err != nil { return LoginStatus{}, err }
@@ -137,15 +138,18 @@ func (m *AuthManager) PollLogin(ctx context.Context, sessionID string) (LoginSta
 		m.deletePending(sessionID)
 		return LoginStatus{Status:"expired", Message:"二维码已失效，请重新生成"}, nil
 	case 0:
-		cookies := resp.Cookies()
-		parts := make([]string, 0, len(cookies))
-		for _, cookie := range cookies {
-			if cookie.Name == "SESSDATA" || cookie.Name == "bili_jct" || cookie.Name == "DedeUserID" || cookie.Name == "DedeUserID__ckMd5" || cookie.Name == "buvid3" {
-				parts = append(parts, cookie.Name+"="+cookie.Value)
+		cookieValues := collectCookieValues(resp.Cookies())
+		if result.Data.URL != "" {
+			ticketCookies, err := m.exchangeLoginTicket(ctx, result.Data.URL)
+			if err != nil {
+				return LoginStatus{}, fmt.Errorf("complete Bilibili cross-domain login: %w", err)
+			}
+			for name, value := range ticketCookies {
+				cookieValues[name] = value
 			}
 		}
-		cookieHeader := strings.Join(parts, "; ")
-		if !strings.Contains(cookieHeader, "SESSDATA=") || !strings.Contains(cookieHeader, "DedeUserID=") {
+		cookieHeader := formatLoginCookies(cookieValues)
+		if cookieValues["SESSDATA"] == "" || cookieValues["DedeUserID"] == "" {
 			return LoginStatus{}, errors.New("Bilibili login succeeded but required session cookies were not returned")
 		}
 		credentials := Credentials{Cookie:cookieHeader, RefreshToken:result.Data.RefreshToken}
@@ -163,6 +167,116 @@ func (m *AuthManager) PollLogin(ctx context.Context, sessionID string) (LoginSta
 	}
 }
 
+
+var loginCookieNames = map[string]bool{
+	"SESSDATA": true,
+	"bili_jct": true,
+	"DedeUserID": true,
+	"DedeUserID__ckMd5": true,
+	"buvid3": true,
+}
+
+func collectCookieValues(cookies []*http.Cookie) map[string]string {
+	values := make(map[string]string)
+	for _, cookie := range cookies {
+		if loginCookieNames[cookie.Name] && cookie.Value != "" {
+			values[cookie.Name] = cookie.Value
+		}
+	}
+	return values
+}
+
+func formatLoginCookies(values map[string]string) string {
+	order := []string{"SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "buvid3"}
+	parts := make([]string, 0, len(values))
+	for _, name := range order {
+		if value := values[name]; value != "" {
+			parts = append(parts, name+"="+value)
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
+func trustedTicketHost(host string) bool {
+	switch strings.ToLower(host) {
+	case "passport.biligame.com", "passport.bilibili.com":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateTicketURL(raw string) (*url.URL, error) {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return nil, errors.New("invalid Bilibili ticket URL")
+	}
+	if parsed.Scheme != "https" || parsed.User != nil || parsed.Port() != "" || parsed.Fragment != "" || !trustedTicketHost(parsed.Hostname()) {
+		return nil, errors.New("Bilibili ticket URL uses an untrusted address")
+	}
+	if parsed.Host != strings.ToLower(parsed.Host) {
+		return nil, errors.New("Bilibili ticket URL uses an invalid host")
+	}
+	return parsed, nil
+}
+
+func (m *AuthManager) exchangeLoginTicket(ctx context.Context, rawURL string) (map[string]string, error) {
+	ticketURL, err := validateTicketURL(rawURL)
+	if err != nil {
+		return nil, err
+	}
+	values := make(map[string]string)
+	for name, entries := range ticketURL.Query() {
+		if loginCookieNames[name] && len(entries) > 0 && entries[len(entries)-1] != "" {
+			values[name] = entries[len(entries)-1]
+		}
+	}
+
+	// New QR-login responses contain a one-time ticket; older responses carry
+	// cookie values directly in the URL query. Only the former needs exchange.
+	if ticketURL.Query().Get("ticket") == "" {
+		return values, nil
+	}
+
+	client := *m.client
+	previousCheckRedirect := m.client.CheckRedirect
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if !trustedTicketHost(req.URL.Hostname()) || req.URL.Scheme != "https" || req.URL.User != nil || req.URL.Port() != "" {
+			return errors.New("Bilibili ticket redirected to an untrusted address")
+		}
+		if req.Response != nil {
+			for name, value := range collectCookieValues(req.Response.Cookies()) {
+				values[name] = value
+			}
+		}
+		if len(via) >= 10 {
+			return errors.New("too many Bilibili ticket redirects")
+		}
+		if previousCheckRedirect != nil {
+			return previousCheckRedirect(req, via)
+		}
+		return nil
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ticketURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	setWebHeaders(req)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request Bilibili ticket: %w", err)
+	}
+	defer resp.Body.Close()
+	for name, value := range collectCookieValues(resp.Cookies()) {
+		values[name] = value
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("Bilibili ticket endpoint returned HTTP %d", resp.StatusCode)
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	return values, nil
+}
 
 func (m *AuthManager) LoadCredentials(ctx context.Context) (Credentials, error) {
 	data, err := m.store.Load()

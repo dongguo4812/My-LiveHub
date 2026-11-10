@@ -11,7 +11,7 @@ const form = reactive({
   show_platform_badge: true, highlight_gifts: true, gift_highlight_minutes: 3,
   gift_merge_seconds: 5, duplicate_danmaku_filter_seconds: 3,
   show_free_gifts: true, show_danmaku: true, show_likes: true,
-  show_follows: true, show_welcome: true, show_gifts: true,
+  show_follows: true, show_welcome: true, show_share: true, show_gifts: true,
   show_super_chat: true, show_guard: true, custom_css: '',
 })
 watch(danmakuDisplaySettings, value => { if (value) Object.assign(form, value) }, { immediate: true })
@@ -94,6 +94,7 @@ async function save() {
         <el-switch v-model="form.show_likes" active-text="点赞消息" />
         <el-switch v-model="form.show_follows" active-text="关注消息" />
         <el-switch v-model="form.show_welcome" active-text="欢迎用户进场" />
+        <el-switch v-model="form.show_share" active-text="分享消息" />
         <el-switch v-model="form.show_super_chat" active-text="SC 醒目留言" />
         <el-switch v-model="form.show_guard" active-text="上舰消息" />
       </div>

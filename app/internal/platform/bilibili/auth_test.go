@@ -22,11 +22,16 @@ func TestBeginLoginAndPollSuccess(t *testing.T) {
 		switch {
 		case strings.Contains(r.URL.Path,"qrcode/generate"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"code":0,"data":map[string]string{"url":"https://passport.bilibili.com/scan?key=abc","qrcode_key":"qr-key"}})
+		case strings.Contains(r.URL.Path, "crossDomain"):
+			if r.Header.Get("User-Agent") == "" {
+				t.Error("ticket request must include browser User-Agent")
+			}
+			http.SetCookie(w, &http.Cookie{Name: "SESSDATA", Value: "session-secret", Path: "/"})
+			http.SetCookie(w, &http.Cookie{Name: "DedeUserID", Value: "12345", Path: "/"})
+			http.SetCookie(w, &http.Cookie{Name: "bili_jct", Value: "csrf-secret", Path: "/"})
+			_, _ = w.Write([]byte("ok"))
 		case strings.Contains(r.URL.Path,"qrcode/poll"):
-			http.SetCookie(w,&http.Cookie{Name:"SESSDATA",Value:"session-secret",Path:"/"})
-			http.SetCookie(w,&http.Cookie{Name:"DedeUserID",Value:"12345",Path:"/"})
-			http.SetCookie(w,&http.Cookie{Name:"bili_jct",Value:"csrf-secret",Path:"/"})
-			_ = json.NewEncoder(w).Encode(map[string]any{"code":0,"data":map[string]any{"code":0,"refresh_token":"refresh-secret"}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"code":0,"data":map[string]any{"code":0,"url":"https://passport.biligame.com/x/passport-login/web/crossDomain?ticket=ticket-value","refresh_token":"refresh-secret"}})
 		case strings.Contains(r.URL.Path,"web-interface/nav"):
 			if !strings.Contains(r.Header.Get("Cookie"),"SESSDATA=session-secret") { t.Errorf("session cookie not forwarded") }
 			_ = json.NewEncoder(w).Encode(map[string]any{"code":0,"data":map[string]any{"isLogin":true,"mid":json.Number("12345"),"uname":"test-user","face":"https://example.com/avatar.png"}})
@@ -193,5 +198,182 @@ func TestLoadCredentialsDeletesExpiredCredentials(t *testing.T) {
 	}
 	if len(store.data) != 0 {
 		t.Fatal("expired credentials should be removed")
+	}
+}
+
+
+func TestExchangeLoginTicketCollectsCookiesAcrossRedirects(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/x/passport-login/web/crossDomain":
+			http.SetCookie(w, &http.Cookie{Name: "bili_jct", Value: "redirect-csrf", Path: "/"})
+			http.Redirect(w, r, "https://passport.bilibili.com/final", http.StatusFound)
+		case "/final":
+			http.SetCookie(w, &http.Cookie{Name: "SESSDATA", Value: "final-session", Path: "/"})
+			http.SetCookie(w, &http.Cookie{Name: "DedeUserID", Value: "456", Path: "/"})
+			_, _ = w.Write([]byte("ok"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := server.Client()
+	client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		clone := req.Clone(req.Context())
+		u := *req.URL
+		u.Scheme = "http"
+		u.Host = strings.TrimPrefix(server.URL, "http://")
+		clone.URL = &u
+		return http.DefaultTransport.RoundTrip(clone)
+	})
+	manager, err := NewAuthManager(&memoryStore{}, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values, err := manager.exchangeLoginTicket(context.Background(), "https://passport.biligame.com/x/passport-login/web/crossDomain?ticket=one-time")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if values["bili_jct"] != "redirect-csrf" || values["SESSDATA"] != "final-session" || values["DedeUserID"] != "456" {
+		t.Fatalf("cookies from ticket redirect chain were not collected: %#v", values)
+	}
+}
+
+func TestExchangeLoginTicketSupportsLegacyCookieURL(t *testing.T) {
+	manager, err := NewAuthManager(&memoryStore{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values, err := manager.exchangeLoginTicket(context.Background(),
+		"https://passport.biligame.com/crossDomain?SESSDATA=legacy-session&DedeUserID=789&bili_jct=legacy-csrf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if values["SESSDATA"] != "legacy-session" || values["DedeUserID"] != "789" || values["bili_jct"] != "legacy-csrf" {
+		t.Fatalf("legacy cookie query was not parsed: %#v", values)
+	}
+}
+
+func TestExchangeLoginTicketRejectsUntrustedURL(t *testing.T) {
+	manager, err := NewAuthManager(&memoryStore{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range []string{
+		"http://passport.biligame.com/crossDomain?ticket=x",
+		"https://passport.biligame.com.evil.example/crossDomain?ticket=x",
+		"https://evil.example/crossDomain?ticket=x",
+		"https://user@passport.biligame.com/crossDomain?ticket=x",
+	} {
+		if _, err := manager.exchangeLoginTicket(context.Background(), raw); err == nil {
+			t.Errorf("expected untrusted ticket URL to be rejected: %q", raw)
+		}
+	}
+}
+
+func TestPollLoginDoesNotSaveCredentialsForUntrustedTicket(t *testing.T) {
+	store := &memoryStore{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "qrcode/poll") {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 0,
+				"data": map[string]any{
+					"code": 0,
+					"url": "https://attacker.example/crossDomain?ticket=steal",
+				},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+	client := server.Client()
+	client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		clone := req.Clone(req.Context())
+		u := *req.URL
+		u.Scheme = "http"
+		u.Host = strings.TrimPrefix(server.URL, "http://")
+		clone.URL = &u
+		return http.DefaultTransport.RoundTrip(clone)
+	})
+	manager, err := NewAuthManager(store, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.pending["login"] = pendingLogin{key: "qr", expiresAt: time.Now().Add(time.Minute)}
+	if _, err := manager.PollLogin(context.Background(), "login"); err == nil {
+		t.Fatal("expected untrusted ticket URL to fail")
+	}
+	if len(store.data) != 0 {
+		t.Fatal("credentials must not be saved when ticket URL is untrusted")
+	}
+}
+
+
+func TestPollLoginPreservesLegacyDirectCookieResponse(t *testing.T) {
+	store := &memoryStore{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "qrcode/poll"):
+			http.SetCookie(w, &http.Cookie{Name: "SESSDATA", Value: "direct-session", Path: "/"})
+			http.SetCookie(w, &http.Cookie{Name: "DedeUserID", Value: "321", Path: "/"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{"code": 0}})
+		case strings.Contains(r.URL.Path, "web-interface/nav"):
+			if !strings.Contains(r.Header.Get("Cookie"), "SESSDATA=direct-session") {
+				t.Error("legacy poll cookie was not forwarded")
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
+				"isLogin": true, "mid": json.Number("321"), "uname": "legacy-user",
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client := server.Client()
+	client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		clone := req.Clone(req.Context())
+		u := *req.URL
+		u.Scheme = "http"
+		u.Host = strings.TrimPrefix(server.URL, "http://")
+		clone.URL = &u
+		return http.DefaultTransport.RoundTrip(clone)
+	})
+	manager, err := NewAuthManager(store, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.pending["legacy"] = pendingLogin{key: "qr", expiresAt: time.Now().Add(time.Minute)}
+	status, err := manager.PollLogin(context.Background(), "legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Status != "success" || status.Account == nil || status.Account.UID != "321" {
+		t.Fatalf("legacy direct-cookie login failed: %#v", status)
+	}
+}
+
+func TestExchangeLoginTicketRejectsUntrustedRedirect(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "https://attacker.example/collect", http.StatusFound)
+	}))
+	defer server.Close()
+	client := server.Client()
+	client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		clone := req.Clone(req.Context())
+		u := *req.URL
+		u.Scheme = "http"
+		u.Host = strings.TrimPrefix(server.URL, "http://")
+		clone.URL = &u
+		return http.DefaultTransport.RoundTrip(clone)
+	})
+	manager, err := NewAuthManager(&memoryStore{}, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.exchangeLoginTicket(context.Background(),
+		"https://passport.biligame.com/x/passport-login/web/crossDomain?ticket=redirect-test"); err == nil {
+		t.Fatal("ticket redirect to an untrusted host must be rejected")
 	}
 }

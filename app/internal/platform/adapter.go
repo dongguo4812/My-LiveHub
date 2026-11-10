@@ -11,3 +11,16 @@ type Adapter interface {
 	Connect(context.Context) error
 	Disconnect(context.Context) error
 }
+
+
+// ConnectionFailureReporter is implemented by adapters that can detect an
+// unexpected end of an established connection. The callback must not be used
+// for an intentional Disconnect.
+type ConnectionFailureReporter interface {
+	SetConnectionFailureHandler(func(error))
+}
+
+// LiveStatusProvider exposes the latest platform-reported broadcast state.
+type LiveStatusProvider interface {
+	LiveStatus() string
+}

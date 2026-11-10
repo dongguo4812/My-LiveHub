@@ -47,6 +47,7 @@ type Event struct {
 	IsSimulation   bool            `json:"is_simulation,omitempty"`
 	GiftName       string          `json:"gift_name,omitempty"`
 	GiftCount      int             `json:"gift_count,omitempty"`
+	LikeCount      int             `json:"like_count,omitempty"`
 	UnitPrice      float64         `json:"unit_price,omitempty"`
 	TotalPrice     float64         `json:"total_price,omitempty"`
 	Amount         float64         `json:"amount,omitempty"`
@@ -59,10 +60,26 @@ type Buffer struct {
 	mu     sync.RWMutex
 	nextID uint64
 	items  []Event
+	bus    *Bus
 }
 
-func NewBuffer() *Buffer {
-	return &Buffer{items: make([]Event, 0, BufferLimit)}
+// NewBuffer optionally attaches a shared event bus. Existing callers that do
+// not provide a bus retain history-only behavior.
+func NewBuffer(buses ...*Bus) *Buffer {
+	buffer := &Buffer{items: make([]Event, 0, BufferLimit)}
+	if len(buses) > 0 {
+		buffer.bus = buses[0]
+	}
+	return buffer
+}
+
+// Subscribe registers an independent consumer for future events added to the
+// buffer. A nil buffer or history-only buffer returns a no-op cancellation.
+func (b *Buffer) Subscribe(handler Handler) func() {
+	if b == nil || b.bus == nil {
+		return func() {}
+	}
+	return b.bus.Subscribe(handler)
 }
 
 // Add normalizes source metadata, assigns a local sequence ID, and stores an event.
@@ -74,16 +91,22 @@ func (b *Buffer) Add(event Event) Event {
 	}
 	if event.Source == "simulation" { event.IsSimulation = true }
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	b.nextID++
 	event.ID = b.nextID
+	event = cloneEvent(event)
 	if len(b.items) == BufferLimit {
 		copy(b.items, b.items[1:])
 		b.items[len(b.items)-1] = event
-		return event
+	} else {
+		b.items = append(b.items, event)
 	}
-	b.items = append(b.items, event)
-	return event
+	bus := b.bus
+	b.mu.Unlock()
+
+	if bus != nil {
+		bus.Publish(event)
+	}
+	return cloneEvent(event)
 }
 
 type SimulationEventInput struct {
@@ -129,12 +152,14 @@ func (b *Buffer) AddSimulationEvent(platformID string, input SimulationEventInpu
 		if input.Amount <= 0 || input.Content == "" || input.Duration < 0 { return Event{}, errors.New("SC 金额、留言或展示时长不正确") }
 		event.Amount, event.Duration = input.Amount, input.Duration
 	case "guard":
-		if input.GuardLevel < 1 || input.GuardLevel > 3 || input.Months < 1 { return Event{}, errors.New("舰队等级或开通月份不正确") }
-		event.GuardLevel, event.Months = input.GuardLevel, input.Months
+		if input.GuardLevel < 1 || input.GuardLevel > 3 || input.Months < 1 || input.Amount < 0 { return Event{}, errors.New("舰队等级、开通月份或金额不正确") }
+		event.GuardLevel, event.Months, event.Amount = input.GuardLevel, input.Months, input.Amount
 		labels := map[int]string{1: "总督", 2: "提督", 3: "舰长"}
 		event.Content = fmt.Sprintf("开通了 %s × %d 个月", labels[input.GuardLevel], input.Months)
 	case "follow":
 		event.Content = "关注了直播间"
+	case "share":
+		event.Content = "分享了直播间"
 	case "like":
 		event.Content = "为直播间点赞"
 	case "welcome", "welcom":
@@ -144,6 +169,32 @@ func (b *Buffer) AddSimulationEvent(platformID string, input SimulationEventInpu
 		return Event{}, fmt.Errorf("不支持的模拟事件类型：%s", input.Type)
 	}
 	return b.Add(event), nil
+}
+
+// EnrichGuardEvent fills missing user profile fields on a recent guard event.
+func (b *Buffer) EnrichGuardEvent(eventID uint64, userName, avatar string, actualAmount *float64) bool {
+	if b == nil || eventID == 0 {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for i := range b.items {
+		item := &b.items[i]
+		if item.ID != eventID || item.Type != "guard" {
+			continue
+		}
+		if item.UserName == "" {
+			item.UserName = strings.TrimSpace(userName)
+		}
+		if item.Avatar == "" {
+			item.Avatar = strings.TrimSpace(avatar)
+		}
+		if actualAmount != nil {
+			item.Amount = *actualAmount
+		}
+		return true
+	}
+	return false
 }
 
 // UpdateGiftImage enriches recent gift events after the asynchronous gift catalog refresh.
@@ -166,5 +217,9 @@ func (b *Buffer) Snapshot() []Event {
 	if b == nil { return nil }
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	return append([]Event(nil), b.items...)
+	result := make([]Event, len(b.items))
+	for i, item := range b.items {
+		result[i] = cloneEvent(item)
+	}
+	return result
 }

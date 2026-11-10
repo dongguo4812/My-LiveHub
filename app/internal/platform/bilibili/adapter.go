@@ -24,6 +24,13 @@ type streamClient interface {
 	SetCookie(string)
 	OnDanmaku(func(*message.Danmaku))
 	OnGift(func(*message.Gift))
+	OnSuperChat(func(*message.SuperChat))
+	OnGuardBuy(func(*message.GuardBuy))
+	OnUserToast(func(*message.UserToast))
+	OnInteractWord(func(*message.InteractWord))
+	OnLiveStart(func(*message.LiveStart))
+	OnLiveStop(func(*message.LiveStop))
+	OnRawEvent(func(string, []byte))
 	StartContext(context.Context) error
 	Stop()
 	Wait()
@@ -131,22 +138,124 @@ type Adapter struct {
 	newStream func(int) streamClient
 	giftCatalog *giftCatalog
 	mediaCatalog *resource.Catalog
+	guardMu sync.Mutex
+	recentGuardEvents map[string]guardEventRecord
 	mu sync.Mutex
 	roomID int
+	liveStatus string
+	liveStatusRevision uint64
 	client streamClient
 	cancel context.CancelFunc
+	connectionFailureHandler func(error)
 }
 
 func NewAdapter(auth *AuthManager, roomID int, events *eventstream.Buffer) (*Adapter, error) {
 	if auth == nil { return nil, errors.New("Bilibili authentication manager is required") }
 	if roomID < 0 { return nil, errors.New("Bilibili room ID cannot be negative") }
 	if events == nil { events = eventstream.NewBuffer() }
-	return &Adapter{auth: auth, roomID: roomID, events: events, newStream: func(roomID int) streamClient { return client.NewClient(roomID) }, giftCatalog: newGiftCatalog(nil)}, nil
+	return &Adapter{auth: auth, roomID: roomID, liveStatus: "unknown", events: events, newStream: func(roomID int) streamClient { return client.NewClient(roomID) }, giftCatalog: newGiftCatalog(nil), recentGuardEvents: make(map[string]guardEventRecord)}, nil
 }
 
 func medalName(m *message.Medal) string { if m == nil { return "" }; return m.Name }
 func medalLevel(m *message.Medal) int { if m == nil { return 0 }; return m.Level }
 func medalColor(m *message.Medal) uint32 { if m == nil { return 0 }; return uint32(m.Color) }
+
+func normalizeTimestamp(timestamp int64) int64 {
+	if timestamp <= 0 {
+		return time.Now().UnixMilli()
+	}
+	if timestamp < 1_000_000_000_000 {
+		return timestamp * 1000
+	}
+	return timestamp
+}
+
+type guardEventRecord struct {
+	eventID uint64
+	seenAt  time.Time
+}
+
+func guardEventKey(uid, level, months, startTime int) string {
+	if uid <= 0 || level < 1 || level > 3 || months <= 0 || startTime <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d:%d:%d:%d", uid, level, months, startTime)
+}
+
+// addLikeEvent maps Bilibili's per-user LIKE_INFO_V3_CLICK notification.
+// LIKE_INFO_V3_UPDATE is deliberately ignored because it only reports room totals.
+func (a *Adapter) addLikeEvent(roomID int, raw []byte) {
+	if a == nil || a.events == nil {
+		return
+	}
+	var envelope struct {
+		Data struct {
+			UID       int64  `json:"uid"`
+			UName     string `json:"uname"`
+			LikeText  string `json:"like_text"`
+			Timestamp int64  `json:"timestamp"`
+			FansMedal struct {
+				Name  string `json:"medal_name"`
+				Level int    `json:"medal_level"`
+				Color uint32 `json:"medal_color"`
+			} `json:"fans_medal"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return
+	}
+	data := envelope.Data
+	if data.UID <= 0 || strings.TrimSpace(data.UName) == "" {
+		return
+	}
+	a.events.Add(eventstream.Event{
+		PlatformID: "bilibili", Source: "live", Type: "like", RoomID: roomID,
+		UserID: int(data.UID), UserName: data.UName,
+		Content: firstNonEmpty(data.LikeText, "为直播间点赞"),
+		Timestamp: normalizeTimestamp(data.Timestamp),
+		FanMedalName: data.FansMedal.Name, FanMedalLevel: data.FansMedal.Level,
+		FanMedalColor: data.FansMedal.Color, LikeCount: 1,
+	})
+}
+
+func (a *Adapter) addGuardEvent(roomID, uid int, name, avatar string, level, months int, price int, timestamp int, key string, actualPayment bool) {
+	if a == nil || a.events == nil || level < 1 || level > 3 || months < 1 {
+		return
+	}
+	event := eventstream.Event{
+		PlatformID: "bilibili", Source: "live", Type: "guard", RoomID: roomID,
+		UserID: uid, UserName: strings.TrimSpace(name), Avatar: strings.TrimSpace(avatar),
+		Content: fmt.Sprintf("开通了 %s × %d 个月", map[int]string{1: "总督", 2: "提督", 3: "舰长"}[level], months),
+		Timestamp: normalizeTimestamp(int64(timestamp)), GuardLevel: level, Months: months,
+		Amount: float64(price) / 1000,
+	}
+	if key == "" {
+		a.events.Add(event)
+		return
+	}
+
+	now := time.Now()
+	a.guardMu.Lock()
+	defer a.guardMu.Unlock()
+	for existing, record := range a.recentGuardEvents {
+		if now.Sub(record.seenAt) > 10*time.Second {
+			delete(a.recentGuardEvents, existing)
+		}
+	}
+	if record, exists := a.recentGuardEvents[key]; exists && now.Sub(record.seenAt) <= 10*time.Second {
+		// GUARD_BUY and USER_TOAST_MSG describe the same order. Keep one
+		// event, but fill fields that the first protocol did not provide.
+		var actualAmount *float64
+		if actualPayment {
+			amount := event.Amount
+			actualAmount = &amount
+		}
+		a.events.EnrichGuardEvent(record.eventID, event.UserName, event.Avatar, actualAmount)
+		return
+	}
+	created := a.events.Add(event)
+	a.recentGuardEvents[key] = guardEventRecord{eventID: created.ID, seenAt: now}
+}
 
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
@@ -291,6 +400,71 @@ func (a *Adapter) SetMediaCatalog(c *resource.Catalog) {
 }
 func (a *Adapter) ID() string { return "bilibili" }
 
+// LiveStatus returns the latest Bilibili LIVE/PREPARING or room-info status.
+func (a *Adapter) LiveStatus() string {
+	if a == nil { return "unknown" }
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.liveStatus == "" { return "unknown" }
+	return a.liveStatus
+}
+
+func (a *Adapter) setLiveStatus(status string) {
+	if a == nil { return }
+	a.mu.Lock()
+	a.liveStatus = status
+	a.liveStatusRevision++
+	a.mu.Unlock()
+}
+
+func fetchRoomLiveStatus(ctx context.Context, httpClient *http.Client, endpoint string, roomID int) (string, error) {
+	if roomID <= 0 { return "unknown", errors.New("invalid Bilibili room ID") }
+	requestURL, err := url.Parse(endpoint)
+	if err != nil { return "unknown", err }
+	query := requestURL.Query()
+	query.Set("id", strconv.Itoa(roomID))
+	requestURL.RawQuery = query.Encode()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL.String(), nil)
+	if err != nil { return "unknown", err }
+	if httpClient == nil { httpClient = &http.Client{Timeout: 3 * time.Second} }
+	response, err := httpClient.Do(request)
+	if err != nil { return "unknown", err }
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 { return "unknown", fmt.Errorf("Bilibili room status returned HTTP %d", response.StatusCode) }
+	var payload struct {
+		Code int `json:"code"`
+		Data struct { LiveStatus int `json:"live_status"` } `json:"data"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&payload); err != nil { return "unknown", err }
+	if payload.Code != 0 { return "unknown", fmt.Errorf("Bilibili room status API error %d", payload.Code) }
+	switch payload.Data.LiveStatus {
+	case 0: return "offline", nil
+	case 1: return "live", nil
+	case 2: return "loop", nil
+	default: return "unknown", fmt.Errorf("unsupported Bilibili live status %d", payload.Data.LiveStatus)
+	}
+}
+
+func (a *Adapter) refreshInitialLiveStatus(ctx context.Context, roomID int, expectedRevision uint64) {
+	status, err := fetchRoomLiveStatus(ctx, nil, "https://api.live.bilibili.com/room/v1/Room/room_init", roomID)
+	if err != nil { return }
+	a.mu.Lock()
+	if a.liveStatusRevision == expectedRevision {
+		a.liveStatus = status
+		a.liveStatusRevision++
+	}
+	a.mu.Unlock()
+}
+
+// SetConnectionFailureHandler registers the manager callback for an unexpected
+// stream termination. Intentional Disconnect calls never invoke this handler.
+func (a *Adapter) SetConnectionFailureHandler(handler func(error)) {
+	if a == nil { return }
+	a.mu.Lock()
+	a.connectionFailureHandler = handler
+	a.mu.Unlock()
+}
+
 func (a *Adapter) RoomID() int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -312,6 +486,9 @@ func (a *Adapter) Connect(ctx context.Context) error {
 	a.mu.Lock()
 	if a.client != nil { a.mu.Unlock(); return nil }
 	roomID := a.roomID
+	a.liveStatus = "unknown"
+	a.liveStatusRevision++
+	initialLiveStatusRevision := a.liveStatusRevision
 	a.mu.Unlock()
 	if roomID <= 0 { return errors.New("请先设置有效的 B 站直播间房间号") }
 
@@ -319,6 +496,16 @@ func (a *Adapter) Connect(ctx context.Context) error {
 	if err != nil { return err }
 	stream := a.newStream(roomID)
 	stream.SetCookie(credentials.Cookie)
+	stream.OnRawEvent(func(cmd string, raw []byte) {
+		baseCmd, _, _ := strings.Cut(cmd, ":")
+		if baseCmd != "LIKE_INFO_V3_CLICK" {
+			return
+		}
+		a.addLikeEvent(roomID, raw)
+	})
+	stream.OnLiveStart(func(*message.LiveStart) { a.setLiveStatus("live") })
+	stream.OnLiveStop(func(*message.LiveStop) { a.setLiveStatus("offline") })
+
 	stream.OnDanmaku(func(d *message.Danmaku) {
 		if d == nil || d.Sender == nil { return }
 		timestamp := d.Timestamp
@@ -352,7 +539,7 @@ func (a *Adapter) Connect(ctx context.Context) error {
 				emoticons[i].ResourceID = sourceID + ":" + rawResourceID
 			}
 		}
-		if timestamp <= 0 { timestamp = time.Now().UnixMilli() } else if timestamp < 1_000_000_000_000 { timestamp *= 1000 }
+		timestamp = normalizeTimestamp(timestamp)
 		a.events.Add(eventstream.Event{
 			PlatformID: "bilibili", Source: "live", Type: "danmaku", RoomID: roomID,
 			UserID: d.Sender.Uid, UserName: d.Sender.Uname, Avatar: d.Sender.Face,
@@ -361,15 +548,84 @@ func (a *Adapter) Connect(ctx context.Context) error {
 			FanMedalName: medalName(d.Sender.Medal), FanMedalLevel: medalLevel(d.Sender.Medal), FanMedalColor: medalColor(d.Sender.Medal),
 		})
 	})
+
+	stream.OnSuperChat(func(sc *message.SuperChat) {
+		if sc == nil {
+			return
+		}
+		userID, userName, avatar := sc.Uid, sc.UserInfo.Uname, sc.UserInfo.Face
+		guardLevel := sc.UserInfo.GuardLevel
+		var medal *message.Medal
+		if sc.Sender != nil {
+			if userID <= 0 { userID = sc.Sender.Uid }
+			userName = firstNonEmpty(sc.Sender.Uname, userName)
+			avatar = firstNonEmpty(sc.Sender.Face, avatar)
+			guardLevel = sc.Sender.GuardLevel
+			medal = sc.Sender.Medal
+		}
+		if sc.Medal != nil { medal = sc.Medal }
+		if userID <= 0 || strings.TrimSpace(userName) == "" || sc.Price <= 0 || strings.TrimSpace(sc.Message) == "" {
+			return
+		}
+		a.events.Add(eventstream.Event{
+			PlatformID: "bilibili", Source: "live", Type: "super_chat", RoomID: roomID,
+			UserID: userID, UserName: userName, Avatar: avatar,
+			Content: sc.Message, Timestamp: normalizeTimestamp(int64(sc.StartTime)),
+			Amount: float64(sc.Price), Duration: sc.Time, GuardLevel: guardLevel,
+			FanMedalName: medalName(medal), FanMedalLevel: medalLevel(medal), FanMedalColor: medalColor(medal),
+		})
+	})
+	stream.OnGuardBuy(func(guard *message.GuardBuy) {
+		if guard == nil { return }
+		key := guardEventKey(guard.Uid, guard.GuardLevel, guard.Num, guard.StartTime)
+		a.addGuardEvent(roomID, guard.Uid, guard.Username, "", guard.GuardLevel, guard.Num, guard.Price, guard.StartTime, key, false)
+	})
+	stream.OnUserToast(func(toast *message.UserToast) {
+		if toast == nil { return }
+		key := guardEventKey(toast.Uid, toast.GuardLevel, toast.Num, toast.StartTime)
+		a.addGuardEvent(roomID, toast.Uid, toast.Username, toast.Face, toast.GuardLevel, toast.Num, toast.Price, toast.StartTime, key, true)
+	})
+	stream.OnInteractWord(func(interaction *message.InteractWord) {
+		if interaction == nil || interaction.User == nil { return }
+		eventType, content := "", ""
+		switch interaction.MsgType {
+		case 1:
+			eventType, content = "welcome", "进入了直播间"
+		case 2:
+			eventType, content = "follow", "关注了直播间"
+		case 3:
+			eventType, content = "share", "分享了直播间"
+		default:
+			return
+		}
+		user := interaction.User
+		timestamp := normalizeTimestamp(int64(interaction.Timestamp))
+		if interaction.TriggerTime > 0 {
+			timestamp = normalizeTimestamp(interaction.TriggerTime / 1_000_000)
+		}
+		medal := user.Medal
+		a.events.Add(eventstream.Event{
+			PlatformID: "bilibili", Source: "live", Type: eventType, RoomID: roomID,
+			UserID: user.Uid, UserName: user.Uname, Avatar: user.Face, Content: content,
+			Timestamp: timestamp, GuardLevel: user.GuardLevel, UserLevel: int(user.UserLevel),
+			FanMedalName: medalName(medal), FanMedalLevel: medalLevel(medal), FanMedalColor: medalColor(medal),
+		})
+	})
+
 	stream.OnGift(func(g *message.Gift) {
 		if g == nil { return }
 		count := g.Num
 		if count <= 0 { count = 1 }
 		timestamp := int64(g.Timestamp)
 		if timestamp <= 0 { timestamp = time.Now().UnixMilli() } else if timestamp < 1_000_000_000_000 { timestamp *= 1000 }
-		unitPrice := float64(g.Price) / 1000
-		totalPrice := float64(g.TotalCoin) / 1000
-		if totalPrice <= 0 { totalPrice = unitPrice * float64(count) }
+		var unitPrice, totalPrice float64
+		if g.IsPaid() {
+			unitPrice = float64(g.Price) / 1000
+			totalPrice = float64(g.TotalCoin) / 1000
+			if totalPrice <= 0 {
+				totalPrice = unitPrice * float64(count)
+			}
+		}
 		giftImageURL := a.giftCatalog.ImageURL(roomID, g.GiftId)
 		if a.mediaCatalog != nil {
 			if item, ok := a.mediaCatalog.Find("bilibili", strconv.Itoa(roomID), resource.TypeGift, strconv.Itoa(g.GiftId)); ok {
@@ -407,6 +663,7 @@ func (a *Adapter) Connect(ctx context.Context) error {
 	}
 	a.client, a.cancel = stream, cancel
 	a.mu.Unlock()
+	go a.refreshInitialLiveStatus(runCtx, roomID, initialLiveStatusRevision)
 	refreshCommonEmoticons := a.mediaCatalog != nil && !a.mediaCatalog.IsFresh("bilibili", "common", resource.TypeEmoticon, 24*time.Hour)
 	refreshRoomEmoticons := a.mediaCatalog != nil && !a.mediaCatalog.IsFresh("bilibili", strconv.Itoa(roomID), resource.TypeEmoticon, 6*time.Hour)
 	if a.mediaCatalog != nil && (refreshCommonEmoticons || refreshRoomEmoticons) {
@@ -459,8 +716,21 @@ func (a *Adapter) Connect(ctx context.Context) error {
 	go func() {
 		stream.Wait()
 		a.mu.Lock()
-		if a.client == stream { a.client, a.cancel = nil, nil }
+		unexpected := a.client == stream
+		var cancelStream context.CancelFunc
+		var failureHandler func(error)
+		if unexpected {
+			cancelStream = a.cancel
+			a.client, a.cancel = nil, nil
+			a.liveStatus = "unknown"
+			a.liveStatusRevision++
+			failureHandler = a.connectionFailureHandler
+		}
 		a.mu.Unlock()
+		if cancelStream != nil { cancelStream() }
+		if unexpected && failureHandler != nil {
+			failureHandler(errors.New("Bilibili live stream stopped unexpectedly"))
+		}
 	}()
 	return nil
 }
@@ -471,6 +741,8 @@ func (a *Adapter) Disconnect(ctx context.Context) error {
 	a.mu.Lock()
 	stream, cancel := a.client, a.cancel
 	a.client, a.cancel = nil, nil
+	a.liveStatus = "unknown"
+	a.liveStatusRevision++
 	a.mu.Unlock()
 	if stream == nil { return nil }
 	if cancel != nil { cancel() }

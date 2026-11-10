@@ -24,6 +24,7 @@ type DanmakuDisplayConfig struct {
 	ShowLikes bool `json:"show_likes"`
 	ShowFollows bool `json:"show_follows"`
 	ShowWelcome bool `json:"show_welcome"`
+	ShowShare bool `json:"show_share"`
 	ShowGifts bool `json:"show_gifts"`
 	ShowSuperChat bool `json:"show_super_chat"`
 	ShowGuard bool `json:"show_guard"`
@@ -37,7 +38,7 @@ func DefaultDanmakuDisplayConfig() DanmakuDisplayConfig {
 		ShowFanMedal:true, ShowUserLevel:true, ShowGiftImage:true,
 		ShowPlatformBadge:true, HighlightGifts:true, GiftHighlightMinutes:3,
 		GiftMergeSeconds:5, DuplicateDanmakuFilterSeconds:3, ShowFreeGifts:true,
-		ShowDanmaku:true, ShowLikes:true, ShowFollows:true, ShowWelcome:true,
+		ShowDanmaku:true, ShowLikes:true, ShowFollows:true, ShowWelcome:true, ShowShare:true,
 		ShowGifts:true, ShowSuperChat:true, ShowGuard:true,
 	}
 }

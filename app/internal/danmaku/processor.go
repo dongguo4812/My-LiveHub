@@ -37,6 +37,7 @@ func (p *Processor) Process(input []events.Event, settings config.DanmakuDisplay
 	result := make([]DisplayEvent, 0, len(ordered))
 	lastDanmaku := make(map[string]int64)
 	lastGiftIndex := make(map[string]int)
+	lastLikeIndex := make(map[string]int)
 	keepAfter := now.UnixMilli() - int64(settings.DisplayDurationSeconds)*1000
 
 	for _, event := range ordered {
@@ -51,6 +52,39 @@ func (p *Processor) Process(input []events.Event, settings config.DanmakuDisplay
 				continue
 			}
 			lastDanmaku[key] = event.Timestamp
+		}
+
+
+		if event.Type == "like" {
+			if event.LikeCount < 1 {
+				event.LikeCount = 1
+			}
+		}
+		if event.Type == "like" && settings.DuplicateDanmakuFilterSeconds > 0 {
+			key := likeKey(event)
+			if index, ok := lastLikeIndex[key]; ok {
+				previous := &result[index]
+				delta := event.Timestamp - previous.Event.Timestamp
+				if delta >= 0 && delta <= int64(settings.DuplicateDanmakuFilterSeconds)*1000 {
+					mergeLike(previous, event)
+					merged := *previous
+					result = append(result[:index], result[index+1:]...)
+					result = append(result, merged)
+					for existingKey, likeIndex := range lastLikeIndex {
+						if likeIndex > index {
+							lastLikeIndex[existingKey] = likeIndex - 1
+						}
+					}
+					for existingKey, giftIndex := range lastGiftIndex {
+						if giftIndex > index {
+							lastGiftIndex[existingKey] = giftIndex - 1
+						}
+					}
+					lastLikeIndex[key] = len(result) - 1
+					continue
+				}
+			}
+			lastLikeIndex[key] = len(result)
 		}
 
 		if event.Type == "gift" && settings.GiftMergeSeconds > 0 {
@@ -69,6 +103,11 @@ func (p *Processor) Process(input []events.Event, settings config.DanmakuDisplay
 					for giftKey, giftIndex := range lastGiftIndex {
 						if giftIndex > index {
 							lastGiftIndex[giftKey] = giftIndex - 1
+						}
+					}
+					for likeKey, likeIndex := range lastLikeIndex {
+						if likeIndex > index {
+							lastLikeIndex[likeKey] = likeIndex - 1
 						}
 					}
 					lastGiftIndex[key] = len(result) - 1
@@ -109,6 +148,8 @@ func enabled(event events.Event, settings config.DanmakuDisplayConfig) bool {
 		return settings.ShowLikes
 	case "welcome", "entry":
 		return settings.ShowWelcome
+	case "share":
+		return settings.ShowShare
 	default:
 		return false
 	}
@@ -116,6 +157,25 @@ func enabled(event events.Event, settings config.DanmakuDisplayConfig) bool {
 
 func danmakuKey(event events.Event) string {
 	return fmt.Sprintf("%s\x00%s\x00%d\x00%s", event.PlatformID, event.Source, event.UserID, event.Content)
+}
+
+
+func likeKey(event events.Event) string {
+	return fmt.Sprintf("%s\x00%s\x00%d\x00%d", event.PlatformID, event.Source, event.RoomID, event.UserID)
+}
+
+func mergeLike(target *DisplayEvent, incoming events.Event) {
+	count := incoming.LikeCount
+	if count < 1 {
+		count = 1
+	}
+	baseContent := strings.TrimSpace(target.Event.Content)
+	if target.Event.LikeCount > 1 {
+		baseContent = strings.TrimSuffix(baseContent, fmt.Sprintf(" × %d", target.Event.LikeCount))
+	}
+	target.Event.LikeCount += count
+	target.Event.Content = fmt.Sprintf("%s × %d", baseContent, target.Event.LikeCount)
+	target.Event.Timestamp = incoming.Timestamp
 }
 
 func giftKey(event events.Event) string {

@@ -23,6 +23,17 @@ func TestProcessorAppliesMessageSwitches(t *testing.T) {
 	}
 }
 
+func TestProcessorRespectsShareDisplaySetting(t *testing.T) {
+	settings := config.DefaultDanmakuDisplayConfig()
+	share := event("share", "bilibili", "simulation", 7, 99000)
+	settings.ShowShare = false
+	got := NewProcessor().Process([]events.Event{share}, settings, time.UnixMilli(100000))
+	if len(got) != 0 { t.Fatalf("share event should be hidden: %+v", got) }
+	settings.ShowShare = true
+	got = NewProcessor().Process([]events.Event{share}, settings, time.UnixMilli(100000))
+	if len(got) != 1 || got[0].Event.Type != "share" { t.Fatalf("share event should be visible: %+v", got) }
+}
+
 func TestProcessorRespectsWelcomeDisplaySetting(t *testing.T) {
 	settings := config.DefaultDanmakuDisplayConfig()
 	welcome := event("welcome", "bilibili", "simulation", 7, 99000)
@@ -123,6 +134,62 @@ func TestProcessorExpiresEventsAndCanDisableFilters(t *testing.T) {
 }
 
 
+
+func TestProcessorMergesLikesUsingDuplicateDanmakuWindow(t *testing.T) {
+	settings := config.DefaultDanmakuDisplayConfig()
+	settings.DisplayDurationSeconds = 60
+	settings.DuplicateDanmakuFilterSeconds = 3
+
+	first := event("like", "bilibili", "live", 7, 100000)
+	first.RoomID, first.Content = 12345, "为直播间点赞"
+	second := event("like", "bilibili", "live", 7, 102000)
+	second.RoomID, second.Content = 12345, "为直播间点赞"
+	third := event("like", "bilibili", "live", 7, 104000)
+	third.RoomID, third.Content = 12345, "为直播间点赞"
+	got := NewProcessor().Process([]events.Event{first, second, third}, settings, time.UnixMilli(110000))
+	if len(got) != 1 {
+		t.Fatalf("merged like count=%d want=1: %+v", len(got), got)
+	}
+	if got[0].Event.LikeCount != 3 || got[0].Event.Content != "为直播间点赞 × 3" || got[0].Event.Timestamp != 104000 {
+		t.Fatalf("unexpected merged like: %+v", got[0].Event)
+	}
+	if first.LikeCount != 0 || second.LikeCount != 0 || third.LikeCount != 0 {
+		t.Fatal("processor mutated original like events")
+	}
+}
+
+func TestProcessorLikeMergeWindowAndScopeAreIsolated(t *testing.T) {
+	settings := config.DefaultDanmakuDisplayConfig()
+	settings.DisplayDurationSeconds = 60
+	settings.DuplicateDanmakuFilterSeconds = 3
+	first := event("like", "bilibili", "live", 7, 100000)
+	first.RoomID = 12345
+	second := event("like", "bilibili", "live", 7, 104000)
+	second.RoomID = 12345
+	otherUser := event("like", "bilibili", "live", 8, 101000)
+	otherUser.RoomID = 12345
+	otherRoom := event("like", "bilibili", "live", 7, 101000)
+	otherRoom.RoomID = 67890
+	otherSource := event("like", "bilibili", "simulation", 7, 101000)
+	otherSource.RoomID = 12345
+	got := NewProcessor().Process([]events.Event{first, second, otherUser, otherRoom, otherSource}, settings, time.UnixMilli(110000))
+	if len(got) != 5 {
+		t.Fatalf("likes from different users, rooms, sources or outside window were merged: %+v", got)
+	}
+}
+
+func TestProcessorDisablesLikeMergingWithDuplicateFilter(t *testing.T) {
+	settings := config.DefaultDanmakuDisplayConfig()
+	settings.DisplayDurationSeconds = 60
+	settings.DuplicateDanmakuFilterSeconds = 0
+	first := event("like", "bilibili", "live", 7, 100000)
+	second := event("like", "bilibili", "live", 7, 101000)
+	got := NewProcessor().Process([]events.Event{first, second}, settings, time.UnixMilli(110000))
+	if len(got) != 2 {
+		t.Fatalf("like merging should be disabled: %+v", got)
+	}
+}
+
 func TestProcessorMovesMergedGiftsToLatestPositionAndKeepsIndexes(t *testing.T) {
 	settings := config.DefaultDanmakuDisplayConfig()
 	settings.DisplayDurationSeconds = 60
@@ -185,5 +252,68 @@ func TestProcessorDuplicateFilterKeepsDifferentContent(t *testing.T) {
 	}
 	if got[0].Event.Content != "你好" || got[1].Event.Content != "晚上好" {
 		t.Fatalf("unexpected visible messages: %+v", got)
+	}
+}
+
+
+func TestProcessorPreservesSCGuardFollowAndWelcomePayloads(t *testing.T) {
+	settings := config.DefaultDanmakuDisplayConfig()
+	settings.DisplayDurationSeconds = 60
+	input := []events.Event{
+		event("super_chat", "bilibili", "live", 1, 100000),
+		event("guard", "bilibili", "live", 2, 100001),
+		event("follow", "bilibili", "live", 3, 100002),
+		event("welcome", "bilibili", "live", 4, 100003),
+	}
+	input[0].Content, input[0].Amount, input[0].Duration = "支持主播", 30, 60
+	input[1].Content, input[1].GuardLevel, input[1].Months, input[1].Amount = "开通了舰长 × 2 个月", 3, 2, 138
+	input[2].Content = "关注了直播间"
+	input[3].Content = "进入了直播间"
+
+	got := NewProcessor().Process(input, settings, time.UnixMilli(100010))
+	if len(got) != len(input) {
+		t.Fatalf("visible event count=%d want=%d: %+v", len(got), len(input), got)
+	}
+	for i, want := range input {
+		if got[i].Event.Type != want.Type || got[i].Event.UserID != want.UserID || got[i].Event.Content != want.Content {
+			t.Fatalf("event %d identity/content changed: got=%+v want=%+v", i, got[i].Event, want)
+		}
+	}
+	if got[0].Event.Amount != 30 || got[0].Event.Duration != 60 {
+		t.Fatalf("SC amount/duration were lost: %+v", got[0].Event)
+	}
+	if got[1].Event.Amount != 138 || got[1].Event.GuardLevel != 3 || got[1].Event.Months != 2 {
+		t.Fatalf("guard amount/level/months were lost: %+v", got[1].Event)
+	}
+}
+
+func TestProcessorAppliesBilibiliInteractionDisplaySwitches(t *testing.T) {
+	tests := []struct {
+		name    string
+		kind    string
+		disable func(*config.DanmakuDisplayConfig)
+	}{
+		{name: "super chat", kind: "super_chat", disable: func(c *config.DanmakuDisplayConfig) { c.ShowSuperChat = false }},
+		{name: "guard", kind: "guard", disable: func(c *config.DanmakuDisplayConfig) { c.ShowGuard = false }},
+		{name: "follow", kind: "follow", disable: func(c *config.DanmakuDisplayConfig) { c.ShowFollows = false }},
+		{name: "welcome", kind: "welcome", disable: func(c *config.DanmakuDisplayConfig) { c.ShowWelcome = false }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			settings := config.DefaultDanmakuDisplayConfig()
+			settings.DisplayDurationSeconds = 60
+			input := event(tc.kind, "bilibili", "live", 1, 100000)
+
+			visible := NewProcessor().Process([]events.Event{input}, settings, time.UnixMilli(100001))
+			if len(visible) != 1 || visible[0].Event.Type != tc.kind {
+				t.Fatalf("enabled %s event should be visible: %+v", tc.kind, visible)
+			}
+
+			tc.disable(&settings)
+			hidden := NewProcessor().Process([]events.Event{input}, settings, time.UnixMilli(100001))
+			if len(hidden) != 0 {
+				t.Fatalf("disabled %s event should be hidden: %+v", tc.kind, hidden)
+			}
+		})
 	}
 }

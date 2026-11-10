@@ -17,6 +17,7 @@
   "show_likes": true,
   "show_follows": true,
   "show_welcome": true,
+  "show_share": true,
   "show_gifts": true,
   "show_super_chat": true,
   "show_guard": true,

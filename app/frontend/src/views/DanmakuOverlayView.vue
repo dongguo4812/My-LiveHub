@@ -20,7 +20,7 @@ let refreshing = false
 const platformNames: Record<string, string> = { bilibili: 'B站', douyin: '抖音' }
 const eventNames: Record<string, string> = {
   danmaku: '弹幕', gift: '礼物', super_chat: '醒目留言',
-  guard: '上舰', follow: '关注', like: '点赞', welcome: '进场', entry: '进场',
+  guard: '上舰', follow: '关注', like: '点赞', welcome: '进场', entry: '进场', share: '分享',
 }
 const visibleItems = computed(() => items.value.slice(-40))
 
@@ -87,6 +87,10 @@ function markGiftImageFailed(event: DanmakuDisplayEvent['event']) {
 
 function formatTime(timestamp: number) {
   return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+function formatAmount(amount?: number) {
+  return Number(amount ?? 0).toFixed(2)
 }
 
 let resizeStartX = 0
@@ -184,6 +188,10 @@ onUnmounted(() => {
               <span v-else>{{ part.text }}</span>
             </template>
           </div>
+          <div v-if="item.event.type === 'super_chat' || (item.event.type === 'guard' && (item.event.amount ?? 0) > 0)" class="event-details">
+            <span v-if="(item.event.amount ?? 0) > 0" class="event-amount">¥{{ formatAmount(item.event.amount) }}</span>
+            <span v-if="item.event.type === 'super_chat' && (item.event.duration ?? 0) > 0" class="event-duration">展示 {{ item.event.duration }} 秒</span>
+          </div>
         </div>
       </article>
     </div>
@@ -212,6 +220,9 @@ onUnmounted(() => {
 .danmaku-emoticon { display:inline-block; max-width:3em; max-height:2em; margin:0 2px; object-fit:contain; vertical-align:middle; }
 .platform-badge { padding:1px 5px; border-radius:4px; background:#46568b; color:#e8ecff; font-size:10px; }
 .event-type,time { color:#aab3c6; font-size:11px; }
+.event-details { display:flex; flex-wrap:wrap; align-items:center; gap:7px; margin-top:4px; font-size:12px; }
+.event-amount { color:#ffd98a; font-weight:700; }
+.event-duration { color:#d3d9e8; }
 .message-content { margin-top:2px; overflow-wrap:anywhere; white-space:pre-wrap; line-height:1.4; }
 .empty-state { padding:10px 14px; border-radius:8px; background:#111722a8; color:#d2d8e6; font-size:18px; }
 .resize-handle { --wails-draggable:no-drag; position:absolute; right:0; bottom:0; width:22px; height:22px; cursor:nwse-resize; background:linear-gradient(135deg,transparent 48%,#aab5d877 50%,#aab5d877 56%,transparent 58%,transparent 68%,#aab5d877 70%,#aab5d877 76%,transparent 78%); }

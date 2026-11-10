@@ -6,6 +6,7 @@ func TestDanmakuDisplayConfigDefaultsAreValid(t *testing.T) {
 	value:=DefaultDanmakuDisplayConfig()
 	if err:=value.Validate();err!=nil { t.Fatalf("default config invalid: %v",err) }
 	if !value.ShowPlatformBadge { t.Fatal("platform badges should be enabled by default") }
+	if !value.ShowShare { t.Fatal("share events should be enabled by default") }
 }
 
 func TestDanmakuDisplayConfigRejectsOutOfRangeValues(t *testing.T) {

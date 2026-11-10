@@ -20,6 +20,8 @@ const avatarSrc = computed(() => {
 watch(avatarSrc, () => { avatarLoadFailed.value = false })
 const statusLabels: Record<string, string> = { disconnected:'未连接', connecting:'连接中', connected:'已连接', disconnecting:'断开中', failed:'连接失败' }
 const statusTypes: Record<string, 'info'|'warning'|'success'|'danger'> = { disconnected:'info', connecting:'warning', connected:'success', disconnecting:'warning', failed:'danger' }
+const liveStatusLabels: Record<string, string> = { live: '直播中', offline: '未开播', loop: '轮播中', unknown: '等待状态同步' }
+const liveStatusTypes: Record<string, 'info'|'success'> = { live: 'success', offline: 'info', loop: 'info', unknown: 'info' }
 let pollTimer: ReturnType<typeof setInterval> | undefined
 let eventTimer: ReturnType<typeof setInterval> | undefined
 const bilibiliConnected = computed(() => platforms.value.some(item => item.platform_id === 'bilibili' && item.status !== 'disconnected'))
@@ -86,7 +88,8 @@ onUnmounted(() => {
       <el-table v-else :data="platforms" row-key="platform_id">
         <el-table-column label="直播平台" min-width="110"><template #default="{ row }">{{ row.platform_id === 'bilibili' ? '哔哩哔哩' : row.platform_id }}</template></el-table-column>
         <el-table-column label="直播间房间号" width="140"><template #default="{ row }">{{ row.platform_id === 'bilibili' ? (bilibiliSettings?.room_id || '-') : '-' }}</template></el-table-column>
-        <el-table-column label="直播间连接状态" width="150"><template #default="{ row }"><el-tag :type="statusTypes[row.status] ?? 'info'" effect="light">{{ statusLabels[row.status] ?? row.status }}</el-tag></template></el-table-column>
+        <el-table-column label="连接状态" width="150"><template #default="{ row }"><el-tag :type="statusTypes[row.status] ?? 'info'" effect="light">{{ statusLabels[row.status] ?? row.status }}</el-tag></template></el-table-column>
+        <el-table-column label="直播状态" width="150"><template #default="{ row }"><el-tag v-if="row.platform_id === 'bilibili'" :type="liveStatusTypes[row.live_status] ?? 'info'" effect="light">{{ liveStatusLabels[row.live_status] ?? '等待状态同步' }}</el-tag><span v-else>-</span></template></el-table-column>
         <el-table-column prop="error" label="错误信息" min-width="220" show-overflow-tooltip />
         <el-table-column label="操作" width="250" fixed="right"><template #default="{ row }"><el-button v-if="row.status === 'disconnected' || row.status === 'failed'" type="primary" plain size="small" :loading="busyPlatformID === row.platform_id" :disabled="!!busyPlatformID" @click="runAction(row.platform_id, 'connect')">连接</el-button><el-button v-else-if="row.status === 'connected'" type="danger" plain size="small" :loading="busyPlatformID === row.platform_id" :disabled="!!busyPlatformID" @click="runAction(row.platform_id, 'disconnect')">断开连接</el-button><el-button v-else size="small" disabled>处理中</el-button></template></el-table-column>
       </el-table>
