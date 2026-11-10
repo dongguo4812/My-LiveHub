@@ -1,44 +1,26 @@
 #!/usr/bin/env bash
-# Prototype minimal mpv build for My-LiveHub.
-#
-# Run from the mpv v0.42.0 source tree inside the pinned FFmpeg-Builds
-# win64-gpl build container. This script intentionally builds into a separate
-# build-minimal directory and never modifies the upstream full build output.
+# Build a trimmed mpv CLI runtime using mpv's own tested MinGW dependency
+# bootstrap. Run from the root of the checked-out mpv v0.42.0 source tree.
 set -euo pipefail
 
-: "${FFBUILD_PREFIX:?Run this script inside the FFmpeg-Builds Windows x64 build image}"
-: "${FFBUILD_CROSS_PREFIX:?FFmpeg-Builds cross compiler prefix is missing}"
-: "${FF_LIBS:?FFmpeg-Builds linker flags are missing}"
+: "${TARGET:?Set TARGET=x86_64-w64-mingw32}"
+: "${RUST_TARGET:?Set RUST_TARGET=x86_64-pc-windows-gnu}"
 
-if [[ ! -f meson.build || ! -f ci/build-common.sh ]]; then
-    echo "Run this script from the root of the mpv v0.42.0 source tree." >&2
+prefix_dir="$PWD/mingw_prefix"
+cross_file="$prefix_dir/crossfile"
+if [[ ! -f "$cross_file" || ! -f "$prefix_dir/lib/libavcodec.dll.a" ]]; then
+    echo "Run ./ci/build-mingw64.sh first to build mpv's pinned MinGW dependencies." >&2
     exit 2
 fi
 
+export CC="$TARGET-gcc-posix"
+export CXX="$TARGET-g++-posix"
+export AR="$TARGET-ar"
+export NM="$TARGET-nm"
+export RANLIB="$TARGET-ranlib"
+export CFLAGS="-O2 -pipe -Wall -I$prefix_dir/include"
+export LDFLAGS="-fstack-protector-strong -L$prefix_dir/lib"
 source ./ci/build-common.sh
-
-# Pin the FFmpeg revision observed in the validated v0.42.0 release build.
-# This first experiment deliberately keeps the upstream container's FFmpeg
-# feature configuration unchanged so the size delta isolates mpv-side trimming.
-ffmpeg_commit="baa68e68b34e2de912eb7e94342cebd2545f05ed"
-if [[ ! -d ffmpeg/.git ]]; then
-    git clone https://github.com/FFmpeg/FFmpeg.git ffmpeg
-fi
-git -C ffmpeg fetch --depth=1 origin "$ffmpeg_commit"
-git -C ffmpeg checkout --detach "$ffmpeg_commit"
-(
-    cd ffmpeg
-    ./configure --prefix="$FFBUILD_PREFIX" --pkg-config-flags="--static" \
-        $FFBUILD_TARGET_FLAGS $FF_CONFIGURE \
-        --extra-cflags="$FF_CFLAGS" --extra-cxxflags="$FF_CXXFLAGS" \
-        --extra-libs="$FF_LIBS" --extra-ldflags="$FF_LDFLAGS" \
-        --extra-ldexeflags="$FF_LDEXEFLAGS" \
-        --cc="$CC" --cxx="$CXX" --ar="$AR" --ranlib="$RANLIB" --nm="$NM" \
-        --enable-static --disable-shared --disable-{doc,programs} \
-        --disable-{librav1e,librsvg,openal}
-    make -j"$(nproc)"
-    make install
-)
 
 build_dir="build-minimal"
 if [[ -e "$build_dir" ]]; then
@@ -46,20 +28,16 @@ if [[ -e "$build_dir" ]]; then
     exit 2
 fi
 
-# The prototype keeps the CLI player and only the Windows audio/video paths
-# needed by My-LiveHub. FFmpeg remains the codec provider; its exact codec list
-# is validated separately by the integration matrix.
+# Keep the independent CLI player and Windows audio/video paths. Optional
+# player scripting, disc navigation, alternate OS backends and unused filters
+# are disabled. FFmpeg and its codecs remain unchanged in this first stage.
 meson setup "$build_dir" \
-    --cross-file /cross.meson \
-    --buildtype=release \
-    --default-library=static \
-    --prefer-static \
-    -Dc_link_args="$FF_LIBS -L$FFBUILD_PREFIX/lib -liconv" \
-    -Dcpp_link_args="$FF_LIBS -L$FFBUILD_PREFIX/lib -liconv" \
-    -Dgpl=true \
-    -Dcplayer=true \
+    --cross-file "$cross_file" $common_args \
+    --buildtype release \
     -Dlibmpv=false \
+    -Dcplayer=true \
     -Dtests=false \
+    -Dfuzzers=false \
     -Dbuild-date=false \
     -Dwasapi=enabled \
     -Dd3d11=enabled \
@@ -93,6 +71,7 @@ meson setup "$build_dir" \
     -Damf=disabled \
     -Dalsa=disabled \
     -Dcoreaudio=disabled \
+    -Davfoundation=disabled \
     -Daudiounit=disabled \
     -Djack=disabled \
     -Dopenal=disabled \
@@ -112,11 +91,37 @@ meson setup "$build_dir" \
     -Dmanpage-build=disabled \
     -Dpdf-build=disabled
 
-meson compile -C "$build_dir" mpv.exe mpv.com
+meson compile -C "$build_dir"
 
-mkdir -p artifact-minimal
-cp -p "$build_dir"/mpv.exe "$build_dir"/mpv.com LICENSE.GPL artifact-minimal/
-"${FFBUILD_CROSS_PREFIX}strip" artifact-minimal/mpv.exe artifact-minimal/mpv.com
+artifact_dir="artifact-minimal"
+mkdir -p "$artifact_dir"
+cp -p "$build_dir/mpv.exe" "$build_dir/mpv.com" "$artifact_dir/"
 
-echo "Minimal mpv prototype built:"
-ls -lh artifact-minimal/
+# This is a staging bundle, not the final trimmed dependency set. Include
+# runtime DLLs so the prototype is runnable; later dependency analysis will
+# prune unused DLLs and produce the final size comparison.
+mkdir -p "$artifact_dir/dlls"
+cp -p "$prefix_dir"/bin/*.dll "$artifact_dir/dlls/" 2>/dev/null || true
+for file in /usr/lib/gcc/"$TARGET"/*-posix/*.dll /usr/"$TARGET"/lib/*.dll; do
+    [[ -f "$file" ]] && cp -p "$file" "$artifact_dir/dlls/"
+done
+cp -p LICENSE.GPL "$artifact_dir/" 2>/dev/null || true
+
+{
+    echo "mpv source: v0.42.0"
+    echo "target: $TARGET"
+    echo "FFmpeg/dependency configuration: upstream ci/build-mingw64.sh"
+    echo "NOTE: DLL directory is intentionally unpruned staging output."
+    echo
+    echo "Executable sizes:"
+    ls -lh "$artifact_dir/mpv.exe" "$artifact_dir/mpv.com"
+    echo
+    echo "DLL count and size:"
+    find "$artifact_dir/dlls" -maxdepth 1 -type f -name '*.dll' | wc -l
+    du -sh "$artifact_dir/dlls"
+    echo
+    echo "Direct mpv.exe imports:"
+    "$TARGET-objdump" -p "$artifact_dir/mpv.exe" | sed -n '/The Import Tables/,/The Export Tables/p' | grep 'DLL Name' || true
+} | tee "$artifact_dir/BUILD-REPORT.txt"
+
+echo "Prototype staging bundle: $artifact_dir"
