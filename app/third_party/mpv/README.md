@@ -22,7 +22,7 @@ mpv's default program license is GPL-2.0-or-later. The upstream full Windows bui
 
 The upstream build recipe builds or uses additional components including FFmpeg, LuaJIT, libsixel, libarchive, uchardet, subrandr, cppwinrt/Windows metadata, mujs, and libraries supplied by the FFmpeg build container. FFmpeg is built with GPL and version-3 options in the upstream GPL container. The upstream release build log identifies FFmpeg as `git-2026-11-04-baa68e6`, resolving to commit `baa68e68b34e2de912eb7e94342cebd2545f05ed` (source: https://github.com/FFmpeg/FFmpeg/tree/baa68e68b34e2de912eb7e94342cebd2545f05ed). The build log also records the container image digest as `sha256:146dd9a98dbd12705cc0c2c56d0bb81f83f2f02f1828c83cc08242e64b810fbd`.
 
-The exact corresponding-source bundle and complete third-party component/license inventory are still being assembled. Therefore this candidate is currently used for automated download/hash/launch validation only; it must not be treated as a completed public redistribution package until the source offer and all applicable notices are complete.
+The detailed provenance, component inventory, missing source revisions, and release blockers are tracked in [SOURCE_BUNDLE_AUDIT.md](SOURCE_BUNDLE_AUDIT.md). The current upstream full-build recipe uses floating dependency branches and a floating container tag, so the exact complete corresponding-source bundle is not yet established. This candidate remains for internal automated download/hash/launch validation only; it must not be copied into a public My-LiveHub release package until the audit release gate is complete.
 
 ## Validation
 
