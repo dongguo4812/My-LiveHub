@@ -60,10 +60,17 @@ type Buffer struct {
 	mu     sync.RWMutex
 	nextID uint64
 	items  []Event
+	bus    *Bus
 }
 
-func NewBuffer() *Buffer {
-	return &Buffer{items: make([]Event, 0, BufferLimit)}
+// NewBuffer optionally attaches a shared event bus. Existing callers that do
+// not provide a bus retain history-only behavior.
+func NewBuffer(buses ...*Bus) *Buffer {
+	buffer := &Buffer{items: make([]Event, 0, BufferLimit)}
+	if len(buses) > 0 {
+		buffer.bus = buses[0]
+	}
+	return buffer
 }
 
 // Add normalizes source metadata, assigns a local sequence ID, and stores an event.
@@ -75,16 +82,22 @@ func (b *Buffer) Add(event Event) Event {
 	}
 	if event.Source == "simulation" { event.IsSimulation = true }
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	b.nextID++
 	event.ID = b.nextID
+	event = cloneEvent(event)
 	if len(b.items) == BufferLimit {
 		copy(b.items, b.items[1:])
 		b.items[len(b.items)-1] = event
-		return event
+	} else {
+		b.items = append(b.items, event)
 	}
-	b.items = append(b.items, event)
-	return event
+	bus := b.bus
+	b.mu.Unlock()
+
+	if bus != nil {
+		bus.Publish(event)
+	}
+	return cloneEvent(event)
 }
 
 type SimulationEventInput struct {
@@ -195,5 +208,9 @@ func (b *Buffer) Snapshot() []Event {
 	if b == nil { return nil }
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	return append([]Event(nil), b.items...)
+	result := make([]Event, len(b.items))
+	for i, item := range b.items {
+		result[i] = cloneEvent(item)
+	}
+	return result
 }
