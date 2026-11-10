@@ -69,13 +69,13 @@ func TestSimulatePlatformEventDistinguishesSameEmoticonIDAcrossScopes(t *testing
 	catalog.Register(resource.Resource{PlatformID: "bilibili", SourceID: "123", Type: resource.TypeEmoticon, ID: "same-id", Name: "[dog]", ImageURL: "https://img.test/room-dog.png"})
 	service := NewPlatformService(nil, eventstream.NewBuffer(), catalog)
 
-	roomEvent, err := service.SimulatePlatformEventWithMediaResources("bilibili", "danmaku", 7, "viewer", "[dog]", "", 0, 0, 0, 0, 0, 0, 0, "", "", []string{"123\\x00same-id"})
+	roomEvent, err := service.SimulatePlatformEventWithMediaResources("bilibili", "danmaku", 7, "viewer", "[dog]", "", 0, 0, 0, 0, 0, 0, 0, "", "", []string{"123\x00same-id"})
 	if err != nil { t.Fatal(err) }
 	if len(roomEvent.Emoticons) != 1 || roomEvent.Emoticons[0].URL != "https://img.test/room-dog.png" || roomEvent.Emoticons[0].ResourceID != "123:same-id" {
 		t.Fatalf("room-scoped emoticon resolved incorrectly: %+v", roomEvent.Emoticons)
 	}
 
-	commonEvent, err := service.SimulatePlatformEventWithMediaResources("bilibili", "danmaku", 7, "viewer", "[dog]", "", 0, 0, 0, 0, 0, 0, 0, "", "", []string{"common\\x00same-id"})
+	commonEvent, err := service.SimulatePlatformEventWithMediaResources("bilibili", "danmaku", 7, "viewer", "[dog]", "", 0, 0, 0, 0, 0, 0, 0, "", "", []string{"common\x00same-id"})
 	if err != nil { t.Fatal(err) }
 	if len(commonEvent.Emoticons) != 1 || commonEvent.Emoticons[0].URL != "https://img.test/common-dog.png" || commonEvent.Emoticons[0].ResourceID != "common:same-id" {
 		t.Fatalf("common emoticon resolved incorrectly: %+v", commonEvent.Emoticons)
