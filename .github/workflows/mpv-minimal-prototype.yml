@@ -26,9 +26,18 @@ jobs:
       - name: Install build dependencies
         run: |
           apt-get update
-          apt-get install --no-install-recommends -y ca-certificates ccache cmake g++-mingw-w64 gcc-multilib git make meson nasm ninja-build pkgconf rustup wget xz-utils wine64
+          dpkg --add-architecture i386
+          apt-get update
+          apt-get install --no-install-recommends -y ca-certificates ccache cmake g++-mingw-w64 gcc-multilib git make meson nasm ninja-build pkgconf rustup wget xz-utils wine64 wine
           rustup default stable
           rustup target add ${RUST_TARGET}
+
+      - name: Install Meson wraps
+        run: |
+          mkdir -p mpv-src/subprojects
+          cd mpv-src
+          meson wrap install mujs
+          meson subprojects download
 
       - name: Checkout My-LiveHub
         uses: actions/checkout@v4
