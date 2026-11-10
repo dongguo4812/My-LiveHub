@@ -14,12 +14,13 @@ This directory records the pinned upstream runtime candidate used for compatibil
 - Upstream release source: https://github.com/mpv-player/mpv/tree/v0.42.0
 - Upstream build recipe: https://github.com/mpv-player/mpv/blob/v0.42.0/ci/build-mingw64-full.sh
 - The archive's packaged license file is `LICENSE.GPL`.
+- The archive contains the upstream full build's `mpv.exe` (the upstream build log reports a statically linked executable) and its accompanying runtime files; CI currently checks the executable and license before any future packaging.
 
 ## Licensing and source audit status
 
 mpv's default program license is GPL-2.0-or-later. The upstream full Windows build recipe uses the GPL FFmpeg build container and enables mpv's GPL features. The exact package's license file and build configuration must be preserved and reviewed together; do not infer the complete license of every statically linked component from mpv's own license alone.
 
-The upstream build recipe builds or uses additional components including FFmpeg, LuaJIT, libsixel, libarchive, uchardet, subrandr, cppwinrt/Windows metadata, mujs, and libraries supplied by the FFmpeg build container. FFmpeg is built with GPL and version-3 options in the upstream GPL container.
+The upstream build recipe builds or uses additional components including FFmpeg, LuaJIT, libsixel, libarchive, uchardet, subrandr, cppwinrt/Windows metadata, mujs, and libraries supplied by the FFmpeg build container. FFmpeg is built with GPL and version-3 options in the upstream GPL container. The upstream release build log identifies FFmpeg as `git-2026-11-04-baa68e6`, resolving to commit `baa68e68b34e2de912eb7e94342cebd2545f05ed` (source: https://github.com/FFmpeg/FFmpeg/tree/baa68e68b34e2de912eb7e94342cebd2545f05ed). The build log also records the container image digest as `sha256:146dd9a98dbd12705cc0c2c56d0bb81f83f2f02f1828c83cc08242e64b810fbd`.
 
 The exact corresponding-source bundle and complete third-party component/license inventory are still being assembled. Therefore this candidate is currently used for automated download/hash/launch validation only; it must not be treated as a completed public redistribution package until the source offer and all applicable notices are complete.
 
