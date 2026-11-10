@@ -155,7 +155,7 @@ func TestAdapterReceivesGiftWithResolvedImage(t *testing.T) {
 	a.newStream = func(int) streamClient { return fake }
 	if err := a.Connect(context.Background()); err != nil { t.Fatal(err) }
 	fake.emitGift(&message.Gift{
-		GiftId: 30607, GiftName: "小心心", Num: 2, Price: 50, TotalCoin: 100,
+		GiftId: 30607, GiftName: "小心心", Num: 2, CoinType: "gold", Price: 50, TotalCoin: 100,
 		Uid: 7, Uname: "viewer", Face: "https://i0.hdslb.com/bfs/face/viewer.png", Timestamp: 1_700_000_000,
 	})
 	got := a.events.Snapshot()
@@ -168,12 +168,44 @@ func TestAdapterReceivesGiftWithResolvedImage(t *testing.T) {
 	for len(catalog.List("bilibili","12345",resource.TypeGift))==0&&time.Now().Before(deadline){time.Sleep(5*time.Millisecond)}
 	items:=catalog.List("bilibili","12345",resource.TypeGift)
 	if len(items)!=1||items[0].ImageURL!="https://i0.hdslb.com/bfs/live/gift.png" || items[0].UnitPrice!=1{t.Fatalf("catalog missing gift metadata or price: %+v",items)}
+	if event.UnitPrice != 0.05 || event.TotalPrice != 0.1 {
+		t.Fatalf("gold gift amount was not converted correctly: unit=%v total=%v", event.UnitPrice, event.TotalPrice)
+	}
 	if event.UserID != 7 || event.UserName != "viewer" || event.Avatar == "" {
 		t.Fatalf("gift sender metadata missing: %+v", event)
 	}
 	if err := a.Disconnect(context.Background()); err != nil { t.Fatal(err) }
 }
 
+
+
+func TestAdapterReceivesSilverGiftWithoutPaidAmount(t *testing.T) {
+	a, err := NewAdapter(newAdapterTestAuth(t), 12345, eventstream.NewBuffer())
+	if err != nil { t.Fatal(err) }
+	a.giftCatalog = nil
+	fake := newFakeStreamClient(12345)
+	a.newStream = func(int) streamClient { return fake }
+	if err := a.Connect(context.Background()); err != nil { t.Fatal(err) }
+
+	fake.emitGift(&message.Gift{
+		GiftId: 30608, GiftName: "银瓜子礼物", Num: 3, CoinType: "silver",
+		Price: 100, TotalCoin: 300, Uid: 8, Uname: "silver-viewer",
+		Face: "https://img.test/silver-viewer.png", Timestamp: 1_700_000_001,
+	})
+	got := a.events.Snapshot()
+	if len(got) != 1 { t.Fatalf("got %d events, want 1: %+v", len(got), got) }
+	event := got[0]
+	if event.Type != "gift" || event.GiftID != 30608 || event.GiftName != "银瓜子礼物" || event.GiftCount != 3 {
+		t.Fatalf("silver gift metadata was not preserved: %+v", event)
+	}
+	if event.UnitPrice != 0 || event.TotalPrice != 0 {
+		t.Fatalf("silver gift must not be counted as paid: unit=%v total=%v", event.UnitPrice, event.TotalPrice)
+	}
+	if event.UserID != 8 || event.UserName != "silver-viewer" || event.Avatar != "https://img.test/silver-viewer.png" {
+		t.Fatalf("silver gift sender metadata missing: %+v", event)
+	}
+	if err := a.Disconnect(context.Background()); err != nil { t.Fatal(err) }
+}
 
 func TestAdapterConnectDoesNotWaitForGiftCatalog(t *testing.T){
 	entered:=make(chan struct{},1);release:=make(chan struct{})

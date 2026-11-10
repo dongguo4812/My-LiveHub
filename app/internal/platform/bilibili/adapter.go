@@ -613,9 +613,14 @@ func (a *Adapter) Connect(ctx context.Context) error {
 		if count <= 0 { count = 1 }
 		timestamp := int64(g.Timestamp)
 		if timestamp <= 0 { timestamp = time.Now().UnixMilli() } else if timestamp < 1_000_000_000_000 { timestamp *= 1000 }
-		unitPrice := float64(g.Price) / 1000
-		totalPrice := float64(g.TotalCoin) / 1000
-		if totalPrice <= 0 { totalPrice = unitPrice * float64(count) }
+		var unitPrice, totalPrice float64
+		if g.IsPaid() {
+			unitPrice = float64(g.Price) / 1000
+			totalPrice = float64(g.TotalCoin) / 1000
+			if totalPrice <= 0 {
+				totalPrice = unitPrice * float64(count)
+			}
+		}
 		giftImageURL := a.giftCatalog.ImageURL(roomID, g.GiftId)
 		if a.mediaCatalog != nil {
 			if item, ok := a.mediaCatalog.Find("bilibili", strconv.Itoa(roomID), resource.TypeGift, strconv.Itoa(g.GiftId)); ok {
