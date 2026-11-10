@@ -1,11 +1,16 @@
 # My-LiveHub minimal mpv build profile (prototype)
 
-Status: **DESIGN / NOT BUILT**
+Status: **FIRST-STAGE BUILD SCRIPT ADDED / NOT YET BUILT**
 
 This profile is an isolated build experiment. It does not replace the pinned upstream
 v0.42.0 full runtime, the existing Go MpvEngine, or the current CI job.
 The full runtime remains the comparison baseline until the prototype passes the
 same playback tests and additional video tests.
+
+The first-stage build script is `app/scripts/build-mpv-minimal.sh`. It is intended
+to run from the mpv v0.42.0 source tree inside the FFmpeg-Builds Windows x64 GPL
+cross-build image. It builds into `build-minimal/` and writes only to
+`artifact-minimal/`; it never overwrites My-LiveHub's existing runtime.
 
 ## Product requirements
 
@@ -24,25 +29,28 @@ Keep only capabilities required by My-LiveHub:
 
 ## Candidate mpv Meson profile
 
-The following are candidate options from the upstream v0.42.0 meson.options.
-They must be validated against the actual cross-build environment before being
-treated as final:
+The options in the build script are based on upstream v0.42.0 meson.options.
+The prototype retains the CLI player, WASAPI, D3D11, D3D11VA/DXVA2, and Win32
+OpenGL paths, while disabling optional disc, scripting, terminal-video,
+non-Windows audio/video, and unused processing backends.
 
-- Enable: `cplayer`, `wasapi`, `d3d11`, `d3d-hwaccel`, `d3d9-hwaccel`, `gl-win32`, `libplacebo`, `libass` (only if subtitle support is retained).
-- Disable unless a demonstrated runtime requirement appears: `libcurl`, `libarchive`, `libbluray`, `dvda`, `dvdnav`, `cdda`, `dvbin`, `javascript`, `lua`, `rubberband`, `subrandr`, `uchardet`, `vapoursynth`, `sixel`, `shaderc`, `spirv-cross`, `vulkan`, `x11`, `wayland`, `alsa`, `pulse`, `pipewire`, `jack`, `coreaudio`, `cocoa`, `audiounit`.
-- Keep the mpv CLI player (`cplayer`) because the current Go engine controls an
-  independent `mpv.exe` through JSON IPC. Do not add libmpv to this prototype.
+The exact graphics dependencies and output behavior still need a Windows runtime
+test. The prototype intentionally does not add libmpv: the current Go engine
+controls an independent `mpv.exe` through JSON IPC. If My-LiveHub later requires
+video embedded directly into a Wails surface, that rendering integration must be
+evaluated separately.
 
-The exact `libplacebo`, `libass`, and graphics options depend on
-the selected video output path. If My-LiveHub's MV window uses mpv's own window,
-D3D11 output is the first candidate. If it embeds video into a Wails surface, the
-rendering integration must be evaluated separately before choosing `libmpv`.
+## FFmpeg strategy: staged reduction
 
-## FFmpeg codec profile (not yet pinned)
+**Stage 1 (current script):** pin FFmpeg to the commit observed in the validated
+v0.42.0 release build (`baa68e68b34e2de912eb7e94342cebd2545f05ed`) and build it
+using the same FFmpeg-Builds container configuration as the upstream recipe.
+This isolates the effect of removing mpv-side optional features and dependencies.
+It does not yet claim a minimal FFmpeg codec set.
 
-Meson feature flags alone will not significantly reduce the executable if the
-FFmpeg build still includes the full codec/filter/protocol set. A separate,
-minimal FFmpeg configuration is required. It must retain at least:
+**Stage 2 (after Stage 1 works):** introduce a separately tested FFmpeg configure
+profile, retaining only the demuxers, protocols, decoders, parsers and filters
+needed by My-LiveHub:
 
 - Demuxers/protocols: local files, HTTP, HTTPS, TCP/TLS, MP3, WAV, Ogg, Matroska,
   MP4/MOV, MPEG-TS, and HLS where required by the selected music/MV providers.
@@ -53,10 +61,9 @@ minimal FFmpeg configuration is required. It must retain at least:
   any additional filters proven necessary by integration tests.
 - No encoders, muxers, capture devices, or protocols that are not required for playback.
 
-This is a requirements list, not a verified FFmpeg configure command.
-The exact configure switches and dependency closure must be validated by a clean
-build and by inspecting `ffmpeg -decoders` / `ffmpeg -filters`
-from the resulting build tools before release.
+The list above is a requirements matrix, not a verified FFmpeg configure command.
+Stage 2 must validate exact configure switches and inspect the resulting
+`ffmpeg -decoders` / `ffmpeg -filters` output.
 
 ## Validation gates
 
