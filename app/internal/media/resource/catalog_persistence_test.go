@@ -1,8 +1,10 @@
 package resource
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -214,6 +216,99 @@ func TestPersistentCatalogPreservesEmoticonDirectoryOrder(t *testing.T) {
 		}
 		if got[i].SortOrder != i+1 {
 			t.Fatalf("after restart item %d sort order = %d, want %d", i, got[i].SortOrder, i+1)
+		}
+	}
+}
+
+
+func TestPersistentCatalogConcurrentAccessAndCloseFlushesLatestSnapshot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "media-resources")
+	catalog, err := NewPersistentCatalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const (
+		writers       = 8
+		resourcesEach = 40
+	)
+	var workers sync.WaitGroup
+	for worker := 0; worker < writers; worker++ {
+		worker := worker
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for index := 0; index < resourcesEach; index++ {
+				id := fmt.Sprintf("worker-%d-resource-%d", worker, index)
+				item := Resource{
+					PlatformID: "bilibili",
+					SourceID:   fmt.Sprintf("room-%d", worker),
+					Type:       TypeEmoticon,
+					ID:         id,
+					Name:       id,
+					ImageURL:   "https://img.test/" + id + ".png",
+				}
+				if !catalog.Register(item) {
+					t.Errorf("concurrent register failed for %q", id)
+					return
+				}
+				if index == 0 && !catalog.MarkRefreshed("bilibili", item.SourceID, TypeEmoticon, time.Now()) {
+					t.Errorf("concurrent refresh mark failed for %q", item.SourceID)
+					return
+				}
+			}
+		}()
+	}
+
+	// Exercise read paths while registrations and refresh markers are changing.
+	readDone := make(chan struct{})
+	go func() {
+		defer close(readDone)
+		for {
+			select {
+			case <-readDone:
+				return
+			default:
+				_ = catalog.List("bilibili", "", TypeEmoticon)
+				_, _ = catalog.FindByImageURL("bilibili", TypeEmoticon, "https://img.test/worker-0-resource-0.png")
+			}
+		}
+	}()
+
+	workers.Wait()
+	// Close must stop accepting mutations and flush the complete final snapshot,
+	// even when the debounce timer has not fired yet.
+	if err := catalog.Close(); err != nil {
+		t.Fatal(err)
+	}
+	<-readDone
+
+	if catalog.Register(Resource{
+		PlatformID: "bilibili", SourceID: "late", Type: TypeEmoticon,
+		ID: "late", Name: "late", ImageURL: "https://img.test/late.png",
+	}) {
+		t.Fatal("catalog accepted a resource after close")
+	}
+	if catalog.MarkRefreshed("bilibili", "late", TypeEmoticon, time.Now()) {
+		t.Fatal("catalog accepted a refresh marker after close")
+	}
+	if err := catalog.Close(); err != nil {
+		t.Fatalf("repeated close should be safe: %v", err)
+	}
+
+	restored, err := NewPersistentCatalog(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Close()
+	want := writers * resourcesEach
+	if got := len(restored.List("bilibili", "", TypeEmoticon)); got != want {
+		t.Fatalf("restored resource count = %d, want %d", got, want)
+	}
+	for worker := 0; worker < writers; worker++ {
+		sourceID := fmt.Sprintf("room-%d", worker)
+		if !restored.IsFresh("bilibili", sourceID, TypeEmoticon, time.Hour) {
+			t.Errorf("refresh marker for %q was not persisted", sourceID)
 		}
 	}
 }
