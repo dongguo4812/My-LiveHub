@@ -5,13 +5,18 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
 	"github.com/dongguo4812/My-LiveHub/app/internal/core"
 	"github.com/dongguo4812/My-LiveHub/app/internal/desktop"
+	eventstream "github.com/dongguo4812/My-LiveHub/app/internal/events"
 	"github.com/dongguo4812/My-LiveHub/app/internal/platform"
 	"github.com/dongguo4812/My-LiveHub/app/internal/platform/bilibili"
+	"github.com/dongguo4812/My-LiveHub/app/internal/media/imagecache"
+	"github.com/dongguo4812/My-LiveHub/app/internal/media/resource"
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
 //go:embed all:frontend/dist
@@ -46,6 +51,18 @@ func main() {
 	if err != nil {
 		log.Fatalf("load application configuration: %v", err)
 	}
+	danmakuDisplayConfig, err := config.LoadTyped[config.DanmakuDisplayConfig](configManager, "danmaku_display.json", func(value config.DanmakuDisplayConfig) error {
+		return value.Validate()
+	})
+	if err != nil {
+		log.Fatalf("load danmaku display configuration: %v", err)
+	}
+	danmakuWindowConfig, err := config.LoadTyped[config.DanmakuWindowConfig](configManager, "danmaku_window.json", func(value config.DanmakuWindowConfig) error {
+		return value.Validate()
+	})
+	if err != nil {
+		log.Fatalf("load danmaku window configuration: %v", err)
+	}
 	coreApp, err := core.New(configManager, appConfig)
 	if err != nil {
 		log.Fatalf("initialize core application: %v", err)
@@ -65,11 +82,27 @@ func main() {
 	if err != nil {
 		log.Fatalf("load Bilibili configuration: %v", err)
 	}
-	bilibiliEvents := bilibili.NewEventBuffer()
+	bilibiliEvents := eventstream.NewBuffer()
+	cacheDir := ""
+	if environment == config.EnvironmentDevelopment {
+		if workingDir, getwdErr := os.Getwd(); getwdErr == nil {
+			cacheDir = filepath.Join(workingDir, "cache")
+		}
+	} else if userConfigDir, configDirErr := os.UserConfigDir(); configDirErr == nil {
+		cacheDir = filepath.Join(userConfigDir, "My-LiveHub", "cache")
+	}
+	mediaCatalog, catalogErr := resource.NewPersistentCatalog(filepath.Join(cacheDir, "media-resources"))
+	if catalogErr != nil {
+		log.Printf("load local media resource catalog: %v", catalogErr)
+	}
+	if mediaCatalog == nil {
+		mediaCatalog = resource.NewCatalog()
+	}
 	bilibiliAdapter, err := bilibili.NewAdapter(bilibiliAuth, bilibiliConfig.RoomID, bilibiliEvents)
 	if err != nil {
 		log.Fatalf("initialize Bilibili adapter: %v", err)
 	}
+	bilibiliAdapter.SetMediaCatalog(mediaCatalog)
 
 	platformManager := platform.NewManager()
 	if err := platformManager.Register(bilibiliAdapter); err != nil {
@@ -79,28 +112,56 @@ func main() {
 		log.Fatalf("register platform connection module: %v", err)
 	}
 
-	platformService := desktop.NewPlatformService(platformManager, bilibiliEvents)
+	platformService := desktop.NewPlatformService(platformManager, bilibiliEvents, mediaCatalog)
+	assetHandler := application.AssetFileServerFS(assets)
+	imageCache, cacheErr := imagecache.NewWithPolicies(filepath.Join(cacheDir, "media-images"), assetHandler, map[string]imagecache.URLPolicy{"bilibili":imagecache.BilibiliURLPolicy})
+	if cacheErr != nil { log.Printf("initialize local media image cache: %v", cacheErr) } else { assetHandler = imageCache; platformService.SetMediaImageCache(imageCache); imageCache.RefreshStats() }
+	danmakuDisplayService := desktop.NewDanmakuDisplayService(configManager, danmakuDisplayConfig, danmakuWindowConfig, bilibiliEvents, imageCache)
 	app := application.New(application.Options{
 		Name:        "My-LiveHub",
 		Description: "多平台综合直播互动辅助平台",
-		Assets:      application.AssetOptions{Handler: application.AssetFileServerFS(assets)},
+		Assets:      application.AssetOptions{Handler: assetHandler},
 		Services: []application.Service{
 			application.NewService(desktop.NewCoreService(coreApp)),
 			application.NewService(platformService),
 			application.NewService(desktop.NewBilibiliAuthService(bilibiliAuth)),
 			application.NewService(desktop.NewBilibiliSettingsService(configManager, bilibiliConfig, bilibiliAdapter)),
 			application.NewService(desktop.NewAppearanceService(configManager, appConfig)),
+			application.NewService(danmakuDisplayService),
 		},
 	})
 	desktop.AttachApplication(platformService, app, appConfig.Appearance.Theme == "light")
+	desktop.AttachDanmakuDisplayApplication(danmakuDisplayService, app)
+	app.OnShutdown(func() {
+		danmakuDisplayService.CloseWindowForShutdown()
+		if err := mediaCatalog.Close(); err != nil {
+			log.Printf("flush local media resource catalog: %v", err)
+		}
+	})
 
 	background := application.NewRGBA(18, 20, 27, 255)
 	if appConfig.Appearance.Theme == "light" {
 		background = application.NewRGBA(245, 247, 251, 255)
 	}
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
+	mainWindow := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "main-window", Title: "My-LiveHub", Width: 1440, Height: 900,
 		MinWidth: 1100, MinHeight: 680, BackgroundColour: background, URL: "/",
+	})
+	// Restore auxiliary windows only after the main WebView runtime is ready.
+	// Creating the transparent overlay before app.Run() can initialise its
+	// WebView before the native event loop and break transparent composition.
+	mainWindow.OnWindowEvent(events.Common.WindowRuntimeReady, func(_ *application.WindowEvent) {
+		if danmakuWindowConfig.OpenOnStartup {
+			if err := danmakuDisplayService.OpenWindow(); err != nil {
+				log.Printf("restore danmaku overlay window: %v", err)
+			}
+		}
+	})
+	// Keep the main window alive until the application-level quit is confirmed.
+	// This ensures OnShutdown closes auxiliary windows before the process exits.
+	mainWindow.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
+		event.Cancel()
+		go app.Quit()
 	})
 	if err := app.Run(); err != nil {
 		log.Fatal(err)

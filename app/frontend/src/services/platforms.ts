@@ -2,10 +2,10 @@ import { ref } from 'vue'
 import * as PlatformService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/platformservice.js'
 
 export type PlatformSnapshot = Awaited<ReturnType<typeof PlatformService.GetPlatforms>>[number]
-export type BilibiliEvent = Awaited<ReturnType<typeof PlatformService.GetBilibiliEvents>>[number]
+export type PlatformEvent = Awaited<ReturnType<typeof PlatformService.GetEvents>>[number]
 
 export const platforms = ref<PlatformSnapshot[]>([])
-export const bilibiliEvents = ref<BilibiliEvent[]>([])
+export const platformEvents = ref<PlatformEvent[]>([])
 export const platformsError = ref('')
 export const platformActionError = ref('')
 
@@ -24,9 +24,9 @@ export async function refreshPlatforms() {
   }
 }
 
-export async function refreshBilibiliEvents() {
+export async function refreshEvents() {
   try {
-    bilibiliEvents.value = await PlatformService.GetBilibiliEvents()
+    platformEvents.value = await PlatformService.GetEvents()
   } catch (error) {
     platformsError.value = error instanceof Error ? error.message : String(error)
   }
