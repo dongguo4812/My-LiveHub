@@ -27,6 +27,7 @@ const mediaResources = ref<MediaResource[]>([])
 const resourceKeyword = ref('')
 const selectedGiftID = ref('')
 const selectedEmoticonIDs = ref<string[]>([])
+const selectedEmoticonNames = ref<Record<string, string>>({})
 const failedResourceImages = ref(new Set<string>())
 const giftImageURL = ref('')
 const resourcesBusy = ref(false)
@@ -100,11 +101,14 @@ function insertEmoticon(item: MediaResource) {
   if (!id || !name) return
   // A text token can resolve to only one image resource. If the same
   // emoticon exists in multiple scopes, the most recently chosen scope wins.
-  selectedEmoticonIDs.value = selectedEmoticonIDs.value.filter(selectedID => {
-    const selected = mediaResources.value.find(resource => resourceKey(resource) === selectedID)
-    return !selected || resourceName(selected) !== name
-  })
+  const nextNames = { ...selectedEmoticonNames.value }
+  for (const selectedID of selectedEmoticonIDs.value) {
+    if (nextNames[selectedID] === name) delete nextNames[selectedID]
+  }
+  selectedEmoticonIDs.value = selectedEmoticonIDs.value.filter(selectedID => nextNames[selectedID] !== undefined)
   selectedEmoticonIDs.value.push(id)
+  nextNames[id] = name
+  selectedEmoticonNames.value = nextNames
   content.value = content.value ? `${content.value}${name}` : name
 }
 
@@ -144,7 +148,7 @@ function formatTime(timestamp: number) {
   return new Date(timestamp).toLocaleTimeString()
 }
 
-watch([platformID, eventType], () => { resourceKeyword.value = ''; selectedGiftID.value = ''; selectedEmoticonIDs.value = []; giftImageURL.value = ''; void loadMediaResources() })
+watch([platformID, eventType], () => { resourceKeyword.value = ''; selectedGiftID.value = ''; selectedEmoticonIDs.value = []; selectedEmoticonNames.value = {}; giftImageURL.value = ''; void loadMediaResources() })
 watch(resourceKeyword, () => { if (resourceSearchTimer) clearTimeout(resourceSearchTimer); resourceSearchTimer = setTimeout(() => void loadMediaResources(), 250) })
 
 onMounted(() => {
