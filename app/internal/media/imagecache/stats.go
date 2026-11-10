@@ -127,7 +127,7 @@ func (m *Manager) WaitForStats(timeout time.Duration) bool {
 		m.statsMu.RLock()
 		ready, running := m.stats.Ready, m.statsRefreshing
 		m.statsMu.RUnlock()
-		if ready || !running {
+		if !running {
 			return ready
 		}
 		time.Sleep(5 * time.Millisecond)
