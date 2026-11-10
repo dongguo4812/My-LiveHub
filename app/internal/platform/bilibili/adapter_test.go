@@ -24,6 +24,7 @@ type fakeStreamClient struct {
 	guardBuyHandler func(*message.GuardBuy)
 	userToastHandler func(*message.UserToast)
 	interactWordHandler func(*message.InteractWord)
+	rawHandler func(string, []byte)
 	started bool
 	stopCalls int
 	done chan struct{}
@@ -42,6 +43,7 @@ func (f *fakeStreamClient) OnSuperChat(handler func(*message.SuperChat)) { f.mu.
 func (f *fakeStreamClient) OnGuardBuy(handler func(*message.GuardBuy)) { f.mu.Lock(); f.guardBuyHandler = handler; f.mu.Unlock() }
 func (f *fakeStreamClient) OnUserToast(handler func(*message.UserToast)) { f.mu.Lock(); f.userToastHandler = handler; f.mu.Unlock() }
 func (f *fakeStreamClient) OnInteractWord(handler func(*message.InteractWord)) { f.mu.Lock(); f.interactWordHandler = handler; f.mu.Unlock() }
+func (f *fakeStreamClient) OnRawEvent(handler func(string, []byte)) { f.mu.Lock(); f.rawHandler = handler; f.mu.Unlock() }
 func (f *fakeStreamClient) StartContext(ctx context.Context) error {
 	f.startOnce.Do(func(){ close(f.startEntered) })
 	if f.startGate != nil { select { case <-f.startGate: case <-ctx.Done(): return ctx.Err() } }
@@ -58,6 +60,7 @@ func (f *fakeStreamClient) emitSuperChat(sc *message.SuperChat) { f.mu.Lock(); h
 func (f *fakeStreamClient) emitGuardBuy(g *message.GuardBuy) { f.mu.Lock(); handler := f.guardBuyHandler; f.mu.Unlock(); if handler != nil { handler(g) } }
 func (f *fakeStreamClient) emitUserToast(u *message.UserToast) { f.mu.Lock(); handler := f.userToastHandler; f.mu.Unlock(); if handler != nil { handler(u) } }
 func (f *fakeStreamClient) emitInteractWord(i *message.InteractWord) { f.mu.Lock(); handler := f.interactWordHandler; f.mu.Unlock(); if handler != nil { handler(i) } }
+func (f *fakeStreamClient) emitRaw(cmd string, raw []byte) { f.mu.Lock(); handler := f.rawHandler; f.mu.Unlock(); if handler != nil { handler(cmd, raw) } }
 
 func newAdapterTestAuth(t *testing.T) *AuthManager {
 	t.Helper()
@@ -275,6 +278,45 @@ func TestAdapterReceivesSCGuardFollowAndWelcome(t *testing.T) {
 	if got[2].Type != "follow" || got[2].UserID != 9 { t.Fatalf("unexpected follow event: %+v", got[2]) }
 	if got[3].Type != "welcome" || got[3].UserID != 10 { t.Fatalf("unexpected welcome event: %+v", got[3]) }
 	if err := a.Disconnect(context.Background()); err != nil { t.Fatal(err) }
+}
+
+func TestAdapterReceivesLikeClickAndIgnoresRoomLikeUpdates(t *testing.T) {
+	a, err := NewAdapter(newAdapterTestAuth(t), 12345, eventstream.NewBuffer())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.giftCatalog = nil
+	fake := newFakeStreamClient(12345)
+	a.newStream = func(int) streamClient { return fake }
+	if err := a.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	click := []byte(`{"cmd":"LIKE_INFO_V3_CLICK","data":{"uid":77,"uname":"点赞观众","like_text":"为主播点赞","timestamp":1700000000,"fans_medal":{"medal_name":"测试勋章","medal_level":12,"medal_color":123456}}}`)
+	fake.emitRaw("LIKE_INFO_V3_CLICK", click)
+	fake.emitRaw("LIKE_INFO_V3_UPDATE", []byte(`{"cmd":"LIKE_INFO_V3_UPDATE","data":{"click_count":999}}`))
+	fake.emitRaw("OTHER_EVENT", click)
+
+	got := a.events.Snapshot()
+	if len(got) != 1 {
+		t.Fatalf("got %d events, want one per-user like event: %+v", len(got), got)
+	}
+	event := got[0]
+	if event.Type != "like" || event.PlatformID != "bilibili" || event.RoomID != 12345 {
+		t.Fatalf("unexpected like event identity: %+v", event)
+	}
+	if event.UserID != 77 || event.UserName != "点赞观众" || event.Content != "为主播点赞" {
+		t.Fatalf("unexpected like event user/content: %+v", event)
+	}
+	if event.FanMedalName != "测试勋章" || event.FanMedalLevel != 12 || event.FanMedalColor != 123456 {
+		t.Fatalf("like event fan medal was not preserved: %+v", event)
+	}
+	if event.Timestamp != 1700000000000 {
+		t.Fatalf("like event timestamp = %d, want milliseconds", event.Timestamp)
+	}
+	if err := a.Disconnect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestAdapterDisconnectStopsAndWaitsForStream(t *testing.T) {
