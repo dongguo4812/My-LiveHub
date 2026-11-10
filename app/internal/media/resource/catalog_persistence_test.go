@@ -261,12 +261,13 @@ func TestPersistentCatalogConcurrentAccessAndCloseFlushesLatestSnapshot(t *testi
 	}
 
 	// Exercise read paths while registrations and refresh markers are changing.
+	stopReaders := make(chan struct{})
 	readDone := make(chan struct{})
 	go func() {
 		defer close(readDone)
 		for {
 			select {
-			case <-readDone:
+			case <-stopReaders:
 				return
 			default:
 				_ = catalog.List("bilibili", "", TypeEmoticon)
@@ -281,6 +282,7 @@ func TestPersistentCatalogConcurrentAccessAndCloseFlushesLatestSnapshot(t *testi
 	if err := catalog.Close(); err != nil {
 		t.Fatal(err)
 	}
+	close(stopReaders)
 	<-readDone
 
 	if catalog.Register(Resource{
