@@ -13,7 +13,7 @@ import (
 	eventstream "github.com/dongguo4812/My-LiveHub/app/internal/events"
 	"github.com/dongguo4812/My-LiveHub/app/internal/platform"
 	"github.com/dongguo4812/My-LiveHub/app/internal/platform/bilibili"
-	"github.com/dongguo4812/My-LiveHub/app/internal/media/emoticoncache"
+	"github.com/dongguo4812/My-LiveHub/app/internal/media/imagecache"
 	"github.com/dongguo4812/My-LiveHub/app/internal/media/resource"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -114,8 +114,8 @@ func main() {
 
 	platformService := desktop.NewPlatformService(platformManager, bilibiliEvents, mediaCatalog)
 	assetHandler := application.AssetFileServerFS(assets)
-	imageCache, cacheErr := emoticoncache.NewWithPolicies(filepath.Join(cacheDir, "media-images"), assetHandler, map[string]emoticoncache.URLPolicy{"bilibili":emoticoncache.BilibiliURLPolicy})
-	if cacheErr != nil { log.Printf("initialize local emoticon cache: %v", cacheErr) } else { assetHandler = imageCache; platformService.SetMediaImageCache(imageCache); imageCache.RefreshStats() }
+	imageCache, cacheErr := imagecache.NewWithPolicies(filepath.Join(cacheDir, "media-images"), assetHandler, map[string]imagecache.URLPolicy{"bilibili":imagecache.BilibiliURLPolicy})
+	if cacheErr != nil { log.Printf("initialize local media image cache: %v", cacheErr) } else { assetHandler = imageCache; platformService.SetMediaImageCache(imageCache); imageCache.RefreshStats() }
 	danmakuDisplayService := desktop.NewDanmakuDisplayService(configManager, danmakuDisplayConfig, danmakuWindowConfig, bilibiliEvents, imageCache)
 	app := application.New(application.Options{
 		Name:        "My-LiveHub",
