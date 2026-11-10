@@ -8,47 +8,51 @@ permissions:
 
 jobs:
   build-minimal-mpv:
-    name: Build isolated minimal mpv prototype
+    name: Build trimmed mpv v0.42.0 (Windows x64)
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    container:
+      image: ubuntu:26.10
+      options: --security-opt seccomp=unconfined
+    timeout-minutes: 120
+    env:
+      TARGET: x86_64-w64-mingw32
+      RUST_TARGET: x86_64-pc-windows-gnu
+      WINEPREFIX: /tmp/wine
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 500M
+      DOWNLOAD_CACHE: ${{ github.workspace }}/.ccache/downloads
     steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install --no-install-recommends -y ca-certificates ccache cmake g++-mingw-w64 gcc-multilib git make meson nasm ninja-build pkgconf rustup wget xz-utils wine64
+          rustup default stable
+          rustup target add ${RUST_TARGET}
+
       - name: Checkout My-LiveHub
         uses: actions/checkout@v4
 
-      - name: Build mpv in pinned Windows x64 cross-build image
-        shell: bash
+      - name: Checkout pinned mpv source
         run: |
-          set -euo pipefail
-          started_at=$(date +%s)
-          mkdir -p "$GITHUB_WORKSPACE/artifacts/mpv-minimal"
+          git clone --depth=1 --branch v0.42.0 https://github.com/mpv-player/mpv.git mpv-src
+          cp app/scripts/build-mpv-minimal.sh mpv-src/build-mpv-minimal.sh
 
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/workspace" \
-            -w /tmp \
-            ghcr.io/btbn/ffmpeg-builds/win64-gpl@sha256:146dd9a98dbd12705cc0c2c56d0bb81f83f2f02f1828c83cc08242e64b810fbd \
-            bash -lc '
-              set -euo pipefail
-              git clone --depth=1 --branch v0.42.0 https://github.com/mpv-player/mpv.git /tmp/mpv
-              cp /workspace/app/scripts/build-mpv-minimal.sh /tmp/mpv/build-mpv-minimal.sh
-              cd /tmp/mpv
-              chmod +x build-mpv-minimal.sh
-              ./build-mpv-minimal.sh
-              cp -a artifact-minimal/. /workspace/artifacts/mpv-minimal/
-            '
+      - name: Build upstream MinGW dependencies
+        working-directory: mpv-src
+        run: ./ci/build-mingw64.sh
 
-          elapsed=$(( $(date +%s) - started_at ))
-          {
-            echo "Build duration: ${elapsed}s"
-            echo
-            echo "Artifact files:"
-            ls -lh "$GITHUB_WORKSPACE/artifacts/mpv-minimal"
-            echo
-            echo "Total artifact size:"
-            du -sh "$GITHUB_WORKSPACE/artifacts/mpv-minimal"
-            echo
-            echo "SHA-256:"
-            sha256sum "$GITHUB_WORKSPACE"/artifacts/mpv-minimal/*
-          } | tee "$GITHUB_WORKSPACE/artifacts/mpv-minimal/BUILD-REPORT.txt"
+      - name: Build trimmed mpv and stage runtime
+        working-directory: mpv-src
+        run: |
+          chmod +x build-mpv-minimal.sh
+          ./build-mpv-minimal.sh
+          mkdir -p ../artifacts/mpv-minimal
+          cp -a artifact-minimal/. ../artifacts/mpv-minimal/
+
+      - name: Run Windows executable smoke test under Wine
+        working-directory: artifacts/mpv-minimal
+        run: ./mpv.com --version
 
       - name: Upload internal validation artifact
         uses: actions/upload-artifact@v4
