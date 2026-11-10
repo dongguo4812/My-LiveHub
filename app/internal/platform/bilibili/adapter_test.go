@@ -406,3 +406,87 @@ func TestAdapterResolvesLiveEmoticonWithoutIDFromCatalogURL(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+
+// TestAdapterResolvesNumericLiveEmoticonIDByCatalogURL verifies that a
+// numeric live ID without package metadata does not force a room scope.
+func TestAdapterResolvesNumericLiveEmoticonIDByCatalogURL(t *testing.T) {
+	catalog := resource.NewCatalog()
+	catalog.Register(resource.Resource{
+		PlatformID: "bilibili", SourceID: "common", Type: resource.TypeEmoticon,
+		ID: "emoji_331", Name: "[dog]", ImageURL: "https://i0.hdslb.com/bfs/live/dog.png",
+	})
+
+	a, err := NewAdapter(newAdapterTestAuth(t), 12345, eventstream.NewBuffer())
+	if err != nil { t.Fatal(err) }
+	a.giftCatalog = nil
+	a.SetMediaCatalog(catalog)
+	fake := newFakeStreamClient(12345)
+	a.newStream = func(int) streamClient { return fake }
+	if err := a.Connect(context.Background()); err != nil { t.Fatal(err) }
+
+	extraJSON, err := json.Marshal(map[string]any{
+		"emots": map[string]any{
+			"[dog]": map[string]any{
+				"url": "https://i0.hdslb.com/bfs/live/dog.png",
+				"emoticon_id": 331,
+			},
+		},
+	})
+	if err != nil { t.Fatal(err) }
+	meta := make([]any, 16)
+	meta[15] = map[string]any{"extra": string(extraJSON)}
+	packet, err := json.Marshal(map[string]any{"info": []any{meta, "[dog]", []any{7, "viewer"}, []any{}, []any{}}})
+	if err != nil { t.Fatal(err) }
+	fake.emit(&message.Danmaku{Raw: string(packet), Content: "[dog]", Sender: &message.User{Uid: 7, Uname: "viewer"}})
+
+	events := a.events.Snapshot()
+	if len(events) != 1 || len(events[0].Emoticons) != 1 {
+		t.Fatalf("unexpected live emoticon event: %+v", events)
+	}
+	if got := events[0].Emoticons[0].ResourceID; got != "common:emoji_331" {
+		t.Fatalf("resolved resource ID = %q, want common:emoji_331", got)
+	}
+	if err := a.Disconnect(context.Background()); err != nil { t.Fatal(err) }
+	if err := catalog.Close(); err != nil { t.Fatal(err) }
+}
+
+// TestAdapterResolvesLiveEmoticonToRoomResourceByURL verifies room resources
+// are selected when a live event has no explicit scope identifier.
+func TestAdapterResolvesLiveEmoticonToRoomResourceByURL(t *testing.T) {
+	catalog := resource.NewCatalog()
+	catalog.Register(resource.Resource{
+		PlatformID: "bilibili", SourceID: "12345", Type: resource.TypeEmoticon,
+		ID: "room_12345_9", Name: "[dog]", ImageURL: "https://i0.hdslb.com/bfs/live/room-dog.png",
+	})
+
+	a, err := NewAdapter(newAdapterTestAuth(t), 12345, eventstream.NewBuffer())
+	if err != nil { t.Fatal(err) }
+	a.giftCatalog = nil
+	a.SetMediaCatalog(catalog)
+	fake := newFakeStreamClient(12345)
+	a.newStream = func(int) streamClient { return fake }
+	if err := a.Connect(context.Background()); err != nil { t.Fatal(err) }
+
+	extraJSON, err := json.Marshal(map[string]any{
+		"emots": map[string]any{
+			"[dog]": map[string]any{"url": "https://i0.hdslb.com/bfs/live/room-dog.png"},
+		},
+	})
+	if err != nil { t.Fatal(err) }
+	meta := make([]any, 16)
+	meta[15] = map[string]any{"extra": string(extraJSON)}
+	packet, err := json.Marshal(map[string]any{"info": []any{meta, "[dog]", []any{7, "viewer"}, []any{}, []any{}}})
+	if err != nil { t.Fatal(err) }
+	fake.emit(&message.Danmaku{Raw: string(packet), Content: "[dog]", Sender: &message.User{Uid: 7, Uname: "viewer"}})
+
+	events := a.events.Snapshot()
+	if len(events) != 1 || len(events[0].Emoticons) != 1 {
+		t.Fatalf("unexpected live emoticon event: %+v", events)
+	}
+	if got := events[0].Emoticons[0].ResourceID; got != "12345:room_12345_9" {
+		t.Fatalf("resolved resource ID = %q, want 12345:room_12345_9", got)
+	}
+	if err := a.Disconnect(context.Background()); err != nil { t.Fatal(err) }
+	if err := catalog.Close(); err != nil { t.Fatal(err) }
+}
