@@ -112,8 +112,21 @@ func safeCatalogSegment(value string) string {
 	return value
 }
 
+// catalogScopeDirectory keeps platform-specific live-resource terminology
+// out of the shared catalog layout. Add a mapping only when that platform's
+// adapter is implemented and its resource scope is known.
+func catalogScopeDirectory(platformID string) string {
+	switch strings.ToLower(strings.TrimSpace(platformID)) {
+	case "bilibili":
+		return "rooms"
+	default:
+		// Unknown platforms must not inherit Bilibili's room terminology.
+		return "scopes"
+	}
+}
+
 func catalogPartitionPath(root string, platformID, sourceID string, kind Type) string {
-	scope := "rooms"
+	scope := catalogScopeDirectory(platformID)
 	scopeID := sourceID
 	if sourceID == "common" {
 		scope = "common"
