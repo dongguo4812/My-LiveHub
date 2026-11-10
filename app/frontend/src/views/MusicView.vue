@@ -132,6 +132,15 @@ async function nextTrack() {
     error.value = reason instanceof Error ? reason.message : String(reason)
   }
 }
+async function previousTrack() {
+  error.value = ''
+  try {
+    await MusicService.Previous()
+    await refreshPlayback()
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  }
+}
 async function pause() { try { await MusicService.Pause(); await refreshPlayback() } catch (reason) { error.value = String(reason) } }
 async function resume() { try { await MusicService.Resume(); await refreshPlayback() } catch (reason) { error.value = String(reason) } }
 async function stop() { try { await MusicService.Stop(); await refreshPlayback() } catch (reason) { error.value = String(reason) } }
@@ -185,6 +194,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         <el-button @click="playNext">播放队列</el-button>
         <el-button :disabled="playback?.state !== 'playing'" @click="pause">暂停</el-button>
         <el-button :disabled="playback?.state !== 'paused'" @click="resume">继续</el-button>
+        <el-button @click="previousTrack">上一首</el-button>
         <el-button @click="nextTrack">下一首</el-button>
         <el-button @click="stop">停止</el-button>
       </div>
