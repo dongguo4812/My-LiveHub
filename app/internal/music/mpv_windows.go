@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -37,9 +38,23 @@ func NewMpvEngine(executable string) *MpvEngine {
 	return &MpvEngine{executable: strings.TrimSpace(executable), volume: 80}
 }
 
+func (e *MpvEngine) Validate() error {
+	if e == nil { return ErrPlaybackEngineUnavailable }
+	e.mu.RLock()
+	configured := e.executable
+	e.mu.RUnlock()
+	resolved, err := resolveMpvExecutable(configured)
+	if err != nil { return err }
+	e.mu.Lock()
+	e.executable = resolved
+	e.mu.Unlock()
+	return nil
+}
+
 func (e *MpvEngine) Start(ctx context.Context) error {
 	if e == nil { return ErrPlaybackEngineUnavailable }
 	if ctx == nil { return errors.New("mpv startup context is required") }
+	if err := e.Validate(); err != nil { return err }
 	e.lifecycleMu.Lock()
 	defer e.lifecycleMu.Unlock()
 	e.mu.Lock()
@@ -50,11 +65,7 @@ func (e *MpvEngine) Start(ctx context.Context) error {
 	executable := e.executable
 	e.mu.Unlock()
 
-	if executable == "" {
-		found, err := exec.LookPath("mpv")
-		if err != nil { return fmt.Errorf("mpv executable was not found in PATH: %w", err) }
-		executable = found
-	}
+
 	pipePath := fmt.Sprintf("\\\\.\\pipe\\my-livehub-mpv-%d", os.Getpid())
 	cmd := exec.Command(executable,
 		"--no-config", "--no-video", "--force-window=no", "--terminal=no",
