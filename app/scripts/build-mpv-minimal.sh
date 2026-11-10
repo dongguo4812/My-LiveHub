@@ -78,7 +78,6 @@ meson setup "$build_dir" \
     -Dsndio=disabled \
     -Doss-audio=disabled \
     -Dsdl2-audio=disabled \
-    -Dalsa=disabled \
     -Dcocoa=disabled \
     -Dx11=disabled \
     -Dwayland=disabled \
