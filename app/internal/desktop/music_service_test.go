@@ -79,8 +79,8 @@ func TestMusicServiceSearchEnqueueAndPlay(t *testing.T) {
 	}
 	if _, err := service.Enqueue(response.Tracks[0], "viewer"); err != nil { t.Fatal(err) }
 	if err := service.PlayNext(); err != nil { t.Fatal(err) }
-	if engine.loaded == nil || engine.loaded.ID != "track-1" {
-		t.Fatalf("track was not loaded by the shared engine: %#v", engine.loaded)
+	if loaded := engine.CurrentLoaded(); loaded == nil || loaded.ID != "track-1" {
+		t.Fatalf("track was not loaded by the shared engine: %#v", loaded)
 	}
 	snapshot := service.GetQueue()
 	if snapshot.Current == nil || snapshot.Current.Track.SourceID != "test" {
