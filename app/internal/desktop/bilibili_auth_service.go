@@ -33,7 +33,8 @@ func (s *BilibiliAuthService) ServiceStartup(ctx context.Context, _ application.
 	}
 	account, err := s.auth.CurrentAccount(ctx)
 	if err != nil {
-		return fmt.Errorf("check saved Bilibili login before auto-connect: %w", err)
+		// Authentication/network problems must never block the desktop UI.
+		return nil
 	}
 	if account == nil || !account.IsLogin {
 		return nil
