@@ -75,3 +75,23 @@ func TestMusicServiceRejectsDisabledSource(t *testing.T) {
 	_, err := service.Enqueue(music.Track{ID:"track-1", SourceID:"test", Title:"Test song"}, "")
 	if err == nil { t.Fatal("expected disabled source to be rejected") }
 }
+
+func TestParseSongRequest(t *testing.T) {
+	tests := []struct {
+		content string
+		want string
+		ok bool
+	}{
+		{content:"点歌 稻香 周杰伦", want:"稻香 周杰伦", ok:true},
+		{content:"点歌\u3000稻香", want:"稻香", ok:true},
+		{content:"点歌", ok:false},
+		{content:"点歌稻香", ok:false},
+		{content:"请点歌 稻香", ok:false},
+	}
+	for _, test := range tests {
+		got, ok := parseSongRequest(test.content, "点歌")
+		if got != test.want || ok != test.ok {
+			t.Errorf("parseSongRequest(%q) = (%q, %v), want (%q, %v)", test.content, got, ok, test.want, test.ok)
+		}
+	}
+}
