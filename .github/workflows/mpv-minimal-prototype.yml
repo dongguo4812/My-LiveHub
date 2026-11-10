@@ -60,6 +60,18 @@ jobs:
           chmod +x app/scripts/trim-mpv-mingw-bootstrap.sh
           app/scripts/trim-mpv-mingw-bootstrap.sh "$PWD/mpv-src"
 
+      - name: Validate minimal profile before expensive builds
+        working-directory: mpv-src
+        run: |
+          set -euo pipefail
+          grep -Eq 'for x in .*shaderc.*spirv-cross' ci/build-mingw64.sh
+          ! grep -Eq -- '-D(shaderc|spirv-cross)=disabled' build-mpv-minimal.sh
+          grep -q -- '-Dd3d11=enabled' build-mpv-minimal.sh
+          grep -q -- '-Dwasapi=enabled' build-mpv-minimal.sh
+          grep -q -- '-Dd3d-hwaccel=enabled' build-mpv-minimal.sh
+          grep -q -- '-Dd3d9-hwaccel=enabled' build-mpv-minimal.sh
+          echo 'Preflight passed: D3D11 shader dependencies and required Windows playback paths are enabled.'
+
       - name: Install Meson wraps
         run: |
           mkdir -p mpv-src/subprojects
