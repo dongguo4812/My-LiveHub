@@ -62,7 +62,18 @@ func (e *MpvEngine) Start(ctx context.Context) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow:true, CreationFlags:0x08000000}
 	if err := cmd.Start(); err != nil { return fmt.Errorf("start mpv: %w", err) }
 	done := make(chan error, 1)
-	go func() { done <- cmd.Wait(); close(done) }()
+	go func() {
+		err := cmd.Wait()
+		done <- err
+		close(done)
+		e.mu.Lock()
+		if e.command == cmd {
+			e.command = nil
+			e.pipePath = ""
+			e.track = nil
+		}
+		e.mu.Unlock()
+	}()
 
 	e.mu.Lock()
 	e.executable, e.pipePath, e.command, e.done = executable, pipePath, cmd, done
@@ -94,6 +105,7 @@ func (e *MpvEngine) Start(ctx context.Context) error {
 
 func (e *MpvEngine) commandIPC(ctx context.Context, args ...any) (json.RawMessage, error) {
 	if e == nil { return nil, ErrPlaybackEngineUnavailable }
+	if ctx == nil { return nil, errors.New("mpv command context is required") }
 	e.commandMu.Lock()
 	defer e.commandMu.Unlock()
 	e.mu.RLock()
