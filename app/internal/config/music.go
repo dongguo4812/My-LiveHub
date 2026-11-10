@@ -64,15 +64,10 @@ func MigrateMusicConfig(c MusicConfig) (MusicConfig, bool) {
 			}
 		}
 	}
-	// A usable source must remain selected. The old "luoxue only" selection
-	// cannot be migrated because Luoxue is no longer a playback backend.
-	hasEnabled := false
-	for _, enabled := range migrated.Sources {
-		hasEnabled = hasEnabled || enabled
-	}
-	if !hasEnabled {
-		migrated.Sources["netease"] = true
-	}
+	// NetEase is the first implemented source. Keep it enabled during
+	// migration because the former QQ/Kugou/Kuwo player flags do not imply
+	// that their new source adapters are already available.
+	migrated.Sources["netease"] = true
 	return migrated, true
 }
 
