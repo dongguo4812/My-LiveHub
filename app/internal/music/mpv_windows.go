@@ -12,7 +12,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -27,6 +26,7 @@ type MpvEngine struct {
 	pipePath string
 	command *exec.Cmd
 	requestID atomic.Uint64
+	done chan error
 	track *Track
 	volume int
 }
@@ -37,6 +37,7 @@ func NewMpvEngine(executable string) *MpvEngine {
 
 func (e *MpvEngine) Start(ctx context.Context) error {
 	if e == nil { return ErrPlaybackEngineUnavailable }
+	if ctx == nil { return errors.New("mpv startup context is required") }
 	e.mu.Lock()
 	if e.command != nil && e.command.Process != nil {
 		e.mu.Unlock()
@@ -60,9 +61,11 @@ func (e *MpvEngine) Start(ctx context.Context) error {
 	cmd.Stderr = io.Discard
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow:true, CreationFlags:0x08000000}
 	if err := cmd.Start(); err != nil { return fmt.Errorf("start mpv: %w", err) }
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait(); close(done) }()
 
 	e.mu.Lock()
-	e.executable, e.pipePath, e.command = executable, pipePath, cmd
+	e.executable, e.pipePath, e.command, e.done = executable, pipePath, cmd, done
 	e.mu.Unlock()
 
 	deadline := time.NewTimer(5*time.Second)
@@ -77,12 +80,13 @@ func (e *MpvEngine) Start(ctx context.Context) error {
 		case <-deadline.C:
 			_ = e.Close()
 			return errors.New("mpv IPC did not become ready within 5 seconds")
+		case waitErr := <-done:
+				e.mu.Lock(); e.command = nil; e.pipePath = ""; e.mu.Unlock()
+				return fmt.Errorf("mpv exited before IPC became ready: %v", waitErr)
 		case <-ticker.C:
-			if _, err := os.OpenFile(pipePath, os.O_RDWR, 0); err == nil {
+			if pipe, err := os.OpenFile(pipePath, os.O_RDWR, 0); err == nil {
+				_ = pipe.Close()
 				return nil
-			}
-			if cmd.ProcessState != nil {
-				return errors.New("mpv exited before IPC became ready")
 			}
 		}
 	}
@@ -204,18 +208,21 @@ func (e *MpvEngine) Close() error {
 	if e == nil { return nil }
 	e.mu.Lock()
 	cmd := e.command
+	done := e.done
 	e.command = nil
+	e.done = nil
 	e.pipePath = ""
 	e.track = nil
 	e.mu.Unlock()
 	if cmd == nil || cmd.Process == nil { return nil }
 	_ = cmd.Process.Kill()
-	if err := cmd.Wait(); err != nil {
-		var exitErr *exec.ExitError
-		if !errors.As(err, &exitErr) { return err }
+	if done != nil {
+		if err := <-done; err != nil {
+			var exitErr *exec.ExitError
+			if !errors.As(err, &exitErr) { return err }
+		}
 	}
 	return nil
 }
 
 var _ PlaybackEngine = (*MpvEngine)(nil)
-var _ = strconv.IntSize
