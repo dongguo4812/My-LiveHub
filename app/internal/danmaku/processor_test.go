@@ -187,3 +187,35 @@ func TestProcessorDuplicateFilterKeepsDifferentContent(t *testing.T) {
 		t.Fatalf("unexpected visible messages: %+v", got)
 	}
 }
+
+
+func TestProcessorPreservesSCGuardFollowAndWelcomePayloads(t *testing.T) {
+	settings := config.DefaultDanmakuDisplayConfig()
+	settings.DisplayDurationSeconds = 60
+	input := []events.Event{
+		event("super_chat", "bilibili", "live", 1, 100000),
+		event("guard", "bilibili", "live", 2, 100001),
+		event("follow", "bilibili", "live", 3, 100002),
+		event("welcome", "bilibili", "live", 4, 100003),
+	}
+	input[0].Content, input[0].Amount, input[0].Duration = "支持主播", 30, 60
+	input[1].Content, input[1].GuardLevel, input[1].Months, input[1].Amount = "开通了舰长 × 2 个月", 3, 2, 138
+	input[2].Content = "关注了直播间"
+	input[3].Content = "进入了直播间"
+
+	got := NewProcessor().Process(input, settings, time.UnixMilli(100010))
+	if len(got) != len(input) {
+		t.Fatalf("visible event count=%d want=%d: %+v", len(got), len(input), got)
+	}
+	for i, want := range input {
+		if got[i].Event.Type != want.Type || got[i].Event.UserID != want.UserID || got[i].Event.Content != want.Content {
+			t.Fatalf("event %d identity/content changed: got=%+v want=%+v", i, got[i].Event, want)
+		}
+	}
+	if got[0].Event.Amount != 30 || got[0].Event.Duration != 60 {
+		t.Fatalf("SC amount/duration were lost: %+v", got[0].Event)
+	}
+	if got[1].Event.Amount != 138 || got[1].Event.GuardLevel != 3 || got[1].Event.Months != 2 {
+		t.Fatalf("guard amount/level/months were lost: %+v", got[1].Event)
+	}
+}
