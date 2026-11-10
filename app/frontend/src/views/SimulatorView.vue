@@ -97,8 +97,14 @@ function selectGift(resourceID: string) {
 function insertEmoticon(item: MediaResource) {
   const id = resourceKey(item)
   const name = resourceName(item)
-  if (!id) return
-  if (!selectedEmoticonIDs.value.includes(id)) selectedEmoticonIDs.value.push(id)
+  if (!id || !name) return
+  // A text token can resolve to only one image resource. If the same
+  // emoticon exists in multiple scopes, the most recently chosen scope wins.
+  selectedEmoticonIDs.value = selectedEmoticonIDs.value.filter(selectedID => {
+    const selected = mediaResources.value.find(resource => resourceKey(resource) === selectedID)
+    return !selected || resourceName(selected) !== name
+  })
+  selectedEmoticonIDs.value.push(id)
   content.value = content.value ? `${content.value}${name}` : name
 }
 
