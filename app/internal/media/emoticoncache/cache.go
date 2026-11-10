@@ -36,6 +36,9 @@ type Manager struct {
 	failedUntil map[string]time.Time
 	ready map[string]string
 	policies map[string]URLPolicy
+	statsMu sync.RWMutex
+	stats CacheStats
+	statsRefreshing bool
 }
 
 func BilibiliURLPolicy(u *url.URL) bool { if u==nil||u.Scheme!="https"||u.User!=nil||u.Port()!=""{return false};h:=strings.ToLower(u.Hostname());return h=="bilibili.com"||strings.HasSuffix(h,".bilibili.com")||h=="hdslb.com"||strings.HasSuffix(h,".hdslb.com") }
