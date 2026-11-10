@@ -1,0 +1,59 @@
+name: mpv minimal prototype
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-minimal-mpv:
+    name: Build isolated minimal mpv prototype
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout My-LiveHub
+        uses: actions/checkout@v4
+
+      - name: Build mpv in pinned Windows x64 cross-build image
+        shell: bash
+        run: |
+          set -euo pipefail
+          started_at=$(date +%s)
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/mpv-minimal"
+
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            -w /tmp \
+            ghcr.io/btbn/ffmpeg-builds/win64-gpl@sha256:146dd9a98dbd12705cc0c2c56d0bb81f83f2f02f1828c83cc08242e64b810fbd \
+            bash -lc '
+              set -euo pipefail
+              git clone --depth=1 --branch v0.42.0 https://github.com/mpv-player/mpv.git /tmp/mpv
+              cp /workspace/app/scripts/build-mpv-minimal.sh /tmp/mpv/build-mpv-minimal.sh
+              cd /tmp/mpv
+              chmod +x build-mpv-minimal.sh
+              ./build-mpv-minimal.sh
+              cp -a artifact-minimal/. /workspace/artifacts/mpv-minimal/
+            '
+
+          elapsed=$(( $(date +%s) - started_at ))
+          {
+            echo "Build duration: ${elapsed}s"
+            echo
+            echo "Artifact files:"
+            ls -lh "$GITHUB_WORKSPACE/artifacts/mpv-minimal"
+            echo
+            echo "Total artifact size:"
+            du -sh "$GITHUB_WORKSPACE/artifacts/mpv-minimal"
+            echo
+            echo "SHA-256:"
+            sha256sum "$GITHUB_WORKSPACE"/artifacts/mpv-minimal/*
+          } | tee "$GITHUB_WORKSPACE/artifacts/mpv-minimal/BUILD-REPORT.txt"
+
+      - name: Upload internal validation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpv-minimal-windows-x64-prototype
+          path: artifacts/mpv-minimal/
+          if-no-files-found: error
+          retention-days: 14
