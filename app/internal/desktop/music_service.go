@@ -258,21 +258,70 @@ func (s *MusicService) playNext(parent context.Context) error {
 	if s == nil || s.engine == nil || s.queue == nil { return errors.New("music playback service is unavailable") }
 	item, ok := s.queue.TakeNext()
 	if !ok { return errors.New("music queue is empty") }
+	s.mu.RLock()
+	enabled := s.value.Sources[item.Track.SourceID]
+	s.mu.RUnlock()
+	if !enabled { s.queue.FinishCurrent(); return fmt.Errorf("music source %q is disabled", item.Track.SourceID) }
 	source, ok := s.sources.Get(item.Track.SourceID)
 	if !ok { s.queue.FinishCurrent(); return fmt.Errorf("music source %q is not available", item.Track.SourceID) }
 	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
+	resource, selectedTrack, err := s.resolveWithFallback(ctx, item.Track, source)
+	if err != nil { s.queue.FinishCurrent(); return fmt.Errorf("resolve %q: %w", item.Track.Title, err) }
+	if selectedTrack.SourceID != item.Track.SourceID {
+		item.Track = selectedTrack
+		if err := s.queue.SetCurrent(item); err != nil { s.queue.FinishCurrent(); return err }
+	}
 	if lifecycle, ok := s.engine.(music.PlaybackEngineLifecycle); ok {
 		if err := lifecycle.Start(ctx); err != nil { s.queue.FinishCurrent(); return err }
 	}
-	resource, err := source.Resolve(ctx, item.Track)
-	if err != nil { s.queue.FinishCurrent(); return fmt.Errorf("resolve %q from %s: %w", item.Track.Title, source.Name(), err) }
-	if err := s.engine.Load(ctx, resource, item.Track); err != nil {
+	if err := s.engine.Load(ctx, resource, selectedTrack); err != nil {
 		s.queue.FinishCurrent()
-		return fmt.Errorf("play %q: %w", item.Track.Title, err)
+		return fmt.Errorf("play %q: %w", selectedTrack.Title, err)
 	}
 	s.startPlaybackWatcher()
 	return nil
+}
+
+func (s *MusicService) resolveWithFallback(ctx context.Context, track music.Track, preferred music.Source) (music.PlaybackResource, music.Track, error) {
+	resource, originalErr := preferred.Resolve(ctx, track)
+	if originalErr == nil { return resource, track, nil }
+
+	s.mu.RLock()
+	enabled := cloneBoolMap(s.value.Sources)
+	limit := s.value.SearchLimit
+	s.mu.RUnlock()
+	keyword := strings.TrimSpace(track.Title + " " + track.Artist)
+	candidates, _, searchErr := s.sources.Search(ctx, keyword, enabled, limit)
+	if searchErr != nil { return music.PlaybackResource{}, track, errors.Join(originalErr, searchErr) }
+	for _, candidate := range candidates {
+		if candidate.SourceID == track.SourceID || !sameTrack(track, candidate) { continue }
+		fallback, ok := s.sources.Get(candidate.SourceID)
+		if !ok { continue }
+		resource, err := fallback.Resolve(ctx, candidate)
+		if err == nil { return resource, candidate, nil }
+	}
+	return music.PlaybackResource{}, track, originalErr
+}
+
+func sameTrack(left, right music.Track) bool {
+	normalize := func(value string) string {
+		value = strings.ToLower(strings.TrimSpace(value))
+		var builder strings.Builder
+		for _, char := range value {
+			if unicode.IsLetter(char) || unicode.IsNumber(char) { builder.WriteRune(char) }
+		}
+		return builder.String()
+	}
+	if normalize(left.Title) == "" || normalize(left.Title) != normalize(right.Title) { return false }
+	leftArtist, rightArtist := normalize(left.Artist), normalize(right.Artist)
+	if leftArtist != "" && rightArtist != "" && !strings.Contains(leftArtist, rightArtist) && !strings.Contains(rightArtist, leftArtist) { return false }
+	if left.DurationMS > 0 && right.DurationMS > 0 {
+		difference := left.DurationMS - right.DurationMS
+		if difference < 0 { difference = -difference }
+		if difference > 10000 { return false }
+	}
+	return true
 }
 
 func (s *MusicService) Pause() error {
