@@ -9,6 +9,7 @@ type QueueSnapshot = Awaited<ReturnType<typeof MusicService.GetQueue>>
 type PlaybackSnapshot = Awaited<ReturnType<typeof MusicService.GetPlaybackStatus>>
 
 const config = ref<MusicConfig | null>(null)
+const availableSourceIDs = ref<string[]>([])
 const queue = ref<QueueSnapshot | null>(null)
 const playback = ref<PlaybackSnapshot | null>(null)
 const results = ref<Track[]>([])
@@ -30,7 +31,7 @@ const sourceNames: Record<string, string> = {
 }
 const sources = computed(() => Object.entries(config.value?.sources ?? {}).map(([id, enabled]) => ({
   id, name: sourceNames[id] ?? id, enabled,
-  status: id === 'netease' ? '首期音源已接入' : '适配器尚未接入',
+  status: availableSourceIDs.value.includes(id) ? '适配器已接入' : '适配器尚未接入',
 })))
 const enabledCount = computed(() => sources.value.filter(source => source.enabled).length)
 const canSave = computed(() => enabledCount.value > 0)
@@ -53,6 +54,7 @@ async function loadConfig() {
   error.value = ''
   try {
     config.value = await MusicService.GetConfig()
+    availableSourceIDs.value = (await MusicService.GetSources()).map(source => source.id)
     await refreshQueue()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
@@ -80,6 +82,7 @@ async function saveConfig() {
     await MusicService.SaveConfig(config.value)
     success.value = '音乐设置已保存'
     config.value = await MusicService.GetConfig()
+    availableSourceIDs.value = (await MusicService.GetSources()).map(source => source.id)
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
   } finally {
