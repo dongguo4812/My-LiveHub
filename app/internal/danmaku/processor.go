@@ -55,6 +55,11 @@ func (p *Processor) Process(input []events.Event, settings config.DanmakuDisplay
 		}
 
 
+		if event.Type == "like" {
+			if event.LikeCount < 1 {
+				event.LikeCount = 1
+			}
+		}
 		if event.Type == "like" && settings.DuplicateDanmakuFilterSeconds > 0 {
 			key := likeKey(event)
 			if index, ok := lastLikeIndex[key]; ok {
@@ -78,9 +83,6 @@ func (p *Processor) Process(input []events.Event, settings config.DanmakuDisplay
 					lastLikeIndex[key] = len(result) - 1
 					continue
 				}
-			}
-			if event.LikeCount < 1 {
-				event.LikeCount = 1
 			}
 			lastLikeIndex[key] = len(result)
 		}
