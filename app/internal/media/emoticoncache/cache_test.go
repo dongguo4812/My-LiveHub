@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCacheKeyRestrictsHostsAndSchemes(t *testing.T) {
@@ -127,4 +128,32 @@ func TestCachedURLFindsFileByDetectedExtension(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(platformRoot, key+".png"), []byte("png"), 0o600); err != nil { t.Fatal(err) }
 	want := routePrefix + "bilibili/" + key + ".png"
 	if got := manager.CachedURLFor("bilibili", raw); got != want { t.Fatalf("cached URL = %q, want %q", got, want) }
+}
+
+
+func TestRefreshStatsCountsImageFilesByPlatformWithoutModifyingCache(t *testing.T) {
+	root := t.TempDir()
+	manager, err := NewWithPolicies(root, nil, map[string]URLPolicy{"bilibili": BilibiliURLPolicy, "other": func(*url.URL) bool { return true }})
+	if err != nil { t.Fatal(err) }
+	files := map[string]string{
+		filepath.Join(root, "bilibili", strings.Repeat("a", 64)+".png"): "12345",
+		filepath.Join(root, "bilibili", "nested", strings.Repeat("b", 64)+".webp"): "123",
+		filepath.Join(root, "bilibili", ".download-temp"): "ignored",
+		filepath.Join(root, "other", strings.Repeat("c", 64)+".jpg"): "12",
+		filepath.Join(root, "other", "notes.txt"): "ignored",
+	}
+	for path, content := range files {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil { t.Fatal(err) }
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil { t.Fatal(err) }
+	}
+	manager.RefreshStats()
+	if !manager.WaitForStats(2*time.Second) { t.Fatal("background cache stats scan did not complete") }
+	got := manager.GetStats()
+	if !got.Ready || got.TotalFiles != 3 || got.TotalBytes != 10 { t.Fatalf("unexpected totals: %+v", got) }
+	if len(got.Platforms) != 2 || got.Platforms[0].PlatformID != "bilibili" || got.Platforms[0].FileCount != 2 || got.Platforms[0].Bytes != 8 {
+		t.Fatalf("unexpected platform stats: %+v", got.Platforms)
+	}
+	for path, content := range files {
+		if b, err := os.ReadFile(path); err != nil || string(b) != content { t.Fatalf("stats scan modified %s: %v", path, err) }
+	}
 }
