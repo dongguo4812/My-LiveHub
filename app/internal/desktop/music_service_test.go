@@ -3,8 +3,10 @@ package desktop
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
+	"github.com/dongguo4812/My-LiveHub/app/internal/events"
 	"github.com/dongguo4812/My-LiveHub/app/internal/music"
 )
 
@@ -23,11 +25,13 @@ type serviceTestEngine struct {
 	loaded *music.Track
 	state music.PlaybackState
 	volume int
+	loadedCh chan music.Track
 }
 func (e *serviceTestEngine) Load(_ context.Context, _ music.PlaybackResource, track music.Track) error {
 	copy := track
 	e.loaded = &copy
 	e.state = music.PlaybackPlaying
+	if e.loadedCh != nil { select { case e.loadedCh <- copy: default: } }
 	return nil
 }
 func (e *serviceTestEngine) Pause(context.Context) error { e.state = music.PlaybackPaused; return nil }
@@ -93,5 +97,32 @@ func TestParseSongRequest(t *testing.T) {
 		if got != test.want || ok != test.ok {
 			t.Errorf("parseSongRequest(%q) = (%q, %v), want (%q, %v)", test.content, got, ok, test.want, test.ok)
 		}
+	}
+}
+
+func TestMusicModuleTurnsDanmakuIntoQueuedPlayback(t *testing.T) {
+	buffer := events.NewBuffer(events.NewBus())
+	sources := music.NewSourceRegistry()
+	if err := sources.Register(serviceTestSource{}); err != nil { t.Fatal(err) }
+	cfg := config.DefaultMusicConfig()
+	cfg.Enabled = true
+	cfg.CommandEnabled = true
+	cfg.Sources = map[string]bool{"test":true}
+	engine := &serviceTestEngine{state:music.PlaybackIdle, volume:80, loadedCh:make(chan music.Track, 1)}
+	service := NewMusicServiceWithDependencies(nil, cfg, sources, engine, buffer)
+	module := NewMusicModule(service)
+	if err := module.Start(context.Background()); err != nil { t.Fatal(err) }
+	defer module.Stop(context.Background())
+
+	buffer.Add(events.Event{PlatformID:"bilibili", Type:"danmaku", UserID:42, UserName:"viewer", Content:"点歌 Test song"})
+	select {
+	case track := <-engine.loadedCh:
+		if track.Title != "Test song" || track.SourceID != "test" { t.Fatalf("unexpected auto-played track: %#v", track) }
+	case <-time.After(3 * time.Second):
+		t.Fatal("danmaku point request was not processed")
+	}
+	snapshot := service.GetQueue()
+	if snapshot.Current == nil || snapshot.Current.RequestedBy != "viewer" {
+		t.Fatalf("expected viewer request to be current: %#v", snapshot.Current)
 	}
 }
