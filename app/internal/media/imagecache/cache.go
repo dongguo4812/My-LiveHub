@@ -34,6 +34,7 @@ type Manager struct {
 	mu sync.RWMutex
 	inflight map[string]bool
 	failedUntil map[string]time.Time
+	nextFailedCleanup time.Time
 	ready map[string]string
 	policies map[string]URLPolicy
 	statsMu sync.RWMutex
@@ -91,9 +92,39 @@ func(m *Manager)CachedURLFor(platformID,raw string)string{return m.CachedURLForR
 func(m *Manager)PrefetchFor(platformID,raw string){m.PrefetchForResource(platformID,"",raw)}
 func resourceIdentity(platformID, _ ,raw string)string{return platformID+"\x00url\x00"+strings.TrimSpace(raw)}
 func(m *Manager)CachedURLForResource(platformID,resourceID,raw string)string{if m==nil{return ""};stableID:=strings.TrimSpace(resourceID);if stableID!=""{stableID=platformID+":"+stableID};key,ext,err:=cacheKeyForResource(raw,stableID,m.policies[platformID]);if err!=nil{return ""};identity:=resourceIdentity(platformID,resourceID,raw);m.mu.RLock();path:=m.ready[identity];m.mu.RUnlock();if path==""{path,_=existingCachePath(filepath.Join(m.root,platformID),key,ext);if path==""{return ""};m.mu.Lock();m.ready[identity]=path;m.mu.Unlock()};return routePrefix+url.PathEscape(platformID)+"/"+key+filepath.Ext(path)}
-func(m *Manager)PrefetchForResource(platformID,resourceID,raw string){if m==nil{return};stableID:=strings.TrimSpace(resourceID);if stableID!=""{stableID=platformID+":"+stableID};if _,_,err:=cacheKeyForResource(raw,stableID,m.policies[platformID]);err!=nil{return};identity:=resourceIdentity(platformID,resourceID,raw);m.mu.Lock();if m.ready[identity]!=""||m.inflight[identity]||time.Now().Before(m.failedUntil[identity]){m.mu.Unlock();return};m.inflight[identity]=true;m.mu.Unlock();select{case m.queue<-downloadTask{platformID:platformID,resourceID:strings.TrimSpace(resourceID),raw:raw}:default:m.mu.Lock();delete(m.inflight,identity);m.mu.Unlock()}}
-func(m *Manager)worker(){for task:=range m.queue{err:=m.download(task);k:=resourceIdentity(task.platformID,task.resourceID,task.raw);m.mu.Lock();delete(m.inflight,k);if err!=nil{m.failedUntil[k]=time.Now().Add(30*time.Second)}else{delete(m.failedUntil,k)};m.mu.Unlock()}}
-func(m *Manager)download(task downloadTask)error{p:=m.policies[task.platformID];stableID:=strings.TrimSpace(task.resourceID);if stableID!=""{stableID=task.platformID+":"+stableID};key,ext,err:=cacheKeyForResource(task.raw,stableID,p);if err!=nil{return err};platformRoot:=filepath.Join(m.root,task.platformID);if err:=os.MkdirAll(platformRoot,0o755);err!=nil{return err};identity:=resourceIdentity(task.platformID,task.resourceID,task.raw);if existing, _ := existingCachePath(platformRoot,key,ext); existing != "" { m.mu.Lock();m.ready[identity]=existing;m.mu.Unlock();return nil };ctx,cancel:=context.WithTimeout(context.Background(),8*time.Second);defer cancel();req,err:=http.NewRequestWithContext(ctx,http.MethodGet,task.raw,nil);if err!=nil{return err};req.Header.Set("User-Agent","My-LiveHub/1.0");client:=*m.client;client.CheckRedirect=func(req *http.Request,via []*http.Request)error{if len(via)>=3{return errors.New("图片重定向次数过多")};_,_,err:=cacheKey(req.URL.String(),p);return err};client.Transport=&http.Transport{DialContext:func(ctx context.Context,network,addr string)(net.Conn,error){host,port,err:=net.SplitHostPort(addr);if err!=nil{return nil,err};ips,err:=net.DefaultResolver.LookupIPAddr(ctx,host);if err!=nil{return nil,err};for _,item:=range ips{ip:=item.IP;if ip==nil||!ip.IsGlobalUnicast()||ip.IsPrivate()||ip.IsLoopback()||ip.IsLinkLocalUnicast()||ip.IsLinkLocalMulticast()||ip.IsUnspecified(){continue};return (&net.Dialer{Timeout:5*time.Second}).DialContext(ctx,network,net.JoinHostPort(ip.String(),port))};return nil,errors.New("图片域名解析到非公网地址")}};resp,err:=client.Do(req);if err!=nil{return err};defer resp.Body.Close();if resp.StatusCode<200||resp.StatusCode>=300{return fmt.Errorf("图片服务器返回无效响应")};tmp,err:=os.CreateTemp(platformRoot,".download-*");if err!=nil{return err};tmpName:=tmp.Name();defer os.Remove(tmpName);prefix:=make([]byte,512);prefixN,readErr:=io.ReadFull(resp.Body,prefix);if readErr!=nil&&readErr!=io.EOF&&readErr!=io.ErrUnexpectedEOF{tmp.Close();return readErr};prefix=prefix[:prefixN];detected:=http.DetectContentType(prefix);actualExt,ok:=imageExtension(resp.Header.Get("Content-Type"),detected);if !ok{tmp.Close();return fmt.Errorf("图片服务器返回不支持的图片格式")};n,copyErr:=io.Copy(tmp,io.LimitReader(io.MultiReader(bytes.NewReader(prefix),resp.Body),maxImageSize+1));if copyErr!=nil||n<=0||n>maxImageSize{tmp.Close();return fmt.Errorf("图片内容为空、过大或读取失败")};if err:=tmp.Sync();err!=nil{tmp.Close();return err};if err:=tmp.Close();err!=nil{return err};target:=filepath.Join(platformRoot,key+actualExt);if err:=os.Rename(tmpName,target);err!=nil{if info,e:=os.Stat(target);e!=nil||!info.Mode().IsRegular(){return err}};m.mu.Lock();m.ready[identity]=target;m.mu.Unlock();return nil}
+func(m *Manager)PrefetchForResource(platformID,resourceID,raw string){if m==nil{return};stableID:=strings.TrimSpace(resourceID);if stableID!=""{stableID=platformID+":"+stableID};if _,_,err:=cacheKeyForResource(raw,stableID,m.policies[platformID]);err!=nil{return};identity:=resourceIdentity(platformID,resourceID,raw);now:=time.Now();m.mu.Lock();m.cleanupFailedUntilLocked(now);if m.ready[identity]!=""||m.inflight[identity]||now.Before(m.failedUntil[identity]){m.mu.Unlock();return};m.inflight[identity]=true;m.mu.Unlock();select{case m.queue<-downloadTask{platformID:platformID,resourceID:strings.TrimSpace(resourceID),raw:raw}:default:m.mu.Lock();delete(m.inflight,identity);m.mu.Unlock()}}
+func (m *Manager) cleanupFailedUntilLocked(now time.Time) {
+	if now.Before(m.nextFailedCleanup) {
+		return
+	}
+	for key, expiresAt := range m.failedUntil {
+		if !now.Before(expiresAt) {
+			delete(m.failedUntil, key)
+		}
+	}
+	m.nextFailedCleanup = now.Add(30 * time.Second)
+}
+
+func (m *Manager) worker() {
+	for task := range m.queue {
+		err := m.download(task)
+		key := resourceIdentity(task.platformID, task.resourceID, task.raw)
+		now := time.Now()
+		m.mu.Lock()
+		delete(m.inflight, key)
+		if err != nil {
+			m.failedUntil[key] = now.Add(30 * time.Second)
+		} else {
+			delete(m.failedUntil, key)
+		}
+		m.cleanupFailedUntilLocked(now)
+		m.mu.Unlock()
+		if err == nil {
+			m.RefreshStats()
+		}
+	}
+}
+func(m *Manager)download(task downloadTask)error{p:=m.policies[task.platformID];stableID:=strings.TrimSpace(task.resourceID);if stableID!=""{stableID=task.platformID+":"+stableID};key,ext,err:=cacheKeyForResource(task.raw,stableID,p);if err!=nil{return err};platformRoot:=filepath.Join(m.root,task.platformID);if err:=os.MkdirAll(platformRoot,0o755);err!=nil{return err};identity:=resourceIdentity(task.platformID,task.resourceID,task.raw);if existing, _ := existingCachePath(platformRoot,key,ext); existing != "" { m.mu.Lock();m.ready[identity]=existing;m.mu.Unlock();return nil };ctx,cancel:=context.WithTimeout(context.Background(),8*time.Second);defer cancel();req,err:=http.NewRequestWithContext(ctx,http.MethodGet,task.raw,nil);if err!=nil{return err};req.Header.Set("User-Agent","My-LiveHub/1.0");client:=*m.client;client.CheckRedirect=func(req *http.Request,via []*http.Request)error{if len(via)>=3{return errors.New("图片重定向次数过多")};_,_,err:=cacheKey(req.URL.String(),p);return err};transport:=&http.Transport{DialContext:func(ctx context.Context,network,addr string)(net.Conn,error){host,port,err:=net.SplitHostPort(addr);if err!=nil{return nil,err};ips,err:=net.DefaultResolver.LookupIPAddr(ctx,host);if err!=nil{return nil,err};for _,item:=range ips{ip:=item.IP;if ip==nil||!ip.IsGlobalUnicast()||ip.IsPrivate()||ip.IsLoopback()||ip.IsLinkLocalUnicast()||ip.IsLinkLocalMulticast()||ip.IsUnspecified(){continue};return (&net.Dialer{Timeout:5*time.Second}).DialContext(ctx,network,net.JoinHostPort(ip.String(),port))};return nil,errors.New("图片域名解析到非公网地址")}};client.Transport=transport;defer transport.CloseIdleConnections();resp,err:=client.Do(req);if err!=nil{return err};defer resp.Body.Close();if resp.StatusCode<200||resp.StatusCode>=300{return fmt.Errorf("图片服务器返回无效响应")};tmp,err:=os.CreateTemp(platformRoot,".download-*");if err!=nil{return err};tmpName:=tmp.Name();defer os.Remove(tmpName);prefix:=make([]byte,512);prefixN,readErr:=io.ReadFull(resp.Body,prefix);if readErr!=nil&&readErr!=io.EOF&&readErr!=io.ErrUnexpectedEOF{tmp.Close();return readErr};prefix=prefix[:prefixN];detected:=http.DetectContentType(prefix);actualExt,ok:=imageExtension(resp.Header.Get("Content-Type"),detected);if !ok{tmp.Close();return fmt.Errorf("图片服务器返回不支持的图片格式")};n,copyErr:=io.Copy(tmp,io.LimitReader(io.MultiReader(bytes.NewReader(prefix),resp.Body),maxImageSize+1));if copyErr!=nil||n<=0||n>maxImageSize{tmp.Close();return fmt.Errorf("图片内容为空、过大或读取失败")};if err:=tmp.Sync();err!=nil{tmp.Close();return err};if err:=tmp.Close();err!=nil{return err};target:=filepath.Join(platformRoot,key+actualExt);if err:=os.Rename(tmpName,target);err!=nil{if info,e:=os.Stat(target);e!=nil||!info.Mode().IsRegular(){return err}};m.mu.Lock();m.ready[identity]=target;m.mu.Unlock();return nil}
 // ServeHTTP serves only validated cache filenames and delegates all other paths to the app.
 func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if m != nil && strings.HasPrefix(r.URL.Path, routePrefix) {
