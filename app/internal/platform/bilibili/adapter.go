@@ -326,7 +326,12 @@ func (a *Adapter) Connect(ctx context.Context) error {
 		for i := range emoticons {
 			rawResourceID := emoticons[i].ResourceID
 			sourceID := emoticonSourceID(roomID, rawResourceID)
-			if rawResourceID == "" && a.mediaCatalog != nil {
+			// Live danmaku often carries a numeric emoticon ID without its
+			// package type. In that case the ID alone cannot distinguish a
+			// shared emoticon from a room-specific one, so resolve by URL.
+			// Explicit Bilibili unique prefixes already identify the scope and
+			// must not be overridden by URL lookup.
+			if a.mediaCatalog != nil && !hasExplicitEmoticonScope(rawResourceID) {
 				if known, ok := a.mediaCatalog.FindByImageURL("bilibili", resource.TypeEmoticon, emoticons[i].URL); ok {
 					rawResourceID = known.ID
 					sourceID = known.SourceID
