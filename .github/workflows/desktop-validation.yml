@@ -95,43 +95,13 @@ jobs:
           cache: true
           cache-dependency-path: app/go.sum
 
-      - name: Cache upstream mpv archive
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/mpv-v0.42.0-x86_64-w64-mingw32-full.zip
-          key: mpv-v0.42.0-x86_64-w64-mingw32-full-c7d4ff6a67dd3365
-
-      - name: Download and verify mpv archive
+      - name: Download and install verified mpv runtime
         shell: pwsh
         run: |
-          $archive = Join-Path $env:RUNNER_TEMP "mpv-v0.42.0-x86_64-w64-mingw32-full.zip"
-          $url = "https://github.com/mpv-player/mpv/releases/download/v0.42.0/mpv-v0.42.0-x86_64-w64-mingw32-full.zip"
-          $expected = "c7d4ff6a67dd33659f71d81efa56335fea2213c7522fd67235f3abf0d9ea1dbd"
-
-          if (!(Test-Path $archive)) {
-            Invoke-WebRequest -Uri $url -OutFile $archive
-          }
-
-          $actual = (Get-FileHash -Path $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actual -ne $expected) {
-            Remove-Item -Force $archive
-            throw "mpv archive SHA-256 mismatch. Expected $expected, got $actual"
-          }
-
-          $extract = Join-Path $env:RUNNER_TEMP "mpv-runtime"
-          if (Test-Path $extract) { Remove-Item -Recurse -Force $extract }
-          New-Item -ItemType Directory -Path $extract | Out-Null
-          Expand-Archive -Path $archive -DestinationPath $extract -Force
-
-          $mpv = Get-ChildItem -Path $extract -Filter "mpv.exe" -File -Recurse | Select-Object -First 1
-          if (!$mpv) { throw "Pinned mpv archive does not contain mpv.exe" }
-          $license = Get-ChildItem -Path $extract -Filter "LICENSE.GPL" -File -Recurse | Select-Object -First 1
-          if (!$license) { throw "Pinned mpv archive does not contain LICENSE.GPL" }
-
-          "MPV_EXECUTABLE=$($mpv.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          Write-Host "Verified archive SHA-256: $actual"
-          Write-Host "mpv executable: $($mpv.FullName)"
-          Write-Host "GPL license: $($license.FullName)"
+          $destination = Join-Path $env:RUNNER_TEMP "mpv-runtime"
+          & ".\\app\\scripts\\prepare-mpv-runtime.ps1" -Destination $destination
+          if ($LASTEXITCODE -ne 0) { throw "mpv runtime preparation failed" }
+          "MPV_EXECUTABLE=$(Join-Path $destination 'mpv.exe')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Verify mpv starts
         shell: pwsh
