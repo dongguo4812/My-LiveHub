@@ -69,3 +69,21 @@ Do not copy this candidate into a public My-LiveHub release package until all bo
 - [ ] Have the final redistribution arrangement reviewed for the intended commercial/non-commercial distribution model.
 
 Until then, CI is allowed to download, hash-check and launch-test this binary for internal compatibility validation only. It must not upload it as a public My-LiveHub release asset.
+
+
+## Source-level findings from the tagged build recipe
+
+A direct review of `ci/build-mingw64-full.sh` at mpv tag `v0.42.0` confirms that the published full binary cannot be treated as reproducible from the mpv tag alone:
+
+- The recipe uses `git clone --depth=1 --recursive --shallow-submodules` for several dependencies without a commit ID or immutable tag. In particular, LuaJIT is cloned from branch `v2.1`; libsixel and libarchive are cloned from their default branches.
+- FFmpeg is cloned from the default branch with the same shallow-clone helper. The recorded FFmpeg commit above came from the observed build log, not from a pin in the recipe.
+- uchardet is pinned to tag `v0.0.8`, but this does not pin the other dependencies.
+- cppwinrt is downloaded by version `2.0.250303.1`; windows-rs is cloned from branch `73`, not a commit.
+- mpv dependencies are populated using `meson wrap install mujs` and `meson subprojects download`. The resulting wrap/subproject revisions and patches must be captured from the actual build workspace; the mpv tag alone does not identify them.
+- The container reference in the recipe is `ghcr.io/btbn/ffmpeg-builds/win64-gpl:latest`. A digest observed for one build is useful provenance, but the digest by itself does not provide the complete source and build recipe for every library in the image.
+- The script enables a broad set of features, including libarchive, libbluray, libcurl, shaderc, SPIRV-Cross, subrandr, uchardet, zimg and Vulkan; the GPL profile additionally enables DVD navigation and rubberband. This reinforces that the corresponding-source inventory must be based on the actual linked build, not only on the list of mpv direct dependencies.
+
+The upstream FFmpeg-Builds repository documents that its `gpl` variant includes GPL-only dependencies and that package build recipes live under `scripts.d`. Its image/build pipeline is a separate source tree that must also be pinned and archived when relying on its prebuilt static libraries:
+https://github.com/BtbN/FFmpeg-Builds
+
+**Audit conclusion:** the recipe is valuable provenance and a starting point for an independently controlled rebuild, but it does not establish the exact source closure for the already-published mpv ZIP. Do not infer missing commits from version strings or current upstream branches.
