@@ -64,6 +64,7 @@ func newTestMusicService(t *testing.T, enabled bool) (*MusicService, *serviceTes
 	sources := music.NewSourceRegistry()
 	if err := sources.Register(serviceTestSource{}); err != nil { t.Fatal(err) }
 	cfg := config.DefaultMusicConfig()
+	cfg.Enabled = true
 	cfg.Sources = map[string]bool{"test":enabled}
 	engine := &serviceTestEngine{state:music.PlaybackIdle, volume:80}
 	return NewMusicServiceWithDependencies(nil, cfg, sources, engine), engine
