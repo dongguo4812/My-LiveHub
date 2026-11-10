@@ -38,7 +38,15 @@ func TestMpvPlaybackIntegration(t *testing.T) {
 	mediaURL := (&url.URL{Scheme: "file", Path: slashPath}).String()
 
 	engine := NewMpvEngine(executable)
-	engine.audioOutput = "null"
+	if os.Getenv("MPV_TEST_REAL_AUDIO") == "1" {
+		// Opt-in local hardware test: use Windows WASAPI instead of the null sink.
+		// This is intentionally disabled in hosted CI to avoid requiring speakers.
+		engine.audioOutput = "wasapi"
+		t.Log("real audio mode enabled: mpv will output the generated tone through Windows WASAPI")
+	} else {
+		engine.audioOutput = "null"
+		t.Log("null audio mode enabled: validating decode and IPC without physical audio output")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	if err := engine.Start(ctx); err != nil {
