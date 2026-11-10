@@ -205,9 +205,14 @@ func (s *MusicService) SaveConfig(value config.MusicConfig) error {
 		availableEnabled = availableEnabled || (source.Available && source.Enabled)
 	}
 	if !availableEnabled { return errors.New("at least one implemented music source must remain enabled") }
+	oldCapacity := s.queue.Snapshot().Capacity
+	if err := s.queue.Resize(value.QueueCapacity); err != nil { return err }
 	if err := config.SaveTyped(s.manager, "music.json", value, func(candidate config.MusicConfig) error {
 		return candidate.Validate()
-	}); err != nil { return err }
+	}); err != nil {
+		_ = s.queue.Resize(oldCapacity)
+		return err
+	}
 	s.mu.Lock()
 	s.value = cloneMusicConfig(value)
 	s.mu.Unlock()
