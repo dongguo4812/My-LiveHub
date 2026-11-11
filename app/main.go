@@ -110,6 +110,7 @@ func main() {
 	eventBus := eventstream.NewBus()
 	bilibiliEvents := eventstream.NewBuffer(eventBus)
 	musicService := desktop.NewMusicService(configManager, musicConfig, bilibiliEvents)
+	videoService := desktop.NewVideoService(musicService, music.NewMpvVideoEngine(""))
 	cacheDir := ""
 	if environment == config.EnvironmentDevelopment {
 		if workingDir, getwdErr := os.Getwd(); getwdErr == nil {
@@ -161,6 +162,9 @@ func main() {
 	if err := coreApp.Modules().Register("music", desktop.NewMusicModule(musicService)); err != nil {
 		log.Fatalf("register music module: %v", err)
 	}
+	if err := coreApp.Modules().Register("video", desktop.NewVideoModule(videoService)); err != nil {
+		log.Fatalf("register video module: %v", err)
+	}
 	assetHandler := application.AssetFileServerFS(assets)
 	imageCache, cacheErr := imagecache.NewWithPolicies(filepath.Join(cacheDir, "media-images"), assetHandler, map[string]imagecache.URLPolicy{"bilibili":imagecache.BilibiliURLPolicy})
 	if cacheErr != nil { log.Printf("initialize local media image cache: %v", cacheErr) } else { assetHandler = imageCache; platformService.SetMediaImageCache(imageCache); imageCache.RefreshStats() }
@@ -178,6 +182,7 @@ func main() {
 			application.NewService(danmakuDisplayService),
 			application.NewService(voiceService),
 			application.NewService(musicService),
+			application.NewService(videoService),
 		},
 	})
 	wailsApp = app
@@ -185,6 +190,9 @@ func main() {
 	desktop.AttachDanmakuDisplayApplication(danmakuDisplayService, app)
 	app.OnShutdown(func() {
 		danmakuDisplayService.CloseWindowForShutdown()
+		if err := videoService.Shutdown(); err != nil {
+			log.Printf("stop video playback engine: %v", err)
+		}
 		if err := musicService.Shutdown(); err != nil {
 			log.Printf("stop music playback engine: %v", err)
 		}
