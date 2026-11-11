@@ -21,6 +21,10 @@ const musicRequestQueueCapacity = 100
 type MusicSearchResponse struct {
 	Tracks []music.Track `json:"tracks"`
 	Errors map[string]string `json:"errors"`
+	Page int `json:"page"`
+	PageSize int `json:"page_size"`
+	Total int64 `json:"total"`
+	MaxPage int `json:"max_page"`
 }
 
 type MusicStatus struct {
@@ -240,19 +244,31 @@ func (s *MusicService) GetSources() []music.SourceSnapshot {
 }
 
 func (s *MusicService) Search(keyword string) (MusicSearchResponse, error) {
-	return s.search(context.Background(), keyword)
+	return s.SearchPage(keyword, 1)
+}
+
+func (s *MusicService) SearchPage(keyword string, page int) (MusicSearchResponse, error) {
+	return s.searchPage(context.Background(), keyword, page)
 }
 
 func (s *MusicService) search(parent context.Context, keyword string) (MusicSearchResponse, error) {
+	return s.searchPage(parent, keyword, 1)
+}
+
+func (s *MusicService) searchPage(parent context.Context, keyword string, page int) (MusicSearchResponse, error) {
 	if s == nil || s.sources == nil { return MusicSearchResponse{}, errors.New("music source registry is unavailable") }
 	s.mu.RLock()
 	enabled, limit := cloneBoolMap(s.value.Sources), s.value.SearchLimit
 	s.mu.RUnlock()
+	if page < 1 { page = 1 }
 	ctx, cancel := context.WithTimeout(parent, 25*time.Second)
 	defer cancel()
-	tracks, failures, err := s.sources.Search(ctx, keyword, enabled, limit)
+	tracks, failures, total, maxPage, err := s.sources.SearchPage(ctx, keyword, enabled, limit, page)
 	if err != nil { return MusicSearchResponse{}, err }
-	return MusicSearchResponse{Tracks:tracks, Errors:failures}, nil
+	return MusicSearchResponse{
+		Tracks: tracks, Errors: failures, Page: page, PageSize: limit,
+		Total: total, MaxPage: maxPage,
+	}, nil
 }
 
 func (s *MusicService) Enqueue(track music.Track, requestedBy string) (music.QueueItem, error) {
