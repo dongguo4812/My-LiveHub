@@ -270,7 +270,7 @@ func (s *LXUserSourceSession) run(script string, requestClient *http.Client) {
 		case <-s.closeCh:
 			return
 		case call := <-s.requests:
-			s.handleRequest(vm, lx, requestHandler, declared, call)
+			s.handleRequest(vm, lx, requestHandler, call)
 			_, _ = vm.RunString("void 0")
 		case task := <-loop.tasks:
 			if task != nil { task() }
@@ -296,7 +296,7 @@ func (s *LXUserSourceSession) pumpUntil(loop *lxRuntimeEventLoop, vm *goja.Runti
 	return nil
 }
 
-func (s *LXUserSourceSession) handleRequest(vm *goja.Runtime, lx *goja.Object, handler goja.Value, declared []LXDeclaredSource, call lxSessionRequest) {
+func (s *LXUserSourceSession) handleRequest(vm *goja.Runtime, lx *goja.Object, handler goja.Value, call lxSessionRequest) {
 	var payload map[string]any
 	if err := json.Unmarshal(call.payload, &payload); err != nil {
 		call.result <- lxSessionResponse{err: errors.New("LX 音源请求数据格式无效")}
@@ -304,18 +304,9 @@ func (s *LXUserSourceSession) handleRequest(vm *goja.Runtime, lx *goja.Object, h
 	}
 	source, _ := payload["source"].(string)
 	action, _ := payload["action"].(string)
-	var selected *LXDeclaredSource
-	for i := range declared {
-		if declared[i].Key == source { selected = &declared[i]; break }
-	}
-	if selected == nil {
-		call.result <- lxSessionResponse{err: fmt.Errorf("LX 音源未声明来源 %q", source)}
-		return
-	}
-	if !containsLXValue(selected.Actions, action) {
-		call.result <- lxSessionResponse{err: fmt.Errorf("LX 音源 %q 不支持动作 %q", source, action)}
-		return
-	}
+	// The LX host forwards requests to the selected user API without checking
+	// the declaration again; declaration filtering is used by source discovery.
+
 	if handler == nil || goja.IsUndefined(handler) || goja.IsNull(handler) {
 		call.result <- lxSessionResponse{err: errors.New("Request event is not defined")}
 		return
