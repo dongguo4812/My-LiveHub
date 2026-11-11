@@ -88,7 +88,7 @@ async function saveConfig() {
     await MusicService.SaveConfig(config.value)
     success.value = '音乐设置已保存'
     config.value = await MusicService.GetConfig()
-    availableSourceIDs.value = (await MusicService.GetSources()).map(source => source.id)
+    sourceCapabilities.value = Object.fromEntries((await MusicService.GetSources()).map(source => [source.id, source.capabilities]))
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
   } finally {
