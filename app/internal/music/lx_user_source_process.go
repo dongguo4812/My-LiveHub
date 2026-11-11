@@ -111,8 +111,8 @@ func (p *LXUserSourceProcess) Updates() <-chan LXUserSourceUpdate {
 func (p *LXUserSourceProcess) Request(ctx context.Context, payload json.RawMessage) (json.RawMessage, error) {
 	if p == nil { return nil, errors.New("LX 音源隔离进程不可用") }
 	if ctx == nil { ctx = context.Background() }
-	if len(payload) == 0 || len(payload) > 64<<10 {
-		return nil, errors.New("LX 音源请求数据为空或超过 64 KB 限制")
+	if len(payload) == 0 {
+		return nil, errors.New("LX 音源请求数据为空")
 	}
 	requestKey := fmt.Sprintf("request__%d", p.requestCounter.Add(1))
 	result := make(chan lxSessionResponse, 1)
