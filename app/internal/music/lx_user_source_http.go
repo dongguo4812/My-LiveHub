@@ -190,8 +190,8 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 			Transport: transport,
 			Timeout: timeout,
 			CheckRedirect: func(next *http.Request, via []*http.Request) error {
+				if lxRequestRedirectLimit == 0 { return http.ErrUseLastResponse } // Needle defaults follow_max=0 and returns the 3xx response.
 				if len(via) > lxRequestRedirectLimit { return errors.New("LX request 重定向次数过多") }
-				if len(via) > 0 { return http.ErrUseLastResponse } // Needle defaults follow_max=0.
 				return validateLXSourceURL(next.URL)
 			},
 		}
