@@ -305,7 +305,11 @@ func (s *MusicService) SearchSourcePage(keyword, source string, page int) (Music
 	if page < 1 {
 		return MusicSearchResponse{}, errors.New("搜索页码必须大于 0")
 	}
-	if !containsString(s.activeLXSearchSourceIDs(), source) {
+	declaredSource := false
+	for _, id := range s.activeLXSearchSourceIDs() {
+		if id == source { declaredSource = true; break }
+	}
+	if !declaredSource {
 		return MusicSearchResponse{}, fmt.Errorf("当前启用的音源脚本未声明 %s 的 musicUrl 能力，或该来源暂不支持搜索", source)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 18*time.Second)
