@@ -97,3 +97,54 @@ func TestLXRequestPromiseCanResolveFromResponseBody(t *testing.T) {
 		t.Fatalf("LX request Promise result = %q, want %q", got, want)
 	}
 }
+
+func TestLXRequestSupportsFormDataAndReturnsCancelFunction(t *testing.T) {
+	client := &http.Client{Transport: lxRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodPost {
+			t.Errorf("request method = %q, want POST", request.Method)
+		}
+		if !strings.HasPrefix(request.Header.Get("Content-Type"), "multipart/form-data; boundary=") {
+			t.Errorf("unexpected multipart content type: %q", request.Header.Get("Content-Type"))
+		}
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(body), "name="+"\\"keyword\\"") || !strings.Contains(string(body), "稻香") {
+			t.Errorf("multipart body does not contain form field: %s", body)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status: "200 OK",
+			Header: make(http.Header),
+			Body: io.NopCloser(strings.NewReader("ok")),
+			Request: request,
+		}, nil
+	})}
+
+	vm := goja.New()
+	lx := vm.NewObject()
+	if err := installLXRequestWithClient(vm, lx, client); err != nil {
+		t.Fatal(err)
+	}
+	if err := vm.Set("lx", lx); err != nil {
+		t.Fatal(err)
+	}
+	result, err := vm.RunString(`
+		var callbackResult = "";
+		var cancel = lx.request("https://music.example.test/search", {
+			method: "post",
+			formData: { keyword: "稻香" }
+		}, function (err, response) {
+			if (err) throw new Error(String(err));
+			callbackResult = response.body;
+		});
+		(typeof cancel === "function" && callbackResult === "ok");
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.ToBoolean() {
+		t.Fatal("LX request should return a cancel function and provide the response body")
+	}
+}
