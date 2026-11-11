@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"sort"
@@ -281,13 +282,7 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 			lastRequestSummary = "HTTP request failed"
 			return
 		}
-		status, _ := response["statusCode"].(int)
-		lastRequestSummary = fmt.Sprintf("HTTP %d", status)
-		if body, ok := response["body"].(map[string]interface{}); ok {
-			if code, exists := body["code"]; exists {
-				lastRequestSummary += fmt.Sprintf(", API code %v", code)
-			}
-		}
+		lastRequestSummary = summarizeLXRequestResponse(response)
 	}); err != nil {
 		response.Error = "初始化 LX request 请求桥接失败"
 		return 1
@@ -383,7 +378,7 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 			case goja.PromiseStateRejected:
 				response.Error = fmt.Sprintf("LX 音源 request Promise 被拒绝：%s", promise.Result().String())
 				if lastRequestSummary != "" {
-					response.Error += fmt.Sprintf("（%s；未记录请求 URL 或请求头）", lastRequestSummary)
+					response.Error += fmt.Sprintf("（%s）", lastRequestSummary)
 				}
 				return 1
 			}
@@ -398,6 +393,79 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 	return 0
 }
 
+
+// summarizeLXRequestResponse records only non-secret response diagnostics for a
+// rejected custom-source request. URL credentials, query strings, fragments,
+// and request headers (which may contain source signatures) are never exposed.
+func summarizeLXRequestResponse(response map[string]any) string {
+	status := response["statusCode"]
+	if status == nil {
+		status = response["status"]
+	}
+	parts := []string{fmt.Sprintf("HTTP %v", status)}
+	if rawURL, ok := response["url"].(string); ok {
+		if parsed, err := url.Parse(rawURL); err == nil && parsed.Host != "" {
+			endpoint := parsed.Host + parsed.EscapedPath()
+			if endpoint == parsed.Host {
+				endpoint += "/"
+			}
+			parts = append(parts, "endpoint="+endpoint)
+		}
+	}
+	if headers, ok := response["headers"].(map[string]string); ok {
+		for key, value := range headers {
+			if strings.EqualFold(key, "Content-Type") && strings.TrimSpace(value) != "" {
+				parts = append(parts, "content-type="+strings.TrimSpace(value))
+				break
+			}
+		}
+	} else if headers, ok := response["headers"].(map[string]any); ok {
+		for key, value := range headers {
+			if strings.EqualFold(key, "Content-Type") && strings.TrimSpace(fmt.Sprint(value)) != "" {
+				parts = append(parts, "content-type="+strings.TrimSpace(fmt.Sprint(value)))
+				break
+			}
+		}
+	}
+	if body, exists := response["body"]; exists && body != nil {
+		var preview string
+		switch value := body.(type) {
+		case map[string]any:
+			if code, ok := value["code"]; ok {
+				parts = append(parts, "API code="+fmt.Sprint(code))
+			}
+			for _, key := range []string{"msg", "message", "error"} {
+				if message, ok := value[key]; ok && strings.TrimSpace(fmt.Sprint(message)) != "" {
+					preview = fmt.Sprint(message)
+					break
+				}
+			}
+			if preview == "" {
+				encoded, err := json.Marshal(value)
+				if err == nil {
+					preview = string(encoded)
+				}
+			}
+		case string:
+			preview = value
+		default:
+			preview = fmt.Sprint(value)
+		}
+		preview = strings.Join(strings.Fields(strings.Map(func(r rune) rune {
+			if r < 0x20 || r == 0x7f {
+				return ' '
+			}
+			return r
+		}, preview)), " ")
+		if len(preview) > 200 {
+			preview = preview[:200] + "…"
+		}
+		if preview != "" {
+			parts = append(parts, "response="+preview)
+		}
+	}
+	return strings.Join(parts, "; ")
+}
 
 func containsLXValue(values []string, target string) bool {
 	for _, value := range values { if value == target { return true } }

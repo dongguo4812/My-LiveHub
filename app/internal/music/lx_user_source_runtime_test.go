@@ -10,6 +10,44 @@ import (
 	"testing"
 )
 
+func TestSummarizeLXRequestResponseRedactsSensitiveURLParts(t *testing.T) {
+	response := map[string]any{
+		"statusCode": 404,
+		"url": "https://user:password@music.example.test/flower/v1/url/tx/abc123/128k?tag=SECRET&token=PRIVATE#fragment",
+		"headers": map[string]any{"Content-Type": "text/html; charset=utf-8", "Set-Cookie": "session=PRIVATE"},
+		"body": "<html>404 Not Found</html>",
+	}
+	got := summarizeLXRequestResponse(response)
+	for _, want := range []string{"HTTP 404", "music.example.test/flower/v1/url/tx/abc123/128k", "content-type=text/html; charset=utf-8", "404 Not Found"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("diagnostic %q does not contain %q", got, want)
+		}
+	}
+	for _, forbidden := range []string{"user", "password", "SECRET", "PRIVATE", "fragment", "Set-Cookie"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("diagnostic leaked %q: %s", forbidden, got)
+		}
+	}
+}
+
+func TestSummarizeLXRequestResponseIncludesFlowerAPIError(t *testing.T) {
+	response := map[string]any{
+		"statusCode": 200,
+		"url": "http://music.example.test/flower/v1/url/tx/abc123/128k?tag=SECRET",
+		"headers": map[string]string{"Content-Type": "application/json"},
+		"body": map[string]any{"code": float64(1), "msg": "no matching track"},
+	}
+	got := summarizeLXRequestResponse(response)
+	for _, want := range []string{"HTTP 200", "API code=1", "no matching track"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("diagnostic %q does not contain %q", got, want)
+		}
+	}
+	if strings.Contains(got, "SECRET") || strings.Contains(got, "?tag") {
+		t.Fatalf("diagnostic leaked URL query: %s", got)
+	}
+}
+
 func TestRunLXSourceWorkerInitializesDeclaredPlatforms(t *testing.T) {
 	script := `/*
  * @name Runtime Test
@@ -372,10 +410,10 @@ lx.send(lx.EVENT_NAMES.inited, {
 	if err == nil || !strings.Contains(err.Error(), "no matching track") {
 		t.Fatalf("Flower API rejection was not propagated: %v", err)
 	}
-	if !strings.Contains(err.Error(), "HTTP 200, API code 1") {
+	if !strings.Contains(err.Error(), "HTTP 200") || !strings.Contains(err.Error(), "API code=1") {
 		t.Fatalf("Flower rejection did not include safe response diagnostics: %v", err)
 	}
-	if strings.Contains(err.Error(), tag) || strings.Contains(err.Error(), endpoint) {
-		t.Fatalf("Flower diagnostics leaked request details: %v", err)
+	if strings.Contains(err.Error(), tag) || !strings.Contains(err.Error(), "97.64.37.235/flower/v1/url/tx/0039MnYb0qxYhV/128k") {
+		t.Fatalf("Flower diagnostics did not safely identify the endpoint: %v", err)
 	}
 }
