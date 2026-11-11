@@ -104,3 +104,23 @@ func TestLXUserSourceStorePersistsActiveIDAndUpdateAlertPreference(t *testing.T)
 	updated, err := store.Get(metadata.ID)
 	if err != nil || updated.AllowShowUpdateAlert { t.Fatalf("update alert setting = %v, err=%v", updated.AllowShowUpdateAlert, err) }
 }
+
+func TestLXUserSourceEnabledSearchSourcesPersistAndRejectUnsupportedKeys(t *testing.T) {
+	store, err := NewLXUserSourceStore(filepath.Join(t.TempDir(), "sources"))
+	if err != nil { t.Fatal(err) }
+	script := "/*\\n * @name Search Selection\\n */\\nlx.send(lx.EVENT_NAMES.inited, { sources: {} });"
+	metadata, err := store.ImportScript(script, "")
+	if err != nil { t.Fatal(err) }
+	allowed := []string{"kw", "kg", "tx"}
+	if err := store.SetEnabledSearchSources(metadata.ID, allowed, []string{"kg", "tx"}); err != nil { t.Fatal(err) }
+	restarted, err := NewLXUserSourceStore(store.dir)
+	if err != nil { t.Fatal(err) }
+	got, err := restarted.Get(metadata.ID)
+	if err != nil { t.Fatal(err) }
+	if len(got.EnabledSearchSources) != 2 || got.EnabledSearchSources[0] != "kg" || got.EnabledSearchSources[1] != "tx" { t.Fatalf("enabled search sources = %#v", got.EnabledSearchSources) }
+	if err := restarted.SetEnabledSearchSources(metadata.ID, allowed, []string{"wy"}); err == nil { t.Fatal("unsupported search source was accepted") }
+	if err := restarted.SetEnabledSearchSources(metadata.ID, allowed, []string{}); err != nil { t.Fatal(err) }
+	got, err = restarted.Get(metadata.ID)
+	if err != nil { t.Fatal(err) }
+	if got.EnabledSearchSources == nil || len(got.EnabledSearchSources) != 0 { t.Fatalf("empty selection was not persisted distinctly from an unset selection: %#v", got.EnabledSearchSources) }
+}

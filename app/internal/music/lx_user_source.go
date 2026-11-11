@@ -38,6 +38,7 @@ type LXUserSourceMetadata struct {
 	AllowShowUpdateAlert bool `json:"allow_show_update_alert"`
 	Validation *LXSourceRuntimeResult `json:"validation,omitempty"`
 	ValidatedAt *time.Time `json:"validated_at,omitempty"`
+	EnabledSearchSources []string `json:"enabled_search_sources"`
 }
 
 type LXUserSource struct {

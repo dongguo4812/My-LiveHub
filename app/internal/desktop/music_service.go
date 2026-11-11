@@ -330,15 +330,26 @@ func (s *MusicService) activeLXSearchSourceIDs() []string {
 	if s == nil || s.searcher == nil { return []string{} }
 	s.lxSessionMu.Lock()
 	session := s.lxSession
+	sessionID := s.lxSessionID
 	s.lxSessionMu.Unlock()
 	if session == nil || !session.IsRunning() { return []string{} }
 	state := session.Snapshot()
+	store, err := s.lxUserSourceStore()
+	if err != nil { return []string{} }
+	metadata, err := store.Get(sessionID)
+	if err != nil { return []string{} }
+	selected := make(map[string]bool)
+	if metadata.EnabledSearchSources == nil {
+		for _, item := range s.searcher.Sources() { selected[item.ID] = true }
+	} else {
+		for _, id := range metadata.EnabledSearchSources { selected[id] = true }
+	}
 	searchable := make(map[string]bool)
 	for _, item := range s.searcher.Sources() { searchable[item.ID] = true }
 	result := make([]string, 0, len(state.DeclaredSources))
 	seen := make(map[string]bool)
 	for _, declared := range state.DeclaredSources {
-		if !searchable[declared.Key] || seen[declared.Key] { continue }
+		if !searchable[declared.Key] || !selected[declared.Key] || seen[declared.Key] { continue }
 		canResolve := false
 		for _, action := range declared.Actions { if action == "musicUrl" { canResolve = true; break } }
 		if canResolve { result = append(result, declared.Key); seen[declared.Key] = true }
@@ -780,6 +791,57 @@ func (s *MusicService) UpdateLXUserSource(id string) (music.LXUserSourceMetadata
 	return metadata, nil
 }
 
+type LXSearchSourceOption struct {
+	ID string `json:"id"`
+	Name string `json:"name"`
+	Enabled bool `json:"enabled"`
+}
+
+func (s *MusicService) lxSearchSourceOptions(result music.LXSourceRuntimeResult, enabled []string) []LXSearchSourceOption {
+	if s == nil || s.searcher == nil { return []LXSearchSourceOption{} }
+	searchProviders := make(map[string]string)
+	for _, item := range s.searcher.Sources() { searchProviders[item.ID] = item.Name }
+	selected := make(map[string]bool, len(enabled))
+	for _, key := range enabled { selected[key] = true }
+	options := make([]LXSearchSourceOption, 0)
+	seen := make(map[string]bool)
+	for _, declared := range result.DeclaredSources {
+		name, supported := searchProviders[declared.Key]
+		if !supported || seen[declared.Key] { continue }
+		canResolve := false
+		for _, action := range declared.Actions { if action == "musicUrl" { canResolve = true; break } }
+		if !canResolve { continue }
+		options = append(options, LXSearchSourceOption{ID: declared.Key, Name: name, Enabled: selected[declared.Key]})
+		seen[declared.Key] = true
+	}
+	return options
+}
+
+func (s *MusicService) GetLXSearchSourceOptions(id string) ([]LXSearchSourceOption, error) {
+	store, err := s.lxUserSourceStore()
+	if err != nil { return nil, err }
+	metadata, err := store.Get(id)
+	if err != nil { return nil, err }
+	if metadata.Validation == nil || !metadata.Validation.Initialized { return []LXSearchSourceOption{}, nil }
+	enabled := metadata.EnabledSearchSources
+	if enabled == nil {
+		for _, option := range s.lxSearchSourceOptions(*metadata.Validation, nil) { enabled = append(enabled, option.ID) }
+	}
+	return s.lxSearchSourceOptions(*metadata.Validation, enabled), nil
+}
+
+func (s *MusicService) SetLXSearchSources(id string, enabled []string) error {
+	store, err := s.lxUserSourceStore()
+	if err != nil { return err }
+	metadata, err := store.Get(id)
+	if err != nil { return err }
+	if metadata.Validation == nil || !metadata.Validation.Initialized { return errors.New("请先验证当前音源脚本") }
+	options := s.lxSearchSourceOptions(*metadata.Validation, nil)
+	allowed := make([]string, 0, len(options))
+	for _, option := range options { allowed = append(allowed, option.ID) }
+	return store.SetEnabledSearchSources(id, allowed, enabled)
+}
+
 func (s *MusicService) ValidateLXUserSource(id string) (music.LXSourceRuntimeResult, error) {
 	store, err := s.lxUserSourceStore()
 	if err != nil { return music.LXSourceRuntimeResult{}, err }
@@ -788,6 +850,11 @@ func (s *MusicService) ValidateLXUserSource(id string) (music.LXSourceRuntimeRes
 	// A successful validation is bound to the stored script version and is
 	// reused after app restarts. Updating/reimporting the script clears it.
 	if metadata.Validation != nil && metadata.ValidatedAt != nil && metadata.Validation.Initialized {
+		if metadata.EnabledSearchSources == nil {
+			defaults := make([]string, 0)
+			for _, option := range s.lxSearchSourceOptions(*metadata.Validation, nil) { defaults = append(defaults, option.ID) }
+			if err := store.SetEnabledSearchSources(id, defaults, defaults); err != nil { return music.LXSourceRuntimeResult{}, err }
+		}
 		return *metadata.Validation, nil
 	}
 	script, err := store.ReadScript(id)
@@ -799,6 +866,9 @@ func (s *MusicService) ValidateLXUserSource(id string) (music.LXSourceRuntimeRes
 	if err := store.SetValidation(id, result); err != nil {
 		return music.LXSourceRuntimeResult{}, fmt.Errorf("音源验证通过，但保存验证状态失败：%w", err)
 	}
+	defaults := make([]string, 0)
+	for _, option := range s.lxSearchSourceOptions(result, nil) { defaults = append(defaults, option.ID) }
+	if err := store.SetEnabledSearchSources(id, defaults, defaults); err != nil { return music.LXSourceRuntimeResult{}, fmt.Errorf("音源验证通过，但保存默认搜索来源失败：%w", err) }
 	return result, nil
 }
 

@@ -215,6 +215,26 @@ func (s *LXUserSourceStore) SetValidation(id string, result LXSourceRuntimeResul
 	return s.save(LXUserSource{Metadata: metadata, Script: script})
 }
 
+// SetEnabledSearchSources persists the user's search-provider selection for one source.
+// allowed is the set of providers supported by both the LX script and the local search SDK.
+func (s *LXUserSourceStore) SetEnabledSearchSources(id string, allowed, enabled []string) error {
+	metadata, err := s.Get(id)
+	if err != nil { return err }
+	allowedSet := make(map[string]bool, len(allowed))
+	for _, key := range allowed { allowedSet[key] = true }
+	selected := make(map[string]bool, len(enabled))
+	for _, key := range enabled {
+		if !allowedSet[key] { return fmt.Errorf("当前音源不支持搜索来源：%s", key) }
+		selected[key] = true
+	}
+	ordered := make([]string, 0, len(selected))
+	for _, key := range allowed { if selected[key] { ordered = append(ordered, key); delete(selected, key) } }
+	metadata.EnabledSearchSources = ordered
+	script, err := s.ReadScript(id)
+	if err != nil { return err }
+	return s.save(LXUserSource{Metadata: metadata, Script: script})
+}
+
 func (s *LXUserSourceStore) SetAllowShowUpdateAlert(id string, enabled bool) error {
 	metadata, err := s.Get(id)
 	if err != nil { return err }

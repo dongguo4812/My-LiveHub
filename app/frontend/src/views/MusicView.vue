@@ -15,8 +15,10 @@ const favorites = ref<Track[]>([])
 const hostPlayMode = ref('list')
 type LXSource = Awaited<ReturnType<typeof MusicService.GetLXUserSources>>[number]
 type LXValidation = Awaited<ReturnType<typeof MusicService.ValidateLXUserSource>>
+type LXSearchSourceOption = Awaited<ReturnType<typeof MusicService.GetLXSearchSourceOptions>>[number]
 const lxSources = ref<LXSource[]>([])
 const lxValidation = ref<Record<string, LXValidation>>({})
+const lxSearchSourceOptions = ref<Record<string, LXSearchSourceOption[]>>({})
 const activeLXSourceID = ref('')
 const validatingLXSourceID = ref('')
 const lxSourceURL = ref('')
@@ -29,13 +31,7 @@ const searchErrors = ref<Record<string, string>>({})
 const qualitySelections = ref<Record<string, string>>({})
 const query = ref('')
 const selectedSource = ref('all')
-const searchableSources = computed(() => {
-  const validation = lxValidation.value[activeLXSourceID.value]
-  const supported = new Set(['kw', 'kg', 'tx', 'wy', 'mg'])
-  return (validation?.declared_sources ?? [])
-    .filter(item => supported.has(item.key) && (item.actions ?? []).includes('musicUrl'))
-    .map(item => ({ id: item.key, name: sourceName(item.key) }))
-})
+const searchableSources = computed(() => (lxSearchSourceOptions.value[activeLXSourceID.value] ?? []).filter(item => item.enabled).map(item => ({ id: item.id, name: item.name })))
 const volume = ref(80)
 const loading = ref(false)
 const searching = ref(false)
@@ -144,6 +140,8 @@ async function loadConfig() {
 async function refreshLXSources() {
   try {
     lxSources.value = await MusicService.GetLXUserSources()
+    const optionEntries = await Promise.all(lxSources.value.map(async source => [source.id, await MusicService.GetLXSearchSourceOptions(source.id)] as const))
+    lxSearchSourceOptions.value = Object.fromEntries(optionEntries)
     // Restore each source's persisted validation result into the view state.
     // The backend returns this only for the exact script version that passed.
     lxValidation.value = Object.fromEntries(
@@ -205,6 +203,8 @@ async function validateLXSource(source: LXSource) {
   try {
     const result = await MusicService.ValidateLXUserSource(source.id)
     lxValidation.value = { ...lxValidation.value, [source.id]: result }
+    const options = await MusicService.GetLXSearchSourceOptions(source.id)
+    lxSearchSourceOptions.value = { ...lxSearchSourceOptions.value, [source.id]: options }
     success.value = `音源初始化通过：${source.name}；已声明来源：${result.platforms.join('、')}。实际搜索与播放解析待洛雪 SDK 接管。`
   } catch (reason) {
     delete lxValidation.value[source.id]
@@ -262,6 +262,18 @@ async function deactivateLXSource() {
     success.value = '已停用自定义音源'
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
+  }
+}
+async function setLXSearchSources(source: LXSource, enabled: (string | number | boolean)[]) {
+  try {
+    await MusicService.SetLXSearchSources(source.id, enabled.map(String))
+    lxSearchSourceOptions.value = { ...lxSearchSourceOptions.value, [source.id]: await MusicService.GetLXSearchSourceOptions(source.id) }
+    if (activeLXSourceID.value === source.id && selectedSource.value !== 'all' && !searchableSources.value.some(item => item.id === selectedSource.value)) selectedSource.value = 'all'
+    results.value = []
+    success.value = '已保存音源的搜索来源选择'
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+    await refreshLXSources()
   }
 }
 async function setLXSourceUpdateAlert(source: LXSource, enabled: boolean | string | number) {
@@ -481,6 +493,13 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
             <span>{{ source.author || '未知作者' }} · {{ source.version || '未标注版本' }} · SHA256 {{ source.sha256.slice(0, 12) }}</span>
             <span v-if="lxValidation[source.id]">已声明来源：{{ lxValidation[source.id].declared_sources.map(item => (item.name || item.key) + '（' + item.key + '）').join('、') }} · 支持动作：{{ [...new Set(lxValidation[source.id].declared_sources.flatMap(item => item.actions || []))].join('、') || '无' }} · 音质：{{ [...new Set(lxValidation[source.id].declared_sources.flatMap(item => item.qualitys || []))].join('、') || '未声明' }}</span>
             <span v-if="lxValidation[source.id]">已注册事件：{{ lxValidation[source.id].handlers.join('、') || '无' }}；仅声明 musicUrl 的来源可参与实际播放解析</span>
+            <div v-if="lxSearchSourceOptions[source.id]?.length" class="lx-search-source-settings">
+              <span>允许参与搜索的来源（脚本和搜索引擎均支持）：</span>
+              <el-checkbox-group :model-value="lxSearchSourceOptions[source.id].filter(item => item.enabled).map(item => item.id)" @change="setLXSearchSources(source, $event)">
+                <el-checkbox v-for="option in lxSearchSourceOptions[source.id]" :key="option.id" :label="option.id">{{ option.name }}</el-checkbox>
+              </el-checkbox-group>
+            </div>
+            <span v-else-if="lxValidation[source.id]">该脚本没有可供当前搜索引擎使用的来源</span>
             <span v-if="source.source_url">{{ source.source_url }}</span>
           </div>
           <div class="lx-source-actions">
@@ -609,5 +628,6 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
 .mini-player-track>div{display:flex;flex-direction:column;gap:3px;min-width:0}
 .mini-player-track strong,.mini-player-track span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:280px}
 .mini-player-track span,.mini-player-actions>span{font-size:12px;color:var(--el-text-color-secondary)}
-.music-page{display:flex;flex-direction:column;gap:20px}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.section-description,.source-copy span,.setting-row p,.hint{color:var(--el-text-color-secondary);font-size:13px}.section-description{margin:0 0 16px}.card-heading{display:flex;align-items:center;justify-content:space-between}.source-list,.setting-list{display:flex;flex-direction:column}.source-row,.setting-row{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:14px 0;border-bottom:1px solid var(--app-border)}.source-row:last-child{border-bottom:0}.source-copy,.track-info{display:flex;flex-direction:column;gap:5px}.source-copy span,.track-info span,.track-info small{font-size:12px;color:var(--el-text-color-secondary)}.setting-row p{margin:6px 0 0}.card-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}.now-playing{display:flex;align-items:center;gap:16px}.track-cover{width:76px;height:76px;border-radius:10px;background:var(--app-bg-control);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--el-text-color-secondary);font-size:30px}.track-cover img{width:100%;height:100%;object-fit:cover}.track-info strong{font-size:17px}.time-row{display:flex;justify-content:space-between;color:var(--el-text-color-secondary);font-size:12px;font-variant-numeric:tabular-nums}.player-controls{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:14px 0}.volume-row{display:grid;grid-template-columns:50px 1fr;align-items:center;gap:12px}.volume-row span{font-size:13px;color:var(--el-text-color-secondary)}.hint{margin:12px 0 0}.search-row{display:flex;gap:10px}.lx-import-row{display:flex;gap:10px;align-items:center}.hidden-file-input{display:none}.lx-source-list{display:flex;flex-direction:column;margin-top:16px}.lx-source-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-top:1px solid var(--app-border)}.lx-source-row .source-copy{min-width:0}.lx-source-row .source-copy span{overflow-wrap:anywhere}.lx-source-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}.search-summary{margin-top:12px;color:var(--el-text-color-secondary);font-size:12px}.search-pagination{display:flex;justify-content:center;margin-top:18px}.queue-current{padding:10px 12px;margin-bottom:12px;border-radius:8px;background:var(--app-bg-control);font-size:13px}.setting-row p{margin:6px 0 0}@media(max-width:800px){.source-row,.setting-row{align-items:flex-start;flex-direction:column}.search-row,.lx-import-row{flex-direction:column;align-items:stretch}.lx-source-row{align-items:flex-start}.mini-player{align-items:flex-start;flex-direction:column}.mini-player-actions{width:100%;justify-content:space-between}}
+.music-page{display:flex;flex-direction:column;gap:20px}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.section-description,.source-copy span,.setting-row p,.hint{color:var(--el-text-color-secondary);font-size:13px}.section-description{margin:0 0 16px}.card-heading{display:flex;align-items:center;justify-content:space-between}.source-list,.setting-list{display:flex;flex-direction:column}.source-row,.setting-row{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:14px 0;border-bottom:1px solid var(--app-border)}.source-row:last-child{border-bottom:0}.source-copy,.track-info{display:flex;flex-direction:column;gap:5px}.source-copy span,.track-info span,.track-info small{font-size:12px;color:var(--el-text-color-secondary)}.setting-row p{margin:6px 0 0}.card-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}.now-playing{display:flex;align-items:center;gap:16px}.track-cover{width:76px;height:76px;border-radius:10px;background:var(--app-bg-control);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--el-text-color-secondary);font-size:30px}.track-cover img{width:100%;height:100%;object-fit:cover}.track-info strong{font-size:17px}.time-row{display:flex;justify-content:space-between;color:var(--el-text-color-secondary);font-size:12px;font-variant-numeric:tabular-nums}.player-controls{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:14px 0}.volume-row{display:grid;grid-template-columns:50px 1fr;align-items:center;gap:12px}.volume-row span{font-size:13px;color:var(--el-text-color-secondary)}.hint{margin:12px 0 0}.search-row{display:flex;gap:10px}.lx-import-row{display:flex;gap:10px;align-items:center}.hidden-file-input{display:none}.lx-source-list{display:flex;flex-direction:column;margin-top:16px}.lx-source-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-top:1px solid var(--app-border)}.lx-source-row .source-copy{min-width:0}.lx-source-row .source-copy span{overflow-wrap:anywhere}.lx-search-source-settings{display:flex;flex-direction:column;gap:6px;margin-top:8px}.lx-search-source-settings :deep(.el-checkbox-group){display:flex;flex-wrap:wrap;gap:4px 14px}
+.lx-source-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}.search-summary{margin-top:12px;color:var(--el-text-color-secondary);font-size:12px}.search-pagination{display:flex;justify-content:center;margin-top:18px}.queue-current{padding:10px 12px;margin-bottom:12px;border-radius:8px;background:var(--app-bg-control);font-size:13px}.setting-row p{margin:6px 0 0}@media(max-width:800px){.source-row,.setting-row{align-items:flex-start;flex-direction:column}.search-row,.lx-import-row{flex-direction:column;align-items:stretch}.lx-source-row{align-items:flex-start}.mini-player{align-items:flex-start;flex-direction:column}.mini-player-actions{width:100%;justify-content:space-between}}
 </style>
