@@ -351,7 +351,7 @@ lx.on(lx.EVENT_NAMES.request, function () { return new Promise(function () {}); 
 	payload := json.RawMessage(`{"source":"wy","action":"musicUrl","info":{"type":"320k","musicInfo":{"id":"1"}}}`)
 	input, _ := json.Marshal(lxWorkerRequest{Script: script, Operation: "resolve", Payload: payload})
 	var output bytes.Buffer
-	_ = RunLXSourceWorker(bytes.NewReader(input), &output)
+	_ = runLXSourceWorkerWithTimeout(bytes.NewReader(input), &output, nil, 40*time.Millisecond)
 	var response lxWorkerResponse
 	if err := json.Unmarshal(output.Bytes(), &response); err != nil { t.Fatal(err) }
 	if !strings.Contains(response.Error, "Promise 尚未完成") { t.Fatalf("unexpected error: %q", response.Error) }

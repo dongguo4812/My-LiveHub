@@ -435,7 +435,7 @@ func runLXSourceWorkerWithTimeout(input io.Reader, output io.Writer, requestClie
 			return
 		}
 		response["url"] = rawURL
-		requestSummaries = append(requestSummaries, fmt.Sprintf("request#%d %s", requestID, summarizeLXRequestResponse(response))
+		requestSummaries = append(requestSummaries, fmt.Sprintf("request#%d %s", requestID, summarizeLXRequestResponse(response)))
 	}); err != nil {
 		response.Error = "初始化 LX request 请求桥接失败"
 		return 1
