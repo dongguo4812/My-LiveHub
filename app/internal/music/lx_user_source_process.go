@@ -98,6 +98,16 @@ func StartLXUserSourceProcess(ctx context.Context, script string) (*LXUserSource
 	}
 }
 
+func (p *LXUserSourceProcess) IsRunning() bool {
+	if p == nil { return false }
+	select {
+	case <-p.done:
+		return false
+	default:
+		return true
+	}
+}
+
 func (p *LXUserSourceProcess) Snapshot() LXSourceRuntimeResult {
 	if p == nil { return LXSourceRuntimeResult{} }
 	return p.result
