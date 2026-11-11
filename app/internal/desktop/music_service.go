@@ -480,10 +480,8 @@ func (s *MusicService) ValidateLXUserSource(id string) (music.LXSourceRuntimeRes
 }
 
 
-// ResolveLXUserSource invokes an imported source's LX request handler in the
-// isolated JavaScript worker. The payload must use the official LX request
-// shape: {source, action, info}. Keeping this bridge on MusicService makes the
-// same runtime available to search, playback, lyrics, and cover integrations.
+// closeLXUserSourceSession releases the active custom source when it is
+// replaced, deleted, or the desktop application shuts down.
 func (s *MusicService) closeLXUserSourceSession() {
 	s.lxSessionMu.Lock()
 	session := s.lxSession
