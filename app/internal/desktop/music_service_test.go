@@ -292,6 +292,33 @@ func TestLXMiguMusicInfoMatchesLXFields(t *testing.T){
  types,ok:=info["types"].([]any);if !ok||len(types)!=3||types[0].(map[string]any)["type"]!="128k"||types[1].(map[string]any)["type"]!="320k"||types[2].(map[string]any)["type"]!="flac24bit"{t.Fatalf("unexpected Migu qualities: %#v",info["types"])}
 }
 
+func TestLXKuwoMusicInfoUsesNInfoQualityCapabilities(t *testing.T) {
+	track := music.Track{
+		ID: "456", LXSourceKey: "kw", Title: "找自己", Artist: "陶喆",
+		Album: "I'm OK", DurationMS: 304000,
+		SourceData: map[string]string{
+			"albumId": "album-9",
+			"N_MINFO": "level:standard,bitrate:128,format:mp3,size:4.2;level:high,bitrate:320,format:mp3,size:8.6;level:sq,bitrate:2000,format:flac,size:25.4",
+		},
+	}
+	info := buildLXMusicInfo(track, "flac")
+	if info["source"] != "kw" || info["songmid"] != "456" || info["albumId"] != "album-9" ||
+		info["albumName"] != "I'm OK" || info["interval"] != "05:04" || info["img"] != nil {
+		t.Fatalf("Kuwo musicInfo mismatch: %#v", info)
+	}
+	types, ok := info["types"].([]any)
+	if !ok || len(types) != 3 || types[0].(map[string]any)["type"] != "flac" ||
+		types[1].(map[string]any)["type"] != "320k" || types[2].(map[string]any)["type"] != "128k" {
+		t.Fatalf("unexpected Kuwo qualities: %#v", info["types"])
+	}
+	if got := selectLXQuality([]string{"320k", "flac", "128k"}, false, track); got != "320k" {
+		t.Fatalf("expected best available Kuwo quality 320k, got %#v", got)
+	}
+	if got := selectLXQuality([]string{"flac24bit"}, false, track); got != nil {
+		t.Fatalf("must not request unavailable Kuwo quality, got %#v", got)
+	}
+}
+
 func TestLXMiguQualitySelectionUsesPerTrackAvailability(t *testing.T) {
 	track:=music.Track{LXSourceKey:"mg",SourceData:map[string]string{"audio_formats_json":`[{"formatType":"PQ","asize":1000},{"formatType":"ZQ24","asize":2000}]`}}
 	if got:=selectLXQuality([]string{"320k","flac24bit","128k"},false,track);got!="flac24bit"{t.Fatalf("expected best available Migu quality flac24bit, got %#v",got)}
