@@ -269,6 +269,17 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 		if !ok { response.Error = "LX 音源 request 处理器不可调用"; return 1 }
 		value, callErr := callable(goja.Undefined(), vm.ToValue(payload))
 		if callErr != nil { response.Error = fmt.Sprintf("LX 音源 request 处理失败：%s", callErr.Error()); return 1 }
+		// LX sources commonly use async/await and Promise.then around the
+		// callback-based HTTP API. Drive Goja's microtask queue after the
+		// synchronous HTTP callback has settled the underlying Promise.
+		for i := 0; i < 16; i++ {
+			promise, ok := value.Export().(*goja.Promise)
+			if !ok || promise.State() != goja.PromiseStatePending { break }
+			if _, flushErr := vm.RunString("void 0"); flushErr != nil {
+				response.Error = fmt.Sprintf("LX 音源 Promise 执行失败：%s", flushErr.Error())
+				return 1
+			}
+		}
 		if promise, ok := value.Export().(*goja.Promise); ok {
 			switch promise.State() {
 			case goja.PromiseStateFulfilled: value = promise.Result()
@@ -293,8 +304,9 @@ func containsLXValue(values []string, target string) bool {
 }
 
 // ResolveLXUserSource invokes the request handler in a separate worker process.
-// Synchronous results and already-settled Promises are supported. Promise
-// lx.request callback requests are executed synchronously inside the isolated worker.
+// Synchronous results and settled Promises are supported. Callback-based
+// HTTP requests complete synchronously inside the isolated worker; queued
+// Promise microtasks are drained before the result is read.
 func ResolveLXUserSource(parent context.Context, script string, payload json.RawMessage) (json.RawMessage, error) {
 	if parent == nil { parent = context.Background() }
 	if strings.TrimSpace(script) == "" || len(script) > MaxLXUserSourceBytes { return nil, errors.New("LX 音源脚本为空或超过 1 MB 限制") }
