@@ -30,6 +30,9 @@ var embeddedDefaultConfig embed.FS
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == music.LXSourceWorkerArgument {
+		if len(os.Args) > 2 && os.Args[2] == music.LXSourceSessionWorkerArgument {
+			os.Exit(music.RunLXUserSourceSessionWorker(os.Stdin, os.Stdout))
+		}
 		os.Exit(music.RunLXSourceWorker(os.Stdin, os.Stdout))
 	}
 	environment := config.ResolveEnvironment(os.Args[1:])
