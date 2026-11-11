@@ -190,13 +190,23 @@ func TestMusicServiceSearchPageReturnsPaginationMetadata(t *testing.T) {
 	}
 }
 
-func TestNewMusicServiceRegistersFourSearchSources(t *testing.T) {
+func TestNewMusicServiceRegistersFiveSearchSources(t *testing.T) {
 	service := NewMusicService(nil, config.DefaultMusicConfig())
 	defer service.Shutdown()
 
 	sources := service.GetSources()
-	if len(sources) != 4 {
-		t.Fatalf("expected four registered music sources, got %#v", sources)
+	if len(sources) != 5 {
+		t.Fatalf("expected five registered music sources, got %#v", sources)
+	}
+	want := map[string]bool{"qq_music": true, "netease": true, "kugou": true, "kuwo": true, "migu": true}
+	for _, source := range sources {
+		if !want[source.ID] {
+			t.Errorf("unexpected registered music source %q", source.ID)
+		}
+		delete(want, source.ID)
+	}
+	for id := range want {
+		t.Errorf("expected music source %q was not registered", id)
 	}
 	for _, source := range sources {
 		if !source.Available || !source.Capabilities.Search {
