@@ -371,17 +371,8 @@ func rankAndDeduplicateTracks(tracks []Track, keyword string) []Track {
 			continue
 		}
 		seen[key] = struct{}{}
-		target := title + artist
-		score := 0
-		if query != "" && target == query {
-			score = 1000
-		} else if query != "" && strings.Contains(target, query) {
-			score = 800
-		} else if query != "" && strings.Contains(query, title) {
-			score = 600
-		} else if query != "" && strings.Contains(target, strings.ReplaceAll(query, " ", "")) {
-			score = 500
-		}
+		target := normalize(track.Title + " " + track.Artist)
+		score := stringSimilarity(query, target)
 		items = append(items, ranked{track: track, score: score, index: index})
 	}
 	sort.SliceStable(items, func(i, j int) bool {
@@ -395,4 +386,40 @@ func rankAndDeduplicateTracks(tracks []Track, keyword string) []Track {
 		result = append(result, item.track)
 	}
 	return result
+}
+
+func stringSimilarity(left, right string) int {
+	a := []rune(left)
+	b := []rune(right)
+	if len(a) == 0 || len(b) == 0 {
+		return 0
+	}
+	if len(a) > len(b) {
+		a, b = b, a
+	}
+	previous := make([]int, len(b)+1)
+	for i := range previous {
+		previous[i] = i
+	}
+	for i, char := range a {
+		diagonal := previous[0]
+		previous[0] = i + 1
+		for j, other := range b {
+			cost := 1
+			if char == other {
+				cost = 0
+			}
+			value := previous[j+1] + 1
+			if previous[j]+1 < value {
+				value = previous[j] + 1
+			}
+			if diagonal+cost < value {
+				value = diagonal + cost
+			}
+			diagonal = previous[j+1]
+			previous[j+1] = value
+		}
+	}
+	similarity := 1 - float64(previous[len(b)])/float64(len(b))
+	return int(similarity * 10000)
 }
