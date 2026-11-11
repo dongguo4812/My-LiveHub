@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"sync/atomic"
@@ -38,10 +39,7 @@ func installLXRequestAsync(vm *goja.Runtime, lx *goja.Object, client *http.Clien
 		options:=call.Argument(1)
 		callback,ok:=goja.AssertFunction(call.Argument(2))
 		if !ok { return vm.ToValue(func(goja.FunctionCall) goja.Value { return goja.Undefined() }) }
-		optionsMap:=map[string]any{}
-		if options!=nil && !goja.IsUndefined(options) && !goja.IsNull(options) {
-			if exported,ok:=options.Export().(map[string]interface{}); ok { optionsMap=exported }
-		}
+		optionsMap := lxObjectMap(lxExportRequestValue(options))
 		ctx,cancel:=context.WithCancel(loop.ctx)
 		id:=requestID.Add(1)
 		thisArg:=call.This
@@ -93,8 +91,7 @@ func performLXRequest(rawURL string, optionsValue goja.Value) (map[string]any, s
 }
 
 func performLXRequestWithClient(rawURL string, optionsValue goja.Value, client *http.Client) (map[string]any, string, error) {
-	options:=map[string]any{}
-	if optionsValue!=nil && !goja.IsUndefined(optionsValue) && !goja.IsNull(optionsValue) { if exported,ok:=optionsValue.Export().(map[string]interface{}); ok { options=exported } }
+	options := lxObjectMap(lxExportRequestValue(optionsValue))
 	return performLXRequestWithClientContext(context.Background(),rawURL,options,client)
 }
 
@@ -137,7 +134,7 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 				encoded, encodeErr := needleQueryString(value, "")
 				if encodeErr != nil { return nil, "", fmt.Errorf("LX request body 表单编码失败：%w", encodeErr) }
 				if method == http.MethodGet {
-					parsed.RawQuery = encoded
+					if parsed.RawQuery == "" { parsed.RawQuery = encoded } else { parsed.RawQuery += "&" + encoded }
 				} else {
 					requestBody = []byte(encoded)
 				}
@@ -219,6 +216,62 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 	return response, string(raw), nil
 }
 
+type lxOrderedObject struct {
+	Keys []string
+	Values map[string]any
+}
+
+func (o lxOrderedObject) MarshalJSON() ([]byte, error) {
+	var buffer bytes.Buffer
+	buffer.WriteByte('{')
+	for index, key := range o.Keys {
+		if index > 0 { buffer.WriteByte(',') }
+		encodedKey, err := json.Marshal(key)
+		if err != nil { return nil, err }
+		encodedValue, err := json.Marshal(o.Values[key])
+		if err != nil { return nil, err }
+		buffer.Write(encodedKey)
+		buffer.WriteByte(':')
+		buffer.Write(encodedValue)
+	}
+	buffer.WriteByte('}')
+	return buffer.Bytes(), nil
+}
+
+func lxExportRequestValue(value goja.Value) any {
+	if value == nil || goja.IsUndefined(value) || goja.IsNull(value) { return nil }
+	exported := value.Export()
+	object, isObject := value.(*goja.Object)
+	if !isObject { return exported }
+	switch exported.(type) {
+	case []interface{}:
+		length := object.Get("length").ToInteger()
+		items := make([]any, int(length))
+		for index := range items { items[index] = lxExportRequestValue(object.Get(strconv.Itoa(index))) }
+		return items
+	case map[string]interface{}:
+		keys := object.Keys()
+		values := make(map[string]any, len(keys))
+		for _, key := range keys { values[key] = lxExportRequestValue(object.Get(key)) }
+		return lxOrderedObject{Keys: keys, Values: values}
+	default:
+		return exported
+	}
+}
+
+func lxObjectMap(value any) map[string]any {
+	switch object := value.(type) {
+	case lxOrderedObject:
+		return object.Values
+	case map[string]any:
+		return object
+	case map[string]interface{}:
+		return object
+	default:
+		return map[string]any{}
+	}
+}
+
 func jsTruthy(value any) bool {
 	if value == nil { return false }
 	switch v := value.(type) {
@@ -233,6 +286,16 @@ func jsTruthy(value any) bool {
 
 func needleQueryString(value any, prefix string) (string, error) {
 	switch v := value.(type) {
+	case lxOrderedObject:
+		parts := make([]string, 0, len(v.Keys))
+		for _, key := range v.Keys {
+			name := needleEncodeURIComponent(key)
+			if prefix != "" { name = prefix + "[" + name + "]" }
+			part, err := needleQueryString(v.Values[key], name)
+			if err != nil { return "", err }
+			if part != "" { parts = append(parts, part) }
+		}
+		return strings.Join(parts, "&"), nil
 	case map[string]interface{}:
 		parts := make([]string, 0, len(v))
 		keys := make([]string, 0, len(v))
