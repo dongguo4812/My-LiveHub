@@ -166,7 +166,7 @@ func (e *MpvEngine) Start(ctx context.Context) error {
 func buildMpvArgs(pipePath string, videoOutput bool) []string {
 	args := []string{
 		"--no-config",
-		"--terminal=no",
+		"--terminal=yes",
 		"--idle=yes",
 		"--keep-open=no",
 		"--msg-level=all=warn",
