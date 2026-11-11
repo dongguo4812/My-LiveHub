@@ -273,7 +273,7 @@ func TestLXQQMusicInfoDoesNotFabricateMediaMid(t *testing.T) {
 	}
 	if info["albumId"] != "album-mid" { t.Fatalf("QQ albumId must mirror LX album.mid, got %#v",info["albumId"]) }
 	missingAlbum:=buildLXMusicInfo(music.Track{ID:"song-mid",LXSourceKey:"tx",Title:"稻香",SourceData:map[string]string{"id":"123456"}},"128k")
-	if missingAlbum["albumId"]!=""{t.Fatalf("QQ albumId must be empty when album.mid is missing, got %#v",missingAlbum["albumId"])}
+	if _, exists := missingAlbum["albumId"]; exists { t.Fatalf("QQ albumId must be omitted when album.mid is missing, got %#v", missingAlbum["albumId"]) }
 }
 
 func TestLXQQQualitySelectionUsesPerTrackAvailability(t *testing.T) {
