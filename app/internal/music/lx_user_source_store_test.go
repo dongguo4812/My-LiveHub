@@ -31,6 +31,11 @@ func TestValidateLXSourceURL(t *testing.T) {
   "http://127.0.0.1/source.js",
   "http://192.168.1.1/source.js",
   "https://user:pass@example.com/source.js",
+  "http://100.64.0.1/source.js",
+  "http://192.0.2.10/source.js",
+  "http://198.18.0.1/source.js",
+  "http://203.0.113.10/source.js",
+  "http://[2001:db8::1]/source.js",
  }
  for _, raw := range invalid {
   t.Run(raw, func(t *testing.T) {
