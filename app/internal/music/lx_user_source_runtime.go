@@ -59,15 +59,24 @@ type lxWorkerResponse struct {
 type lxRuntimeEventLoop struct {
 	vm *goja.Runtime
 	tasks chan func()
+	ctx context.Context
+	cancel context.CancelFunc
+	stopOnce sync.Once
 	mu sync.Mutex
 	timers map[int]*time.Timer
 	nextID int
 }
 
 func newLXRuntimeEventLoop(vm *goja.Runtime) *lxRuntimeEventLoop {
-	return &lxRuntimeEventLoop{vm:vm, tasks:make(chan func(),256), timers:make(map[int]*time.Timer)}
+	ctx, cancel := context.WithCancel(context.Background())
+	return &lxRuntimeEventLoop{vm:vm, tasks:make(chan func(),256), ctx:ctx, cancel:cancel, timers:make(map[int]*time.Timer)}
 }
-func (loop *lxRuntimeEventLoop) enqueue(task func()) { loop.tasks <- task }
+func (loop *lxRuntimeEventLoop) enqueue(task func()) {
+	select {
+	case loop.tasks <- task:
+	case <-loop.ctx.Done():
+	}
+}
 func (loop *lxRuntimeEventLoop) setTimer(callback goja.Value, delay time.Duration, repeat bool) int {
 	fn, ok := goja.AssertFunction(callback); if !ok { return 0 }
 	loop.mu.Lock(); loop.nextID++; id:=loop.nextID
@@ -80,7 +89,12 @@ func (loop *lxRuntimeEventLoop) clearTimer(id int) {
 	loop.mu.Lock(); if timer:=loop.timers[id]; timer!=nil { timer.Stop(); delete(loop.timers,id) }; loop.mu.Unlock()
 }
 func (loop *lxRuntimeEventLoop) stop() {
-	loop.mu.Lock(); for id,timer:=range loop.timers { timer.Stop(); delete(loop.timers,id) }; loop.mu.Unlock()
+	loop.stopOnce.Do(func() {
+		loop.cancel()
+		loop.mu.Lock()
+		for id, timer := range loop.timers { timer.Stop(); delete(loop.timers, id) }
+		loop.mu.Unlock()
+	})
 }
 func (loop *lxRuntimeEventLoop) pumpUntil(done func() bool, timeout time.Duration) error {
 	deadline:=time.NewTimer(timeout); defer deadline.Stop()
