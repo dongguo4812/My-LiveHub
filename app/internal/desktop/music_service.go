@@ -63,6 +63,9 @@ type MusicService struct {
 	lxStoreOnce sync.Once
 	lxStore *music.LXUserSourceStore
 	lxStoreErr error
+	lxSessionMu sync.Mutex
+	lxSession *music.LXUserSourceSession
+	lxSessionID string
 }
 
 func NewMusicService(manager *config.Manager, value config.MusicConfig, buffers ...*events.Buffer) *MusicService {
@@ -318,8 +321,10 @@ func (s *MusicService) GetStatus() MusicStatus {
 	return status
 }
 func (s *MusicService) Shutdown() error {
-	if s == nil || s.engine == nil { return nil }
+	if s == nil { return nil }
 	s.cancelPlaybackWatcher()
+	s.closeLXUserSourceSession()
+	if s.engine == nil { return nil }
 	if lifecycle, ok := s.engine.(music.PlaybackEngineLifecycle); ok { return lifecycle.Close() }
 	return nil
 }
@@ -438,6 +443,13 @@ func (s *MusicService) ImportLXSourceURL(sourceURL string) (music.LXUserSourceMe
 func (s *MusicService) DeleteLXUserSource(id string) error {
 	store, err := s.lxUserSourceStore()
 	if err != nil { return err }
+	s.lxSessionMu.Lock()
+	if s.lxSessionID == id {
+		session := s.lxSession
+		s.lxSession, s.lxSessionID = nil, ""
+		if session != nil { _ = session.Close() }
+	}
+	s.lxSessionMu.Unlock()
 	return store.Delete(id)
 }
 
@@ -446,7 +458,16 @@ func (s *MusicService) UpdateLXUserSource(id string) (music.LXUserSourceMetadata
 	if err != nil { return music.LXUserSourceMetadata{}, err }
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	return store.Update(ctx, id)
+	metadata, err := store.Update(ctx, id)
+	if err != nil { return music.LXUserSourceMetadata{}, err }
+	s.lxSessionMu.Lock()
+	if s.lxSessionID == id {
+		session := s.lxSession
+		s.lxSession, s.lxSessionID = nil, ""
+		if session != nil { _ = session.Close() }
+	}
+	s.lxSessionMu.Unlock()
+	return metadata, nil
 }
 
 func (s *MusicService) ValidateLXUserSource(id string) (music.LXSourceRuntimeResult, error) {
@@ -464,16 +485,42 @@ func (s *MusicService) ValidateLXUserSource(id string) (music.LXSourceRuntimeRes
 // isolated JavaScript worker. The payload must use the official LX request
 // shape: {source, action, info}. Keeping this bridge on MusicService makes the
 // same runtime available to search, playback, lyrics, and cover integrations.
+func (s *MusicService) closeLXUserSourceSession() {
+	s.lxSessionMu.Lock()
+	session := s.lxSession
+	s.lxSession, s.lxSessionID = nil, ""
+	s.lxSessionMu.Unlock()
+	if session != nil { _ = session.Close() }
+}
+
+// ResolveLXUserSource dispatches a request to the currently selected LX source.
+// The same source is initialized only once and retains its JS global state;
+// switching to another source closes the previous runtime, matching LX setApi().
 func (s *MusicService) ResolveLXUserSource(id string, payload json.RawMessage) (json.RawMessage, error) {
+	if s == nil { return nil, errors.New("音乐服务不可用") }
 	store, err := s.lxUserSourceStore()
-	if err != nil {
-		return nil, err
-	}
+	if err != nil { return nil, err }
 	script, err := store.ReadScript(id)
-	if err != nil {
-		return nil, err
+	if err != nil { return nil, err }
+
+	s.lxSessionMu.Lock()
+	if s.lxSession == nil || s.lxSessionID != id {
+		previous := s.lxSession
+		s.lxSession, s.lxSessionID = nil, ""
+		if previous != nil { _ = previous.Close() }
+		ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
+		session, startErr := music.StartLXUserSourceSession(ctx, script, nil)
+		cancel()
+		if startErr != nil {
+			s.lxSessionMu.Unlock()
+			return nil, startErr
+		}
+		s.lxSession, s.lxSessionID = session, id
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
+	session := s.lxSession
+	s.lxSessionMu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	return music.ResolveLXUserSource(ctx, script, payload)
+	return session.Request(ctx, payload)
 }
