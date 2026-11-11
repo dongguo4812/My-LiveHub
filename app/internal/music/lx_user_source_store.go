@@ -111,6 +111,10 @@ func validateLXSourceURL(value *url.URL) error {
 }
 
 func (s *LXUserSourceStore) ImportScript(script, sourceURL string) (LXUserSourceMetadata, error) {
+	return s.importScript(script, sourceURL, true)
+}
+
+func (s *LXUserSourceStore) importScript(script, sourceURL string, rejectDuplicate bool) (LXUserSourceMetadata, error) {
 	if s == nil { return LXUserSourceMetadata{}, errors.New("LX 音源存储不可用") }
 	source, err := ParseLXUserSource(script)
 	if err != nil { return LXUserSourceMetadata{}, err }
@@ -120,11 +124,27 @@ func (s *LXUserSourceStore) ImportScript(script, sourceURL string) (LXUserSource
 		if validateErr := validateLXSourceURL(parsed); validateErr != nil { return LXUserSourceMetadata{}, validateErr }
 		source.Metadata.SourceURL = parsed.String()
 	}
+	if rejectDuplicate {
+		existing, readErr := os.ReadFile(filepath.Join(s.dir, source.Metadata.ID+".js"))
+		if readErr == nil && string(existing) == script {
+			name := "已有音源"
+			if metadataBytes, metadataErr := os.ReadFile(filepath.Join(s.dir, source.Metadata.ID+".json")); metadataErr == nil {
+				var metadata LXUserSourceMetadata
+				if json.Unmarshal(metadataBytes, &metadata) == nil && metadata.Name != "" { name = metadata.Name }
+			}
+			return LXUserSourceMetadata{}, fmt.Errorf("导入失败，脚本内容与已有的源「%s」相同", name)
+		}
+		if readErr != nil && !errors.Is(readErr, os.ErrNotExist) { return LXUserSourceMetadata{}, readErr }
+	}
 	if err := s.save(source); err != nil { return LXUserSourceMetadata{}, err }
 	return source.Metadata, nil
 }
 
 func (s *LXUserSourceStore) ImportURL(ctx context.Context, rawURL string) (LXUserSourceMetadata, error) {
+	return s.importURL(ctx, rawURL, true)
+}
+
+func (s *LXUserSourceStore) importURL(ctx context.Context, rawURL string, rejectDuplicate bool) (LXUserSourceMetadata, error) {
 	if s == nil || s.client == nil { return LXUserSourceMetadata{}, errors.New("LX 音源存储不可用") }
 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil { return LXUserSourceMetadata{}, errors.New("音源 URL 无效") }
@@ -136,11 +156,11 @@ func (s *LXUserSourceStore) ImportURL(ctx context.Context, rawURL string) (LXUse
 	if err != nil { return LXUserSourceMetadata{}, fmt.Errorf("下载音源脚本失败：%w", err) }
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 { return LXUserSourceMetadata{}, fmt.Errorf("下载音源脚本失败：HTTP %d", response.StatusCode) }
-	if response.ContentLength > MaxLXUserSourceBytes { return LXUserSourceMetadata{}, errors.New("LX 音源脚本超过 1 MB 限制") }
+	if response.ContentLength > MaxLXUserSourceBytes { return LXUserSourceMetadata{}, errors.New("LX 音源脚本超过 9 MB 限制") }
 	data, err := io.ReadAll(io.LimitReader(response.Body, MaxLXUserSourceBytes+1))
 	if err != nil { return LXUserSourceMetadata{}, fmt.Errorf("读取音源脚本失败：%w", err) }
 	if len(data) > MaxLXUserSourceBytes { return LXUserSourceMetadata{}, errors.New("LX 音源脚本超过 1 MB 限制") }
-	return s.ImportScript(string(data), parsed.String())
+	return s.importScript(string(data), parsed.String(), rejectDuplicate)
 }
 
 func (s *LXUserSourceStore) save(source LXUserSource) error {
@@ -177,7 +197,7 @@ func (s *LXUserSourceStore) Update(ctx context.Context, id string) (LXUserSource
 	var current LXUserSourceMetadata
 	if err := json.Unmarshal(data, &current); err != nil { return LXUserSourceMetadata{}, fmt.Errorf("解析音源信息失败：%w", err) }
 	if strings.TrimSpace(current.SourceURL) == "" { return LXUserSourceMetadata{}, errors.New("该音源没有更新 URL，请重新导入本地脚本或使用 URL 导入") }
-	updated, err := s.ImportURL(ctx, current.SourceURL)
+	updated, err := s.importURL(ctx, current.SourceURL, false)
 	if err != nil { return LXUserSourceMetadata{}, err }
 	if updated.ID != id {
 		if err := s.Delete(id); err != nil { return LXUserSourceMetadata{}, fmt.Errorf("新版本已保存，但旧版本清理失败：%w", err) }
