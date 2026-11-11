@@ -221,7 +221,7 @@ func TestLXQQMusicInfoMatchesLXMusicFlatContract(t *testing.T) {
 	info := buildLXMusicInfo(track, "320k")
 	if info["source"] != "tx" || info["songmid"] != "song-mid" || info["songId"] != int64(123456) ||
 		info["strMediaMid"] != "media-mid" || info["albumMid"] != "album-mid" ||
-		info["albumId"] != "album-mid" || info["albumName"] != "魔杰座" ||
+		info["albumId"] != int64(789) || info["albumName"] != "魔杰座" ||
 		info["img"] != track.CoverURL || info["interval"] != "03:43" || info["duration"] != int64(223) {
 		t.Fatalf("QQ musicInfo does not match LX Music flat fields: %#v", info)
 	}
@@ -251,8 +251,8 @@ func TestLXQQMusicInfoDoesNotFabricateMediaMid(t *testing.T) {
 	if info["strMediaMid"] != "" {
 		t.Fatalf("strMediaMid must preserve the missing provider value, got %#v", info["strMediaMid"])
 	}
-	if info["albumId"] != "album-mid" {
-		t.Fatalf("QQ flat albumId must match albumMid, got %#v", info["albumId"])
+	if info["albumId"] != nil {
+		t.Fatalf("QQ flat albumId must preserve the missing numeric album ID, got %#v", info["albumId"])
 	}
 }
 
