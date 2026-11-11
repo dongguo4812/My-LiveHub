@@ -12,7 +12,7 @@ func TestQQMusicSourceSearchPage(t *testing.T) {
 		if r.URL.Query().Get("p") != "2" || r.URL.Query().Get("n") != "10" {
 			t.Errorf("unexpected QQ pagination query: %s", r.URL.RawQuery)
 		}
-		_, _ = w.Write([]byte(`{"code":0,"data":{"song":{"totalnum":25,"list":[{"id":1,"mid":"qq-mid","title":"找自己","interval":304,"singer":[{"name":"陶喆"}],"album":{"name":"I'm OK","mid":"album-mid"}}]}}}`))
+		_, _ = w.Write([]byte(`{"code":0,"data":{"song":{"totalnum":25,"list":[{"songid":1,"songmid":"qq-mid","songname":"找自己","interval":304,"singer":[{"name":"陶喆"}],"albumname":"I'm OK","albummid":"album-mid"}]}}}`))
 	}))
 	defer server.Close()
 	source := NewQQMusicSource(server.Client(), server.URL)
@@ -24,7 +24,8 @@ func TestQQMusicSourceSearchPage(t *testing.T) {
 	if result.Tracks[0].ID != "qq-mid" || result.Tracks[0].Artist != "陶喆" || result.Tracks[0].DurationMS != 304000 {
 		t.Fatalf("unexpected QQ track: %#v", result.Tracks[0])
 	}
-	if result.Tracks[0].LXSourceKey != "tx" || result.Tracks[0].SourceData["songmid"] != "qq-mid" {
+	if result.Tracks[0].LXSourceKey != "tx" || result.Tracks[0].SourceData["songmid"] != "qq-mid" ||
+		result.Tracks[0].Album != "I'm OK" || result.Tracks[0].CoverURL == "" {
 		t.Fatalf("QQ LX metadata was not preserved: %#v", result.Tracks[0])
 	}
 }
