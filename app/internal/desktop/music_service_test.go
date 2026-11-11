@@ -294,7 +294,7 @@ func TestLXMiguMusicInfoMatchesLXFields(t *testing.T){
 
 func TestLXKugouMusicInfoPreservesPerQualityHashes(t *testing.T) {
 	track := music.Track{ID:"123",LXSourceKey:"kg",Title:"找自己",Artist:"陶喆",Album:"I'm OK",DurationMS:304000,SourceData:map[string]string{
-		"MixSongID":"456","AlbumID":"album-9","FileHash":"base-hash","FileSize":"1048576",
+		"Audioid":"123","MixSongID":"456","AlbumID":"album-9","FileHash":"base-hash","FileSize":"1048576",
 		"HQFileHash":"hq-hash","HQFileSize":"2097152","SQFileHash":"sq-hash","SQFileSize":"4194304",
 		"ResFileHash":"res-hash","ResFileSize":"8388608",
 	}}
