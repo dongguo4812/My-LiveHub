@@ -299,7 +299,7 @@ func TestLXKugouMusicInfoPreservesPerQualityHashes(t *testing.T) {
 		"ResFileHash":"res-hash","ResFileSize":"8388608",
 	}}
 	info:=buildLXMusicInfo(track,"320k")
-	if info["source"]!="kg"||info["songmid"]!="123"||info["albumAudioId"]!="456"||info["albumId"]!="album-9"||info["hash"]!="base-hash"||info["interval"]!="05:04"{t.Fatalf("Kugou LX musicInfo mismatch: %#v",info)}
+	if info["source"]!="kg"||info["songmid"]!=int64(123)||info["albumAudioId"]!=int64(456)||info["albumId"]!="album-9"||info["hash"]!="base-hash"||info["interval"]!="05:04"{t.Fatalf("Kugou LX musicInfo mismatch: %#v",info)}
 	types,ok:=info["types"].([]any)
 	if !ok||len(types)!=4||types[0].(map[string]any)["hash"]!="base-hash"||types[3].(map[string]any)["hash"]!="res-hash"{t.Fatalf("Kugou quality hashes missing: %#v",info["types"])}
 	if got:=selectLXQuality([]string{"flac24bit","flac","320k"},false,track);got!="320k"{t.Fatalf("expected 320k preference based on configured list, got %#v",got)}
@@ -314,7 +314,7 @@ func TestLXNetEaseMusicInfoUsesPrivilegeAndQualityFiles(t *testing.T) {
 		"wy_l":`{"size":1000}`,"wy_h":`{"size":3000}`,"wy_sq":`{"size":6000}`,"wy_hr":`{"size":12000}`,
 	}}
 	info:=buildLXMusicInfo(track,"flac")
-	if info["source"]!="wy"||info["songmid"]!="321"||info["albumId"]!="12"||info["interval"]!="03:00"||info["img"]!=track.CoverURL{t.Fatalf("NetEase LX musicInfo mismatch: %#v",info)}
+	if info["source"]!="wy"||info["songmid"]!=int64(321)||info["albumId"]!=int64(12)||info["interval"]!="03:00"||info["img"]!=track.CoverURL{t.Fatalf("NetEase LX musicInfo mismatch: %#v",info)}
 	types,ok:=info["types"].([]any)
 	if !ok||len(types)!=4||types[0].(map[string]any)["type"]!="128k"||types[1].(map[string]any)["type"]!="320k"||types[3].(map[string]any)["type"]!="flac24bit"{t.Fatalf("unexpected NetEase qualities: %#v",info["types"])}
 	if got:=selectLXQuality([]string{"flac24bit","flac","320k","128k"},false,track);got!="flac24bit"{t.Fatalf("expected highest available NetEase quality, got %#v",got)}
