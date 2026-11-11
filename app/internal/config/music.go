@@ -24,7 +24,7 @@ type MusicConfig struct {
 func DefaultMusicConfig() MusicConfig {
 	return MusicConfig{
 		ConfigVersion: CurrentMusicConfigVersion,
-		Enabled: false,
+		Enabled: true,
 		CommandEnabled: true,
 		CommandPrefix: "点歌",
 		QueueCapacity: 100,
