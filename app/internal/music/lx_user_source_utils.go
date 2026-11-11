@@ -36,16 +36,7 @@ func installLXSourceUtilities(vm *goja.Runtime, lx *goja.Object) error {
 		data, err := lxBufferBytes(call.Argument(0))
 		if err != nil { panic(vm.ToValue(err.Error())) }
 		encoding := strings.ToLower(strings.TrimSpace(call.Argument(1).String()))
-		switch encoding {
-		case "base64":
-			return vm.ToValue(base64.StdEncoding.EncodeToString(data))
-		case "hex":
-			return vm.ToValue(hex.EncodeToString(data))
-		case "utf8", "utf-8", "", "ascii", "latin1", "binary":
-			return vm.ToValue(string(data))
-		default:
-			return vm.ToValue(string(data))
-		}
+		return vm.ToValue(decodeLXBufferString(data, encoding))
 	}); err != nil { return err }
 	if err := utils.Set("buffer", buffer); err != nil { return err }
 
