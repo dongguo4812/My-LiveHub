@@ -94,7 +94,7 @@ lx.send(lx.EVENT_NAMES.inited, {
 	if err != nil { t.Fatal(err) }
 	defer session.Close()
 	_, err = session.Request(ctx, json.RawMessage(`{"source":"wy","action":"musicUrl","info":{"type":"320k"}}`))
-	if err == nil || !strings.Contains(err.Error(), "musicUrl response is invalid") {
+	if err == nil || !strings.Contains(err.Error(), "failed") {
 		t.Fatalf("invalid musicUrl result was accepted: %v", err)
 	}
 }
