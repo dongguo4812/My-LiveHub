@@ -16,6 +16,9 @@ func TestRunLXSourceWorkerInitializesDeclaredPlatforms(t *testing.T) {
 if (lx.currentScriptInfo.name !== "Runtime Test" || lx.env !== "desktop" || typeof console.log !== "function") {
   throw new Error("LX runtime metadata globals are unavailable");
 }
+if (lx.utils.buffer.bufToString(lx.utils.buffer.from("source", "utf-8"), "base64") !== "c291cmNl" || typeof setTimeout !== "function") {
+  throw new Error("LX utility globals are unavailable");
+}
 lx.send(lx.EVENT_NAMES.inited, {
   sources: {
     wy: { name: "网易云音乐", type: "music", actions: ["musicUrl"], qualitys: ["320k"] },
