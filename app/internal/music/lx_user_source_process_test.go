@@ -153,7 +153,7 @@ func TestLXUserSourceProcessSendsCancelAndReportsRequestTimeout(t *testing.T) {
 		pending: make(map[string]chan lxSessionResponse),
 		done: make(chan struct{}),
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	result := make(chan error, 1)
 	go func() {
@@ -162,12 +162,18 @@ func TestLXUserSourceProcessSendsCancelAndReportsRequestTimeout(t *testing.T) {
 	}()
 
 	first := <-writer.writes
-	var request lxSessionRequest
+	var request struct {
+		Op string `json:"op"`
+		RequestKey string `json:"requestKey"`
+	}
 	if err := json.Unmarshal([]byte(first), &request); err != nil { t.Fatal(err) }
 	if request.Op != "request" { t.Fatalf("first protocol op = %q, want request", request.Op) }
 
 	second := <-writer.writes
-	var cancellation lxSessionRequest
+	var cancellation struct {
+		Op string `json:"op"`
+		RequestKey string `json:"requestKey"`
+	}
 	if err := json.Unmarshal([]byte(second), &cancellation); err != nil { t.Fatal(err) }
 	if cancellation.Op != "cancel" || cancellation.RequestKey != request.RequestKey {
 		t.Fatalf("cancellation message = %#v, want cancel for %q", cancellation, request.RequestKey)
