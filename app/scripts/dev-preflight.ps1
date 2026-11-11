@@ -1,6 +1,10 @@
+param(
+    [int]$Port = 8769
+)
+
 $ErrorActionPreference = 'Stop'
 
-$port = 8769
+$port = $Port
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path.TrimEnd('\')
 $projectRootPattern = [regex]::Escape($projectRoot)
 
