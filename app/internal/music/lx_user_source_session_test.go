@@ -221,3 +221,42 @@ lx.send(lx.EVENT_NAMES.inited, {
 		t.Fatalf("timer exception poisoned the session: %q", result.Data.URL)
 	}
 }
+
+
+func TestLXUserSourceSessionMatchesStrictEventNameProtocol(t *testing.T) {
+	script := `const protocolErrors = [];
+lx.send("request", {}).catch(error => protocolErrors.push(error.message));
+lx.send({ toString: function () { return "inited"; } }, {}).catch(error => protocolErrors.push(error.message));
+lx.on({ toString: function () { return "request"; } }, function () {
+  return Promise.resolve("https://cdn.example.test/should-not-be-used.mp3");
+}).catch(error => protocolErrors.push(error.message));
+lx.on(lx.EVENT_NAMES.request, function () {
+  const actual = protocolErrors.slice().sort().join("|");
+  const expected = [
+    "Unknown event name: request",
+    "The event is not supported: inited",
+    "The event is not supported: request"
+  ].sort().join("|");
+  if (actual !== expected) throw new Error("event protocol mismatch: " + actual);
+  return Promise.resolve("https://cdn.example.test/" + encodeURIComponent(actual) + ".mp3");
+});
+lx.send(lx.EVENT_NAMES.inited, {
+  sources: { wy: { type: "music", actions: ["musicUrl"], qualitys: ["320k"] } }
+});`
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	session, err := StartLXUserSourceSession(ctx, script, nil)
+	if err != nil { t.Fatal(err) }
+	defer session.Close()
+
+	payload := json.RawMessage(`{"source":"wy","action":"musicUrl","info":{"type":"320k"}}`)
+	value, err := session.Request(ctx, payload)
+	if err != nil { t.Fatal(err) }
+	var result struct {
+		Data struct { URL string `json:"url"` } `json:"data"`
+	}
+	if err := json.Unmarshal(value, &result); err != nil { t.Fatal(err) }
+	if !strings.Contains(result.Data.URL, "Unknown%20event%20name") {
+		t.Fatalf("event validation result was not preserved: %q", result.Data.URL)
+	}
+}

@@ -238,7 +238,11 @@ func (s *LXUserSourceSession) run(script string, requestClient *http.Client) {
 	}
 	_ = lx.Set("send", func(call goja.FunctionCall) goja.Value {
 		promise, resolve, reject := vm.NewPromise()
-		event := call.Argument(0).String()
+		event, isString := lxEventName(call.Argument(0))
+		if !isString {
+			_ = reject(vm.NewGoError(fmt.Errorf("The event is not supported: %s", event)))
+			return vm.ToValue(promise)
+		}
 		switch event {
 		case "inited":
 			if len(initialized) > 0 {
@@ -283,14 +287,18 @@ func (s *LXUserSourceSession) run(script string, requestClient *http.Client) {
 			select { case s.updates <- update: default: }
 			_ = resolve(goja.Undefined())
 		default:
-			_ = reject(vm.NewGoError(fmt.Errorf("The event is not supported: %s", event)))
+			if event == "request" {
+				_ = reject(vm.NewGoError(errors.New("Unknown event name: request")))
+			} else {
+				_ = reject(vm.NewGoError(fmt.Errorf("The event is not supported: %s", event)))
+			}
 		}
 		return vm.ToValue(promise)
 	})
 	_ = lx.Set("on", func(call goja.FunctionCall) goja.Value {
 		promise, resolve, reject := vm.NewPromise()
-		event := call.Argument(0).String()
-		if event != "request" {
+		event, isString := lxEventName(call.Argument(0))
+		if !isString || event != "request" {
 			_ = reject(vm.NewGoError(fmt.Errorf("The event is not supported: %s", event)))
 			return vm.ToValue(promise)
 		}

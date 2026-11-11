@@ -243,6 +243,13 @@ var lxSupportedSourceQualitys = map[string][]string{
 	"local": {},
 }
 
+func lxEventName(value goja.Value) (string, bool) {
+	if value == nil { return "", false }
+	name := value.String()
+	_, isString := value.Export().(string)
+	return name, isString
+}
+
 func lxDeclarationIncludes(value any, target string) (bool, error) {
 	switch list := value.(type) {
 	case []any:
@@ -433,7 +440,11 @@ func runLXSourceWorkerWithTimeout(input io.Reader, output io.Writer, requestClie
 	}
 	_ = lx.Set("send", func(call goja.FunctionCall) goja.Value {
 		promise, resolve, reject := vm.NewPromise()
-		event := call.Argument(0).String()
+		event, isString := lxEventName(call.Argument(0))
+		if !isString {
+			_ = reject(vm.NewGoError(fmt.Errorf("The event is not supported: %s", event)))
+			return vm.ToValue(promise)
+		}
 		if event == "updateAlert" {
 			if updateAlertSent {
 				_ = reject(vm.NewGoError(errors.New("The update alert can only be called once.")))
@@ -454,7 +465,11 @@ func runLXSourceWorkerWithTimeout(input io.Reader, output io.Writer, requestClie
 			return vm.ToValue(promise)
 		}
 		if event != "inited" {
-			_ = reject(vm.NewGoError(fmt.Errorf("The event is not supported: %s", event)))
+			if event == "request" {
+				_ = reject(vm.NewGoError(errors.New("Unknown event name: request")))
+			} else {
+				_ = reject(vm.NewGoError(fmt.Errorf("The event is not supported: %s", event)))
+			}
 			return vm.ToValue(promise)
 		}
 		if len(initialized) > 0 {
@@ -472,8 +487,8 @@ func runLXSourceWorkerWithTimeout(input io.Reader, output io.Writer, requestClie
 	})
 	_ = lx.Set("on", func(call goja.FunctionCall) goja.Value {
 		promise, resolve, reject := vm.NewPromise()
-		event := call.Argument(0).String()
-		if event != "request" {
+		event, isString := lxEventName(call.Argument(0))
+		if !isString || event != "request" {
 			_ = reject(vm.NewGoError(fmt.Errorf("The event is not supported: %s", event)))
 			return vm.ToValue(promise)
 		}
