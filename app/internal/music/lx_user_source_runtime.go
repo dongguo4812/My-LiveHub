@@ -202,6 +202,42 @@ func lxDeclarationIncludes(value any, target string) (bool, error) {
 	}
 }
 
+func lxJSONPropertyKeys(raw json.RawMessage, property string) ([]string, error) {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &object); err != nil { return nil, err }
+	value := object[property]
+	decoder := json.NewDecoder(bytes.NewReader(value))
+	token, err := decoder.Token()
+	if err != nil { return nil, err }
+	if delimiter, ok := token.(json.Delim); !ok || delimiter != '{' {
+		return nil, fmt.Errorf("%s must be an object", property)
+	}
+	keys := make([]string, 0)
+	seen := make(map[string]bool)
+	for decoder.More() {
+		keyToken, tokenErr := decoder.Token()
+		if tokenErr != nil { return nil, tokenErr }
+		key, ok := keyToken.(string)
+		if !ok { return nil, errors.New("invalid JSON object key") }
+		var ignored json.RawMessage
+		if err := decoder.Decode(&ignored); err != nil { return nil, err }
+		if !seen[key] { keys = append(keys, key); seen[key] = true }
+	}
+	return keys, nil
+}
+
+func lxDeclarationIncludes(value any, target string) (bool, error) {
+	switch list := value.(type) {
+	case []any:
+		for _, item := range list { if text, ok := item.(string); ok && text == target { return true, nil } }
+		return false, nil
+	case string:
+		return strings.Contains(list, target), nil
+	default:
+		return false, errors.New("includes is not a function")
+	}
+}
+
 func filterLXSourceDeclaration(raw json.RawMessage) (json.RawMessage, []string, []LXDeclaredSource, error) {
 	var input struct {
 		Sources map[string]struct {
@@ -216,25 +252,15 @@ func filterLXSourceDeclaration(raw json.RawMessage) (json.RawMessage, []string, 
 	if input.Sources == nil {
 		return nil, nil, nil, errors.New("LX 音源初始化数据无效：缺少 sources")
 	}
+	keys, err := lxJSONPropertyKeys(raw, "sources")
+	if err != nil { return nil, nil, nil, fmt.Errorf("LX 音源 sources 格式无效：%w", err) }
 
-	filtered := struct {
-		Sources map[string]struct {
-			Type string `json:"type"`
-			Actions []string `json:"actions"`
-			Qualitys []string `json:"qualitys"`
-		} `json:"sources"`
-	}{Sources: make(map[string]struct {
-		Type string `json:"type"`
-		Actions []string `json:"actions"`
-		Qualitys []string `json:"qualitys"`
-	})}
-	keys := make([]string, 0, len(input.Sources))
-	for key := range input.Sources { keys = append(keys, key) }
-	sort.Strings(keys)
+	filtered := lxOrderedObject{Keys: make([]string, 0, len(keys)), Values: make(map[string]any, len(keys))}
 	platforms := make([]string, 0, len(keys))
 	declared := make([]LXDeclaredSource, 0, len(keys))
 	for _, key := range keys {
-		source := input.Sources[key]
+		source, exists := input.Sources[key]
+		if !exists { continue }
 		allowedActions, supported := lxSupportedSourceActions[key]
 		if !supported || source.Type != "music" { continue }
 		allowedQualitys := lxSupportedSourceQualitys[key]
@@ -262,15 +288,15 @@ func filterLXSourceDeclaration(raw json.RawMessage) (json.RawMessage, []string, 
 				if included { qualitys = append(qualitys, quality) }
 			}
 		}
-		filtered.Sources[key] = struct {
-			Type string `json:"type"`
-			Actions []string `json:"actions"`
-			Qualitys []string `json:"qualitys"`
-		}{Type: "music", Actions: actions, Qualitys: qualitys}
+		filtered.Keys = append(filtered.Keys, key)
+		filtered.Values[key] = lxOrderedObject{
+			Keys: []string{"type", "actions", "qualitys"},
+			Values: map[string]any{"type": "music", "actions": actions, "qualitys": qualitys},
+		}
 		platforms = append(platforms, key)
 		declared = append(declared, LXDeclaredSource{Key: key, Type: "music", Actions: actions, Qualitys: qualitys})
 	}
-	encoded, err := json.Marshal(filtered)
+	encoded, err := json.Marshal(struct { Sources lxOrderedObject `json:"sources"` }{Sources: filtered})
 	return encoded, platforms, declared, err
 }
 
