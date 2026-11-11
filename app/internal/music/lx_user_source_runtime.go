@@ -147,15 +147,89 @@ func InspectLXUserSource(parent context.Context, script string) (LXSourceRuntime
 // validateLXSourceRuntimeResult rejects scripts that initialize platform
 // declarations but cannot handle the music URL requests required for playback.
 func validateLXSourceRuntimeResult(result LXSourceRuntimeResult) error {
-	if !result.Initialized || len(result.Platforms) == 0 {
-		return errors.New("LX 音源未声明可用平台")
-	}
-	for _, source := range result.DeclaredSources {
-		if containsLXValue(source.Actions, "musicUrl") && !containsLXValue(result.Handlers, "request") {
-			return fmt.Errorf("LX 音源声明了 %q 的 musicUrl 动作，但没有注册 request 处理器", source.Key)
-		}
+	// 洛雪的 preload 只把 inited 握手是否成功作为音源初始化状态。
+	// 即使 sources 为空，或暂时没有注册 request 处理器，也不会阻止音源初始化；
+	// 对应能力只会在宿主真正发起请求时体现为请求失败。
+	if !result.Initialized {
+		return errors.New("LX 音源未完成 inited 初始化")
 	}
 	return nil
+}
+
+// LX desktop user-api preload.js filters declarations against these exact
+// platform capabilities. Unknown platforms/actions/qualities are ignored.
+var lxSupportedSourceActions = map[string][]string{
+	"kw": {"musicUrl"},
+	"kg": {"musicUrl"},
+	"tx": {"musicUrl"},
+	"wy": {"musicUrl"},
+	"mg": {"musicUrl"},
+	"local": {"musicUrl", "lyric", "pic"},
+}
+
+var lxSupportedSourceQualitys = map[string][]string{
+	"kw": {"128k", "320k", "flac", "flac24bit"},
+	"kg": {"128k", "320k", "flac", "flac24bit"},
+	"tx": {"128k", "320k", "flac", "flac24bit"},
+	"wy": {"128k", "320k", "flac", "flac24bit"},
+	"mg": {"128k", "320k", "flac", "flac24bit"},
+	"local": {},
+}
+
+func filterLXSourceDeclaration(raw json.RawMessage) (json.RawMessage, []string, []LXDeclaredSource, error) {
+	var input struct {
+		Sources map[string]struct {
+			Type string `json:"type"`
+			Actions []string `json:"actions"`
+			Qualitys []string `json:"qualitys"`
+		} `json:"sources"`
+	}
+	if err := json.Unmarshal(raw, &input); err != nil {
+		return nil, nil, nil, fmt.Errorf("LX 音源初始化数据无效：%w", err)
+	}
+	if input.Sources == nil {
+		return nil, nil, nil, errors.New("LX 音源初始化数据无效：缺少 sources")
+	}
+
+	filtered := struct {
+		Sources map[string]struct {
+			Type string `json:"type"`
+			Actions []string `json:"actions"`
+			Qualitys []string `json:"qualitys"`
+		} `json:"sources"`
+	}{Sources: make(map[string]struct {
+		Type string `json:"type"`
+		Actions []string `json:"actions"`
+		Qualitys []string `json:"qualitys"`
+	})}
+	keys := make([]string, 0, len(input.Sources))
+	for key := range input.Sources { keys = append(keys, key) }
+	sort.Strings(keys)
+	platforms := make([]string, 0, len(keys))
+	declared := make([]LXDeclaredSource, 0, len(keys))
+	for _, key := range keys {
+		source := input.Sources[key]
+		allowedActions, supported := lxSupportedSourceActions[key]
+		if !supported || source.Type != "music" { continue }
+		actions := make([]string, 0, len(source.Actions))
+		for _, action := range allowedActions {
+			if containsLXValue(source.Actions, action) { actions = append(actions, action) }
+		}
+		allowedQualitys := lxSupportedSourceQualitys[key]
+		qualitys := make([]string, 0, len(source.Qualitys))
+		for _, quality := range allowedQualitys {
+			if containsLXValue(source.Qualitys, quality) { qualitys = append(qualitys, quality) }
+		}
+		filtered.Sources[key] = struct {
+			Type string `json:"type"`
+			Actions []string `json:"actions"`
+			Qualitys []string `json:"qualitys"`
+		}{Type: "music", Actions: actions, Qualitys: qualitys}
+		platforms = append(platforms, key)
+		declared = append(declared, LXDeclaredSource{Key: key, Type: "music", Actions: actions, Qualitys: qualitys})
+	}
+	encoded, err := json.Marshal(filtered)
+	return encoded, platforms, declared, err
 }
 
 // RunLXSourceWorker is called only by the private child-process entry point.
@@ -318,28 +392,17 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 		response.Error = "LX 音源未发送 inited 初始化事件"
 		return 1
 	}
-	var declaration struct {
-		Sources map[string]struct {
-			Name string `json:"name"`
-			Type string `json:"type"`
-			Actions []string `json:"actions"`
-			Qualitys []string `json:"qualitys"`
-		} `json:"sources"`
-	}
-	if err := json.Unmarshal(initialized, &declaration); err != nil || len(declaration.Sources) == 0 {
-		response.Error = "LX 音源初始化数据无效：没有声明 sources"
+	normalizedSources, platforms, declaredSources, declarationErr := filterLXSourceDeclaration(initialized)
+	if declarationErr != nil {
+		response.Error = declarationErr.Error()
 		return 1
 	}
-	platforms := make([]string, 0, len(declaration.Sources))
-	declaredSources := make([]LXDeclaredSource, 0, len(declaration.Sources))
-	for key, source := range declaration.Sources {
-		key = strings.TrimSpace(key)
-		if key == "" { continue }
-		platforms = append(platforms, key)
-		declaredSources = append(declaredSources, LXDeclaredSource{Key:key, Name:source.Name, Type:source.Type, Actions:append([]string(nil), source.Actions...), Qualitys:append([]string(nil), source.Qualitys...)})
+	response.Result = LXSourceRuntimeResult{
+		Initialized: true,
+		Platforms: platforms,
+		DeclaredSources: declaredSources,
+		Sources: normalizedSources,
 	}
-	sort.Strings(platforms)
-	sort.Slice(declaredSources, func(i,j int) bool { return declaredSources[i].Key < declaredSources[j].Key })
 	handlerNames := make([]string, 0, len(handlers))
 	for name := range handlers {
 		handlerNames = append(handlerNames, name)
@@ -363,12 +426,6 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 		for i := range declaredSources { if declaredSources[i].Key == resolveRequest.Source { selected = &declaredSources[i]; break } }
 		if selected == nil { response.Error = fmt.Sprintf("LX 音源未声明来源 %q", resolveRequest.Source); return 1 }
 		if !containsLXValue(selected.Actions, resolveRequest.Action) { response.Error = fmt.Sprintf("LX 音源 %q 不支持动作 %q", resolveRequest.Source, resolveRequest.Action); return 1 }
-		if resolveRequest.Action == "musicUrl" && resolveRequest.Source != "local" {
-			if _, ok := resolveRequest.Info.Type.(string); !ok {
-				response.Error = fmt.Sprintf("LX 音源 %q musicUrl 音质参数必须是字符串", resolveRequest.Source)
-				return 1
-			}
-		}
 		handler, ok := handlers["request"]
 		if !ok { response.Error = "LX 音源没有注册 request 处理器"; return 1 }
 		if len(request.Payload) == 0 { response.Error = "LX 音源请求数据为空"; return 1 }
