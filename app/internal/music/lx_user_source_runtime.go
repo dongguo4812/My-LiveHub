@@ -97,10 +97,24 @@ func InspectLXUserSource(parent context.Context, script string) (LXSourceRuntime
 	if runErr != nil {
 		return LXSourceRuntimeResult{}, fmt.Errorf("LX 音源隔离进程执行失败：%w", runErr)
 	}
-	if !response.Result.Initialized || len(response.Result.Platforms) == 0 {
-		return LXSourceRuntimeResult{}, errors.New("LX 音源未声明可用平台")
+	if err := validateLXSourceRuntimeResult(response.Result); err != nil {
+		return LXSourceRuntimeResult{}, err
 	}
 	return response.Result, nil
+}
+
+// validateLXSourceRuntimeResult rejects scripts that initialize platform
+// declarations but cannot handle the music URL requests required for playback.
+func validateLXSourceRuntimeResult(result LXSourceRuntimeResult) error {
+	if !result.Initialized || len(result.Platforms) == 0 {
+		return errors.New("LX 音源未声明可用平台")
+	}
+	for _, source := range result.DeclaredSources {
+		if containsLXValue(source.Actions, "musicUrl") && !containsLXValue(result.Handlers, "request") {
+			return fmt.Errorf("LX 音源声明了 %q 的 musicUrl 动作，但没有注册 request 处理器", source.Key)
+		}
+	}
+	return nil
 }
 
 // RunLXSourceWorker is called only by the private child-process entry point.
