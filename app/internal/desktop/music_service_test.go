@@ -304,8 +304,8 @@ func TestLXKugouMusicInfoPreservesPerQualityHashes(t *testing.T) {
 	if !ok||len(types)!=4||types[0].(map[string]any)["hash"]!="base-hash"||types[3].(map[string]any)["hash"]!="res-hash"{t.Fatalf("Kugou quality hashes missing: %#v",info["types"])}
 	if got:=selectLXQuality([]string{"flac24bit","flac","320k"},false,track);got!="320k"{t.Fatalf("expected 320k preference based on configured list, got %#v",got)}
 	if got:=selectLXQuality([]string{"flac24bit"},false,track);got!="flac24bit"{t.Fatalf("expected available 24bit quality, got %#v",got)}
-	track.SourceData["ResFileHash"]=""
-	if got:=selectLXQuality([]string{"flac24bit"},false,track);got!=nil{t.Fatalf("must reject quality without its file hash, got %#v",got)}
+	track.SourceData["ResFileSize"]="0"
+	if got:=selectLXQuality([]string{"flac24bit"},false,track);got!=nil{t.Fatalf("must reject quality without an available file size, got %#v",got)}
 }
 
 func TestLXNetEaseMusicInfoUsesPrivilegeAndQualityFiles(t *testing.T) {
@@ -316,7 +316,7 @@ func TestLXNetEaseMusicInfoUsesPrivilegeAndQualityFiles(t *testing.T) {
 	info:=buildLXMusicInfo(track,"flac")
 	if info["source"]!="wy"||info["songmid"]!="321"||info["albumId"]!="12"||info["interval"]!="03:00"||info["img"]!=track.CoverURL{t.Fatalf("NetEase LX musicInfo mismatch: %#v",info)}
 	types,ok:=info["types"].([]any)
-	if !ok||len(types)!=4||types[0].(map[string]any)["type"]!="flac24bit"||types[1].(map[string]any)["type"]!="flac"||types[3].(map[string]any)["type"]!="128k"{t.Fatalf("unexpected NetEase qualities: %#v",info["types"])}
+	if !ok||len(types)!=4||types[0].(map[string]any)["type"]!="128k"||types[1].(map[string]any)["type"]!="320k"||types[3].(map[string]any)["type"]!="flac24bit"{t.Fatalf("unexpected NetEase qualities: %#v",info["types"])}
 	if got:=selectLXQuality([]string{"flac24bit","flac","320k","128k"},false,track);got!="flac24bit"{t.Fatalf("expected highest available NetEase quality, got %#v",got)}
 	track.SourceData["wy_privilege"]=`{"maxbr":128000,"maxBrLevel":"standard"}`
 	if got:=selectLXQuality([]string{"flac","320k","128k"},false,track);got!="128k"{t.Fatalf("must not request unavailable NetEase quality, got %#v",got)}
