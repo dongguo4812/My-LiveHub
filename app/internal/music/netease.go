@@ -114,7 +114,7 @@ func (s *NetEaseSource) SearchPage(ctx context.Context, keyword string, page, li
 		tracks = append(tracks, Track{ID:id,SourceID:s.ID(),LXSourceKey:"wy",Title:strings.TrimSpace(song.Name),
 			Artist:artist,Album:albumName,DurationMS:song.Duration,CoverURL:strings.TrimSpace(song.Album.PicURL),SourceData:data})
 	}
-	total := payload.Result.SongCount
+	total := payload.Data.TotalCount
 	if total == 0 && len(tracks) > 0 {
 		total = int64((page-1)*limit + len(tracks))
 	}
