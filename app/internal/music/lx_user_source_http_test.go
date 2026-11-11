@@ -241,3 +241,25 @@ func TestLXRequestPreservesJavaScriptObjectKeyOrder(t *testing.T) {
 }, function (error) { if (error) throw error; });`)
 	if err != nil { t.Fatal(err) }
 }
+
+
+func TestLXRequestSendsBufferBodyAsRawBytes(t *testing.T) {
+	client := &http.Client{Transport: lxRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		if err != nil { t.Fatal(err) }
+		if !bytes.Equal(body, []byte{0, 1, 2, 255}) {
+			t.Errorf("Buffer request body = %v, want [0 1 2 255]", body)
+		}
+		return &http.Response{StatusCode: 200, Status: "200 OK", Header: make(http.Header), Body: io.NopCloser(strings.NewReader("ok")), Request: request}, nil
+	})}
+	vm := goja.New()
+	lx := vm.NewObject()
+	if err := installLXRequestWithClient(vm, lx, client); err != nil { t.Fatal(err) }
+	if err := vm.Set("lx", lx); err != nil { t.Fatal(err) }
+	if err := vm.Set("buffer", newLXBuffer(vm, []byte{0, 1, 2, 255})); err != nil { t.Fatal(err) }
+	_, err := vm.RunString(`lx.request("https://music.example.test/upload", {
+  method: "post",
+  body: buffer
+}, function (error) { if (error) throw error; });`)
+	if err != nil { t.Fatal(err) }
+}
