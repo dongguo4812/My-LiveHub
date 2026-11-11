@@ -638,3 +638,13 @@ func (s *MusicService) UpdateLXUserSource(id string) (music.LXUserSourceMetadata
 	defer cancel()
 	return store.Update(ctx, id)
 }
+
+func (s *MusicService) ValidateLXUserSource(id string) (music.LXSourceRuntimeResult, error) {
+	store, err := s.lxUserSourceStore()
+	if err != nil { return music.LXSourceRuntimeResult{}, err }
+	script, err := store.ReadScript(id)
+	if err != nil { return music.LXSourceRuntimeResult{}, err }
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	return music.InspectLXUserSource(ctx, script)
+}
