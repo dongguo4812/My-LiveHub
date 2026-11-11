@@ -769,7 +769,7 @@ func buildLXMusicInfo(track music.Track) map[string]any {
 		info["songId"] = strings.TrimSpace(track.SourceData["id"])
 		info["strMediaMid"] = strings.TrimSpace(track.SourceData["media_mid"])
 		info["albumMid"] = strings.TrimSpace(track.SourceData["albummid"])
-		info["albumId"] = strings.TrimSpace(track.SourceData["albummid"])
+		info["albumId"] = strings.TrimSpace(track.SourceData["albumid"])
 		info["albumName"] = track.Album
 		info["img"] = track.CoverURL
 		types, available := buildLXQQQualities(track.SourceData)
