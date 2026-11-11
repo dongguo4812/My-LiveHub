@@ -672,16 +672,10 @@ func (s *MusicService) resolveLXTrack(ctx context.Context, track music.Track) (m
 	if err != nil { return music.PlaybackResource{}, err }
 	sources, err := store.List()
 	if err != nil { return music.PlaybackResource{}, err }
-	// LX's official source identifiers are fixed. These aliases adapt the
-	// existing search providers; imported scripts are selected dynamically
-	// from their own inited.sources declarations.
-	sourceKey := strings.TrimSpace(track.SourceID)
-	switch track.SourceID {
-	case "netease": sourceKey = "wy"
-	case "qq_music": sourceKey = "tx"
-	case "kugou": sourceKey = "kg"
-	case "kuwo": sourceKey = "kw"
-	}
+	// Search adapters carry their own LX source key. No platform switch lives
+	// in the playback service; custom search adapters can set their own key.
+	sourceKey := strings.TrimSpace(track.LXSourceKey)
+	if sourceKey == "" { sourceKey = strings.TrimSpace(track.SourceID) }
 	seconds := track.DurationMS / 1000
 	musicInfo := map[string]any{
 		"id": track.ID, "mid": track.ID, "songmid": track.ID, "songId": track.ID,
@@ -689,6 +683,9 @@ func (s *MusicService) resolveLXTrack(ctx context.Context, track music.Track) (m
 		"name": track.Title, "songname": track.Title, "title": track.Title,
 		"artist": track.Artist, "singer": track.Artist, "album": track.Album,
 		"interval": seconds, "duration": seconds, "source": sourceKey,
+	}
+	for key, value := range track.SourceData {
+		if strings.TrimSpace(key) != "" { musicInfo[key] = value }
 	}
 	var failures []error
 	for _, source := range sources {

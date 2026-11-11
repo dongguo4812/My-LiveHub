@@ -109,9 +109,15 @@ func (s *NetEaseSource) SearchPage(ctx context.Context, keyword string, page, li
 			}
 		}
 		tracks = append(tracks, Track{
-			ID: strconv.FormatInt(song.ID, 10), SourceID: s.ID(), Title: strings.TrimSpace(song.Name),
+			ID: strconv.FormatInt(song.ID, 10), SourceID: s.ID(), LXSourceKey: "wy", Title: strings.TrimSpace(song.Name),
 			Artist: strings.Join(artists, " / "), Album: strings.TrimSpace(song.Album.Name),
 			DurationMS: song.Duration, CoverURL: strings.TrimSpace(song.Album.PicURL),
+			SourceData: map[string]string{
+				"id": strconv.FormatInt(song.ID, 10), "songId": strconv.FormatInt(song.ID, 10),
+				"name": strings.TrimSpace(song.Name), "title": strings.TrimSpace(song.Name),
+				"artist": strings.Join(artists, " / "), "album": strings.TrimSpace(song.Album.Name),
+				"duration": strconv.FormatInt(song.Duration/1000, 10), "interval": strconv.FormatInt(song.Duration/1000, 10),
+			},
 		})
 	}
 	total := payload.Result.SongCount

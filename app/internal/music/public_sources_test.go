@@ -24,6 +24,9 @@ func TestQQMusicSourceSearchPage(t *testing.T) {
 	if result.Tracks[0].ID != "qq-mid" || result.Tracks[0].Artist != "陶喆" || result.Tracks[0].DurationMS != 304000 {
 		t.Fatalf("unexpected QQ track: %#v", result.Tracks[0])
 	}
+	if result.Tracks[0].LXSourceKey != "tx" || result.Tracks[0].SourceData["songmid"] != "qq-mid" {
+		t.Fatalf("QQ LX metadata was not preserved: %#v", result.Tracks[0])
+	}
 }
 
 func TestKugouSourceSearchPage(t *testing.T) {
@@ -43,6 +46,9 @@ func TestKugouSourceSearchPage(t *testing.T) {
 	if result.Tracks[0].ID != "123" || result.Tracks[0].Artist != "陶喆" || result.Tracks[0].DurationMS != 304000 {
 		t.Fatalf("unexpected Kugou track: %#v", result.Tracks[0])
 	}
+	if result.Tracks[0].LXSourceKey != "kg" || result.Tracks[0].SourceData["FileHash"] != "hash" {
+		t.Fatalf("Kugou LX metadata was not preserved: %#v", result.Tracks[0])
+	}
 }
 
 func TestKuwoSourceSearchPage(t *testing.T) {
@@ -61,6 +67,9 @@ func TestKuwoSourceSearchPage(t *testing.T) {
 	}
 	if result.Tracks[0].ID != "456" || result.Tracks[0].Artist != "陶喆" || result.Tracks[0].DurationMS != 304000 {
 		t.Fatalf("unexpected Kuwo track: %#v", result.Tracks[0])
+	}
+	if result.Tracks[0].LXSourceKey != "kw" || result.Tracks[0].SourceData["MUSICRID"] != "MUSIC_456" {
+		t.Fatalf("Kuwo LX metadata was not preserved: %#v", result.Tracks[0])
 	}
 }
 

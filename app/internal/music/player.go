@@ -17,6 +17,13 @@ type SourceCapabilities struct {
 type Track struct {
 	ID         string `json:"id"`
 	SourceID   string `json:"source_id"`
+	// LXSourceKey is the source key declared by an LX-compatible resolver.
+	// Built-in search adapters populate it; future search plugins can provide
+	// their own key without adding a central platform switch.
+	LXSourceKey string `json:"lx_source_key,omitempty"`
+	// SourceData preserves provider-native identifiers and fields required by
+	// source scripts (for example QQ songmid or Kugou FileHash).
+	SourceData map[string]string `json:"source_data,omitempty"`
 	Title      string `json:"title"`
 	Artist     string `json:"artist,omitempty"`
 	Album      string `json:"album,omitempty"`

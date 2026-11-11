@@ -163,8 +163,14 @@ func (s *QQMusicSource) SearchPage(ctx context.Context, keyword string, page, li
 			cover = "https://y.gtimg.cn/music/photo_new/T002R500x500M000" + item.Album.Mid + ".jpg"
 		}
 		tracks = append(tracks, Track{
-			ID: id, SourceID: s.ID(), Title: title, Artist: strings.Join(artists, " / "),
+			ID: id, SourceID: s.ID(), LXSourceKey: "tx", Title: title, Artist: strings.Join(artists, " / "),
 			Album: strings.TrimSpace(item.Album.Name), DurationMS: item.Interval * 1000, CoverURL: cover,
+			SourceData: map[string]string{
+				"id": strconv.FormatInt(item.ID, 10), "mid": item.Mid, "songmid": item.Mid,
+				"name": title, "title": title, "singer": strings.Join(artists, " / "),
+				"artist": strings.Join(artists, " / "), "album": strings.TrimSpace(item.Album.Name),
+				"interval": strconv.FormatInt(item.Interval, 10), "duration": strconv.FormatInt(item.Interval, 10),
+			},
 		})
 	}
 	total, maxPage := sourcePageCount(payload.Data.Song.Total, page, limit, len(tracks))
@@ -268,8 +274,14 @@ func (s *KugouSource) SearchPage(ctx context.Context, keyword string, page, limi
 			}
 		}
 		tracks = append(tracks, Track{
-			ID: id, SourceID: s.ID(), Title: title, Artist: strings.Join(artists, " / "),
+			ID: id, SourceID: s.ID(), LXSourceKey: "kg", Title: title, Artist: strings.Join(artists, " / "),
 			Album: html.UnescapeString(strings.TrimSpace(item.AlbumName)), DurationMS: item.Duration * 1000,
+			SourceData: map[string]string{
+				"id": id, "audioid": id, "Audioid": id, "hash": item.FileHash, "fileHash": item.FileHash, "FileHash": item.FileHash,
+				"name": title, "songname": title, "title": title, "singer": strings.Join(artists, " / "),
+				"artist": strings.Join(artists, " / "), "album": html.UnescapeString(strings.TrimSpace(item.AlbumName)),
+				"duration": strconv.FormatInt(item.Duration, 10), "interval": strconv.FormatInt(item.Duration, 10),
+			},
 		})
 	}
 	total, maxPage := sourcePageCount(payload.Data.Total, page, limit, len(tracks))
@@ -363,10 +375,16 @@ func (s *KuwoSource) SearchPage(ctx context.Context, keyword string, page, limit
 		}
 		duration, _ := strconv.ParseInt(strings.TrimSpace(item.Duration), 10, 64)
 		tracks = append(tracks, Track{
-			ID: id, SourceID: s.ID(), Title: title,
+			ID: id, SourceID: s.ID(), LXSourceKey: "kw", Title: title,
 			Artist: html.UnescapeString(strings.TrimSpace(item.Artist)),
 			Album: html.UnescapeString(strings.TrimSpace(item.Album)),
 			DurationMS: duration * 1000,
+			SourceData: map[string]string{
+				"id": id, "rid": id, "MUSICRID": strings.TrimSpace(item.MusicRID), "musicrid": strings.TrimSpace(item.MusicRID),
+				"name": title, "songname": title, "title": title, "artist": html.UnescapeString(strings.TrimSpace(item.Artist)),
+				"album": html.UnescapeString(strings.TrimSpace(item.Album)), "duration": strconv.FormatInt(duration, 10),
+				"interval": strconv.FormatInt(duration, 10),
+			},
 		})
 	}
 	total, maxPage := sourcePageCount(total, page, limit, len(tracks))
