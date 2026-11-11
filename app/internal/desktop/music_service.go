@@ -528,8 +528,9 @@ func (s *MusicService) ResolveLXUserSource(id string, payload json.RawMessage) (
 	}
 	s.lxSessionMu.Lock()
 	session := s.lxSession
+	activeID := s.lxSessionID
 	s.lxSessionMu.Unlock()
-	if session == nil { return nil, errors.New("LX 音源运行实例不可用") }
+	if session == nil || activeID != id { return nil, errors.New("LX 当前启用的音源已切换") }
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
