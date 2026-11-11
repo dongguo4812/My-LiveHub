@@ -365,7 +365,11 @@ func (s *MusicService) Enqueue(track music.Track, requestedBy string) (music.Que
 		return music.QueueItem{}, err
 	}
 	if preempt {
-		if err := s.PlayNext(); err != nil { return item, err }
+		if err := s.PlayNext(); err != nil {
+			s.queue.FinishCurrent()
+			_ = s.resumeHostPlaylist()
+			return item, err
+		}
 	}
 	return item, nil
 }
