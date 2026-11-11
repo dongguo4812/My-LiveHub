@@ -35,3 +35,29 @@ func TestNetEaseSourceRejectsForeignTrack(t *testing.T) {
 		t.Fatal("expected source mismatch error")
 	}
 }
+
+func TestNetEaseSourceSearchPageUsesOffsetAndReturnsPageCount(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("offset"); got != "10" {
+			t.Errorf("expected offset 10 for page 3, got %q", got)
+		}
+		if got := r.URL.Query().Get("limit"); got != "5" {
+			t.Errorf("expected page size 5, got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":200,"result":{"songCount":21,"songs":[{"id":321,"name":"第三页歌曲","duration":180000,"artists":[{"name":"歌手"}],"album":{"name":"专辑"}}]}}`))
+	}))
+	defer server.Close()
+
+	source := NewNetEaseSource(server.Client(), server.URL)
+	result, err := source.SearchPage(context.Background(), "第三页歌曲", 3, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 21 || result.MaxPage != 5 || result.PageSize != 5 {
+		t.Fatalf("unexpected pagination metadata: %#v", result)
+	}
+	if len(result.Tracks) != 1 || result.Tracks[0].ID != "321" {
+		t.Fatalf("unexpected page tracks: %#v", result.Tracks)
+	}
+}
