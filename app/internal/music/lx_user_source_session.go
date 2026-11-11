@@ -34,43 +34,7 @@ type LXUserSourceSession struct {
 	updates chan LXUserSourceUpdate
 }
 
-var lxUpdateURLPattern = regexp.MustCompile(`^https?://[^\s$.?#].[^\s]*package music
-
-import (
-	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"net/http"
-	"regexp"
-	"strings"
-	"unicode/utf16"
-	"sync"
-	"sync/atomic"
-	"time"
-
-	"github.com/dop251/goja"
-)
-
-// LXUserSourceSession mirrors the lifecycle of the desktop userApi window:
-// one selected script is initialized once, keeps its JavaScript state, and
-// receives request events until it is closed or replaced.
-type LXUserSourceSession struct {
-	requests chan lxSessionRequest
-	closeCh chan struct{}
-	done chan struct{}
-	ready chan lxSessionReady
-	closeOnce sync.Once
-	requestCounter atomic.Uint64
-	pendingMu sync.Mutex
-	pending map[string]chan lxSessionResponse
-	mu sync.RWMutex
-	vm *goja.Runtime
-	result LXSourceRuntimeResult
-	updates chan LXUserSourceUpdate
-}
-
-var lxUpdateURLPattern = )
+var lxUpdateURLPattern = regexp.MustCompile(`^https?://[^\s$.?#].[^\s]*$`)
 
 type LXUserSourceUpdate struct {
 	Log string `json:"log"`
