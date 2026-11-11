@@ -57,9 +57,9 @@ lx.send(lx.EVENT_NAMES.inited, {
 		var response lxSessionWorkerOutput
 		if err := json.Unmarshal(line, &response); err != nil { t.Fatal(err) }
 		if response.Type != "response" || response.Error != "" { t.Fatalf("unexpected worker response: %#v", response) }
-		var value struct { URL string `json:"url"` }
+		var value struct { Data struct { URL string `json:"url"` } `json:"data"` }
 		if err := json.Unmarshal(response.Value, &value); err != nil { t.Fatal(err) }
-		results[response.RequestKey] = value.URL
+		results[response.RequestKey] = value.Data.URL
 	}
 	if results["request_slow"] != "https://cdn.example.test/slow-2.mp3" ||
 		results["request_fast"] != "https://cdn.example.test/fast-1.mp3" {
