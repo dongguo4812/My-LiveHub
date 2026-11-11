@@ -496,29 +496,43 @@ func (s *MusicService) closeLXUserSourceSession() {
 // ResolveLXUserSource dispatches a request to the currently selected LX source.
 // The same source is initialized only once and retains its JS global state;
 // switching to another source closes the previous runtime, matching LX setApi().
+// SetActiveLXUserSource mirrors LX userApi.setApi(): only one custom source
+// script is active at a time. Passing an empty ID closes the active source.
+func (s *MusicService) SetActiveLXUserSource(id string) error {
+	if s == nil { return errors.New("音乐服务不可用") }
+	if strings.TrimSpace(id) == "" {
+		s.closeLXUserSourceSession()
+		return nil
+	}
+	s.lxSessionMu.Lock()
+	defer s.lxSessionMu.Unlock()
+	if s.lxSession != nil && s.lxSessionID == id { return nil }
+	store, err := s.lxUserSourceStore()
+	if err != nil { return err }
+	script, err := store.ReadScript(id)
+	if err != nil { return err }
+	if s.lxSession != nil { _ = s.lxSession.Close() }
+	s.lxSession, s.lxSessionID = nil, ""
+	ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
+	defer cancel()
+	session, err := music.StartLXUserSourceSession(ctx, script, nil)
+	if err != nil { return err }
+	s.lxSession, s.lxSessionID = session, id
+	return nil
+}
+
 func (s *MusicService) ResolveLXUserSource(id string, payload json.RawMessage) (json.RawMessage, error) {
 	if s == nil { return nil, errors.New("音乐服务不可用") }
-	store, err := s.lxUserSourceStore()
-	if err != nil { return nil, err }
-	script, err := store.ReadScript(id)
-	if err != nil { return nil, err }
-
 	s.lxSessionMu.Lock()
-	if s.lxSession == nil || s.lxSessionID != id {
-		previous := s.lxSession
-		s.lxSession, s.lxSessionID = nil, ""
-		if previous != nil { _ = previous.Close() }
-		ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
-		session, startErr := music.StartLXUserSourceSession(ctx, script, nil)
-		cancel()
-		if startErr != nil {
-			s.lxSessionMu.Unlock()
-			return nil, startErr
-		}
-		s.lxSession, s.lxSessionID = session, id
+	active := s.lxSession != nil && s.lxSessionID == id
+	s.lxSessionMu.Unlock()
+	if !active {
+		if err := s.SetActiveLXUserSource(id); err != nil { return nil, err }
 	}
+	s.lxSessionMu.Lock()
 	session := s.lxSession
 	s.lxSessionMu.Unlock()
+	if session == nil { return nil, errors.New("LX 音源运行实例不可用") }
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
