@@ -453,6 +453,9 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 		response.Error = "初始化 LX 音源运行环境失败"
 		return 1
 	}
+	globalObject := vm.GlobalObject()
+	_ = vm.Set("window", globalObject)
+	_ = vm.Set("self", globalObject)
 	if _, err := vm.RunString(request.Script); err != nil {
 		response.Error = fmt.Sprintf("LX 音源脚本初始化失败：%s", err.Error())
 		return 1
