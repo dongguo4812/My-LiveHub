@@ -3,7 +3,6 @@ package music
 import (
 	"context"
 	"crypto/aes"
-	"crypto/cipher"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
@@ -138,7 +137,9 @@ func netEaseEAPIForm(apiPath string, value any) (url.Values, error) {
 	padding := block.BlockSize() - len(data)%block.BlockSize()
 	padded := append([]byte(data), bytesRepeat(byte(padding), padding)...)
 	ciphertext := make([]byte, len(padded))
-	cipher.NewECBEncrypter(block).CryptBlocks(ciphertext, padded)
+	for offset := 0; offset < len(padded); offset += block.BlockSize() {
+		block.Encrypt(ciphertext[offset:offset+block.BlockSize()], padded[offset:offset+block.BlockSize()])
+	}
 	values := url.Values{}
 	values.Set("params", strings.ToUpper(hex.EncodeToString(ciphertext)))
 	return values, nil
