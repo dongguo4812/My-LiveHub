@@ -95,8 +95,13 @@ func TestSourceRegistryAggregatesSamePageAndDeduplicates(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	if len(failures) != 0 { t.Fatalf("unexpected source errors: %#v", failures) }
 	if total != 78 || maxPage != 4 { t.Fatalf("unexpected aggregate pagination: total=%d maxPage=%d", total, maxPage) }
-	if len(tracks) != 3 { t.Fatalf("expected duplicate track to be removed, got %#v", tracks) }
-	if tracks[0].Title != "找自己" { t.Fatalf("expected best keyword match first, got %#v", tracks) }
+	if len(tracks) != 4 { t.Fatalf("expected provider results to be preserved without cross-platform deduplication, got %#v", tracks) }
+	if tracks[0].SourceID != "netease" || tracks[0].ID != "n1" ||
+		tracks[1].SourceID != "netease" || tracks[1].ID != "n2" ||
+		tracks[2].SourceID != "qq_music" || tracks[2].ID != "q1" ||
+		tracks[3].SourceID != "qq_music" || tracks[3].ID != "q2" {
+		t.Fatalf("expected provider-native ordering to be preserved, got %#v", tracks)
+	}
 }
 
 func TestSourceRegistryPagedSearchKeepsOtherSourcesWhenOneFails(t *testing.T) {
@@ -111,4 +116,22 @@ func TestSourceRegistryPagedSearchKeepsOtherSourcesWhenOneFails(t *testing.T) {
 	tracks, failures, _, _, err := registry.SearchPage(context.Background(), "稻香", map[string]bool{"netease":true, "qq_music":true}, 20, 1)
 	if err != nil { t.Fatal(err) }
 	if len(tracks) != 1 || failures["qq_music"] == "" { t.Fatalf("partial result was not preserved: tracks=%#v failures=%#v", tracks, failures) }
+}
+
+func TestQQSearchPreservesProviderOrderInsteadOfSimilarityRanking(t *testing.T) {
+	registry := NewSourceRegistry()
+	source := &pagedTestSource{
+		testSource: &testSource{id:"qq_music", name:"QQ 音乐"},
+		pageData: SourceSearchPage{Tracks: []Track{
+			{ID:"original-first", SourceID:"qq_music", Title:"稻香", Artist:"周杰伦"},
+			{ID:"original-second", SourceID:"qq_music", Title:"稻香 (Live)", Artist:"周杰伦"},
+		}, Total:2, MaxPage:1, PageSize:20},
+	}
+	if err := registry.Register(source); err != nil { t.Fatal(err) }
+	tracks, _, _, _, err := registry.SearchPage(context.Background(), "稻香 周杰伦",
+		map[string]bool{"qq_music":true}, 20, 1)
+	if err != nil { t.Fatal(err) }
+	if len(tracks) != 2 || tracks[0].ID != "original-first" || tracks[1].ID != "original-second" {
+		t.Fatalf("QQ result order changed from provider order: %#v", tracks)
+	}
 }
