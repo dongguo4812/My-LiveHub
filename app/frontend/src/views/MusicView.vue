@@ -13,7 +13,6 @@ type LXSource = Awaited<ReturnType<typeof MusicService.GetLXUserSources>>[number
 type LXValidation = Awaited<ReturnType<typeof MusicService.ValidateLXUserSource>>
 const lxSources = ref<LXSource[]>([])
 const lxValidation = ref<Record<string, LXValidation>>({})
-const lxResolvableKeys = ref<string[]>([])
 const validatingLXSourceID = ref('')
 const lxSourceURL = ref('')
 const importingLXSource = ref(false)
@@ -63,20 +62,6 @@ function formatDuration(value?: number) {
 }
 function sourceName(id?: string) { return sourceNames[id ?? ''] ?? id ?? '未知音源' }
 function trackRowKey(row: Track) { return `${row.source_id}:${row.id}` }
-function canResolveTrack(track: Track) {
-  const key = track.lx_source_key || track.source_id
-  return !!sourceCapabilities.value[track.source_id]?.resolve || lxResolvableKeys.value.includes(key)
-}
-function refreshLXResolvableKeys() {
-  const keys = new Set<string>()
-  for (const validation of Object.values(lxValidation.value)) {
-    for (const source of validation.declared_sources ?? []) {
-      if ((source.actions ?? []).includes('musicUrl')) keys.add(source.key)
-    }
-  }
-  lxResolvableKeys.value = [...keys]
-}
-
 async function loadConfig() {
   loading.value = true
   error.value = ''
@@ -106,7 +91,6 @@ async function refreshLXSources() {
     lxValidation.value = Object.fromEntries(entries.filter(
       (entry): entry is readonly [string, LXValidation] => entry !== null,
     ))
-    refreshLXResolvableKeys()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
   }
@@ -155,11 +139,9 @@ async function validateLXSource(source: LXSource) {
   try {
     const result = await MusicService.ValidateLXUserSource(source.id)
     lxValidation.value = { ...lxValidation.value, [source.id]: result }
-    refreshLXResolvableKeys()
     success.value = `音源初始化通过：${source.name}；已声明来源：${result.platforms.join('、')}。脚本声明的 musicUrl 来源已接入播放解析。`
   } catch (reason) {
     delete lxValidation.value[source.id]
-    refreshLXResolvableKeys()
     error.value = reason instanceof Error ? reason.message : String(reason)
   } finally {
     validatingLXSourceID.value = ''
@@ -173,7 +155,6 @@ async function updateLXSource(source: LXSource) {
     const metadata = await MusicService.UpdateLXUserSource(source.id)
     success.value = `已更新音源：${metadata.name}；请重新运行基础初始化验证`
     delete lxValidation.value[source.id]
-    refreshLXResolvableKeys()
     await refreshLXSources()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
@@ -188,7 +169,6 @@ async function deleteLXSource(source: LXSource) {
     await MusicService.DeleteLXUserSource(source.id)
     success.value = `已删除音源：${source.name}`
     delete lxValidation.value[source.id]
-    refreshLXResolvableKeys()
     await refreshLXSources()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
@@ -255,10 +235,6 @@ function search() {
 }
 async function addToQueue(track: Track) {
   error.value = ''
-  if (!canResolveTrack(track)) {
-    error.value = `${sourceName(track.source_id)}已接入搜索，但播放资源解析尚未实现`
-    return
-  }
   try {
     await MusicService.Enqueue(track, '')
     success.value = `已加入队列：${track.title}`
@@ -407,7 +383,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         <el-table-column prop="album" label="专辑" min-width="140" />
         <el-table-column label="音源" width="130"><template #default="scope">{{ sourceName(scope.row.source_id) }}</template></el-table-column>
         <el-table-column label="时长" width="90"><template #default="scope">{{ formatDuration(scope.row.duration_ms) }}</template></el-table-column>
-        <el-table-column label="操作" width="110" fixed="right"><template #default="scope"><el-button link type="primary" :disabled="!canResolveTrack(scope.row)" @click="addToQueue(scope.row)">加入队列</el-button></template></el-table-column>
+        <el-table-column label="操作" width="110" fixed="right"><template #default="scope"><el-button link type="primary"  @click="addToQueue(scope.row)">加入队列</el-button></template></el-table-column>
       </el-table>
       <div v-if="maxPage > 1" class="search-pagination">
         <el-pagination
