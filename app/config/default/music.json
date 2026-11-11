@@ -1,5 +1,5 @@
 {
-  "config_version": 2,
+  "config_version": 3,
   "enabled": true,
   "command_enabled": true,
   "command_prefix": "点歌",
@@ -9,6 +9,7 @@
     "netease": true,
     "qq_music": true,
     "kugou": true,
-    "kuwo": true
+    "kuwo": true,
+    "migu": true
   }
 }

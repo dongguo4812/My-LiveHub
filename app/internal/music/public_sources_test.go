@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestQQMusicSourceSearchPage(t *testing.T) {
@@ -84,4 +85,16 @@ func TestSearchOnlySourcesCannotResolvePlayback(t *testing.T) {
 			t.Errorf("expected %s playback resolution to be explicitly unsupported", source.ID())
 		}
 	}
+}
+
+func TestMiguSourceSearchPageMatchesLXMetadata(t *testing.T){
+ server:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+  if r.URL.Query().Get("pageNo")!="2"||r.URL.Query().Get("pageSize")!="10"||r.URL.Query().Get("text")!="找自己 陶喆"||r.Header.Get("uiVersion")!="A_music_3.6.1"||r.Header.Get("sign")==""||r.Header.Get("deviceId")==""{t.Errorf("unexpected Migu request: %s",r.URL.RawQuery)}
+  _,_=w.Write([]byte("{\"code\":\"000000\",\"info\":\"成功\",\"songResultData\":{\"totalCount\":\"21\",\"resultList\":[[{\"songId\":\"mg-song-id\",\"copyrightId\":\"mg-copy-id\",\"name\":\"找自己\",\"album\":\"I'm OK\",\"albumId\":\"album-9\",\"duration\":304,\"singerList\":[{\"name\":\"陶喆\"}],\"audioFormats\":[{\"formatType\":\"PQ\",\"asize\":1048576,\"isize\":0},{\"formatType\":\"HQ\",\"asize\":2097152,\"isize\":0},{\"formatType\":\"ZQ24\",\"asize\":4194304,\"isize\":0}],\"img3\":\"/cover.jpg\",\"lrcUrl\":\"https://lyrics.example/lrc\"}]]}}"))
+ }));defer server.Close()
+ src:=NewMiguSource(server.Client(),server.URL);src.now=func()time.Time{return time.UnixMilli(1700000000000)}
+ got,err:=src.SearchPage(context.Background(),"找自己 陶喆",2,10);if err!=nil{t.Fatal(err)}
+ if got.Total!=21||got.MaxPage!=3||len(got.Tracks)!=1{t.Fatalf("unexpected Migu result: %#v",got)}
+ tr:=got.Tracks[0];if tr.SourceID!="migu"||tr.LXSourceKey!="mg"||tr.ID!="mg-song-id"||tr.Artist!="陶喆"||tr.DurationMS!=304000||tr.CoverURL!="http://d.musicapp.migu.cn/cover.jpg"{t.Fatalf("Migu metadata mismatch: %#v",tr)}
+ if tr.SourceData["copyrightId"]!="mg-copy-id"||tr.SourceData["albumId"]!="album-9"||tr.SourceData["audio_formats_json"]==""{t.Fatalf("Migu metadata missing: %#v",tr.SourceData)}
 }

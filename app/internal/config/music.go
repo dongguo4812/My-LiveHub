@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-const CurrentMusicConfigVersion = 2
+const CurrentMusicConfigVersion = 3
 
 type MusicConfig struct {
 	ConfigVersion  int             `json:"config_version"`
@@ -34,6 +34,7 @@ func DefaultMusicConfig() MusicConfig {
 			"qq_music": true,
 			"kugou": true,
 			"kuwo": true,
+			"migu": true,
 		},
 	}
 }
@@ -41,34 +42,17 @@ func DefaultMusicConfig() MusicConfig {
 // MigrateMusicConfig converts the former independent-player settings into
 // source preferences. Luoxue was a player, not a source, so it is not carried
 // forward as an enabled source.
-func MigrateMusicConfig(c MusicConfig) (MusicConfig, bool) {
-	if c.ConfigVersion >= CurrentMusicConfigVersion && c.LegacyPlayers == nil && c.LegacyDefaultPlayer == "" {
-		return c, false
-	}
-	migrated := DefaultMusicConfig()
-	migrated.Enabled = c.Enabled
-	migrated.CommandEnabled = c.CommandEnabled
-	if strings.TrimSpace(c.CommandPrefix) != "" {
-		migrated.CommandPrefix = c.CommandPrefix
-	}
-	if c.QueueCapacity >= 1 && c.QueueCapacity <= 1000 {
-		migrated.QueueCapacity = c.QueueCapacity
-	}
-	if c.SearchLimit >= 1 && c.SearchLimit <= 50 {
-		migrated.SearchLimit = c.SearchLimit
-	}
-	if c.LegacyPlayers != nil {
-		for id, enabled := range c.LegacyPlayers {
-			if id == "netease" || id == "qq_music" || id == "kugou" || id == "kuwo" {
-				migrated.Sources[id] = enabled
-			}
-		}
-	}
-	// NetEase is the first implemented source. Keep it enabled during
-	// migration because the former QQ/Kugou/Kuwo player flags do not imply
-	// that their new source adapters are already available.
-	migrated.Sources["netease"] = true
-	return migrated, true
+
+func MigrateMusicConfig(c MusicConfig)(MusicConfig,bool){
+ if c.ConfigVersion>=CurrentMusicConfigVersion&&c.LegacyPlayers==nil&&c.LegacyDefaultPlayer==""{return c,false}
+ migrated:=DefaultMusicConfig();migrated.Enabled=c.Enabled;migrated.CommandEnabled=c.CommandEnabled
+ if strings.TrimSpace(c.CommandPrefix)!=""{migrated.CommandPrefix=c.CommandPrefix}
+ if c.QueueCapacity>=1&&c.QueueCapacity<=1000{migrated.QueueCapacity=c.QueueCapacity}
+ if c.SearchLimit>=1&&c.SearchLimit<=50{migrated.SearchLimit=c.SearchLimit}
+ for id,enabled:=range c.Sources{migrated.Sources[id]=enabled}
+ if c.LegacyPlayers!=nil{for id,enabled:=range c.LegacyPlayers{if id=="netease"||id=="qq_music"||id=="kugou"||id=="kuwo"||id=="migu"{migrated.Sources[id]=enabled}}}
+ if c.ConfigVersion<2{migrated.Sources["netease"]=true}
+ migrated.ConfigVersion=CurrentMusicConfigVersion;return migrated,true
 }
 
 func (c MusicConfig) Validate() error {

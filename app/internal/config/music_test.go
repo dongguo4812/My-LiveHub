@@ -10,8 +10,8 @@ func TestDefaultMusicConfigIsValid(t *testing.T) {
 	if !cfg.Enabled {
 		t.Fatal("music module should be enabled by default")
 	}
-	if len(cfg.Sources) != 4 {
-		t.Fatalf("expected four independently configurable sources, got %d", len(cfg.Sources))
+	if len(cfg.Sources) != 5 {
+		t.Fatalf("expected five independently configurable sources, got %d", len(cfg.Sources))
 	}
 }
 
@@ -84,4 +84,10 @@ func TestMigrateLegacyLuoxueOnlySelectionKeepsOneSourceEnabled(t *testing.T) {
 	if !changed || !got.Sources["netease"] {
 		t.Fatalf("expected a fallback source to be enabled: %+v", got)
 	}
+}
+
+func TestMigrateMusicConfigAddsMiguAndPreservesExistingSourcePreferences(t *testing.T){
+ got,changed:=MigrateMusicConfig(MusicConfig{ConfigVersion:2,Enabled:true,CommandEnabled:true,CommandPrefix:"点歌",QueueCapacity:100,SearchLimit:20,Sources:map[string]bool{"netease":true,"qq_music":false,"kugou":true,"kuwo":false}})
+ if !changed||got.ConfigVersion!=CurrentMusicConfigVersion{t.Fatalf("expected v2 config migration: %+v",got)}
+ if !got.Sources["migu"]||got.Sources["qq_music"]||got.Sources["kuwo"]{t.Fatalf("source preferences not preserved: %+v",got.Sources)}
 }

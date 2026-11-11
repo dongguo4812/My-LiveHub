@@ -2,6 +2,8 @@ package music
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +19,7 @@ const (
 	qqMusicSearchURL = "https://c.y.qq.com/soso/fcgi-bin/client_search_cp"
 	kugouSearchURL   = "https://songsearch.kugou.com/song_search_v2"
 	kuwoSearchURL    = "http://search.kuwo.cn/r.s"
+	miguSearchURL    = "https://jadeite.migu.cn/music_search/v3/search/searchAll"
 )
 
 func sourceHTTPClient(client *http.Client) *http.Client {
@@ -433,3 +436,35 @@ var _ Source = (*KugouSource)(nil)
 var _ PagedSource = (*KugouSource)(nil)
 var _ Source = (*KuwoSource)(nil)
 var _ PagedSource = (*KuwoSource)(nil)
+
+type MiguSource struct { client *http.Client; baseURL string; now func() time.Time }
+func NewMiguSource(client *http.Client,baseURL string)*MiguSource{baseURL=strings.TrimRight(strings.TrimSpace(baseURL),"/");if baseURL==""{baseURL=miguSearchURL};return &MiguSource{client:sourceHTTPClient(client),baseURL:baseURL,now:time.Now}}
+func(*MiguSource)ID()string{return "migu"}
+func(*MiguSource)Name()string{return "咪咕音乐"}
+func(*MiguSource)Capabilities()SourceCapabilities{return SourceCapabilities{Search:true,Resolve:false}}
+func(s *MiguSource)Search(ctx context.Context,keyword string,limit int)([]Track,error){p,e:=s.SearchPage(ctx,keyword,1,limit);return p.Tracks,e}
+func miguSignature(keyword,timestamp string)(string,string){const device="963B7AA0D21511ED807EE5846EC87D20";const salt="6cdc72a439cef99a3418d2a78aa28c73";const app="yyapp2d16148780a1dcc7408e06336b98cfd50";sum:=md5.Sum([]byte(keyword+salt+app+device+timestamp));return hex.EncodeToString(sum[:]),device}
+func miguRawString(raw json.RawMessage)string{if len(raw)==0||string(raw)=="null"{return ""};var v string;if json.Unmarshal(raw,&v)==nil{return v};return strings.TrimSpace(string(raw))}
+func(s *MiguSource)SearchPage(ctx context.Context,keyword string,page,limit int)(SourceSearchPage,error){
+ keyword,err:=normalizeSearchKeyword(keyword);if err!=nil{return SourceSearchPage{},err};limit=normalizeSearchLimit(limit);if page<1{page=1}
+ now:=time.Now;if s.now!=nil{now=s.now};stamp:=strconv.FormatInt(now().UnixMilli(),10);sign,device:=miguSignature(keyword,stamp)
+ endpoint,err:=url.Parse(s.baseURL);if err!=nil{return SourceSearchPage{},err};q:=endpoint.Query()
+ q.Set("isCorrect","0");q.Set("isCopyright","1");q.Set("searchSwitch","{\"song\":1,\"album\":0,\"singer\":0,\"tagSong\":1,\"mvSong\":0,\"bestShow\":1,\"songlist\":0,\"lyricSong\":0}")
+ q.Set("pageSize",strconv.Itoa(limit));q.Set("text",keyword);q.Set("pageNo",strconv.Itoa(page));q.Set("sort","0");q.Set("sid","USS");endpoint.RawQuery=q.Encode()
+ var payload struct{Code string json:"code";Info string json:"info";SongResultData struct{TotalCount json.RawMessage json:"totalCount";ResultList [][]map[string]json.RawMessage json:"resultList"} json:"songResultData"}
+ err=requestSourceJSON(ctx,s.client,endpoint.String(),map[string]string{"uiVersion":"A_music_3.6.1","deviceId":device,"timestamp":stamp,"sign":sign,"channel":"0146921","User-Agent":"Mozilla/5.0 (Linux; U; Android 11.0.0; zh-cn; MI 11 Build/OPR1.170623.032) AppleWebKit/534.30 (KHTML, like Gecko) Version/4.0 Mobile Safari/534.30"},&payload)
+ if err!=nil{return SourceSearchPage{},fmt.Errorf("search Migu Music: %w",err)};if payload.Code!="000000"{return SourceSearchPage{},fmt.Errorf("Migu Music search returned %s: %s",payload.Code,strings.TrimSpace(payload.Info))}
+ tracks:=make([]Track,0,limit);seen:=map[string]struct{}{}
+ for _,group:=range payload.SongResultData.ResultList{for _,item:=range group{
+  id:=miguRawString(item["songId"]);copyright:=miguRawString(item["copyrightId"]);title:=miguRawString(item["name"]);if id==""||copyright==""||title==""{continue};if _,ok:=seen[copyright];ok{continue};seen[copyright]=struct{}{}
+  var singers []map[string]json.RawMessage;_ = json.Unmarshal(item["singerList"],&singers);names:=[]string{};for _,a:=range singers{if n:=miguRawString(a["name"]);n!=""{names=append(names,n)}}
+  album:=miguRawString(item["album"]);duration,_:=strconv.ParseInt(miguRawString(item["duration"]),10,64);cover:=firstNonEmpty(miguRawString(item["img3"]),miguRawString(item["img2"]),miguRawString(item["img1"]));if cover!=""&&!strings.Contains(cover,"http:")&&!strings.Contains(cover,"https:"){cover="http://d.musicapp.migu.cn"+cover}
+  formats:=item["audioFormats"];if len(formats)==0{formats=json.RawMessage("[]")};artist:=strings.Join(names,"、")
+  tracks=append(tracks,Track{ID:id,SourceID:s.ID(),LXSourceKey:"mg",Title:title,Artist:artist,Album:album,DurationMS:duration*1000,CoverURL:cover,SourceData:map[string]string{"id":id,"songmid":id,"name":title,"singer":artist,"artist":artist,"album":album,"albumName":album,"albumId":miguRawString(item["albumId"]),"copyrightId":copyright,"duration":strconv.FormatInt(duration,10),"interval":formatLXInterval(duration),"img":cover,"lrcUrl":miguRawString(item["lrcUrl"]),"mrcUrl":miguRawString(item["mrcurl"]),"trcUrl":miguRawString(item["trcUrl"]),"audio_formats_json":string(formats)}})
+  if len(tracks)>=limit{break}
+ };if len(tracks)>=limit{break}}
+ total,_:=strconv.ParseInt(miguRawString(payload.SongResultData.TotalCount),10,64);total,max:=sourcePageCount(total,page,limit,len(tracks));return SourceSearchPage{Tracks:tracks,Total:total,MaxPage:max,PageSize:limit},nil
+}
+func(*MiguSource)Resolve(context.Context,Track)(PlaybackResource,error){return PlaybackResource{},errors.New("Migu Music search is available; playback URL resolution requires a compatible LX musicUrl source")}
+var _ Source=(*MiguSource)(nil)
+var _ PagedSource=(*MiguSource)(nil)

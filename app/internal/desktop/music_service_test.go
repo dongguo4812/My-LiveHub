@@ -251,9 +251,9 @@ func TestLXQQMusicInfoDoesNotFabricateMediaMid(t *testing.T) {
 	if info["strMediaMid"] != "" {
 		t.Fatalf("strMediaMid must preserve the missing provider value, got %#v", info["strMediaMid"])
 	}
-	if info["albumId"] != "" {
-		t.Fatalf("QQ flat albumId must preserve LX empty-string behavior when album is missing, got %#v", info["albumId"])
-	}
+	if info["albumId"] != "album-mid" { t.Fatalf("QQ albumId must mirror LX album.mid, got %#v",info["albumId"]) }
+	missingAlbum:=buildLXMusicInfo(music.Track{ID:"song-mid",LXSourceKey:"tx",Title:"稻香",SourceData:map[string]string{"id":"123456"}},"128k")
+	if missingAlbum["albumId"]!=""{t.Fatalf("QQ albumId must be empty when album.mid is missing, got %#v",missingAlbum["albumId"])}
 }
 
 func TestLXQQQualitySelectionUsesPerTrackAvailability(t *testing.T) {
@@ -270,4 +270,14 @@ func TestLXQQQualitySelectionUsesPerTrackAvailability(t *testing.T) {
 	if got := selectLXQuality([]string{"320k"}, false, track); got != nil {
 		t.Fatalf("must not request unsupported per-track quality, got %#v", got)
 	}
+}
+
+func TestLXMiguMusicInfoMatchesLXFields(t *testing.T){
+ tr:=music.Track{ID:"mg-song-id",LXSourceKey:"mg",Title:"找自己",Artist:"陶喆",Album:"I'm OK",DurationMS:304000,CoverURL:"https://img.example/cover.jpg",SourceData:map[string]string{
+ "songmid":"mg-song-id","copyrightId":"mg-copy-id","albumId":"album-9","lrcUrl":"https://lyrics.example/lrc",
+ "audio_formats_json":`[{"formatType":"PQ","asize":1048576,"isize":0},{"formatType":"HQ","asize":2097152,"isize":0},{"formatType":"ZQ24","asize":4194304,"isize":0}]`,
+ }}
+ info:=buildLXMusicInfo(tr,"320k")
+ if info["source"]!="mg"||info["songmid"]!="mg-song-id"||info["copyrightId"]!="mg-copy-id"||info["albumId"]!="album-9"||info["albumName"]!="I'm OK"||info["interval"]!="05:04"||info["img"]!=tr.CoverURL||info["lrcUrl"]!="https://lyrics.example/lrc"{t.Fatalf("Migu musicInfo mismatch: %#v",info)}
+ types,ok:=info["types"].([]any);if !ok||len(types)!=3||types[0].(map[string]any)["type"]!="128k"||types[1].(map[string]any)["type"]!="320k"||types[2].(map[string]any)["type"]!="flac24bit"{t.Fatalf("unexpected Migu qualities: %#v",info["types"])}
 }

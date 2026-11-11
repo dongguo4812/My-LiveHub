@@ -72,6 +72,7 @@ func NewMusicService(manager *config.Manager, value config.MusicConfig, buffers 
 	_ = sources.Register(music.NewLXQQMusicSource(nil, ""))
 	_ = sources.Register(music.NewKugouSource(nil, ""))
 	_ = sources.Register(music.NewKuwoSource(nil, ""))
+	_ = sources.Register(music.NewMiguSource(nil, ""))
 	return NewMusicServiceWithDependencies(manager, value, sources, music.NewMpvEngine(""), buffers...)
 }
 
@@ -768,6 +769,14 @@ func buildLXMusicInfo(track music.Track, quality any) map[string]any {
 	}
 	// Restore canonical generic IDs after merging provider-specific aliases.
 	info["id"], info["mid"], info["songmid"] = track.ID, track.ID, track.ID
+
+	if strings.TrimSpace(track.LXSourceKey) == "mg" {
+		info["source"]="mg";info["songmid"]=firstNonEmpty(track.SourceData["songmid"],track.ID)
+		info["copyrightId"]=track.SourceData["copyrightId"];info["albumId"]=track.SourceData["albumId"]
+		info["albumName"]=track.Album;info["interval"]=formatLXInterval(seconds);info["img"]=track.CoverURL
+		info["lrcUrl"]=track.SourceData["lrcUrl"];info["mrcUrl"]=track.SourceData["mrcUrl"];info["trcUrl"]=track.SourceData["trcUrl"]
+		if types,available:=buildLXMiguQualities(track.SourceData["audio_formats_json"]);len(types)>0{info["types"],info["_types"]=types,available}else{info["types"],info["_types"]=[]any{},map[string]any{}}
+	}
 	if strings.TrimSpace(track.LXSourceKey) == "tx" {
 		songMid := strings.TrimSpace(track.ID)
 		mediaMid := strings.TrimSpace(track.SourceData["media_mid"])
@@ -828,6 +837,18 @@ func buildLXQQQualities(data map[string]string) ([]any, map[string]any) {
 	}
 	return types, available
 }
+
+func buildLXMiguQualities(raw string)([]any,map[string]any){
+ var formats []map[string]json.RawMessage
+ if strings.TrimSpace(raw)==""||json.Unmarshal([]byte(raw),&formats)!=nil{return []any{},map[string]any{}}
+ names:=map[string]string{"PQ":"128k","HQ":"320k","SQ":"flac","ZQ24":"flac24bit"}
+ types:=make([]any,0,len(formats));available:=make(map[string]any,len(formats))
+ for _,f:=range formats{name:=names[musicRawString(f["formatType"])];if name==""{continue};sizeRaw:=f["asize"];if len(sizeRaw)==0||string(sizeRaw)=="null"{sizeRaw=f["isize"]}
+ size,err:=strconv.ParseInt(musicRawString(sizeRaw),10,64);if err!=nil||size<0{continue};label:="0 B";if size>0{label=formatLXFileSize(size)}
+ types=append(types,map[string]any{"type":name,"size":label});available[name]=map[string]any{"size":label}}
+ return types,available
+}
+func musicRawString(raw json.RawMessage)string{if len(raw)==0||string(raw)=="null"{return ""};var v string;if json.Unmarshal(raw,&v)==nil{return v};return strings.TrimSpace(string(raw))}
 
 func formatLXFileSize(size int64) string {
 	units := []string{"B", "KiB", "MiB", "GiB", "TiB"}

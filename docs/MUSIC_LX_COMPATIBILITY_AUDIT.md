@@ -106,7 +106,7 @@ My-LiveHub 的 Goja 已模拟 request 事件、lx this 上下文、Promise、定
 - app/internal/music/engine.go、mpv_*.go：统一播放引擎与 mpv IPC。
 - app/internal/music/lx_user_source_*.go：脚本导入、隔离执行、异步 HTTP 桥接及 URL 校验。
 - app/internal/desktop/music_service.go：弹幕命令入口、业务服务、队列协调和播放器生命周期。
-- QQ、网易云、酷狗、酷我搜索适配器及其测试。
+- QQ、网易云、酷狗、酷我、咪咕五个平台搜索适配器及其测试。
 
 不推倒重写 mpv，不移除 Goja，不把每个音乐平台拆成独立播放器。
 
@@ -125,7 +125,7 @@ My-LiveHub 的 Goja 已模拟 request 事件、lx this 上下文、Promise、定
 | desktop/music_service.go | 每次解析先检查所有导入脚本，再构造扁平对象 | 应保留隔离执行，但需确认脚本注册生命周期、平台声明、音质和请求参数与洛雪 wrapper 一致 |
 | desktop/music_service.go | 播放失败后重新搜索并尝试其他来源 | 方向正确，但匹配规则、音质选择、已尝试来源记录和超时重试需与洛雪行为对齐 |
 
-### 3.2.1 四个平台的搜索数据对照
+### 3.2.1 五个平台的搜索数据对照
 
 | 平台 | 洛雪实际搜索数据 | My-LiveHub 当前情况 | 结论 |
 |---|---|---|---|
@@ -146,6 +146,12 @@ My-LiveHub 的 Goja 已模拟 request 事件、lx this 上下文、Promise、定
 - LX request HTTP 桥接的响应字段、Buffer、编码、重定向、请求头和异步 Promise 行为，需与洛雪 API wrapper 的真实实现继续逐项核对。
 - 各平台音质数据转换不能用 QQ 的规则套用到其他平台。
 - 当前野花音源的 no matching track found 必须通过记录真实输入对象、来源 key、音质和脚本发出的请求来定位，不能直接归因于远端曲库。
+
+| 咪咕 / mg | 签名请求 jadeite.migu.cn/music_search/v3/search/searchAll；按 copyrightId 去重；从 songResultData.resultList 提取 songId、copyrightId、albumId、singerList、duration、img1/2/3、歌词 URL 和 audioFormats；PQ/HQ/SQ/ZQ24 对应 128k/320k/flac/flac24bit，大小取 asize ?? isize | 本轮新增 MiguSource，按洛雪签名和请求头搜索，保留原始 audioFormats 并生成 mg 旧式对象的 types/_types | 搜索元数据契约已纳入；播放仍需兼容 LX musicUrl 用户源解析，不宣称原生解析已实现 |
+
+### 咪咕来源源码依据
+
+对照洛雪 src/renderer/utils/musicSdk/mg/musicSearch.js 与 mg/index.js：签名串由 query、固定签名盐、app 盐、deviceId 和毫秒时间戳组成；请求头使用 uiVersion、deviceId、timestamp、sign、channel。结果要求同时存在 songId 和 copyrightId，并按 copyrightId 去重。质量映射为 PQ→128k、HQ→320k、SQ→flac、ZQ24→flac24bit，大小按 asize ?? isize。固定 JSON fixture 验证字段映射，不以在线接口暂时可访问代替契约测试。
 
 ## 4. 目标架构
 
@@ -177,7 +183,7 @@ LX 兼容层必须以洛雪 toOldMusicInfo 的输出为唯一数据契约；不�
 
 ### 阶段 1：完成协议审计与回归基线
 - 补齐洛雪 API wrapper、请求桥接和用户源运行环境的源码对照。
-- 对 QQ、网易云、酷狗、酷我逐个核对原始搜索对象、统一对象、旧式对象和音质字段。
+- 对 QQ、网易云、酷狗、酷我、咪咕逐个核对原始搜索对象、统一对象、旧式对象和音质字段。
 - 建立 JSON fixture，断言传入 LX musicUrl 的对象与洛雪旧式对象完全一致。
 - 使用真实野花源做受控验证，避免输出脚本凭据和请求中的敏感内容。
 
