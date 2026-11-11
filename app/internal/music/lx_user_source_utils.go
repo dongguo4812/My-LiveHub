@@ -95,7 +95,20 @@ func lxBufferBytes(value goja.Value) ([]byte, error) {
 		return append([]byte(nil), data...), nil
 	case []interface{}:
 		result := make([]byte, len(data))
-		for i, item := range data { result[i] = byte(goja.ToValue(item).ToInteger()) }
+		for i, item := range data {
+			switch number := item.(type) {
+			case int:
+				result[i] = byte(number)
+			case int64:
+				result[i] = byte(number)
+			case float64:
+				result[i] = byte(int64(number))
+			case uint8:
+				result[i] = number
+			default:
+				return nil, fmt.Errorf("unsupported LX buffer byte %T", item)
+			}
+		}
 		return result, nil
 	default:
 		return nil, fmt.Errorf("unsupported LX buffer value %T", data)
