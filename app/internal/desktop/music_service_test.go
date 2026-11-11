@@ -157,3 +157,19 @@ func TestMusicServicePreviousRestoresHistoryAndKeepsCurrentAsNext(t *testing.T) 
 	if err := service.Next(); err != nil { t.Fatal(err) }
 	if loaded := engine.CurrentLoaded(); loaded == nil || loaded.ID != "second" { t.Fatalf("next did not restore second track: %#v", loaded) }
 }
+
+func TestMusicServiceSearchPageReturnsPaginationMetadata(t *testing.T) {
+	service, _ := newTestMusicService(t, true)
+	defer service.Shutdown()
+
+	response, err := service.SearchPage("test song", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Page != 1 || response.PageSize <= 0 || response.MaxPage != 1 || response.Total != 1 {
+		t.Fatalf("unexpected search pagination metadata: %#v", response)
+	}
+	if len(response.Tracks) != 1 || response.Tracks[0].ID != "track-1" {
+		t.Fatalf("unexpected paged search tracks: %#v", response.Tracks)
+	}
+}
