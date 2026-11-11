@@ -771,7 +771,6 @@ func buildLXMusicInfo(track music.Track, quality any) map[string]any {
 	if strings.TrimSpace(track.LXSourceKey) == "tx" {
 		songMid := strings.TrimSpace(track.ID)
 		mediaMid := strings.TrimSpace(track.SourceData["media_mid"])
-		if mediaMid == "" { mediaMid = songMid }
 		albumMid := strings.TrimSpace(track.SourceData["albummid"])
 		// LX-compatible QQ sources use albumMid as the flat albumId too.
 		// QQ's numeric album id is retained separately as the additive
@@ -788,14 +787,12 @@ func buildLXMusicInfo(track music.Track, quality any) map[string]any {
 		info["albumId"] = albumMid
 		info["albumName"] = track.Album
 		info["img"] = track.CoverURL
-		if qualityName, ok := quality.(string); ok && strings.TrimSpace(qualityName) != "" {
-			// The selected quality is the one requested from the LX source.
-			// Do not make scripts infer it from QQ's optional file-size fields.
-			info["types"] = []any{map[string]any{"type": qualityName, "size": nil}}
-			info["_types"] = map[string]any{qualityName: map[string]any{"size": nil}}
+		// Match LX Music QQ handleResult exactly: preserve real file-size
+		// metadata in both types and _types instead of fabricating null sizes.
+		if types, available := buildLXQQQualities(track.SourceData); len(types) > 0 {
+			info["types"], info["_types"] = types, available
 		} else {
-			info["types"] = []any{}
-			info["_types"] = map[string]any{}
+			info["types"], info["_types"] = []any{}, map[string]any{}
 		}
 	}
 	return info
