@@ -101,10 +101,6 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 
 	method := strings.ToUpper(strings.TrimSpace(fmt.Sprint(options["method"])))
 	if method == "" || method == "<NIL>" { method = http.MethodGet }
-	if method != http.MethodGet && method != http.MethodHead && method != http.MethodPost && method != http.MethodPut && method != http.MethodPatch && method != http.MethodDelete && method != http.MethodOptions {
-		return nil, "", errors.New("LX request HTTP method 不受支持")
-	}
-
 	headers := lxObjectMap(options["headers"])
 	contentType := ""
 	for key, value := range headers { if strings.EqualFold(strings.TrimSpace(key), "content-type") { contentType = strings.TrimSpace(fmt.Sprint(value)); break } }
@@ -158,8 +154,17 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 	request.Header.Set("User-Agent", "Needle/3.2.0")
 	for key, value := range headers {
 		name := http.CanonicalHeaderKey(strings.TrimSpace(key))
-		if name == "" || name == "Host" || name == "Content-Length" || name == "Connection" || strings.HasPrefix(strings.ToLower(name), "proxy-") { continue }
-		request.Header.Set(name, fmt.Sprint(value))
+		if name == "" { continue }
+		switch name {
+		case "Host":
+			request.Host = fmt.Sprint(value)
+		case "Content-Length":
+			if length, parseErr := strconv.ParseInt(fmt.Sprint(value), 10, 64); parseErr == nil && length >= 0 {
+				request.ContentLength = length
+			}
+		default:
+			request.Header.Set(name, fmt.Sprint(value))
+		}
 	}
 	if len(requestBody) > 0 {
 		if _, ok := request.Header["Content-Type"]; !ok {
