@@ -92,7 +92,22 @@ async function loadConfig() {
   }
 }
 async function refreshLXSources() {
-  try { lxSources.value = await MusicService.GetLXUserSources() } catch (reason) {
+  try {
+    lxSources.value = await MusicService.GetLXUserSources()
+    // Validation state is page-local. Re-inspect imported scripts whenever the
+    // music page is opened so supported LX playback keys remain usable.
+    const entries = await Promise.all(lxSources.value.map(async source => {
+      try {
+        return [source.id, await MusicService.ValidateLXUserSource(source.id)] as const
+      } catch {
+        return null
+      }
+    }))
+    lxValidation.value = Object.fromEntries(entries.filter(
+      (entry): entry is NonNullable<typeof entry> => entry !== null,
+    ))
+    refreshLXResolvableKeys()
+  } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
   }
 }
