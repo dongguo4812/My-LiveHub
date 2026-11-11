@@ -68,7 +68,7 @@ type MusicService struct {
 func NewMusicService(manager *config.Manager, value config.MusicConfig, buffers ...*events.Buffer) *MusicService {
 	sources := music.NewSourceRegistry()
 	_ = sources.Register(music.NewNetEaseSource(nil, ""))
-	_ = sources.Register(music.NewQQMusicSource(nil, ""))
+	_ = sources.Register(music.NewLXQQMusicSource(nil, ""))
 	_ = sources.Register(music.NewKugouSource(nil, ""))
 	_ = sources.Register(music.NewKuwoSource(nil, ""))
 	return NewMusicServiceWithDependencies(manager, value, sources, music.NewMpvEngine(""), buffers...)
