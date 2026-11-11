@@ -260,3 +260,36 @@ lx.send(lx.EVENT_NAMES.inited, {
 		t.Fatalf("event validation result was not preserved: %q", result.Data.URL)
 	}
 }
+
+
+func TestLXUserSourceSessionProvidesCoreBrowserBase64AndMicrotaskAPIs(t *testing.T) {
+	script := `if (btoa("Hello") !== "SGVsbG8=") throw new Error("btoa mismatch");
+if (atob(" SGVs\nbG8= ") !== "Hello") throw new Error("atob mismatch");
+let microtaskRan = false;
+lx.on(lx.EVENT_NAMES.request, function () {
+  if (!microtaskRan) return Promise.reject(new Error("queueMicrotask did not run before initialization"));
+  return Promise.resolve("https://cdn.example.test/browser-globals.mp3");
+});
+queueMicrotask(function () {
+  microtaskRan = true;
+  lx.send(lx.EVENT_NAMES.inited, {
+    sources: { wy: { type: "music", actions: ["musicUrl"], qualitys: ["320k"] } }
+  });
+});`
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	session, err := StartLXUserSourceSession(ctx, script, nil)
+	if err != nil { t.Fatal(err) }
+	defer session.Close()
+
+	payload := json.RawMessage(`{"source":"wy","action":"musicUrl","info":{"type":"320k"}}`)
+	value, err := session.Request(ctx, payload)
+	if err != nil { t.Fatal(err) }
+	var result struct {
+		Data struct { URL string `json:"url"` } `json:"data"`
+	}
+	if err := json.Unmarshal(value, &result); err != nil { t.Fatal(err) }
+	if result.Data.URL != "https://cdn.example.test/browser-globals.mp3" {
+		t.Fatalf("browser compatibility APIs were not available: %q", result.Data.URL)
+	}
+}

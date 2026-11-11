@@ -420,6 +420,7 @@ func runLXSourceWorkerWithTimeout(input io.Reader, output io.Writer, requestClie
 	_ = vm.Set("console", console)
 	loop := newLXRuntimeEventLoop(vm)
 	defer loop.stop()
+	installLXBrowserGlobals(vm, loop)
 	_ = vm.Set("setTimeout", func(call goja.FunctionCall) goja.Value {
 		delay:=time.Duration(call.Argument(1).ToInteger())*time.Millisecond
 		if delay<0 { delay=0 }; if delay>lxWorkerTimeout { delay=lxWorkerTimeout }

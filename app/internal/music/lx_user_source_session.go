@@ -210,6 +210,7 @@ func (s *LXUserSourceSession) run(script string, requestClient *http.Client) {
 	_ = vm.Set("console", console)
 	loop := newLXRuntimeEventLoop(vm)
 	defer loop.stop()
+	installLXBrowserGlobals(vm, loop)
 	_ = vm.Set("setTimeout", func(call goja.FunctionCall) goja.Value {
 		delay := time.Duration(call.Argument(1).ToInteger()) * time.Millisecond
 		if delay < 0 { delay = 0 }
