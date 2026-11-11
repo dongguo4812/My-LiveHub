@@ -116,16 +116,30 @@ func (c *LXSearchClient) Sources() []SourceSnapshot {
 // Search runs all five LX desktop providers concurrently. Results retain the
 // provider order used by LX's SDK; one provider failure does not discard others.
 func (c *LXSearchClient) Search(ctx context.Context, keyword string, page int) (SearchPage, map[string]string, error) {
+	if c == nil { return SearchPage{}, nil, errors.New("洛雪搜索 SDK 未初始化") }
+	ids := make([]string, 0, len(c.providers))
+	for _, provider := range c.providers { ids = append(ids, provider.ID()) }
+	return c.SearchSources(ctx, keyword, page, ids)
+}
+
+// SearchSources searches only providers declared by the active LX user script.
+// Provider implementations remain the actual source of search capability.
+func (c *LXSearchClient) SearchSources(ctx context.Context, keyword string, page int, sourceIDs []string) (SearchPage, map[string]string, error) {
 	keyword = strings.TrimSpace(keyword)
 	if keyword == "" { return SearchPage{}, nil, errors.New("请输入歌曲名称或歌手") }
 	if page < 1 { return SearchPage{}, nil, errors.New("搜索页码必须大于 0") }
 	if c == nil || len(c.providers) == 0 { return SearchPage{}, nil, errors.New("洛雪搜索 SDK 未初始化") }
 	if ctx == nil { ctx = context.Background() }
+	allowed := make(map[string]bool, len(sourceIDs))
+	for _, id := range sourceIDs { allowed[id] = true }
+	providers := make([]SearchProvider, 0, len(sourceIDs))
+	for _, provider := range c.providers { if allowed[provider.ID()] { providers = append(providers, provider) } }
+	if len(providers) == 0 { return SearchPage{Tracks: []Track{}, Page: page, PageSize: lxSongSearchPageSize}, map[string]string{}, nil }
 
 	type outcome struct { page SearchPage; err error }
-	outcomes := make([]outcome, len(c.providers))
+	outcomes := make([]outcome, len(providers))
 	var wg sync.WaitGroup
-	for i, provider := range c.providers {
+	for i, provider := range providers {
 		wg.Add(1)
 		go func(index int, p SearchProvider) {
 			defer wg.Done()
@@ -137,7 +151,7 @@ func (c *LXSearchClient) Search(ctx context.Context, keyword string, page int) (
 	result := SearchPage{Tracks: []Track{}, Page: page, PageSize: lxSongSearchPageSize}
 	errs := make(map[string]string)
 	successes := 0
-	for i, provider := range c.providers {
+	for i, provider := range providers {
 		outcome := outcomes[i]
 		if outcome.err != nil { errs[provider.ID()] = outcome.err.Error(); continue }
 		successes++
@@ -147,9 +161,7 @@ func (c *LXSearchClient) Search(ctx context.Context, keyword string, page int) (
 		if outcome.page.MaxPage > result.MaxPage { result.MaxPage = outcome.page.MaxPage }
 	}
 	if successes == 0 {
-		if len(errs) == 0 { return result, errs, errors.New("洛雪搜索 SDK 未配置任何来源") }
-		// The pinned LX all-source action converts each provider rejection into
-		// an empty SearchResult rather than failing the whole search operation.
+		if len(errs) == 0 { return result, errs, nil }
 		if page == 1 { result.MaxPage = 1 } else { result.Total = int64(result.PageSize * page) }
 		return result, errs, nil
 	}

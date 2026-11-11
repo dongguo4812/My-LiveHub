@@ -305,6 +305,9 @@ func (s *MusicService) SearchSourcePage(keyword, source string, page int) (Music
 	if page < 1 {
 		return MusicSearchResponse{}, errors.New("搜索页码必须大于 0")
 	}
+	if !containsString(s.activeLXSearchSourceIDs(), source) {
+		return MusicSearchResponse{}, fmt.Errorf("当前启用的音源脚本未声明 %s 的 musicUrl 能力，或该来源暂不支持搜索", source)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 18*time.Second)
 	defer cancel()
 	result, err := s.searcher.SearchProvider(ctx, source, keyword, page)
@@ -317,6 +320,28 @@ func (s *MusicService) SearchSourcePage(keyword, source string, page int) (Music
 	}, nil
 }
 
+// activeLXSearchSourceIDs returns only searchable platform keys declared by
+// the currently enabled and initialized LX user script with musicUrl support.
+func (s *MusicService) activeLXSearchSourceIDs() []string {
+	if s == nil || s.searcher == nil { return []string{} }
+	s.lxSessionMu.Lock()
+	session := s.lxSession
+	s.lxSessionMu.Unlock()
+	if session == nil || !session.IsRunning() { return []string{} }
+	state := session.Snapshot()
+	searchable := make(map[string]bool)
+	for _, item := range s.searcher.Sources() { searchable[item.ID] = true }
+	result := make([]string, 0, len(state.DeclaredSources))
+	seen := make(map[string]bool)
+	for _, declared := range state.DeclaredSources {
+		if !searchable[declared.Key] || seen[declared.Key] { continue }
+		canResolve := false
+		for _, action := range declared.Actions { if action == "musicUrl" { canResolve = true; break } }
+		if canResolve { result = append(result, declared.Key); seen[declared.Key] = true }
+	}
+	return result
+}
+
 func (s *MusicService) search(parent context.Context, keyword string) (MusicSearchResponse, error) {
 	return s.searchPage(parent, keyword, 1)
 }
@@ -324,9 +349,13 @@ func (s *MusicService) search(parent context.Context, keyword string) (MusicSear
 func (s *MusicService) searchPage(parent context.Context, keyword string, page int) (MusicSearchResponse, error) {
 	if s == nil || s.searcher == nil { return MusicSearchResponse{}, errors.New("洛雪搜索 SDK 未初始化") }
 	if parent == nil { parent = context.Background() }
+	sourceIDs := s.activeLXSearchSourceIDs()
+	if len(sourceIDs) == 0 {
+		return MusicSearchResponse{Tracks: []music.Track{}, Errors: map[string]string{}, Page: page, PageSize: 30, MaxPage: 1}, nil
+	}
 	ctx, cancel := context.WithTimeout(parent, 18*time.Second)
 	defer cancel()
-	result, sourceErrors, err := s.searcher.Search(ctx, keyword, page)
+	result, sourceErrors, err := s.searcher.SearchSources(ctx, keyword, page, sourceIDs)
 	response := MusicSearchResponse{
 		Tracks: result.Tracks, Errors: sourceErrors, Page: result.Page,
 		PageSize: result.PageSize, Total: result.Total, MaxPage: result.MaxPage,

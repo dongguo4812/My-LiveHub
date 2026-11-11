@@ -29,6 +29,13 @@ const searchErrors = ref<Record<string, string>>({})
 const qualitySelections = ref<Record<string, string>>({})
 const query = ref('')
 const selectedSource = ref('all')
+const searchableSources = computed(() => {
+  const validation = lxValidation.value[activeLXSourceID.value]
+  const supported = new Set(['kw', 'kg', 'tx', 'wy', 'mg'])
+  return (validation?.declared_sources ?? [])
+    .filter(item => supported.has(item.key) && (item.actions ?? []).includes('musicUrl'))
+    .map(item => ({ id: item.key, name: sourceName(item.key) }))
+})
 const volume = ref(80)
 const loading = ref(false)
 const searching = ref(false)
@@ -146,6 +153,9 @@ async function refreshLXSources() {
       }),
     )
     activeLXSourceID.value = await MusicService.GetActiveLXUserSourceID()
+    if (selectedSource.value !== 'all' && !searchableSources.value.some(source => source.id === selectedSource.value)) {
+      selectedSource.value = 'all'
+    }
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
   }
@@ -236,6 +246,7 @@ async function setActiveLXSource(source: LXSource) {
   try {
     await MusicService.SetActiveLXUserSource(source.id)
     activeLXSourceID.value = source.id
+    if (selectedSource.value !== 'all' && !searchableSources.value.some(item => item.id === selectedSource.value)) selectedSource.value = 'all'
     success.value = `已启用音源：${source.name}`
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
@@ -246,6 +257,8 @@ async function deactivateLXSource() {
   try {
     await MusicService.SetActiveLXUserSource('')
     activeLXSourceID.value = ''
+    selectedSource.value = 'all'
+    results.value = []
     success.value = '已停用自定义音源'
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
@@ -485,14 +498,11 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
 
     <el-card v-if="activeTab === 'search'" shadow="never">
       <template #header><strong>搜索歌曲</strong></template>
+      <p class="section-description">这里只显示当前启用且已验证的音源脚本所声明、并具备 musicUrl 能力的平台。</p>
       <div class="search-row">
         <el-select v-model="selectedSource" style="width:160px" @change="search">
-          <el-option label="全部音源" value="all" />
-          <el-option label="酷我音乐" value="kw" />
-          <el-option label="酷狗音乐" value="kg" />
-          <el-option label="QQ 音乐" value="tx" />
-          <el-option label="网易云音乐" value="wy" />
-          <el-option label="咪咕音乐" value="mg" />
+          <el-option label="全部可用音源" value="all" :disabled="searchableSources.length === 0" />
+          <el-option v-for="source in searchableSources" :key="source.id" :label="source.name" :value="source.id" />
         </el-select>
         <el-input v-model="query" placeholder="输入歌曲名或歌手，例如：稻香 周杰伦" clearable @keyup.enter="search" />
         <el-button type="primary" :loading="searching" @click="search">搜索</el-button>
