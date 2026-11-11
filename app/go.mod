@@ -2,6 +2,7 @@ module github.com/dongguo4812/My-LiveHub/app
 go 1.27.0
 require (
 	github.com/Akegarasu/blivedm-go v0.0.0-20260926113008-957b543d2bfa
+	github.com/dop251/goja v0.0.0-20250309171923-bcd7cc6bf64c
 	github.com/leopold7/edge-tts-go v0.1.6
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/wailsapp/wails/v3 v3.0.0
