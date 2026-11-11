@@ -270,7 +270,14 @@ func (r *SourceRegistry) SearchPage(ctx context.Context, keyword string, enabled
 		}
 	}
 	r.mu.RUnlock()
-	sort.Slice(selected, func(i, j int) bool { return selected[i].ID() < selected[j].ID() })
+	sort.SliceStable(selected, func(i, j int) bool {
+		left := selected[i].Capabilities().Resolve
+		right := selected[j].Capabilities().Resolve
+		if left != right {
+			return left
+		}
+		return selected[i].ID() < selected[j].ID()
+	})
 	if len(selected) == 0 {
 		return nil, nil, 0, 0, errors.New("no enabled and available music sources")
 	}
