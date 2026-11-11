@@ -123,6 +123,28 @@ func TestRunLXSourceWorkerMatchesLXEventPromiseAndThisContext(t *testing.T) {
 	if resolved != "https://cdn.example.test/song.mp3" { t.Fatalf("resolved URL = %q", resolved) }
 }
 
+func TestRunLXSourceWorkerAwaitsLXTimersAndAsyncPromise(t *testing.T) {
+	script := `lx.on(lx.EVENT_NAMES.request, async function () {
+  return await new Promise(function (resolve) {
+    setTimeout(function () { resolve("https://cdn.example.test/timer.mp3"); }, 15);
+  });
+});
+lx.send(lx.EVENT_NAMES.inited, {
+  sources: { wy: { name: "NetEase", type: "music", actions: ["musicUrl"], qualitys: ["320k"] } }
+});`
+	payload := json.RawMessage(`{"source":"wy","action":"musicUrl","info":{"type":"320k"}}`)
+	input, err := json.Marshal(lxWorkerRequest{Script:script,Operation:"resolve",Payload:payload})
+	if err != nil { t.Fatal(err) }
+	var output bytes.Buffer
+	if code:=RunLXSourceWorker(bytes.NewReader(input),&output); code!=0 { t.Fatalf("worker returned %d: %s",code,output.String()) }
+	var response lxWorkerResponse
+	if err:=json.Unmarshal(output.Bytes(),&response); err!=nil { t.Fatal(err) }
+	if response.Error!="" { t.Fatal(response.Error) }
+	var resolved string
+	if err:=json.Unmarshal(response.Value,&resolved); err!=nil { t.Fatal(err) }
+	if resolved!="https://cdn.example.test/timer.mp3" { t.Fatalf("resolved URL = %q",resolved) }
+}
+
 func TestRunLXSourceWorkerRejectsPendingRequestPromise(t *testing.T) {
 	script := `lx.send(lx.EVENT_NAMES.inited, { sources: { wy: { name: "网易云音乐", type: "music", actions: ["musicUrl"], qualitys: ["320k"] } } });
 lx.on(lx.EVENT_NAMES.request, function () { return new Promise(function () {}); });`
@@ -187,6 +209,7 @@ lx.on(lx.EVENT_NAMES.request, async function (request) {
   const response = await new Promise(function (resolve, reject) {
     lx.request("https://music.example.test/resolve", {}, function (err, response) {
       if (err) return reject(err);
+      if (response.bytes !== 39 || lx.utils.buffer.bufToString(response.raw, "utf8").indexOf("cdn.example.test") < 0) return reject(new Error("LX response raw/bytes fields are missing"));
       resolve(response);
     });
   });
