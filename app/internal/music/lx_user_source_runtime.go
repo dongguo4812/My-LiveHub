@@ -415,7 +415,7 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 			_ = reject(vm.NewGoError(errors.New("Script is inited")))
 			return vm.ToValue(promise)
 		}
-		encoded, marshalErr := json.Marshal(call.Argument(1).Export())
+		encoded, marshalErr := json.Marshal(lxExportRequestValue(call.Argument(1)))
 		if marshalErr != nil {
 			_ = reject(vm.NewGoError(marshalErr))
 			return vm.ToValue(promise)
