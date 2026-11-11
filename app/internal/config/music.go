@@ -86,3 +86,29 @@ func (c MusicConfig) Validate() error {
 	}
 	return nil
 }
+
+
+// LoadMusicConfig loads music settings and applies schema migrations before
+// validating the current configuration. Older versions must reach the
+// migration step; validating them as the current schema would reject startup.
+func LoadMusicConfig(manager *Manager) (MusicConfig, error) {
+	value, err := LoadTyped[MusicConfig](manager, "music.json", func(candidate MusicConfig) error {
+		if candidate.ConfigVersion < CurrentMusicConfigVersion {
+			return nil
+		}
+		return candidate.Validate()
+	})
+	if err != nil {
+		return MusicConfig{}, err
+	}
+	migrated, changed := MigrateMusicConfig(value)
+	if !changed {
+		return value, nil
+	}
+	if err := SaveTyped(manager, "music.json", migrated, func(candidate MusicConfig) error {
+		return candidate.Validate()
+	}); err != nil {
+		return MusicConfig{}, fmt.Errorf("migrate music configuration: %w", err)
+	}
+	return migrated, nil
+}

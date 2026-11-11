@@ -1,6 +1,12 @@
 package config
 
-import "testing"
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+	"testing/fstest"
+)
 
 func TestDefaultMusicConfigIsValid(t *testing.T) {
 	cfg := DefaultMusicConfig()
@@ -90,4 +96,69 @@ func TestMigrateMusicConfigAddsMiguAndPreservesExistingSourcePreferences(t *test
  got,changed:=MigrateMusicConfig(MusicConfig{ConfigVersion:2,Enabled:true,CommandEnabled:true,CommandPrefix:"点歌",QueueCapacity:100,SearchLimit:20,Sources:map[string]bool{"netease":true,"qq_music":false,"kugou":true,"kuwo":false}})
  if !changed||got.ConfigVersion!=CurrentMusicConfigVersion{t.Fatalf("expected v2 config migration: %+v",got)}
  if !got.Sources["migu"]||got.Sources["qq_music"]||got.Sources["kuwo"]{t.Fatalf("source preferences not preserved: %+v",got.Sources)}
+}
+
+
+func TestLoadMusicConfigMigratesVersionTwoBeforeValidation(t *testing.T) {
+	defaults := fstest.MapFS{
+		"music.json": &fstest.MapFile{Data: []byte(`{
+			"config_version": 3,
+			"enabled": true,
+			"command_enabled": true,
+			"command_prefix": "点歌",
+			"queue_capacity": 100,
+			"search_limit": 20,
+			"sources": {
+				"netease": true,
+				"qq_music": true,
+				"kugou": true,
+				"kuwo": true,
+				"migu": true
+			}
+		}`)},
+	}
+	localDir := t.TempDir()
+	localPath := filepath.Join(localDir, "music.json")
+	if err := os.WriteFile(localPath, []byte(`{
+		"config_version": 2,
+		"enabled": true,
+		"command_enabled": true,
+		"command_prefix": "点歌",
+		"queue_capacity": 100,
+		"search_limit": 20,
+		"sources": {
+			"netease": true,
+			"qq_music": false,
+			"kugou": true,
+			"kuwo": false
+		}
+	}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := NewManager(defaults, localDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := LoadMusicConfig(manager)
+	if err != nil {
+		t.Fatalf("load version 2 music config: %v", err)
+	}
+	if got.ConfigVersion != CurrentMusicConfigVersion {
+		t.Fatalf("expected migrated config version %d, got %d", CurrentMusicConfigVersion, got.ConfigVersion)
+	}
+	if !got.Sources["netease"] || got.Sources["qq_music"] || !got.Sources["kugou"] || got.Sources["kuwo"] || !got.Sources["migu"] {
+		t.Fatalf("source selections were not preserved/migrated: %+v", got.Sources)
+	}
+	persisted, err := os.ReadFile(localPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved MusicConfig
+	if err := json.Unmarshal(persisted, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved.ConfigVersion != CurrentMusicConfigVersion {
+		t.Fatalf("expected persisted config version %d, got %d", CurrentMusicConfigVersion, saved.ConfigVersion)
+	}
 }
