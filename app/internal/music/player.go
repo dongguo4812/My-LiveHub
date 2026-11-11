@@ -103,3 +103,21 @@ func (r *SourceRegistry) List(enabled map[string]bool) []SourceSnapshot {
 	return result
 }
 
+
+// validateTrack checks the minimum identity and display fields required by
+// the queue and playback engines. Platform-specific metadata remains optional.
+func validateTrack(track Track) error {
+	if strings.TrimSpace(track.ID) == "" {
+		return errors.New("music track ID is required")
+	}
+	if strings.TrimSpace(track.SourceID) == "" {
+		return errors.New("music track source ID is required")
+	}
+	if strings.TrimSpace(track.Title) == "" {
+		return errors.New("music track title is required")
+	}
+	if track.DurationMS < 0 {
+		return errors.New("music track duration cannot be negative")
+	}
+	return nil
+}
