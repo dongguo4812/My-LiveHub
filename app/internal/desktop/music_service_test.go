@@ -206,7 +206,7 @@ func TestNewMusicServiceRegistersFourSearchSources(t *testing.T) {
 }
 
 
-func TestLXQQMusicInfoMatchesLXMusicContract(t *testing.T) {
+func TestLXQQMusicInfoMatchesLXMusicFlatContract(t *testing.T) {
 	track := music.Track{
 		ID: "song-mid", SourceID: "qq_music", LXSourceKey: "tx",
 		Title: "稻香", Artist: "周杰伦", Album: "魔杰座",
@@ -217,18 +217,37 @@ func TestLXQQMusicInfoMatchesLXMusicContract(t *testing.T) {
 			"size_flac": "0", "size_hires": "4194304",
 		},
 	}
-	info := buildLXMusicInfo(track)
-	if info["source"] != "tx" || info["songmid"] != "song-mid" || info["songId"] != "123456" ||
+	info := buildLXMusicInfo(track, "320k")
+	if info["source"] != "tx" || info["songmid"] != "song-mid" || info["songId"] != int64(123456) ||
 		info["strMediaMid"] != "media-mid" || info["albumMid"] != "album-mid" ||
-		info["albumId"] != "789" || info["albumName"] != "魔杰座" ||
+		info["albumId"] != "album-mid" || info["albumName"] != "魔杰座" ||
 		info["img"] != track.CoverURL || info["interval"] != "03:43" {
-		t.Fatalf("QQ musicInfo does not match LX Music fields: %#v", info)
+		t.Fatalf("QQ musicInfo does not match LX Music flat fields: %#v", info)
 	}
 	types, ok := info["types"].([]any)
-	if !ok || len(types) != 3 { t.Fatalf("unexpected QQ quality list: %#v", info["types"]) }
+	if !ok || len(types) != 1 || types[0].(map[string]any)["type"] != "320k" || types[0].(map[string]any)["size"] != nil {
+		t.Fatalf("unexpected QQ types: %#v", info["types"])
+	}
 	available, ok := info["_types"].(map[string]any)
-	if !ok || len(available) != 3 || available["flac"] != nil {
+	if !ok || len(available) != 1 || available["320k"].(map[string]any)["size"] != nil {
 		t.Fatalf("unexpected QQ _types: %#v", info["_types"])
+	}
+	if info["id"] != "song-mid" || info["mid"] != "song-mid" {
+		t.Fatalf("generic IDs were overwritten by provider metadata: %#v", info)
+	}
+}
+
+func TestLXQQMusicInfoUsesSongMidWhenMediaMidIsMissing(t *testing.T) {
+	track := music.Track{
+		ID: "song-mid", LXSourceKey: "tx", Title: "稻香", Artist: "周杰伦",
+		SourceData: map[string]string{"id": "123456", "albummid": "album-mid"},
+	}
+	info := buildLXMusicInfo(track, "128k")
+	if info["strMediaMid"] != "song-mid" {
+		t.Fatalf("strMediaMid must fall back to songmid, got %#v", info["strMediaMid"])
+	}
+	if info["albumId"] != "album-mid" {
+		t.Fatalf("QQ flat albumId must match albumMid, got %#v", info["albumId"])
 	}
 }
 
