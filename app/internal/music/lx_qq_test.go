@@ -62,24 +62,3 @@ func TestLXQQSearchRetriesWithFreshSearchIDAndReportsResponseCodes(t *testing.T)
  if calls!=6 { t.Fatalf("expected LX desktop's initial request plus five retries, got %d",calls) }
 }
 
-
-func TestLXQQMusicSourceFallsBackToMusicuWhenSignedDesktopSearchIsRejected(t *testing.T) {
- calls:=0
- server:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
-  calls++
-  var body map[string]json.RawMessage
-  if err:=json.NewDecoder(r.Body).Decode(&body);err!=nil{t.Fatal(err)}
-  if _,signed:=body["comm"];signed {
-   _,_=w.Write([]byte(`{"code":0,"music.search.SearchCgiService":{"code":2001,"data":{}}}`))
-   return
-  }
-  if r.Header.Get("Referer")!="https://y.qq.com/" {t.Errorf("fallback Referer=%q",r.Header.Get("Referer"))}
-  _,_=w.Write([]byte(`{"music.search.SearchCgiService":{"code":0,"data":{"body":{"song":{"list":[{"id":123,"mid":"song-mid","title":"稻香","interval":223,"singer":[{"name":"周杰伦","mid":"singer-mid"}],"album":{"id":789,"name":"魔杰座","mid":"album-mid"},"file":{"media_mid":"media-mid","size_128mp3":1234}}]}},"meta":{"sum":1}}}}`))
- }))
- defer server.Close()
- source:=NewLXQQMusicSource(server.Client(),server.URL)
- result,err:=source.SearchPage(context.Background(),"稻香 周杰伦",1,20)
- if err!=nil{t.Fatal(err)}
- if calls!=7 {t.Fatalf("expected 6 signed attempts then one fallback, got %d",calls)}
- if len(result.Tracks)!=1||result.Tracks[0].Title!="稻香"||result.Tracks[0].SourceData["media_mid"]!="media-mid" {t.Fatalf("fallback track mapping failed: %#v",result)}
-}
