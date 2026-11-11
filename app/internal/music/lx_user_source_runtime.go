@@ -397,12 +397,6 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 		response.Error = declarationErr.Error()
 		return 1
 	}
-	response.Result = LXSourceRuntimeResult{
-		Initialized: true,
-		Platforms: platforms,
-		DeclaredSources: declaredSources,
-		Sources: normalizedSources,
-	}
 	handlerNames := make([]string, 0, len(handlers))
 	for name := range handlers {
 		handlerNames = append(handlerNames, name)
@@ -412,7 +406,7 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 		Initialized: true,
 		Platforms: platforms,
 		DeclaredSources: declaredSources,
-		Sources: append(json.RawMessage(nil), initialized...),
+		Sources: normalizedSources,
 		Handlers: handlerNames,
 	}
 	if request.Operation == "resolve" {
