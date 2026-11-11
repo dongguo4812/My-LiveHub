@@ -22,6 +22,7 @@ const queue = ref<QueueSnapshot | null>(null)
 const playback = ref<PlaybackSnapshot | null>(null)
 const results = ref<Track[]>([])
 const searchErrors = ref<Record<string, string>>({})
+const qualitySelections = ref<Record<string, string>>({})
 const query = ref('')
 const volume = ref(80)
 const loading = ref(false)
@@ -265,8 +266,10 @@ function search() {
 async function addToQueue(track: Track) {
   error.value = ''
   try {
-    await MusicService.Enqueue(track, '')
-    success.value = `已加入队列：${track.title}`
+    const selectedQuality = qualitySelections.value[trackRowKey(track)] ?? ''
+    const queuedTrack = Object.assign({}, track, { selected_quality: selectedQuality })
+    await MusicService.Enqueue(queuedTrack, '')
+    success.value = `已加入队列：${track.title}${selectedQuality ? `（${selectedQuality}）` : '（自动选择最佳音质）'}`
     await refreshQueue()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
@@ -406,7 +409,8 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         <el-table-column prop="artist" label="歌手" min-width="140" />
         <el-table-column prop="album" label="专辑" min-width="140" />
         <el-table-column label="音源" width="130"><template #default="scope">{{ sourceName(scope.row.source_id) }}</template></el-table-column>
-        <el-table-column label="音质" min-width="150"><template #default="scope">{{ qualityNames(scope.row) }}</template></el-table-column>
+        <el-table-column label="可用音质" min-width="150"><template #default="scope">{{ qualityNames(scope.row) }}</template></el-table-column>
+        <el-table-column label="播放音质" min-width="135"><template #default="scope"><el-select v-model="qualitySelections[trackRowKey(scope.row)]" size="small" clearable placeholder="自动"><el-option v-for="quality in (scope.row.qualities ?? [])" :key="quality.type" :label="quality.type" :value="quality.type" /></el-select></template></el-table-column>
         <el-table-column label="时长" width="90"><template #default="scope">{{ formatDuration(scope.row.duration_ms) }}</template></el-table-column>
         <el-table-column label="操作" width="110" fixed="right"><template #default="scope"><el-button link type="primary"  @click="addToQueue(scope.row)">加入队列</el-button></template></el-table-column>
       </el-table>

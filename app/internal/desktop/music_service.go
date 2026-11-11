@@ -310,7 +310,68 @@ func (s *MusicService) GetQueue() music.QueueSnapshot {
 
 func (s *MusicService) PlayNext() error { return s.playNext(context.Background()) }
 
-func (s *MusicService) playNext(parent context.Context) error { return errors.New("洛雪 SDK 播放解析尚未接入") }
+func (s *MusicService) playNext(parent context.Context) error {
+	if s == nil || s.engine == nil || s.queue == nil { return errors.New("music playback service is unavailable") }
+	if parent == nil { parent = context.Background() }
+	s.mu.RLock()
+	enabled := s.value.Enabled
+	s.mu.RUnlock()
+	if !enabled { return errors.New("music module is disabled") }
+
+	current := s.queue.Snapshot().Current
+	if current == nil {
+		item, ok := s.queue.TakeNext()
+		if !ok { return errors.New("播放队列为空") }
+		current = &item
+	}
+	track := current.Track
+	sourceKey := track.LXSourceKey
+	if sourceKey == "" { sourceKey = track.SourceID }
+
+	activeID, err := s.GetActiveLXUserSourceID()
+	if err != nil { return fmt.Errorf("读取当前洛雪自定义源失败：%w", err) }
+	if activeID == "" { return errors.New("尚未启用洛雪自定义源，无法解析歌曲播放地址") }
+
+	s.lxSessionMu.Lock()
+	session := s.lxSession
+	sessionID := s.lxSessionID
+	s.lxSessionMu.Unlock()
+	if session == nil || sessionID != activeID || !session.IsRunning() {
+		if err := s.SetActiveLXUserSource(activeID); err != nil { return fmt.Errorf("启动洛雪自定义源失败：%w", err) }
+		s.lxSessionMu.Lock()
+		session = s.lxSession
+		sessionID = s.lxSessionID
+		s.lxSessionMu.Unlock()
+	}
+	if session == nil || sessionID != activeID { return errors.New("当前洛雪自定义源未能启动") }
+
+	var declared *music.LXDeclaredSource
+	for _, item := range session.Snapshot().DeclaredSources {
+		if item.Key == sourceKey { copy := item; declared = &copy; break }
+	}
+	if declared == nil { return fmt.Errorf("当前自定义源未声明平台 %s 的音乐解析能力", sourceKey) }
+	hasMusicURL := false
+	for _, action := range declared.Actions { if action == "musicUrl" { hasMusicURL = true; break } }
+	if !hasMusicURL { return fmt.Errorf("当前自定义源未声明 %s 的 musicUrl 动作", sourceKey) }
+
+	selected, err := chooseLXTrackQuality(track, *declared)
+	if err != nil { return err }
+	payload, err := buildLXMusicURLRequest(track, selected)
+	if err != nil { return fmt.Errorf("构建洛雪播放请求失败：%w", err) }
+	ctx, cancel := context.WithTimeout(parent, 22*time.Second)
+	defer cancel()
+	rawURL, err := session.Request(ctx, payload)
+	if err != nil { return fmt.Errorf("解析歌曲播放地址失败：%w", err) }
+	var playbackURL string
+	if err := json.Unmarshal(rawURL, &playbackURL); err != nil { return errors.New("自定义源返回的播放地址格式无效") }
+	if err := music.ValidateLXPlaybackURL(playbackURL); err != nil { return errors.New("自定义源未返回有效的 HTTP(S) 播放地址") }
+	if err := ctx.Err(); err != nil { return err }
+	if err := s.engine.Load(ctx, music.PlaybackResource{URL: playbackURL}, track); err != nil {
+		return fmt.Errorf("mpv 加载歌曲失败：%w", err)
+	}
+	s.startPlaybackWatcher()
+	return nil
+}
 
 func (s *MusicService) Pause() error {
 	if s == nil || s.engine == nil { return music.ErrPlaybackEngineUnavailable }
@@ -467,7 +528,7 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 			}
 			if time.Since(startedAt) >= 20*time.Second {
 				if ctx.Err() != nil { return }
-				s.setLastError(errors.New("播放器未能开始播放；洛雪 SDK 播放解析尚未接入"))
+				s.setLastError(errors.New("播放器未能开始播放；请检查音源解析结果和网络连接"))
 				return
 			}
 		}
