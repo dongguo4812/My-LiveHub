@@ -368,8 +368,16 @@ func (s *LXUserSourceSession) handleRequest(vm *goja.Runtime, lx *goja.Object, h
 	}
 	source, _ := payload["source"].(string)
 	action, _ := payload["action"].(string)
-	// LX forwards exactly these three fields to the selected userApi handler.
-	payload = map[string]any{"source": source, "action": action, "info": payload["info"]}
+	// LX forwards exactly these three fields to the selected userApi handler,
+	// preserving undefined when the incoming IPC payload omits a property.
+	requestData := vm.NewObject()
+	for _, key := range []string{"source", "action", "info"} {
+		if field, exists := payload[key]; exists {
+			_ = requestData.Set(key, vm.ToValue(field))
+		} else {
+			_ = requestData.Set(key, goja.Undefined())
+		}
+	}
 
 	if handler == nil || goja.IsUndefined(handler) || goja.IsNull(handler) {
 		s.completeRequest(call.requestKey, lxSessionResponse{err: errors.New("Request event is not defined")})
@@ -380,7 +388,7 @@ func (s *LXUserSourceSession) handleRequest(vm *goja.Runtime, lx *goja.Object, h
 		s.completeRequest(call.requestKey, lxSessionResponse{err: errors.New("LX request handler must be a function")})
 		return
 	}
-	value, err := callable(lx, vm.ToValue(payload))
+	value, err := callable(lx, requestData)
 	if err != nil {
 		s.completeRequest(call.requestKey, lxSessionResponse{err: err})
 		return
