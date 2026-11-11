@@ -64,7 +64,7 @@ type MusicService struct {
 	lxStore *music.LXUserSourceStore
 	lxStoreErr error
 	lxSessionMu sync.Mutex
-	lxSession *music.LXUserSourceSession
+	lxSession *music.LXUserSourceProcess
 	lxSessionID string
 }
 
@@ -514,7 +514,7 @@ func (s *MusicService) SetActiveLXUserSource(id string) error {
 	s.lxSession, s.lxSessionID = nil, ""
 	ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
 	defer cancel()
-	session, err := music.StartLXUserSourceSession(ctx, script, nil)
+	session, err := music.StartLXUserSourceProcess(ctx, script)
 	if err != nil { return err }
 	s.lxSession, s.lxSessionID = session, id
 	return nil
