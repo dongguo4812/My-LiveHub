@@ -24,8 +24,7 @@ const (
 	lxRequestRedirectLimit = 0
 )
 
-// installLXRequest exposes only the callback-based LX HTTP bridge. Requests are
-// restricted to public HTTP(S) hosts and bounded in time and response size.
+// installLXRequest exposes the callback-based HTTP bridge provided by LX.
 func installLXRequest(vm *goja.Runtime, lx *goja.Object) error {
 	return installLXRequestWithClient(vm, lx, nil)
 }
