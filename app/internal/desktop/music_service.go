@@ -784,6 +784,31 @@ func buildLXMusicInfo(track music.Track, quality any) map[string]any {
 			info["types"], info["_types"] = types, available
 		} else { info["types"], info["_types"] = []any{}, map[string]any{} }
 	}
+	if strings.TrimSpace(track.LXSourceKey) == "kg" {
+		info["source"] = "kg"
+		info["songmid"] = lxNumericID(track.SourceData["Audioid"])
+		info["albumAudioId"] = lxNumericID(track.SourceData["MixSongID"])
+		info["albumId"] = lxNumericID(track.SourceData["AlbumID"])
+		info["name"] = track.Title
+		if original := strings.TrimSpace(track.SourceData["OriSongName"]); original != "" {
+			name := original
+			if suffix := strings.TrimSpace(track.SourceData["Suffix"]); suffix != "" { name += " " + suffix }
+			info["name"] = name
+		}
+		if singer := strings.TrimSpace(track.SourceData["lxSinger"]); singer != "" { info["singer"] = singer }
+		info["albumName"] = track.Album
+		info["interval"] = formatLXInterval(seconds)
+		info["_interval"] = seconds
+		info["img"] = nil
+		info["lrc"] = nil
+		info["otherSource"] = nil
+		info["hash"] = track.SourceData["FileHash"]
+		if types, available := buildLXKugouQualities(track.SourceData); len(types) > 0 {
+			info["types"], info["_types"] = types, available
+		} else {
+			info["types"], info["_types"] = []any{}, map[string]any{}
+		}
+	}
 	if strings.TrimSpace(track.LXSourceKey) == "mg" {
 		info["source"]="mg"
 		songMid := strings.TrimSpace(track.SourceData["songmid"])
