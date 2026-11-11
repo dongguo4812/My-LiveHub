@@ -176,8 +176,25 @@ func (s *MusicService) processSongRequest(ctx context.Context, event events.Even
 		if len(response.Errors) > 0 { s.setLastError(errors.New("所有已启用音源均搜索失败")) }
 		return
 	}
-	if _, err := s.Enqueue(response.Tracks[0], event.UserName); err != nil {
-		s.setLastError(fmt.Errorf("加入弹幕点歌队列失败：%w", err))
+	var enqueueErr error
+	enqueued := false
+	for _, track := range response.Tracks {
+		source, ok := s.sources.Get(track.SourceID)
+		if !ok || !source.Capabilities().Resolve {
+			continue
+		}
+		if _, err := s.Enqueue(track, event.UserName); err == nil {
+			enqueued = true
+			break
+		} else {
+			enqueueErr = err
+		}
+	}
+	if !enqueued {
+		if enqueueErr == nil {
+			enqueueErr = errors.New("搜索结果中没有已实现播放资源解析的音源")
+		}
+		s.setLastError(fmt.Errorf("加入弹幕点歌队列失败：%w", enqueueErr))
 		return
 	}
 	if s.queue.Snapshot().Current == nil {
