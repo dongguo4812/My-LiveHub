@@ -226,17 +226,6 @@ func lxJSONPropertyKeys(raw json.RawMessage, property string) ([]string, error) 
 	return keys, nil
 }
 
-func lxDeclarationIncludes(value any, target string) (bool, error) {
-	switch list := value.(type) {
-	case []any:
-		for _, item := range list { if text, ok := item.(string); ok && text == target { return true, nil } }
-		return false, nil
-	case string:
-		return strings.Contains(list, target), nil
-	default:
-		return false, errors.New("includes is not a function")
-	}
-}
 
 func filterLXSourceDeclaration(raw json.RawMessage) (json.RawMessage, []string, []LXDeclaredSource, error) {
 	var input struct {
