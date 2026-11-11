@@ -9,6 +9,11 @@ type QueueSnapshot = Awaited<ReturnType<typeof MusicService.GetQueue>>
 type PlaybackSnapshot = Awaited<ReturnType<typeof MusicService.GetPlaybackStatus>>
 
 const config = ref<MusicConfig | null>(null)
+type LXSource = Awaited<ReturnType<typeof MusicService.GetLXUserSources>>[number]
+const lxSources = ref<LXSource[]>([])
+const lxSourceURL = ref('')
+const importingLXSource = ref(false)
+const sourceFileInput = ref<HTMLInputElement | null>(null)
 const sourceCapabilities = ref<Record<string, { search: boolean; resolve: boolean }>>({})
 const queue = ref<QueueSnapshot | null>(null)
 const playback = ref<PlaybackSnapshot | null>(null)
@@ -62,12 +67,66 @@ async function loadConfig() {
     config.value = await MusicService.GetConfig()
     sourceCapabilities.value = Object.fromEntries((await MusicService.GetSources()).map(source => [source.id, source.capabilities]))
     await refreshQueue()
+    await refreshLXSources()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
   } finally {
     loading.value = false
   }
 }
+async function refreshLXSources() {
+  try { lxSources.value = await MusicService.GetLXUserSources() } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  }
+}
+function chooseLXSourceFile() { sourceFileInput.value?.click() }
+async function importLXSourceFile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  importingLXSource.value = true
+  error.value = ''
+  success.value = ''
+  try {
+    if (file.size > 1024 * 1024) throw new Error('音源脚本不能超过 1 MB')
+    const script = await file.text()
+    const metadata = await MusicService.ImportLXSource(script)
+    success.value = `已导入音源：${metadata.name}（当前仅完成脚本导入，解析运行环境仍在接入）`
+    await refreshLXSources()
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  } finally {
+    importingLXSource.value = false
+    input.value = ''
+  }
+}
+async function importLXSourceURL() {
+  if (!lxSourceURL.value.trim()) { error.value = '请输入音源脚本 URL'; return }
+  importingLXSource.value = true
+  error.value = ''
+  success.value = ''
+  try {
+    const metadata = await MusicService.ImportLXSourceURL(lxSourceURL.value.trim())
+    success.value = `已下载并导入音源：${metadata.name}（当前仅完成脚本导入，解析运行环境仍在接入）`
+    lxSourceURL.value = ''
+    await refreshLXSources()
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  } finally {
+    importingLXSource.value = false
+  }
+}
+async function deleteLXSource(source: LXSource) {
+  if (!window.confirm(`确定删除音源“${source.name}”吗？`)) return
+  try {
+    await MusicService.DeleteLXUserSource(source.id)
+    success.value = `已删除音源：${source.name}`
+    await refreshLXSources()
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  }
+}
+
 async function refreshQueue() {
   try { queue.value = await MusicService.GetQueue() } catch { /* Keep the last known queue. */ }
 }
@@ -242,6 +301,28 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
     </el-card>
 
     <el-card shadow="never">
+      <template #header><div class="card-heading"><strong>洛雪自定义音源</strong><el-tag type="warning" effect="plain">兼容层开发中</el-tag></div></template>
+      <p class="section-description">支持导入洛雪格式的 JavaScript 音源文件，或通过 URL 下载脚本。脚本会保存到本机配置目录；在隔离运行环境接入前，不会执行第三方脚本，也不会参与播放解析。</p>
+      <div class="lx-import-row">
+        <el-input v-model="lxSourceURL" placeholder="粘贴 .js 音源脚本 URL" clearable @keyup.enter="importLXSourceURL" />
+        <el-button type="primary" :loading="importingLXSource" @click="importLXSourceURL">从 URL 导入</el-button>
+        <el-button :loading="importingLXSource" @click="chooseLXSourceFile">导入本地 JS</el-button>
+        <input ref="sourceFileInput" class="hidden-file-input" type="file" accept=".js,.txt,text/javascript" @change="importLXSourceFile" />
+      </div>
+      <div v-if="lxSources.length" class="lx-source-list">
+        <div v-for="source in lxSources" :key="source.id" class="lx-source-row">
+          <div class="source-copy">
+            <strong>{{ source.name }} <el-tag size="small" type="warning">尚未启用解析</el-tag></strong>
+            <span>{{ source.author || '未知作者' }} · {{ source.version || '未标注版本' }} · SHA256 {{ source.sha256.slice(0, 12) }}</span>
+            <span v-if="source.source_url">{{ source.source_url }}</span>
+          </div>
+          <el-button link type="danger" @click="deleteLXSource(source)">删除</el-button>
+        </div>
+      </div>
+      <el-empty v-else description="尚未导入自定义音源" :image-size="64" />
+    </el-card>
+
+    <el-card shadow="never">
       <template #header><strong>搜索歌曲</strong></template>
       <div class="search-row">
         <el-input v-model="query" placeholder="输入歌曲名或歌手，例如：稻香 周杰伦" clearable @keyup.enter="search" />
@@ -303,5 +384,5 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
 
 
 <style scoped>
-.music-page{display:flex;flex-direction:column;gap:20px}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.section-description,.source-copy span,.setting-row p,.hint{color:var(--el-text-color-secondary);font-size:13px}.section-description{margin:0 0 16px}.card-heading{display:flex;align-items:center;justify-content:space-between}.source-list,.setting-list{display:flex;flex-direction:column}.source-row,.setting-row{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:14px 0;border-bottom:1px solid var(--app-border)}.source-row:last-child{border-bottom:0}.source-copy,.track-info{display:flex;flex-direction:column;gap:5px}.source-copy span,.track-info span,.track-info small{font-size:12px;color:var(--el-text-color-secondary)}.setting-row p{margin:6px 0 0}.card-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}.now-playing{display:flex;align-items:center;gap:16px}.track-cover{width:76px;height:76px;border-radius:10px;background:var(--app-bg-control);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--el-text-color-secondary);font-size:30px}.track-cover img{width:100%;height:100%;object-fit:cover}.track-info strong{font-size:17px}.time-row{display:flex;justify-content:space-between;color:var(--el-text-color-secondary);font-size:12px;font-variant-numeric:tabular-nums}.player-controls{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:14px 0}.volume-row{display:grid;grid-template-columns:50px 1fr;align-items:center;gap:12px}.volume-row span{font-size:13px;color:var(--el-text-color-secondary)}.hint{margin:12px 0 0}.search-row{display:flex;gap:10px}.search-summary{margin-top:12px;color:var(--el-text-color-secondary);font-size:12px}.search-pagination{display:flex;justify-content:center;margin-top:18px}.queue-current{padding:10px 12px;margin-bottom:12px;border-radius:8px;background:var(--app-bg-control);font-size:13px}.setting-row p{margin:6px 0 0}@media(max-width:800px){.source-row,.setting-row{align-items:flex-start;flex-direction:column}.search-row{flex-direction:column}}
+.music-page{display:flex;flex-direction:column;gap:20px}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.section-description,.source-copy span,.setting-row p,.hint{color:var(--el-text-color-secondary);font-size:13px}.section-description{margin:0 0 16px}.card-heading{display:flex;align-items:center;justify-content:space-between}.source-list,.setting-list{display:flex;flex-direction:column}.source-row,.setting-row{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:14px 0;border-bottom:1px solid var(--app-border)}.source-row:last-child{border-bottom:0}.source-copy,.track-info{display:flex;flex-direction:column;gap:5px}.source-copy span,.track-info span,.track-info small{font-size:12px;color:var(--el-text-color-secondary)}.setting-row p{margin:6px 0 0}.card-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}.now-playing{display:flex;align-items:center;gap:16px}.track-cover{width:76px;height:76px;border-radius:10px;background:var(--app-bg-control);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--el-text-color-secondary);font-size:30px}.track-cover img{width:100%;height:100%;object-fit:cover}.track-info strong{font-size:17px}.time-row{display:flex;justify-content:space-between;color:var(--el-text-color-secondary);font-size:12px;font-variant-numeric:tabular-nums}.player-controls{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:14px 0}.volume-row{display:grid;grid-template-columns:50px 1fr;align-items:center;gap:12px}.volume-row span{font-size:13px;color:var(--el-text-color-secondary)}.hint{margin:12px 0 0}.search-row{display:flex;gap:10px}.lx-import-row{display:flex;gap:10px;align-items:center}.hidden-file-input{display:none}.lx-source-list{display:flex;flex-direction:column;margin-top:16px}.lx-source-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-top:1px solid var(--app-border)}.lx-source-row .source-copy{min-width:0}.lx-source-row .source-copy span{overflow-wrap:anywhere}.search-summary{margin-top:12px;color:var(--el-text-color-secondary);font-size:12px}.search-pagination{display:flex;justify-content:center;margin-top:18px}.queue-current{padding:10px 12px;margin-bottom:12px;border-radius:8px;background:var(--app-bg-control);font-size:13px}.setting-row p{margin:6px 0 0}@media(max-width:800px){.source-row,.setting-row{align-items:flex-start;flex-direction:column}.search-row,.lx-import-row{flex-direction:column;align-items:stretch}.lx-source-row{align-items:flex-start}}
 </style>
