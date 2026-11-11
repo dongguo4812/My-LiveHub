@@ -104,7 +104,7 @@ lx.on(lx.EVENT_NAMES.request, function () { return new Promise(function () {}); 
 
 
 func TestRunLXSourceWorkerProvidesSafeLXRequestBridge(t *testing.T) {
-	script := `lx.send(lx.EVENT_NAMES.inited, { sources: { wy: { name: "网易云音乐", actions: ["musicUrl"], qualitys: ["standard"] } } });
+	script := `lx.send(lx.EVENT_NAMES.inited, { sources: { wy: { name: "网易云音乐", type: "music", actions: ["musicUrl"], qualitys: ["320k"] } } });
 lx.on(lx.EVENT_NAMES.request, function () {
   return new Promise(function (resolve) {
     lx.request("http://127.0.0.1/private", {}, function (err) {
