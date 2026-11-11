@@ -18,7 +18,6 @@ func TestParseLXUserSourceRejectsInvalidScripts(t *testing.T) {
  cases := []struct { name, script string }{
   {name: "empty"},
   {name: "missing header", script: "const source = true;"},
-  {name: "missing name", script: "/* @version 1 */\nvoid 0;"},
   {name: "too large", script: "/* @name Large */\n" + strings.Repeat("x", MaxLXUserSourceBytes)},
  }
  for _, testCase := range cases {
@@ -26,6 +25,15 @@ func TestParseLXUserSourceRejectsInvalidScripts(t *testing.T) {
    if _, err := ParseLXUserSource(testCase.script); err == nil { t.Fatal("expected invalid source to be rejected") }
   })
  }
+}
+
+
+func TestParseLXUserSourceAllowsMissingNameLikeLX(t *testing.T) {
+	source, err := ParseLXUserSource("/*\n * @version 1.0\n */\nvoid 0;")
+	if err != nil { t.Fatal(err) }
+	if !strings.HasPrefix(source.Metadata.Name, "user_api_") {
+		t.Fatalf("missing @name should use the LX fallback name, got %q", source.Metadata.Name)
+	}
 }
 
 func TestParseLXUserSourceTruncatesLongMetadata(t *testing.T) {
