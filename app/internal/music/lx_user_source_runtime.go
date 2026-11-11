@@ -286,7 +286,7 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 		return 1
 	}
 	if strings.TrimSpace(request.Script) == "" || len(request.Script) > MaxLXUserSourceBytes {
-		response.Error = "LX 音源脚本为空或超过 1 MB 限制"
+		response.Error = "LX 音源脚本为空或超过 9 MB 限制"
 		return 1
 	}
 
@@ -598,7 +598,7 @@ func containsLXValue(values []string, target string) bool {
 // Promise microtasks are drained before the result is read.
 func ResolveLXUserSource(parent context.Context, script string, payload json.RawMessage) (json.RawMessage, error) {
 	if parent == nil { parent = context.Background() }
-	if strings.TrimSpace(script) == "" || len(script) > MaxLXUserSourceBytes { return nil, errors.New("LX 音源脚本为空或超过 1 MB 限制") }
+	if strings.TrimSpace(script) == "" || len(script) > MaxLXUserSourceBytes { return nil, errors.New("LX 音源脚本为空或超过 9 MB 限制") }
 	if len(payload) == 0 || len(payload) > 64<<10 { return nil, errors.New("LX 音源请求数据为空或超过 64 KB 限制") }
 	ctx, cancel := context.WithTimeout(parent, lxWorkerTimeout)
 	defer cancel()
