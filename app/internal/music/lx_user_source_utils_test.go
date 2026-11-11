@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"math/big"
 	"testing"
+	"strings"
 
 	"github.com/dop251/goja"
 )
@@ -105,4 +106,42 @@ func TestLXBufferExposesCommonNodeBufferMethods(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	want := "6d757369632d736f75726365|music|6|true|Buffer:12"
 	if value.String() != want { t.Fatalf("Buffer compatibility result = %q, want %q", value.String(), want) }
+}
+
+
+func TestLXBufferStringEncodingsMatchNodeBuffer(t *testing.T) {
+	vm := goja.New()
+	lx := vm.NewObject()
+	if err := installLXSourceUtilities(vm, lx); err != nil { t.Fatal(err) }
+	if err := vm.Set("lx", lx); err != nil { t.Fatal(err) }
+	value, err := vm.RunString(`[
+  lx.utils.buffer.from("é", "ascii").toString("hex"),
+  lx.utils.buffer.from("SGVsbG8", "base64").toString("utf8"),
+  lx.utils.buffer.bufToString("é", "hex")
+].join("|")`)
+	if err != nil { t.Fatal(err) }
+	if got, want := value.String(), "e9|Hello|e9"; got != want {
+		t.Fatalf("LX Buffer string encodings = %q, want %q", got, want)
+	}
+}
+
+func TestLXZlibInflateRejectsThroughPromise(t *testing.T) {
+	vm := goja.New()
+	lx := vm.NewObject()
+	if err := installLXSourceUtilities(vm, lx); err != nil { t.Fatal(err) }
+	if err := vm.Set("lx", lx); err != nil { t.Fatal(err) }
+	if _, err := vm.RunString(`
+		var inflateError = "";
+		lx.utils.zlib.inflate("not-zlib").catch(function (error) {
+			inflateError = error.message;
+		});
+	`); err != nil {
+		t.Fatalf("invalid zlib data should reject a Promise, not throw synchronously: %v", err)
+	}
+	if _, err := vm.RunString("void 0"); err != nil { t.Fatal(err) }
+	value, err := vm.RunString("inflateError")
+	if err != nil { t.Fatal(err) }
+	if !strings.Contains(value.String(), "inflate failed") {
+		t.Fatalf("zlib rejection message = %q", value.String())
+	}
 }
