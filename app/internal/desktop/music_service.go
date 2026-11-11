@@ -467,6 +467,35 @@ func (s *MusicService) GetPlaybackStatus() (music.PlaybackSnapshot, error) {
 	if s == nil || s.engine == nil { return music.PlaybackSnapshot{}, music.ErrPlaybackEngineUnavailable }
 	return s.engine.Snapshot(context.Background())
 }
+func (s *MusicService) GetLXUserSourceProxy() config.LXUserSourceProxyConfig {
+	if s == nil { return config.LXUserSourceProxyConfig{} }
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.value.LXUserSourceProxy
+}
+
+func (s *MusicService) UpdateLXUserSourceProxy(enabled bool, host, port string) (config.LXUserSourceProxyConfig, error) {
+	if s == nil || s.manager == nil { return config.LXUserSourceProxyConfig{}, errors.New("music configuration service is unavailable") }
+	next := config.LXUserSourceProxyConfig{Enabled: enabled, Host: strings.TrimSpace(host), Port: strings.TrimSpace(port)}
+	if err := next.Validate(); err != nil { return config.LXUserSourceProxyConfig{}, err }
+	s.mu.Lock()
+	updated := s.value
+	updated.LXUserSourceProxy = next
+	if err := config.SaveTyped(s.manager, "music.json", updated, func(value config.MusicConfig) error { return value.Validate() }); err != nil {
+		s.mu.Unlock()
+		return config.LXUserSourceProxyConfig{}, fmt.Errorf("save LX source proxy settings: %w", err)
+	}
+	s.value = updated
+	s.mu.Unlock()
+	s.lxSessionMu.Lock()
+	session := s.lxSession
+	s.lxSessionMu.Unlock()
+	if session != nil {
+		if err := session.SetProxy(next); err != nil { return next, fmt.Errorf("proxy settings saved but active LX source update failed: %w", err) }
+	}
+	return next, nil
+}
+
 func (s *MusicService) GetStatus() MusicStatus {
 	if s == nil { return MusicStatus{} }
 	s.mu.RLock()
@@ -692,7 +721,7 @@ func (s *MusicService) setActiveLXUserSourceLocked(id string) error {
 		if err != nil { return err }
 		ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
 		defer cancel()
-		next, err = music.StartLXUserSourceProcess(ctx, script)
+		next, err = music.StartLXUserSourceProcess(ctx, script, s.GetLXUserSourceProxy())
 		if err != nil { return err }
 	}
 	if err := store.SetActiveID(id); err != nil {

@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"io"
 	"net/http"
+	"net/url"
+
+	"github.com/dongguo4812/My-LiveHub/app/internal/config"
 	"strings"
 	"testing"
 	"time"
@@ -358,3 +361,17 @@ func TestLXRequestRejectsOversizedRequestAndResponseBodies(t *testing.T) {
 		}
 	})
 }
+
+func TestLXNeedleTransportUsesConfiguredHTTPProxy(t *testing.T) {
+	proxy := config.LXUserSourceProxyConfig{Enabled:true, Host:"127.0.0.1", Port:"7890"}
+	transport := newLXNeedleTransportWithProxy(time.Second, proxy)
+	defer transport.CloseIdleConnections()
+	for _, scheme := range []string{"http", "https"} {
+		request := &http.Request{URL: mustLXTestURL(""+scheme+"://music.example.test/song")}
+		got, err := transport.Proxy(request)
+		if err != nil { t.Fatalf("proxy lookup for %s: %v", scheme, err) }
+		if got == nil || got.String() != "http://127.0.0.1:7890" { t.Errorf("proxy for %s = %v", scheme, got) }
+	}
+}
+
+func mustLXTestURL(raw string) *url.URL { parsed, err := url.Parse(raw); if err != nil { panic(err) }; return parsed }

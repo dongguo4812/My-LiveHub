@@ -29,7 +29,7 @@ func TestMusicConfigMigrationDropsPlatformConfig(t *testing.T) {
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if c.ConfigVersion != 4 || c.QueueCapacity != 80 {
+	if c.ConfigVersion != 5 || c.QueueCapacity != 80 {
 		t.Fatalf("migrated: %+v", c)
 	}
 }
@@ -82,5 +82,14 @@ func TestLoadMusicConfigRemovesRetiredFieldsBeforeStrictDecode(t *testing.T) {
 		if _, exists := saved[retired]; exists {
 			t.Errorf("retired field %q remains in saved config", retired)
 		}
+	}
+}
+
+func TestLXUserSourceProxyConfigValidation(t *testing.T) {
+	if err := (LXUserSourceProxyConfig{}).Validate(); err != nil { t.Fatalf("disabled proxy should be valid: %v", err) }
+	valid := LXUserSourceProxyConfig{Enabled: true, Host: "127.0.0.1", Port: "7890"}
+	if err := valid.Validate(); err != nil { t.Fatalf("valid proxy rejected: %v", err) }
+	for _, value := range []LXUserSourceProxyConfig{{Enabled:true, Host:"", Port:"7890"}, {Enabled:true, Host:"127.0.0.1", Port:"0"}, {Enabled:true, Host:"http://127.0.0.1", Port:"7890"}} {
+		if err := value.Validate(); err == nil { t.Errorf("invalid proxy config accepted: %+v", value) }
 	}
 }

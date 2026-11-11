@@ -2,10 +2,28 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 )
 
-const CurrentMusicConfigVersion = 4
+const CurrentMusicConfigVersion = 5
+
+type LXUserSourceProxyConfig struct {
+	Enabled bool `json:"enabled"`
+	Host string `json:"host"`
+	Port string `json:"port"`
+}
+
+func (c LXUserSourceProxyConfig) Validate() error {
+	if !c.Enabled { return nil }
+	host := strings.TrimSpace(c.Host)
+	if host == "" || strings.Contains(host, "://") || strings.ContainsAny(host, "/?#@ ") { return fmt.Errorf("LX 音源代理主机地址无效") }
+	port, err := strconv.Atoi(strings.TrimSpace(c.Port))
+	if err != nil || port < 1 || port > 65535 { return fmt.Errorf("LX 音源代理端口必须为 1 到 65535 之间的数字") }
+	if net.ParseIP(host) == nil && strings.Contains(host, ":") { return fmt.Errorf("LX 音源代理主机地址无效") }
+	return nil
+}
 
 type MusicConfig struct {
 	ConfigVersion  int    `json:"config_version"`
@@ -13,6 +31,7 @@ type MusicConfig struct {
 	CommandEnabled bool   `json:"command_enabled"`
 	CommandPrefix  string `json:"command_prefix"`
 	QueueCapacity  int    `json:"queue_capacity"`
+	LXUserSourceProxy LXUserSourceProxyConfig `json:"lx_user_source_proxy"`
 }
 
 func DefaultMusicConfig() MusicConfig {
@@ -38,6 +57,7 @@ func MigrateMusicConfig(c MusicConfig) (MusicConfig, bool) {
 	if c.QueueCapacity >= 1 && c.QueueCapacity <= 1000 {
 		n.QueueCapacity = c.QueueCapacity
 	}
+	n.LXUserSourceProxy = c.LXUserSourceProxy
 	return n, true
 }
 
@@ -54,6 +74,7 @@ func (c MusicConfig) Validate() error {
 	if c.QueueCapacity < 1 || c.QueueCapacity > 1000 {
 		return fmt.Errorf("music queue capacity must be between 1 and 1000")
 	}
+	if err := c.LXUserSourceProxy.Validate(); err != nil { return err }
 	return nil
 }
 
@@ -75,6 +96,7 @@ func LoadMusicConfig(m *Manager) (MusicConfig, error) {
 			"command_enabled": true,
 			"command_prefix": true,
 			"queue_capacity": true,
+			"lx_user_source_proxy": true,
 		}
 		cleaned := make(map[string]any, len(local))
 		changed := false

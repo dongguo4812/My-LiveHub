@@ -1,7 +1,12 @@
 {
-  "config_version": 4,
+  "config_version": 5,
   "enabled": true,
   "command_enabled": true,
   "command_prefix": "点歌",
-  "queue_capacity": 100
+  "queue_capacity": 100,
+  "lx_user_source_proxy": {
+    "enabled": false,
+    "host": "",
+    "port": ""
+  }
 }
