@@ -46,7 +46,7 @@ func TestLXRequestCallbackReceivesResponseBody(t *testing.T) {
 			StatusCode: http.StatusOK,
 			Status: "200 OK",
 			Header: make(http.Header),
-			Body: io.NopCloser(strings.NewReader("{\"url\":\"https://cdn.example.test/song.mp3\"}")),
+		return &http.Response{StatusCode:http.StatusOK, Status:"200 OK", Header:http.Header{"Content-Type":[]string{"text/plain"}}, Body:io.NopCloser(strings.NewReader("  {\"url\":\"https://cdn.example.test/song.mp3\"}\n")), Request:request}, nil
 			Request: request,
 		}, nil
 	})}
