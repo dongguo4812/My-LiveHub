@@ -23,13 +23,19 @@ const (
 // installLXRequest exposes only the callback-based LX HTTP bridge. Requests are
 // restricted to public HTTP(S) hosts and bounded in time and response size.
 func installLXRequest(vm *goja.Runtime, lx *goja.Object) error {
+	return installLXRequestWithClient(vm, lx, nil)
+}
+
+// installLXRequestWithClient keeps the production transport policy centralized
+// while allowing deterministic HTTP bridge tests to inject a mock client.
+func installLXRequestWithClient(vm *goja.Runtime, lx *goja.Object, client *http.Client) error {
 	return lx.Set("request", func(call goja.FunctionCall) goja.Value {
 		rawURL := strings.TrimSpace(call.Argument(0).String())
 		callback, ok := goja.AssertFunction(call.Argument(2))
 		if !ok {
 			return vm.ToValue("LX request callback is required")
 		}
-		response, body, err := performLXRequest(rawURL, call.Argument(1))
+		response, body, err := performLXRequestWithClient(rawURL, call.Argument(1), client)
 		var errorValue goja.Value = goja.Null()
 		if err != nil {
 			errorValue = vm.ToValue(err.Error())
@@ -43,6 +49,10 @@ func installLXRequest(vm *goja.Runtime, lx *goja.Object) error {
 }
 
 func performLXRequest(rawURL string, optionsValue goja.Value) (map[string]any, string, error) {
+	return performLXRequestWithClient(rawURL, optionsValue, nil)
+}
+
+func performLXRequestWithClient(rawURL string, optionsValue goja.Value, client *http.Client) (map[string]any, string, error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil { return nil, "", errors.New("LX request URL 无效") }
 	if err := validateLXSourceURL(parsed); err != nil { return nil, "", err }
@@ -96,18 +106,20 @@ func performLXRequest(rawURL string, optionsValue goja.Value) (map[string]any, s
 		if _, form := options["form"].(map[string]interface{}); form { request.Header.Set("Content-Type", "application/x-www-form-urlencoded") }
 	}
 
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.Proxy = nil
-	transport.DialContext = (&LXUserSourceStore{}).dialPublic
-	client := &http.Client{
-		Transport: transport,
-		Timeout: timeout,
-		CheckRedirect: func(next *http.Request, via []*http.Request) error {
-			if len(via) > lxRequestRedirectLimit { return errors.New("LX request 重定向次数过多") }
-			return validateLXSourceURL(next.URL)
-		},
+	if client == nil {
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.Proxy = nil
+		transport.DialContext = (&LXUserSourceStore{}).dialPublic
+		client = &http.Client{
+			Transport: transport,
+			Timeout: timeout,
+			CheckRedirect: func(next *http.Request, via []*http.Request) error {
+				if len(via) > lxRequestRedirectLimit { return errors.New("LX request 重定向次数过多") }
+				return validateLXSourceURL(next.URL)
+			},
+		}
+		defer transport.CloseIdleConnections()
 	}
-	defer transport.CloseIdleConnections()
 	resp, err := client.Do(request)
 	if err != nil { return nil, "", fmt.Errorf("LX request 请求失败：%w", err) }
 	defer resp.Body.Close()
@@ -121,6 +133,8 @@ func performLXRequest(rawURL string, optionsValue goja.Value) (map[string]any, s
 		"headers": responseHeaders,
 		"url": resp.Request.URL.String(),
 		"statusMessage": resp.Status,
+		// LX Music scripts read response.body in the second callback argument.
+		"body": string(data),
 	}
 	return response, string(data), nil
 }
