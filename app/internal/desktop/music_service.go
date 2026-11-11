@@ -62,6 +62,9 @@ type MusicService struct {
 func NewMusicService(manager *config.Manager, value config.MusicConfig, buffers ...*events.Buffer) *MusicService {
 	sources := music.NewSourceRegistry()
 	_ = sources.Register(music.NewNetEaseSource(nil, ""))
+	_ = sources.Register(music.NewQQMusicSource(nil, ""))
+	_ = sources.Register(music.NewKugouSource(nil, ""))
+	_ = sources.Register(music.NewKuwoSource(nil, ""))
 	return NewMusicServiceWithDependencies(manager, value, sources, music.NewMpvEngine(""), buffers...)
 }
 
@@ -279,7 +282,11 @@ func (s *MusicService) Enqueue(track music.Track, requestedBy string) (music.Que
 	s.mu.RUnlock()
 	if !moduleEnabled { return music.QueueItem{}, errors.New("music module is disabled") }
 	if !enabled { return music.QueueItem{}, fmt.Errorf("music source %q is disabled", track.SourceID) }
-	if _, ok := s.sources.Get(track.SourceID); !ok { return music.QueueItem{}, fmt.Errorf("music source %q is not available", track.SourceID) }
+	source, ok := s.sources.Get(track.SourceID)
+	if !ok { return music.QueueItem{}, fmt.Errorf("music source %q is not available", track.SourceID) }
+	if !source.Capabilities().Resolve {
+		return music.QueueItem{}, fmt.Errorf("%s 已支持聚合搜索，但尚未实现免登录播放资源解析", source.Name())
+	}
 	return s.queue.Enqueue(track, requestedBy)
 }
 
