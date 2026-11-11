@@ -152,6 +152,10 @@ func RunLXSourceWorker(input io.Reader, output io.Writer) int {
 		}
 		return goja.Undefined()
 	})
+	if err := installLXRequest(vm, lx); err != nil {
+		response.Error = "初始化 LX request 请求桥接失败"
+		return 1
+	}
 	if err := vm.Set("lx", lx); err != nil {
 		response.Error = "初始化 LX 音源运行环境失败"
 		return 1
