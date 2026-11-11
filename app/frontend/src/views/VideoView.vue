@@ -7,6 +7,8 @@ const url = ref('')
 const title = ref('')
 const playback = ref<PlaybackSnapshot | null>(null)
 const volume = ref(80)
+const seekValue = ref(0)
+const isSeeking = ref(false)
 const busy = ref(false)
 const error = ref('')
 let timer: ReturnType<typeof setInterval> | undefined
@@ -26,6 +28,8 @@ async function refresh() {
   try {
     playback.value = await VideoService.GetPlaybackStatus()
     if (playback.value.volume >= 0) volume.value = playback.value.volume
+    // Do not let the polling loop overwrite the user's in-progress seek.
+    if (!isSeeking.value) seekValue.value = progress.value * 10
   } catch { /* The video process may not have been started yet. */ }
 }
 async function play() {
@@ -41,12 +45,33 @@ async function play() {
 }
 async function pause() { try { await VideoService.Pause(); await refresh() } catch (reason) { error.value = String(reason) } }
 async function resume() { try { await VideoService.Resume(); await refresh() } catch (reason) { error.value = String(reason) } }
-async function stop() { try { await VideoService.Stop(); await refresh() } catch (reason) { error.value = String(reason) } }
+async function stop() {
+  try {
+    await VideoService.Stop()
+    isSeeking.value = false
+    await refresh()
+  } catch (reason) { error.value = String(reason) }
+}
+function updateSeekValue(value: number | number[]) {
+  const next = Array.isArray(value) ? value[0] : value
+  isSeeking.value = true
+  seekValue.value = next
+}
 async function seek(value: number | number[]) {
   const next = Array.isArray(value) ? value[0] : value
-  if (!playback.value || playback.value.duration_ms <= 0) return
-  try { await VideoService.Seek(Math.round(playback.value.duration_ms * next / 1000)); await refresh() }
-  catch (reason) { error.value = String(reason) }
+  if (!playback.value || playback.value.duration_ms <= 0) {
+    isSeeking.value = false
+    return
+  }
+  seekValue.value = next
+  try {
+    await VideoService.Seek(Math.round(playback.value.duration_ms * next / 1000))
+  } catch (reason) {
+    error.value = String(reason)
+  } finally {
+    isSeeking.value = false
+    await refresh()
+  }
 }
 async function setVolume(value: number | number[]) {
   const next = Array.isArray(value) ? value[0] : value
@@ -97,7 +122,13 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
     <el-card shadow="never">
       <template #header><strong>播放控制</strong></template>
       <div class="time-row"><span>{{ formatTime(playback?.position_ms) }}</span><span>{{ formatTime(playback?.duration_ms) }}</span></div>
-      <el-slider :model-value="progress * 10" :max="1000" :disabled="!playback || playback.duration_ms <= 0" @change="seek" />
+      <el-slider
+        :model-value="seekValue"
+        :max="1000"
+        :disabled="!playback || playback.duration_ms <= 0"
+        @input="updateSeekValue"
+        @change="seek"
+      />
       <div class="volume-row"><span>MV 音量</span><el-slider v-model="volume" :min="0" :max="100" @change="setVolume" /></div>
       <p class="hint">视频窗口标题固定为 My-LiveHub MV，窗口本身不显示标题栏、菜单、OSD 或播放控制条。</p>
     </el-card>
