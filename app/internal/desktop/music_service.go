@@ -703,8 +703,6 @@ func (s *MusicService) resolveLXTrack(ctx context.Context, track music.Track) (m
 	// in the playback service; custom search adapters can set their own key.
 	sourceKey := strings.TrimSpace(track.LXSourceKey)
 	if sourceKey == "" { sourceKey = strings.TrimSpace(track.SourceID) }
-	musicInfo := buildLXMusicInfo(track, quality)
-	musicInfo["source"] = sourceKey
 	var failures []error
 	for _, source := range sources {
 		if err := ctx.Err(); err != nil { return music.PlaybackResource{}, err }
@@ -718,6 +716,8 @@ func (s *MusicService) resolveLXTrack(ctx context.Context, track music.Track) (m
 		}
 		if declared == nil || !containsString(declared.Actions, "musicUrl") { continue }
 		quality := selectLXQuality(declared.Qualitys, sourceKey == "local", track)
+		musicInfo := buildLXMusicInfo(track, quality)
+		musicInfo["source"] = sourceKey
 		payload, marshalErr := json.Marshal(map[string]any{
 			"source": sourceKey, "action": "musicUrl",
 			"info": map[string]any{"type": quality, "musicInfo": musicInfo},
