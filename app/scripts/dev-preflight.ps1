@@ -10,16 +10,16 @@ $projectRootPattern = [regex]::Escape($projectRoot)
 
 $listeners = @(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
 if ($listeners.Count -eq 0) {
-    Write-Host "开发端口 127.0.0.1:$port 可用。"
+    Write-Host "Development port 127.0.0.1:$port is available."
     exit 0
 }
 
 foreach ($listener in $listeners) {
-    $processId = [int]$listener.OwningProcess
-    $process = Get-CimInstance Win32_Process -Filter "ProcessId=$processId" -ErrorAction SilentlyContinue
+    $ownerProcessId = [int]$listener.OwningProcess
+    $process = Get-CimInstance Win32_Process -Filter "ProcessId=$ownerProcessId" -ErrorAction SilentlyContinue
 
     if ($null -eq $process) {
-        throw "端口 $port 被 PID $processId 占用，但无法读取进程信息。请先确认占用者。"
+        throw "Port $port is occupied by PID $ownerProcessId, but process details cannot be read."
     }
 
     $commandLine = [string]$process.CommandLine
@@ -28,24 +28,24 @@ foreach ($listener in $listeners) {
         ($commandLine -match $projectRootPattern)
 
     if (-not $isProjectVite) {
-        Write-Host "开发端口 127.0.0.1:$port 已被其他程序占用：" -ForegroundColor Yellow
-        Write-Host "PID: $processId"
-        Write-Host "进程: $($process.Name)"
-        Write-Host "命令: $commandLine"
-        throw "不会自动结束非 My-LiveHub 进程。请释放端口，或使用 WAILS_VITE_PORT 指定其他端口。"
+        Write-Host "Development port 127.0.0.1:$port is occupied by another program:" -ForegroundColor Yellow
+        Write-Host "PID: $ownerProcessId"
+        Write-Host "Process: $($process.Name)"
+        Write-Host "Command: $commandLine"
+        throw "Will not terminate a non-My-LiveHub process. Free the port or set WAILS_VITE_PORT."
     }
 
     $parentId = [int]$process.ParentProcessId
     $parent = Get-CimInstance Win32_Process -Filter "ProcessId=$parentId" -ErrorAction SilentlyContinue
 
     if ($null -ne $parent) {
-        Write-Host "检测到 My-LiveHub 的 Vite 进程仍有父进程管理，拒绝重复启动。" -ForegroundColor Yellow
-        Write-Host "Vite PID: $processId；父进程 PID: $parentId；父进程: $($parent.Name)"
-        throw "可能已有一个 My-LiveHub 开发环境正在运行。请先正常关闭它。"
+        Write-Host "A My-LiveHub Vite process is still managed by a parent process; refusing duplicate startup." -ForegroundColor Yellow
+        Write-Host "Vite PID: $ownerProcessId; parent PID: $parentId; parent process: $($parent.Name)"
+        throw "A My-LiveHub development environment may already be running. Close it normally first."
     }
 
-    Write-Host "发现 My-LiveHub 遗留的 Vite 进程（PID $processId，父进程 $parentId 已退出），正在清理……" -ForegroundColor Yellow
-    Stop-Process -Id $processId -Force
+    Write-Host "Found an orphaned My-LiveHub Vite process (PID $ownerProcessId; parent PID $parentId has exited). Cleaning it up..." -ForegroundColor Yellow
+    Stop-Process -Id $ownerProcessId -Force
 
     $released = $false
     for ($attempt = 0; $attempt -lt 30; $attempt++) {
@@ -58,8 +58,8 @@ foreach ($listener in $listeners) {
     }
 
     if (-not $released) {
-        throw "已结束遗留 Vite 进程，但端口 $port 仍被占用。请重新检查端口占用者。"
+        throw "The orphaned Vite process was stopped, but port $port is still occupied."
     }
 }
 
-Write-Host "开发端口 127.0.0.1:$port 已释放，可以启动 Wails。" -ForegroundColor Green
+Write-Host "Development port 127.0.0.1:$port is free. Wails can start." -ForegroundColor Green
