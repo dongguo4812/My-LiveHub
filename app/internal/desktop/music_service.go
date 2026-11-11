@@ -859,7 +859,7 @@ func buildLXQQQualities(data map[string]string) ([]any, map[string]any) {
 
 func buildLXKuwoQualities(raw string) ([]any, map[string]any) {
 	qualityByBitrate := map[string]string{"4000": "flac24bit", "2000": "flac", "320": "320k", "128": "128k"}
-	pattern := regexp.MustCompile(`level:(\\w+),bitrate:(\\d+),format:(\\w+),size:([\\w.]+)`)
+	pattern := regexp.MustCompile(`level:(\w+),bitrate:(\d+),format:(\w+),size:([\w.]+)`)
 	types := make([]any, 0, len(qualityByBitrate))
 	available := make(map[string]any, len(qualityByBitrate))
 	for _, entry := range strings.Split(raw, ";") {
