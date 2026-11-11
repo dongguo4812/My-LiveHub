@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -50,8 +51,10 @@ type SearchPage struct {
 type SearchProvider interface {
 	ID() string
 	Name() string
-	Search(context.Context, string, int) (SearchPage, error)
+	Search(context.Context, string, int, int) (SearchPage, error)
 }
+
+const lxSongSearchPageSize = 30
 
 type LXSearchClient struct {
 	httpClient *http.Client
@@ -70,7 +73,7 @@ func DefaultLXSearchEndpoints() LXSearchEndpoints {
 	return LXSearchEndpoints{
 		Kuwo: "http://search.kuwo.cn/r.s",
 		Kugou: "http://songsearch.kugou.com/song_search_v2",
-		QQ: "https://u.y.qq.com/cgi-bin/musics.fcg",
+		QQ: "https://u.y.qq.com/cgi-bin/musicu.fcg",
 		Netease: "http://interface.music.163.com/eapi/batch",
 		Migu: "https://jadeite.migu.cn/music_search/v3/search/searchAll",
 	}
@@ -125,37 +128,40 @@ func (c *LXSearchClient) Search(ctx context.Context, keyword string, page int) (
 		wg.Add(1)
 		go func(index int, p SearchProvider) {
 			defer wg.Done()
-			outcomes[index].page, outcomes[index].err = p.Search(ctx, keyword, page)
+			outcomes[index].page, outcomes[index].err = p.Search(ctx, keyword, page, lxSongSearchPageSize)
 		}(i, provider)
 	}
 	wg.Wait()
 
-	result := SearchPage{Tracks: []Track{}, Page: page, PageSize: 160}
+	result := SearchPage{Tracks: []Track{}, Page: page, PageSize: lxSongSearchPageSize}
 	errs := make(map[string]string)
 	successes := 0
 	for i, provider := range c.providers {
 		outcome := outcomes[i]
-		if outcome.err != nil {
-			errs[provider.ID()] = outcome.err.Error()
-			continue
-		}
+		if outcome.err != nil { errs[provider.ID()] = outcome.err.Error(); continue }
 		successes++
+		if outcome.page.MaxPage < page { continue }
 		result.Tracks = append(result.Tracks, outcome.page.Tracks...)
-		result.Total += outcome.page.Total
+		if outcome.page.Total > result.Total { result.Total = outcome.page.Total }
 		if outcome.page.MaxPage > result.MaxPage { result.MaxPage = outcome.page.MaxPage }
 	}
 	if successes == 0 {
 		if len(errs) == 0 { return result, errs, errors.New("五个平台均未返回搜索结果") }
 		return result, errs, fmt.Errorf("五个平台搜索均失败")
 	}
-	if result.MaxPage == 0 { result.MaxPage = 1 }
+	result.Tracks = deduplicateLXTracks(result.Tracks)
+	result.Tracks = sortLXTracksByRelevance(result.Tracks, keyword)
+	if page > 1 && (result.Total == 0 || len(result.Tracks) == 0) { result.Total = int64(result.PageSize * page) }
 	return result, errs, nil
 }
 
 func (c *LXSearchClient) SearchProvider(ctx context.Context, source, keyword string, page int) (SearchPage, error) {
 	if c == nil { return SearchPage{}, errors.New("洛雪搜索 SDK 未初始化") }
 	for _, provider := range c.providers {
-		if provider.ID() == source { return provider.Search(ctx, keyword, page) }
+		if provider.ID() == source { pageResult, err := provider.Search(ctx, keyword, page, lxSongSearchPageSize)
+			if err != nil { return SearchPage{}, err }
+			pageResult.Tracks = deduplicateLXTracks(pageResult.Tracks)
+			return pageResult, nil }
 	}
 	return SearchPage{}, fmt.Errorf("不支持的音乐来源：%s", source)
 }
@@ -232,6 +238,56 @@ func newLXTrack(source, nativeID, title, artist, album string, duration int64, c
 func quality(kind string, size int64, data map[string]string) TrackQuality {
 	return TrackQuality{Type: kind, Size: formatLXSize(size), SourceData: data}
 }
+
+func deduplicateLXTracks(tracks []Track) []Track {
+	seen := make(map[string]struct{}, len(tracks))
+	result := make([]Track, 0, len(tracks))
+	for _, track := range tracks {
+		if _, exists := seen[track.ID]; exists { continue }
+		seen[track.ID] = struct{}{}
+		result = append(result, track)
+	}
+	return result
+}
+
+func lxSimilarity(a, b string) float64 {
+	ar, br := []rune(a), []rune(b)
+	if len(ar) == 0 || len(br) == 0 { return 0 }
+	if len(ar) > len(br) { ar, br = br, ar }
+	prev := make([]int, len(br)+1)
+	for i := range prev { prev[i] = i }
+	for _, ch := range ar {
+		diag := prev[0]
+		prev[0]++
+		for j := 1; j <= len(br); j++ {
+			old := prev[j]
+			cost := 1
+			if ch == br[j-1] { cost = 0 }
+			prev[j] = lxMinInt(prev[j]+1, prev[j-1]+1, diag+cost)
+			diag = old
+		}
+	}
+	return 1 - float64(prev[len(br)])/float64(len(br))
+}
+
+func lxMinInt(values ...int) int {
+	minimum := values[0]
+	for _, value := range values[1:] { if value < minimum { minimum = value } }
+	return minimum
+}
+
+func sortLXTracksByRelevance(tracks []Track, keyword string) []Track {
+	type ranked struct { track Track; score float64 }
+	items := make([]ranked, len(tracks))
+	for i, track := range tracks {
+		items[i] = ranked{track:track, score:lxSimilarity(keyword, track.Title+" "+track.Artist)}
+	}
+	sort.SliceStable(items, func(i,j int) bool { return items[i].score > items[j].score })
+	result := make([]Track, len(items))
+	for i, item := range items { result[i] = item.track }
+	return result
+}
+
 func pageCount(total int64, size int) int {
 	if total <= 0 || size <= 0 { return 1 }
 	return int(math.Ceil(float64(total)/float64(size)))
@@ -242,10 +298,11 @@ type kuwoSearchProvider struct { client *http.Client; endpoint string }
 func (p kuwoSearchProvider) ID() string { return LXSearchKW }
 func (p kuwoSearchProvider) Name() string { return "酷我音乐" }
 var kuwoInfoPattern = regexp.MustCompile(`level:(\w+),bitrate:(\d+),format:(\w+),size:([\w.]+)`)
-func (p kuwoSearchProvider) Search(ctx context.Context, keyword string, page int) (SearchPage, error) {
+func (p kuwoSearchProvider) Search(ctx context.Context, keyword string, page, limit int) (SearchPage, error) {
+	if limit <= 0 { limit = lxSongSearchPageSize }
 	u, _ := url.Parse(p.endpoint)
 	q := u.Query()
-	q.Set("client", "kt"); q.Set("all", keyword); q.Set("pn", strconv.Itoa(page-1)); q.Set("rn", "30")
+	q.Set("client", "kt"); q.Set("all", keyword); q.Set("pn", strconv.Itoa(page-1)); q.Set("rn", strconv.Itoa(limit))
 	q.Set("uid", "794762570"); q.Set("ver", "kwplayer_ar_9.2.2.1"); q.Set("vipver", "1")
 	q.Set("show_copyright_off", "1"); q.Set("newver", "1"); q.Set("ft", "music"); q.Set("cluster", "0")
 	q.Set("strategy", "2012"); q.Set("encoding", "utf8"); q.Set("rformat", "json"); q.Set("vermerge", "1"); q.Set("mobi", "1"); q.Set("issubtitle", "1")
@@ -263,28 +320,27 @@ func (p kuwoSearchProvider) Search(ctx context.Context, keyword string, page int
 		for _, token := range strings.Split(stringValue(item["N_MINFO"]), ";") {
 			match := kuwoInfoPattern.FindStringSubmatch(token)
 			if len(match) != 5 { continue }
-			size, _ := strconv.ParseFloat(match[4], 64)
 			var kind string
 			switch match[2] { case "4000": kind="flac24bit"; case "2000": kind="flac"; case "320": kind="320k"; case "128": kind="128k" }
 			if kind != "" { types = append(types, TrackQuality{Type:kind, Size:match[4]}) }
-			_ = size
 		}
 		for i,j:=0,len(types)-1;i<j;i,j=i+1,j-1 { types[i],types[j]=types[j],types[i] }
 		duration, _ := strconv.ParseInt(stringValue(item["DURATION"]),10,64)
-		data := map[string]string{"songmid":id,"album_id":stringValue(item["ALBUMID"])}
-		list = append(list,newLXTrack("kw",id,stringValue(item["SONGNAME"]),stringValue(item["ARTIST"]),stringValue(item["ALBUM"]),formatLXDuration(duration),"",data,types))
+		data := map[string]string{"songmid":id,"album_id":decodeLXName(stringValue(item["ALBUMID"]))}
+		list = append(list,newLXTrack("kw",id,stringValue(item["SONGNAME"]),strings.ReplaceAll(decodeLXName(stringValue(item["ARTIST"])), "&", "、"),stringValue(item["ALBUM"]),formatLXDuration(duration),"",data,types))
 	}
-	return SearchPage{Tracks:list,Total:total,Page:page,PageSize:30,MaxPage:pageCount(total,30),Source:"kw"},nil
+	return SearchPage{Tracks:list,Total:total,Page:page,PageSize:limit,MaxPage:pageCount(total,limit),Source:"kw"},nil
 }
 
 // Kugou (kg)
 type kugouSearchProvider struct { client *http.Client; endpoint string }
 func (p kugouSearchProvider) ID() string { return LXSearchKG }
 func (p kugouSearchProvider) Name() string { return "酷狗音乐" }
-func (p kugouSearchProvider) Search(ctx context.Context, keyword string, page int) (SearchPage,error) {
+func (p kugouSearchProvider) Search(ctx context.Context, keyword string, page, limit int) (SearchPage,error) {
+	if limit <= 0 { limit = lxSongSearchPageSize }
 	u,_:=url.Parse(p.endpoint); q:=u.Query()
 	q.Set("platform","AndroidFilter");q.Set("iscorrection","1");q.Set("keyword",keyword);q.Set("hifiquality","0")
-	q.Set("pagesize","30");q.Set("PrivilegeFilter","0");q.Set("page",strconv.Itoa(page));u.RawQuery=q.Encode()
+	q.Set("pagesize",strconv.Itoa(limit));q.Set("PrivilegeFilter","0");q.Set("page",strconv.Itoa(page));u.RawQuery=q.Encode()
 	raw,err:=doLXJSON(ctx,p.client,http.MethodGet,u.String(),nil,nil);if err!=nil{return SearchPage{},err}
 	if intValue(raw["error_code"])!=0{return SearchPage{},fmt.Errorf("酷狗搜索失败，错误码：%s",stringValue(raw["error_code"]))}
 	data:=mapValue(raw["data"]);items:=sliceValue(data["lists"]);total:=intValue(data["total"])
@@ -305,8 +361,8 @@ func (p kugouSearchProvider) Search(ctx context.Context, keyword string, page in
 		sourceData:=map[string]string{"songmid":id,"hash":hash,"album_id":stringValue(item["AlbumID"]),"album_audio_id":stringValue(item["MixSongID"])}
 		list=append(list,newLXTrack("kg",id,name,artist,stringValue(item["AlbumName"]),formatLXDuration(dur),"",sourceData,types))
 	}
-	for _,entry:=range items{item:=mapValue(entry);add(item);for _,child:=range sliceValue(item["Grp"]){add(mapValue(child))}}
-	return SearchPage{Tracks:list,Total:total,Page:page,PageSize:30,MaxPage:pageCount(total,30),Source:"kg"},nil
+	for _,entry:=range items{add(mapValue(entry))}
+	return SearchPage{Tracks:list,Total:total,Page:page,PageSize:limit,MaxPage:pageCount(total,limit),Source:"kg"},nil
 }
 
 // QQ Music (tx)
@@ -353,12 +409,13 @@ func qqSignature(text string) string {
 	mid:=base64.StdEncoding.EncodeToString(raw);mid=strings.NewReplacer("/","","+","","=","").Replace(mid)
 	return strings.ToLower("zzc"+a.String()+mid+b.String())
 }
-func (p qqSearchProvider) Search(ctx context.Context,keyword string,page int)(SearchPage,error){
+func (p qqSearchProvider) Search(ctx context.Context,keyword string,page,limit int)(SearchPage,error){
+	if limit <= 0 { limit = lxSongSearchPageSize }
 	var payload qqSearchRequest
 	payload.Comm.ChannelID="0";payload.Comm.OSVersion="6.2.9200-2";payload.Comm.CT="19";payload.Comm.CV="2151"
 	payload.Comm.GUID="1F70E520B2EAA7D25E11760783C53CA9";payload.Comm.Patch="118";payload.Comm.AppID="qqmusic";payload.Comm.WID="7223299733393904640";payload.Comm.UIN="0"
 	payload.Service.Module="music.search.SearchCgiService";payload.Service.Method="DoSearchForQQMusicDesktop"
-	payload.Service.Param.Group=1;payload.Service.Param.Limit=50;payload.Service.Param.Page=page;payload.Service.Param.Query=keyword;payload.Service.Param.Remote="txt.newclient.top";payload.Service.Param.Type=0
+	payload.Service.Param.Group=1;payload.Service.Param.Limit=limit;payload.Service.Param.Page=page;payload.Service.Param.Query=keyword;payload.Service.Param.Remote="txt.newclient.top";payload.Service.Param.Type=0
 	var random [16]byte;_,_=rand.Read(random[:])
 	payload.Service.Param.SearchID=strings.ToUpper(hex.EncodeToString(random[:]))+fmt.Sprintf("%05d",time.Now().UnixNano()%100000)
 	body,err:=jsonBody(payload);if err!=nil{return SearchPage{},err}
@@ -376,13 +433,13 @@ func (p qqSearchProvider) Search(ctx context.Context,keyword string,page int)(Se
 		album:=mapValue(item["album"]);albumID:=stringValue(album["mid"]);albumName:=stringValue(album["name"])
 		artists:=[]string{};for _,v:=range sliceValue(item["singer"]){if n:=stringValue(mapValue(v)["name"]);n!=""{artists=append(artists,n)}}
 		id:=stringValue(item["mid"]);if id==""{id=stringValue(item["id"])}
-		cover:="";if albumID!=""{cover="https://y.gtimg.cn/music/photo_new/T002R500x500M000"+albumID+".jpg"}
+		cover:="";if albumID!="" && albumID!="空"{cover="https://y.gtimg.cn/music/photo_new/T002R500x500M000"+albumID+".jpg"}else if singers:=sliceValue(item["singer"]);len(singers)>0{if singerMid:=stringValue(mapValue(singers[0])["mid"]);singerMid!=""{cover="https://y.gtimg.cn/music/photo_new/T001R500x500M000"+singerMid+".jpg"}}
 		dur:=intValue(item["interval"])*1000
 		dataMap:=map[string]string{"songmid":id,"song_id":stringValue(item["id"]),"media_mid":media,"album_mid":albumID}
 		tracks=append(tracks,newLXTrack("tx",id,stringValue(item["title"]),strings.Join(artists,"、"),albumName,dur,cover,dataMap,types))
 	}
 	total:=intValue(meta["sum"]);if total==0{total=intValue(song["totalnum"])}
-	return SearchPage{Tracks:tracks,Total:total,Page:page,PageSize:50,MaxPage:pageCount(total,50),Source:"tx"},nil
+	return SearchPage{Tracks:tracks,Total:total,Page:page,PageSize:limit,MaxPage:pageCount(total,limit),Source:"tx"},nil
 }
 
 // NetEase Cloud Music (wy): LX desktop uses the EAPI AES-128-ECB request.
@@ -399,7 +456,8 @@ func eapiEncrypt(path string,data any)(string,error){
 	out:=make([]byte,len(input));for i:=0;i<len(input);i+=aes.BlockSize{block.Encrypt(out[i:i+aes.BlockSize],input[i:i+aes.BlockSize])}
 	return strings.ToUpper(hex.EncodeToString(out)),nil
 }
-func(p neteaseSearchProvider)Search(ctx context.Context,keyword string,page int)(SearchPage,error){
+func(p neteaseSearchProvider)Search(ctx context.Context,keyword string,page,limit int)(SearchPage,error){
+	if limit <= 0 { limit = lxSongSearchPageSize }
 	path:="/api/search/song/list/page"
 	payload:=struct{
 		Keyword string `json:"keyword"`
@@ -409,7 +467,7 @@ func(p neteaseSearchProvider)Search(ctx context.Context,keyword string,page int)
 		Scene string `json:"scene"`
 		Total bool `json:"total"`
 		Limit int `json:"limit"`
-	}{keyword,"1","typing",30*(page-1),"normal",page==1,30}
+	}{keyword,"1","typing",limit*(page-1),"normal",page==1,limit}
 	params,err:=eapiEncrypt(path,payload);if err!=nil{return SearchPage{},err}
 	form:=url.Values{"params":{params}}
 	raw,err:=doLXJSON(ctx,p.client,http.MethodPost,p.endpoint,map[string]string{"User-Agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.90 Safari/537.36","Origin":"https://music.163.com","Content-Type":"application/x-www-form-urlencoded"},strings.NewReader(form.Encode()))
@@ -424,26 +482,28 @@ func(p neteaseSearchProvider)Search(ctx context.Context,keyword string,page int)
 		if maxBR>=999000{sq:=mapValue(item["sq"]);types=append(types,quality("flac",intValue(sq["size"]),nil))}
 		if maxBR>=320000{h:=mapValue(item["h"]);types=append(types,quality("320k",intValue(h["size"]),nil))}
 		if maxBR>=128000{l:=mapValue(item["l"]);types=append(types,quality("128k",intValue(l["size"]),nil))}
+		for i,j:=0,len(types)-1;i<j;i,j=i+1,j-1 { types[i],types[j]=types[j],types[i] }
 		artists:=[]string{};for _,v:=range sliceValue(item["ar"]){if n:=stringValue(mapValue(v)["name"]);n!=""{artists=append(artists,n)}}
 		id:=stringValue(item["id"]);albumID:=stringValue(album["id"])
 		tracks=append(tracks,newLXTrack("wy",id,stringValue(item["name"]),strings.Join(artists,"、"),stringValue(album["name"]),intValue(item["dt"]),stringValue(album["picUrl"]),map[string]string{"songmid":id,"album_id":albumID},types))
 	}
 	total:=intValue(data["totalCount"])
-	return SearchPage{Tracks:tracks,Total:total,Page:page,PageSize:30,MaxPage:pageCount(total,30),Source:"wy"},nil
+	return SearchPage{Tracks:tracks,Total:total,Page:page,PageSize:limit,MaxPage:pageCount(total,limit),Source:"wy"},nil
 }
 
 // Migu (mg): request signing follows the LX desktop SDK's MD5 signature.
 type miguSearchProvider struct{client *http.Client;endpoint string}
 func(p miguSearchProvider)ID()string{return LXSearchMG}
 func(p miguSearchProvider)Name()string{return "咪咕音乐"}
-func(p miguSearchProvider)Search(ctx context.Context,keyword string,page int)(SearchPage,error){
+func(p miguSearchProvider)Search(ctx context.Context,keyword string,page,limit int)(SearchPage,error){
+	if limit <= 0 { limit = lxSongSearchPageSize }
 	now:=strconv.FormatInt(time.Now().UnixMilli(),10)
 	device:="963B7AA0D21511ED807EE5846EC87D20"
 	signatureMD5:="6cdc72a439cef99a3418d2a78aa28c73"
 	signature:=md5.Sum([]byte(keyword+signatureMD5+"yyapp2d16148780a1dcc7408e06336b98cfd50"+device+now))
 	u,_:=url.Parse(p.endpoint);q:=u.Query()
 	q.Set("isCorrect","0");q.Set("isCopyright","1");q.Set("searchSwitch",`{"song":1,"album":0,"singer":0,"tagSong":1,"mvSong":0,"bestShow":1,"songlist":0,"lyricSong":0}`)
-	q.Set("pageSize","20");q.Set("text",keyword);q.Set("pageNo",strconv.Itoa(page));q.Set("sort","0");q.Set("sid","USS");u.RawQuery=q.Encode()
+	q.Set("pageSize",strconv.Itoa(limit));q.Set("text",keyword);q.Set("pageNo",strconv.Itoa(page));q.Set("sort","0");q.Set("sid","USS");u.RawQuery=q.Encode()
 	headers:=map[string]string{"uiVersion":"A_music_3.6.1","deviceId":device,"timestamp":now,"sign":hex.EncodeToString(signature[:]),"channel":"0146921","User-Agent":"Mozilla/5.0 (Linux; U; Android 11.0.0; zh-cn; MI 11 Build/OPR1.170623.032) AppleWebKit/534.30 (KHTML, like Gecko) Version/4.0 Mobile Safari/534.30"}
 	raw,err:=doLXJSON(ctx,p.client,http.MethodGet,u.String(),headers,nil);if err!=nil{return SearchPage{},err}
 	if stringValue(raw["code"])!="000000"{return SearchPage{},fmt.Errorf("咪咕搜索失败：%s",stringValue(raw["info"]))}
@@ -459,5 +519,5 @@ func(p miguSearchProvider)Search(ctx context.Context,keyword string,page int)(Se
 		tracks=append(tracks,newLXTrack("mg",id,stringValue(item["name"]),strings.Join(artists,"、"),stringValue(item["album"]),formatLXDuration(intValue(item["duration"])),img,dataMap,types))
 	}}
 	total:=intValue(data["totalCount"])
-	return SearchPage{Tracks:tracks,Total:total,Page:page,PageSize:20,MaxPage:pageCount(total,20),Source:"mg"},nil
+	return SearchPage{Tracks:tracks,Total:total,Page:page,PageSize:limit,MaxPage:pageCount(total,limit),Source:"mg"},nil
 }

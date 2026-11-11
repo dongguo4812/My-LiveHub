@@ -29,51 +29,50 @@ func chooseLXTrackQuality(track music.Track, declared music.LXDeclaredSource) (m
 func buildLXMusicURLRequest(track music.Track, selected music.TrackQuality) ([]byte, error) {
 	source := track.LXSourceKey
 	if source == "" { source = track.SourceID }
-	native := make(map[string]any, len(track.SourceData)+20)
-	for key, value := range track.SourceData {
-		native[key] = value
-		switch key {
-		case "copyright_id": native["copyrightId"] = value
-		case "album_id": native["albumId"] = value
-		case "album_mid": native["albumMid"] = value
-		case "song_id": native["songId"] = value
-		case "media_mid": native["strMediaMid"] = value
-		case "album_audio_id": native["albumAudioId"] = value
-		case "lrc_url": native["lrcUrl"] = value
-		case "mrc_url": native["mrcUrl"] = value
-		case "trc_url": native["trcUrl"] = value
+	songID := firstNonEmpty(track.SourceData["songmid"], strings.TrimPrefix(track.ID, source+":"))
+
+	qualityList := make([]map[string]any, 0, len(track.Qualities))
+	qualityMap := make(map[string]map[string]any, len(track.Qualities))
+	for _, item := range track.Qualities {
+		size := any(nil)
+		if item.Size != "" { size = item.Size }
+		value := map[string]any{"type": item.Type, "size": size}
+		meta := map[string]any{"size": size}
+		for key, field := range item.SourceData { value[key] = field; meta[key] = field }
+		qualityList = append(qualityList, value)
+		qualityMap[item.Type] = meta
+	}
+
+	meta := map[string]any{
+		"songId": songID, "albumName": track.Album, "picUrl": nullableString(track.CoverURL),
+		"qualitys": qualityList, "_qualitys": qualityMap,
+	}
+	if value := firstNonEmpty(track.SourceData["album_id"], track.SourceData["albumId"]); value != "" { meta["albumId"] = value }
+	switch source {
+	case "kg":
+		meta["hash"] = track.SourceData["hash"]
+		if value := track.SourceData["album_audio_id"]; value != "" { meta["albumAudioId"] = value }
+	case "tx":
+		meta["strMediaMid"] = track.SourceData["media_mid"]
+		if value := track.SourceData["song_id"]; value != "" { meta["id"] = value }
+		if value := track.SourceData["album_mid"]; value != "" { meta["albumMid"] = value }
+	case "mg":
+		meta["copyrightId"] = track.SourceData["copyright_id"]
+		for from, to := range map[string]string{"lrc_url":"lrcUrl", "mrc_url":"mrcUrl", "trc_url":"trcUrl"} {
+			if value := track.SourceData[from]; value != "" { meta[to] = value }
 		}
 	}
-	native["source"] = source
-	native["name"] = track.Title
-	native["singer"] = track.Artist
-	native["albumName"] = track.Album
-	native["songmid"] = firstNonEmpty(track.SourceData["songmid"], strings.TrimPrefix(track.ID, source+":"))
-	native["type"] = selected.Type
-	native["albumId"] = firstNonEmpty(track.SourceData["album_id"], track.SourceData["albumId"])
-	native["interval"] = formatLXInterval(track.DurationMS)
-	native["img"] = track.CoverURL
-	native["lrc"] = firstNonEmpty(track.SourceData["lrc_url"], track.SourceData["lrcUrl"])
-	native["otherSource"] = nil
-	native["typeUrl"] = map[string]string{}
-	types := make([]map[string]string, 0, len(track.Qualities))
-	typeMap := make(map[string]map[string]string, len(track.Qualities))
-	for _, item := range track.Qualities {
-		value := map[string]string{"type": item.Type}
-		if item.Size != "" { value["size"] = item.Size }
-		for key, field := range item.SourceData { value[key] = field }
-		types = append(types, value)
-		meta := make(map[string]string, len(value))
-		for key, field := range value { if key != "type" { meta[key] = field } }
-		typeMap[item.Type] = meta
+	musicInfo := map[string]any{
+		"id": track.ID, "name": track.Title, "singer": track.Artist,
+		"source": source, "interval": formatLXInterval(track.DurationMS), "meta": meta,
 	}
-	native["types"] = types
-	native["_types"] = typeMap
-	for key, value := range selected.SourceData { native[key] = value }
-	info := make(map[string]any, len(native))
-	for key, value := range native { info[key] = value }
-	info["type"] = selected.Type
+	info := map[string]any{"type": selected.Type, "musicInfo": musicInfo}
 	return json.Marshal(map[string]any{"source": source, "action": "musicUrl", "info": info})
+}
+
+func nullableString(value string) any {
+	if strings.TrimSpace(value) == "" { return nil }
+	return value
 }
 
 func firstNonEmpty(values ...string) string {

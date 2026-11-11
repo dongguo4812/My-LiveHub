@@ -22,61 +22,75 @@ func TestChooseLXTrackQualityHonorsExplicitSelection(t *testing.T) {
 	if _, err := chooseLXTrackQuality(track, music.LXDeclaredSource{Qualitys:[]string{"flac"}}); err == nil { t.Fatal("expected unsupported selected quality error") }
 }
 
-func TestBuildLXMusicURLRequestPreservesPlatformFields(t *testing.T) {
+func decodeLXRequest(t *testing.T, track music.Track, selected music.TrackQuality) (map[string]any, map[string]any, map[string]any) {
+	t.Helper()
+	payload, err := buildLXMusicURLRequest(track, selected)
+	if err != nil { t.Fatal(err) }
+	var request map[string]any
+	if err := json.Unmarshal(payload, &request); err != nil { t.Fatal(err) }
+	info, ok := request["info"].(map[string]any)
+	if !ok { t.Fatalf("LX request info envelope missing: %#v", request) }
+	musicInfo, ok := info["musicInfo"].(map[string]any)
+	if !ok { t.Fatalf("LX request info.musicInfo missing: %#v", info) }
+	meta, ok := musicInfo["meta"].(map[string]any)
+	if !ok { t.Fatalf("LX musicInfo.meta missing: %#v", musicInfo) }
+	if info["type"] != selected.Type { t.Fatalf("selected type = %#v, want %q", info["type"], selected.Type) }
+	if request["action"] != "musicUrl" || request["source"] != track.SourceID { t.Fatalf("wrong request envelope: %#v", request) }
+	if musicInfo["name"] != track.Title || musicInfo["singer"] != track.Artist || musicInfo["source"] != track.SourceID {
+		t.Fatalf("wrong LX MusicInfo base fields: %#v", musicInfo)
+	}
+	return info, musicInfo, meta
+}
+
+func TestBuildLXMusicURLRequestUsesNestedLXMusicInfoContract(t *testing.T) {
 	track := music.Track{
-		ID:"tx:mid-1", SourceID:"tx", LXSourceKey:"tx", Title:"歌曲", Artist:"歌手", Album:"专辑",
-		SourceData:map[string]string{"songmid":"mid-1","song_id":"123","media_mid":"media-1","album_mid":"album-1"},
+		ID:"tx:mid-1", SourceID:"tx", LXSourceKey:"tx", Title:"歌曲", Artist:"歌手", Album:"专辑", DurationMS:182000,
+		SourceData:map[string]string{"songmid":"mid-1","song_id":"123","media_mid":"media-1","album_mid":"album-1","album_id":"album-1"},
 		Qualities:[]music.TrackQuality{{Type:"128k"},{Type:"320k"}},
 	}
-	payload, err := buildLXMusicURLRequest(track, music.TrackQuality{Type:"320k"})
-	if err != nil { t.Fatal(err) }
-	var request struct {
-		Source string `json:"source"`
-		Action string `json:"action"`
-		Info map[string]any `json:"info"`
+	_, musicInfo, meta := decodeLXRequest(t, track, music.TrackQuality{Type:"320k"})
+	if musicInfo["interval"] != "03:02" { t.Fatalf("wrong interval: %#v", musicInfo["interval"]) }
+	if meta["songId"] != "mid-1" || meta["strMediaMid"] != "media-1" || meta["id"] != "123" || meta["albumMid"] != "album-1" {
+		t.Fatalf("native QQ metadata missing: %#v", meta)
 	}
-	if err := json.Unmarshal(payload,&request); err != nil { t.Fatal(err) }
-	if request.Source!="tx" || request.Action!="musicUrl" { t.Fatalf("unexpected request: %#v",request) }
-	if request.Info["songmid"]!="mid-1" || request.Info["strMediaMid"]!="media-1" || request.Info["songId"]!="123" { t.Fatalf("native QQ fields missing: %#v",request.Info) }
-	if request.Info["type"]!="320k" { t.Fatalf("wrong quality: %#v",request.Info["type"]) }
-	types, ok := request.Info["_types"].(map[string]any)
-	if !ok || types["320k"]==nil { t.Fatalf("quality metadata missing: %#v",request.Info["_types"]) }
+	qualityMap, ok := meta["_qualitys"].(map[string]any)
+	if !ok || qualityMap["320k"] == nil { t.Fatalf("LX _qualitys metadata missing: %#v", meta["_qualitys"]) }
+	qualityList, ok := meta["qualitys"].([]any)
+	if !ok || len(qualityList) != 2 { t.Fatalf("LX qualitys list missing: %#v", meta["qualitys"]) }
 }
 
-func TestBuildLXMusicURLRequestMapsMiguCopyrightID(t *testing.T) {
-	track:=music.Track{ID:"mg:1",SourceID:"mg",Title:"歌",SourceData:map[string]string{"songmid":"1","copyright_id":"copyright-1"}}
-	payload,err:=buildLXMusicURLRequest(track,music.TrackQuality{Type:"128k"})
-	if err!=nil{t.Fatal(err)}
-	var request struct{Info map[string]any `json:"info"`}
-	if err:=json.Unmarshal(payload,&request);err!=nil{t.Fatal(err)}
-	if request.Info["copyrightId"]!="copyright-1"{t.Fatalf("copyrightId missing: %#v",request.Info)}
+func TestBuildLXMusicURLRequestMapsMiguCopyrightAndLyrics(t *testing.T) {
+	track := music.Track{
+		ID:"mg:1", SourceID:"mg", Title:"歌", Album:"专辑",
+		SourceData:map[string]string{"songmid":"1","copyright_id":"copyright-1","lrc_url":"lrc","mrc_url":"mrc","trc_url":"trc"},
+		Qualities:[]music.TrackQuality{{Type:"128k"}},
+	}
+	_, _, meta := decodeLXRequest(t, track, music.TrackQuality{Type:"128k"})
+	for key, want := range map[string]string{"copyrightId":"copyright-1","lrcUrl":"lrc","mrcUrl":"mrc","trcUrl":"trc"} {
+		if meta[key] != want { t.Errorf("%s = %#v, want %q", key, meta[key], want) }
+	}
 }
 
-func TestBuildLXMusicURLRequestPreservesFivePlatformNativeFields(t *testing.T) {
+func TestBuildLXMusicURLRequestPreservesPlatformNativeFieldsAndHashes(t *testing.T) {
 	tests := []struct {
 		name string
 		track music.Track
 		selected music.TrackQuality
 		want map[string]string
 	}{
-		{"kuwo", music.Track{ID:"kw:kw-id", SourceID:"kw", LXSourceKey:"kw", Title:"song", SourceData:map[string]string{"songmid":"kw-id","album_id":"kw-album"}}, music.TrackQuality{Type:"flac"}, map[string]string{"songmid":"kw-id","albumId":"kw-album"}},
-		{"kugou", music.Track{ID:"kg:kg-id", SourceID:"kg", LXSourceKey:"kg", Title:"song", SourceData:map[string]string{"songmid":"kg-id","hash":"base-hash","album_audio_id":"audio-id"}, Qualities:[]music.TrackQuality{{Type:"320k",SourceData:map[string]string{"hash":"320-hash"}}}}, music.TrackQuality{Type:"320k",SourceData:map[string]string{"hash":"320-hash"}}, map[string]string{"songmid":"kg-id","hash":"320-hash","albumAudioId":"audio-id"}},
-		{"qq", music.Track{ID:"tx:tx-id", SourceID:"tx", LXSourceKey:"tx", Title:"song", SourceData:map[string]string{"songmid":"tx-id","song_id":"123","media_mid":"media-id","album_mid":"album-mid"}}, music.TrackQuality{Type:"320k"}, map[string]string{"songmid":"tx-id","songId":"123","strMediaMid":"media-id","albumMid":"album-mid"}},
-		{"netease", music.Track{ID:"wy:wy-id", SourceID:"wy", LXSourceKey:"wy", Title:"song", SourceData:map[string]string{"songmid":"wy-id","album_id":"wy-album"}}, music.TrackQuality{Type:"flac"}, map[string]string{"songmid":"wy-id","albumId":"wy-album"}},
-		{"migu", music.Track{ID:"mg:mg-id", SourceID:"mg", LXSourceKey:"mg", Title:"song", SourceData:map[string]string{"songmid":"mg-id","copyright_id":"copyright","album_id":"mg-album","lrc_url":"lrc","mrc_url":"mrc","trc_url":"trc"}}, music.TrackQuality{Type:"128k"}, map[string]string{"songmid":"mg-id","copyrightId":"copyright","albumId":"mg-album","lrcUrl":"lrc","mrcUrl":"mrc","trcUrl":"trc"}},
+		{"kuwo", music.Track{ID:"kw:kw-id",SourceID:"kw",LXSourceKey:"kw",Title:"song",SourceData:map[string]string{"songmid":"kw-id","album_id":"kw-album"},Qualities:[]music.TrackQuality{{Type:"flac",Size:"30 MB"}}}, music.TrackQuality{Type:"flac"}, map[string]string{"songId":"kw-id","albumId":"kw-album"}},
+		{"kugou", music.Track{ID:"kg:kg-id",SourceID:"kg",LXSourceKey:"kg",Title:"song",SourceData:map[string]string{"songmid":"kg-id","hash":"base-hash","album_id":"kg-album","album_audio_id":"audio-id"},Qualities:[]music.TrackQuality{{Type:"320k",SourceData:map[string]string{"hash":"320-hash"}}}}, music.TrackQuality{Type:"320k",SourceData:map[string]string{"hash":"320-hash"}}, map[string]string{"songId":"kg-id","hash":"base-hash","albumId":"kg-album","albumAudioId":"audio-id"}},
+		{"qq", music.Track{ID:"tx:tx-id",SourceID:"tx",LXSourceKey:"tx",Title:"song",SourceData:map[string]string{"songmid":"tx-id","song_id":"123","media_mid":"media-id","album_mid":"album-mid","album_id":"album-mid"}}, music.TrackQuality{Type:"320k"}, map[string]string{"songId":"tx-id","id":"123","strMediaMid":"media-id","albumMid":"album-mid"}},
+		{"netease", music.Track{ID:"wy:wy-id",SourceID:"wy",LXSourceKey:"wy",Title:"song",SourceData:map[string]string{"songmid":"wy-id","album_id":"wy-album"}}, music.TrackQuality{Type:"flac"}, map[string]string{"songId":"wy-id","albumId":"wy-album"}},
+		{"migu", music.Track{ID:"mg:mg-id",SourceID:"mg",LXSourceKey:"mg",Title:"song",SourceData:map[string]string{"songmid":"mg-id","copyright_id":"copyright","album_id":"mg-album","lrc_url":"lrc","mrc_url":"mrc","trc_url":"trc"}}, music.TrackQuality{Type:"128k"}, map[string]string{"songId":"mg-id","copyrightId":"copyright","albumId":"mg-album","lrcUrl":"lrc","mrcUrl":"mrc","trcUrl":"trc"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			raw, err := buildLXMusicURLRequest(test.track, test.selected)
-			if err != nil { t.Fatal(err) }
-			var request struct { Info map[string]any `json:"info"` }
-			if err := json.Unmarshal(raw, &request); err != nil { t.Fatal(err) }
+			_, _, meta := decodeLXRequest(t, test.track, test.selected)
 			for key, want := range test.want {
-				if got, _ := request.Info[key].(string); got != want { t.Errorf("%s = %q, want %q", key, got, want) }
+				if got, _ := meta[key].(string); got != want { t.Errorf("meta.%s = %q, want %q", key, got, want) }
 			}
-			if request.Info["interval"] == nil || request.Info["otherSource"] != nil || request.Info["typeUrl"] == nil {
-				t.Errorf("missing LX track metadata fields: %#v", request.Info)
-			}
+			if meta["qualitys"] == nil || meta["_qualitys"] == nil { t.Errorf("missing LX quality metadata: %#v", meta) }
 		})
 	}
 }
