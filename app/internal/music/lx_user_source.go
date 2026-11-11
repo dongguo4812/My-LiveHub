@@ -8,10 +8,11 @@ import (
  "regexp"
  "strings"
  "time"
+ "unicode/utf16"
 )
 
 const (
- MaxLXUserSourceBytes = 1 << 20
+ MaxLXUserSourceBytes = 9_000_000
  maxLXNameLength = 24
  maxLXDescriptionLength = 36
  maxLXAuthorLength = 56
@@ -19,7 +20,7 @@ const (
  maxLXVersionLength = 36
 )
 
-var lxHeaderPattern = regexp.MustCompile("(?s)^\\s*/\\*.*?\\*/")
+var lxHeaderPattern = regexp.MustCompile("(?s)^/\\*.+?\\*/")
 var lxMetadataPattern = regexp.MustCompile("^\\s?\\*\\s?@(name|description|author|homepage|version)\\s+(.+)$")
 
 type LXUserSourceMetadata struct {
@@ -50,7 +51,7 @@ func ParseLXUserSource(script string) (LXUserSource, error) {
   if len(match) == 3 { values[match[1]] = strings.TrimSpace(match[2]) }
  }
  name := truncateLXMetadata(values["name"], maxLXNameLength)
- if name == "" { return LXUserSource{}, errors.New("无效的洛雪音源脚本：缺少 @name") }
+ if name == "" { name = "user_api_" + time.Now().Format("20060102_150405") }
  sum := sha256.Sum256([]byte(script))
  hash := hex.EncodeToString(sum[:])
  return LXUserSource{Metadata: LXUserSourceMetadata{
@@ -65,7 +66,7 @@ func ParseLXUserSource(script string) (LXUserSource, error) {
 
 func truncateLXMetadata(value string, limit int) string {
  value = strings.TrimSpace(value)
- runes := []rune(value)
- if len(runes) <= limit { return value }
- return string(runes[:limit]) + "..."
+ units := utf16.Encode([]rune(value))
+ if len(units) <= limit { return value }
+ return string(utf16.Decode(units[:limit])) + "..."
 }
