@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"unicode/utf16"
 	"sync"
@@ -33,6 +34,8 @@ type LXUserSourceSession struct {
 	result LXSourceRuntimeResult
 	updates chan LXUserSourceUpdate
 }
+
+var lxUpdateURLPattern = regexp.MustCompile(`^https?:\\/\\/[^\\s$.?#].[^\\s]*$`)
 
 type LXUserSourceUpdate struct {
 	Log string `json:"log"`
@@ -267,10 +270,10 @@ func (s *LXUserSourceSession) run(script string, requestClient *http.Client) {
 				logText = string(utf16.Decode(units[:1024])) + "..."
 			}
 			update := LXUserSourceUpdate{Log: logText}
-			if rawURL, ok := data["updateUrl"].(string); ok && len(rawURL) <= 1024 {
-				if parsed, parseErr := url.ParseRequestURI(rawURL); parseErr == nil &&
-					(parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != "" &&
-					!strings.ContainsAny(rawURL, " \\t\\r\\n") {
+			if rawURL, ok := data["updateUrl"].(string); ok && rawURL != "" {
+				// Keep LX's original condition: an invalid URL is removed only
+				// when it also exceeds 1024 UTF-16 code units.
+				if lxUpdateURLPattern.MatchString(rawURL) || lxJSStringLength(rawURL) <= 1024 {
 					update.UpdateURL = rawURL
 				}
 			}
