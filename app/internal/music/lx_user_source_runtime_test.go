@@ -48,6 +48,30 @@ lx.on(lx.EVENT_NAMES.request, function (request) { return request; });
 	}
 }
 
+func TestRunLXSourceWorkerWaitsForAsyncInitialization(t *testing.T) {
+	script := `setTimeout(function () {
+  lx.send(lx.EVENT_NAMES.inited, {
+    sources: {
+      tx: { name: "QQ音乐", type: "music", actions: ["musicUrl"], qualitys: ["320k"] }
+    }
+  });
+}, 20);
+lx.on(lx.EVENT_NAMES.request, function (request) { return request; });
+`
+	input, err := json.Marshal(lxWorkerRequest{Script: script})
+	if err != nil { t.Fatal(err) }
+	var output bytes.Buffer
+	if code := RunLXSourceWorker(bytes.NewReader(input), &output); code != 0 {
+		t.Fatalf("worker returned %d: %s", code, output.String())
+	}
+	var response lxWorkerResponse
+	if err := json.Unmarshal(output.Bytes(), &response); err != nil { t.Fatal(err) }
+	if response.Error != "" { t.Fatal(response.Error) }
+	if !response.Result.Initialized || len(response.Result.Platforms) != 1 || response.Result.Platforms[0] != "tx" {
+		t.Fatalf("unexpected async initialization result: %#v", response.Result)
+	}
+}
+
 func TestRunLXSourceWorkerRejectsMissingHandshake(t *testing.T) {
 	input := strings.NewReader(`{"script":"var source = 1;" }`)
 	var output bytes.Buffer
