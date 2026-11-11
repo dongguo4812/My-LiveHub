@@ -229,8 +229,14 @@ func formatLXSize(size int64) string {
 }
 func newLXTrack(source, nativeID, title, artist, album string, duration int64, cover string, data map[string]string, qualities []TrackQuality) Track {
 	if data == nil { data = map[string]string{} }
+	id := source + "_" + nativeID
+	if source == "kg" {
+		hash := data["hash"]
+		if hash == "" { hash = "undefined" }
+		id = nativeID + "_" + hash
+	}
 	return Track{
-		ID: source + ":" + nativeID, SourceID: source, LXSourceKey: source,
+		ID: id, SourceID: source, LXSourceKey: source,
 		SourceData: data, Title: decodeLXName(title), Artist: decodeLXName(artist),
 		Album: decodeLXName(album), DurationMS: duration, CoverURL: cover,
 		Qualities: qualities,

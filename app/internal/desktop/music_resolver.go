@@ -30,7 +30,10 @@ func chooseLXTrackQuality(track music.Track, declared music.LXDeclaredSource) (m
 func buildLXMusicURLRequest(track music.Track, selected music.TrackQuality) ([]byte, error) {
 	source := track.LXSourceKey
 	if source == "" { source = track.SourceID }
-	songID := firstNonEmpty(track.SourceData["songmid"], strings.TrimPrefix(track.ID, source+":"))
+	songID := track.SourceData["songmid"]
+	if songID == "" {
+		if source == "kg" { songID = strings.SplitN(track.ID, "_", 2)[0] } else { songID = strings.TrimPrefix(track.ID, source+"_") }
+	}
 
 	qualityList := make([]map[string]any, 0, len(track.Qualities))
 	qualityMap := make(map[string]map[string]any, len(track.Qualities))

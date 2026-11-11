@@ -55,7 +55,7 @@ func TestLXSearchClientCallsAllFiveProvidersAndKeepsPartialResults(t *testing.T)
 		if _, ok := bySource[source]; !ok { t.Errorf("search result missing source %s", source) }
 	}
 	if bySource["tx"].SourceData["media_mid"] != "MEDIA" { t.Fatalf("QQ native media ID was not retained: %#v", bySource["tx"].SourceData) }
-	if bySource["mg"].ID != "mg:505" { t.Fatalf("Migu native song ID was not retained: %q", bySource["mg"].ID) }
+	if bySource["mg"].ID != "mg_505" { t.Fatalf("Migu native song ID was not retained: %q", bySource["mg"].ID) }
 	if bySource["mg"].SourceData["copyright_id"] != "COPY505" { t.Fatalf("Migu copyright ID was not retained: %#v", bySource["mg"].SourceData) }
 	hasMiguHiRes := false
 	for _, item := range bySource["mg"].Qualities { if item.Type == "flac24bit" { hasMiguHiRes = true } }
@@ -120,6 +120,21 @@ func TestLXFormattingAndSimilarityMatchPinnedJavaScriptRules(t *testing.T) {
 	if got := formatLXSize(1024); got != "1.00 KiB" { t.Fatalf("1 KiB = %q", got) }
 	if got := formatLXSize(1536); got != "1.50 KiB" { t.Fatalf("1.5 KiB = %q", got) }
 	if got := lxSimilarity("😀", "😁"); got != 0.5 { t.Fatalf("UTF-16 similarity = %v, want 0.5", got) }
+}
+
+
+func TestNewLXTrackIDsMatchPinnedLXMusicInfoConversion(t *testing.T) {
+	tests := []struct{ source, nativeID, want string; data map[string]string }{
+		{"kw","kw-id","kw_kw-id",map[string]string{"songmid":"kw-id"}},
+		{"kg","kg-id","kg-id_file-hash",map[string]string{"songmid":"kg-id","hash":"file-hash"}},
+		{"tx","tx-id","tx_tx-id",map[string]string{"songmid":"tx-id"}},
+		{"wy","wy-id","wy_wy-id",map[string]string{"songmid":"wy-id"}},
+		{"mg","mg-id","mg_mg-id",map[string]string{"songmid":"mg-id"}},
+	}
+	for _, test := range tests {
+		track := newLXTrack(test.source,test.nativeID,"song","singer","album",0,"",test.data,nil)
+		if track.ID != test.want { t.Errorf("%s ID = %q, want %q",test.source,track.ID,test.want) }
+	}
 }
 
 func TestEAPIEncryptProducesHexCiphertext(t *testing.T) {
