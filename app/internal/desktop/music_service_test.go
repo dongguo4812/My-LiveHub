@@ -410,3 +410,50 @@ func TestLXMusicFallbackUsesLXSourceOrderAndTenRankingTiers(t *testing.T) {
 		t.Fatalf("LX matcher should preserve source order within the highest matching tier and rank exact duration first: %#v", got)
 	}
 }
+
+
+func TestFlowerLXMusicURLLookupIdentifiersMatchAllFivePlatforms(t *testing.T) {
+	cases := []struct {
+		name string
+		track music.Track
+		lookupKey string
+		want any
+	}{
+		{
+			name: "QQ Music",
+			track: music.Track{ID: "qq-song-mid", SourceID: "qq_music", LXSourceKey: "tx", Title: "song", SourceData: map[string]string{"id": "12345"}},
+			lookupKey: "songmid", want: "qq-song-mid",
+		},
+		{
+			name: "NetEase",
+			track: music.Track{ID: "150617", SourceID: "netease", LXSourceKey: "wy", Title: "song"},
+			lookupKey: "songmid", want: int64(150617),
+		},
+		{
+			name: "Kuwo",
+			track: music.Track{ID: "62355680", SourceID: "kuwo", LXSourceKey: "kw", Title: "song"},
+			lookupKey: "songmid", want: "62355680",
+		},
+		{
+			name: "Kugou",
+			track: music.Track{ID: "123", SourceID: "kugou", LXSourceKey: "kg", Title: "song", SourceData: map[string]string{"Audioid": "123", "FileHash": "kugou-file-hash"}},
+			lookupKey: "hash", want: "kugou-file-hash",
+		},
+		{
+			name: "Migu",
+			track: music.Track{ID: "migu-song-id", SourceID: "migu", LXSourceKey: "mg", Title: "song", SourceData: map[string]string{"copyrightId": "migu-copyright-id"}},
+			lookupKey: "copyrightId", want: "migu-copyright-id",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			info := buildLXMusicInfo(tc.track, "128k")
+			if info["source"] != tc.track.LXSourceKey {
+				t.Fatalf("source key = %#v, want %q", info["source"], tc.track.LXSourceKey)
+			}
+			if info[tc.lookupKey] != tc.want {
+				t.Fatalf("Flower musicUrl lookup field %q = %#v, want %#v; musicInfo: %#v", tc.lookupKey, info[tc.lookupKey], tc.want, info)
+			}
+		})
+	}
+}
