@@ -9,6 +9,10 @@ type QueueSnapshot = Awaited<ReturnType<typeof MusicService.GetQueue>>
 type PlaybackSnapshot = Awaited<ReturnType<typeof MusicService.GetPlaybackStatus>>
 
 const config = ref<MusicConfig | null>(null)
+type MusicTab = 'now-playing' | 'host-playlist' | 'visitor-requests' | 'search' | 'settings'
+const activeTab = ref<MusicTab>('now-playing')
+const favorites = ref<Track[]>([])
+const favoriteStorageKey = 'my-livehub.music.host-favorites'
 type LXSource = Awaited<ReturnType<typeof MusicService.GetLXUserSources>>[number]
 type LXValidation = Awaited<ReturnType<typeof MusicService.ValidateLXUserSource>>
 const lxSources = ref<LXSource[]>([])
@@ -56,6 +60,31 @@ function qualityNames(track: Track) {
   return (track.qualities ?? []).map(item => item.type).join(' / ') || '未知'
 }
 function trackRowKey(row: Track) { return `${row.source_id}:${row.id}` }
+function isFavorite(track: Track) { return favorites.value.some(item => trackRowKey(item) === trackRowKey(track)) }
+function persistFavorites() {
+  try { localStorage.setItem(favoriteStorageKey, JSON.stringify(favorites.value)) }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+}
+function loadFavorites() {
+  try {
+    const raw = localStorage.getItem(favoriteStorageKey)
+    const parsed = raw ? JSON.parse(raw) : []
+    favorites.value = Array.isArray(parsed) ? parsed.filter(item => item && typeof item.id === 'string' && typeof item.source_id === 'string' && typeof item.title === 'string') : []
+  } catch { favorites.value = [] }
+}
+function toggleFavorite(track: Track) {
+  if (isFavorite(track)) favorites.value = favorites.value.filter(item => trackRowKey(item) !== trackRowKey(track))
+  else favorites.value = [...favorites.value, track]
+  persistFavorites()
+}
+function removeFavorite(track: Track) {
+  favorites.value = favorites.value.filter(item => trackRowKey(item) !== trackRowKey(track))
+  persistFavorites()
+}
+async function playFavorite(track: Track) {
+  await addToQueue(track)
+  if (!playback.value?.track || playback.value.state === 'stopped' || playback.value.state === 'error') await playNext()
+}
 async function loadConfig() {
   loading.value = true
   error.value = ''
@@ -319,6 +348,7 @@ async function seekTo(value: number | number[]) {
 }
 
 onMounted(() => {
+  loadFavorites()
   void loadConfig()
   statusTimer = setInterval(() => void refreshPlayback(), 1500)
 })
@@ -330,18 +360,26 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
     <header class="page-heading">
       <div>
         <p class="eyebrow">MUSIC PLAYER</p>
-        <h2>音乐播放器</h2>
-        <p class="description">音乐队列与 mpv 播放控制。歌曲搜索和播放解析统一由导入的洛雪音源及洛雪 SDK 提供。</p>
+        <h2>音乐中心</h2>
+        <p class="description">管理主播常驻歌单、观众点播与直播音乐播放。</p>
         <el-alert v-if="config && !config.enabled" title="音乐模块当前已关闭：无法加入歌曲队列或播放。请在下方「点歌设置」中启用音乐模块并保存全部设置。" type="warning" :closable="false" show-icon style="margin-top:12px" />
       </div>
-      <el-tag type="info" effect="plain">首期开发中</el-tag>
+      <el-tag type="success" effect="plain">直播音乐控制台</el-tag>
     </header>
 
     <el-alert v-if="error" :title="error" type="error" :closable="true" show-icon @close="error = ''" />
     <el-alert v-if="playback?.error" :title="playback.error" type="error" :closable="false" show-icon />
     <el-alert v-if="success" :title="success" type="success" :closable="true" show-icon @close="success = ''" />
 
-    <el-card shadow="never">
+    <nav class="music-tabs" aria-label="音乐页面导航">
+      <button :class="{ active: activeTab === 'now-playing' }" @click="activeTab = 'now-playing'">正在播放</button>
+      <button :class="{ active: activeTab === 'host-playlist' }" @click="activeTab = 'host-playlist'">主播歌单 <span>{{ favorites.length }}</span></button>
+      <button :class="{ active: activeTab === 'visitor-requests' }" @click="activeTab = 'visitor-requests'">观众点播 <span>{{ queue?.items.length ?? 0 }}</span></button>
+      <button :class="{ active: activeTab === 'search' }" @click="activeTab = 'search'">歌曲搜索</button>
+      <button :class="{ active: activeTab === 'settings' }" @click="activeTab = 'settings'">音乐设置</button>
+    </nav>
+
+    <el-card v-if="activeTab === 'now-playing'" shadow="never">
       <template #header><div class="card-heading"><strong>正在播放</strong><el-tag :type="playback?.state === 'playing' ? 'success' : playback?.state === 'error' ? 'danger' : 'info'">{{ playback?.state === 'error' ? '播放失败' : playback?.state ?? '播放器未启动' }}</el-tag></div></template>
       <div class="now-playing">
         <div class="track-cover">
@@ -368,7 +406,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
       <p class="hint">首次播放前需要在 Windows 中安装 mpv，并确保 mpv.exe 已加入 PATH。</p>
     </el-card>
 
-    <el-card shadow="never">
+    <el-card v-if="activeTab === 'settings'" shadow="never">
       <template #header><div class="card-heading"><strong>洛雪自定义音源</strong><el-tag type="success" effect="plain">动态来源注册</el-tag></div></template>
       <p class="section-description">每个 JS 脚本可以声明一个或多个洛雪来源。导入后可查看脚本实际声明的来源键、动作和音质；播放时只调用声明了对应来源键及 musicUrl 动作的脚本，不再把脚本固定绑定到四个平台。</p>
       <div class="lx-import-row">
@@ -399,7 +437,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
       <el-empty v-else description="尚未导入自定义音源" :image-size="64" />
     </el-card>
 
-    <el-card shadow="never">
+    <el-card v-if="activeTab === 'search'" shadow="never">
       <template #header><strong>搜索歌曲</strong></template>
       <div class="search-row">
         <el-select v-model="selectedSource" style="width:160px" @change="search">
@@ -423,7 +461,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         <el-table-column label="可用音质" min-width="150"><template #default="scope">{{ qualityNames(scope.row) }}</template></el-table-column>
         <el-table-column label="播放音质" min-width="135"><template #default="scope"><el-select v-model="qualitySelections[trackRowKey(scope.row)]" size="small" clearable placeholder="自动"><el-option v-for="quality in (scope.row.qualities ?? [])" :key="quality.type" :label="quality.type" :value="quality.type" /></el-select></template></el-table-column>
         <el-table-column label="时长" width="90"><template #default="scope">{{ formatDuration(scope.row.duration_ms) }}</template></el-table-column>
-        <el-table-column label="操作" width="110" fixed="right"><template #default="scope"><el-button link type="primary"  @click="addToQueue(scope.row)">加入队列</el-button></template></el-table-column>
+        <el-table-column label="操作" width="170" fixed="right"><template #default="scope"><el-button link :type="isFavorite(scope.row) ? 'danger' : 'primary'" @click="toggleFavorite(scope.row)">{{ isFavorite(scope.row) ? '取消收藏' : '收藏' }}</el-button><el-button link type="primary" @click="addToQueue(scope.row)">加入队列</el-button></template></el-table-column>
       </el-table>
       <div v-if="maxPage > 1" class="search-pagination">
         <el-pagination
@@ -438,8 +476,23 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
       <el-empty v-else-if="!searching && results.length === 0" description="搜索结果将在这里显示" :image-size="76" />
     </el-card>
 
-    <el-card shadow="never">
-      <template #header><div class="card-heading"><strong>播放队列</strong><el-tag effect="plain">{{ queue?.items.length ?? 0 }} 首待播</el-tag></div></template>
+    <el-card v-if="activeTab === 'host-playlist'" shadow="never">
+      <template #header><div class="card-heading"><strong>主播常驻歌单</strong><el-tag effect="plain">{{ favorites.length }} 首收藏</el-tag></div></template>
+      <p class="section-description">这里保存你经常播放的歌曲，作为主播日常音乐歌单。收藏数据保存在本机，不会因切换页面或重启应用而丢失。</p>
+      <div class="card-actions"><el-button type="primary" :disabled="favorites.length === 0" @click="playFavorite(favorites[0])">播放歌单</el-button></div>
+      <el-table v-if="favorites.length" :data="favorites" :row-key="trackRowKey" style="width:100%">
+        <el-table-column type="index" label="#" width="55" />
+        <el-table-column prop="title" label="歌曲" min-width="180" />
+        <el-table-column prop="artist" label="歌手" min-width="140" />
+        <el-table-column prop="album" label="专辑" min-width="140" />
+        <el-table-column label="音源" width="130"><template #default="scope">{{ sourceName(scope.row.source_id) }}</template></el-table-column>
+        <el-table-column label="操作" width="150" fixed="right"><template #default="scope"><el-button link type="primary" @click="playFavorite(scope.row)">播放</el-button><el-button link type="danger" @click="removeFavorite(scope.row)">移出歌单</el-button></template></el-table-column>
+      </el-table>
+      <el-empty v-else description="还没有收藏歌曲。可以在歌曲搜索中点击「收藏」，将常听歌曲加入主播歌单。" :image-size="76" />
+    </el-card>
+
+    <el-card v-if="activeTab === 'visitor-requests'" shadow="never">
+      <template #header><div class="card-heading"><strong>观众点播队列</strong><el-tag effect="plain">{{ queue?.items.length ?? 0 }} 首待播</el-tag></div></template>
       <div v-if="queue?.current" class="queue-current">当前：{{ queue.current.track.title }} · {{ queue.current.track.artist }}</div>
       <el-table v-if="queue?.items.length" :data="queue.items" row-key="id" style="width:100%">
         <el-table-column type="index" label="#" width="55" />
@@ -451,7 +504,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
       <el-empty v-else description="队列暂时为空" :image-size="76" />
     </el-card>
 
-    <el-card shadow="never">
+    <el-card v-if="activeTab === 'settings'" shadow="never">
       <template #header><strong>点歌设置</strong></template>
       <div v-if="config" class="setting-list">
         <div class="setting-row"><div><strong>启用音乐模块</strong><p>关闭后无法加入歌曲队列或播放歌曲，也不会处理弹幕点歌；MV 视频播放不受影响。</p></div><el-switch v-model="config.enabled" /></div>
@@ -464,10 +517,34 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
       </div>
       <div class="card-actions"><el-button type="primary" :loading="saving" :disabled="!config" @click="saveConfig">保存全部设置</el-button></div>
     </el-card>
+    <div v-if="activeTab !== 'now-playing' && playback?.track" class="mini-player">
+      <div class="mini-player-track">
+        <img v-if="playback.track.cover_url" :src="playback.track.cover_url" alt="当前歌曲封面" />
+        <el-icon v-else><Headset /></el-icon>
+        <div><strong>{{ playback.track.title }}</strong><span>{{ playback.track.artist }}</span></div>
+      </div>
+      <div class="mini-player-actions">
+        <span>{{ playback.state === 'playing' ? '正在播放' : playback.state === 'paused' ? '已暂停' : '播放器' }}</span>
+        <el-button circle text :disabled="playback.state !== 'playing'" @click="pause"> <el-icon><Headset /></el-icon> </el-button>
+        <el-button circle text :disabled="playback.state !== 'paused'" @click="resume">继续</el-button>
+        <el-button circle text @click="nextTrack">下一首</el-button>
+      </div>
+    </div>
   </section>
 </template>
 
 
 <style scoped>
-.music-page{display:flex;flex-direction:column;gap:20px}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.section-description,.source-copy span,.setting-row p,.hint{color:var(--el-text-color-secondary);font-size:13px}.section-description{margin:0 0 16px}.card-heading{display:flex;align-items:center;justify-content:space-between}.source-list,.setting-list{display:flex;flex-direction:column}.source-row,.setting-row{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:14px 0;border-bottom:1px solid var(--app-border)}.source-row:last-child{border-bottom:0}.source-copy,.track-info{display:flex;flex-direction:column;gap:5px}.source-copy span,.track-info span,.track-info small{font-size:12px;color:var(--el-text-color-secondary)}.setting-row p{margin:6px 0 0}.card-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}.now-playing{display:flex;align-items:center;gap:16px}.track-cover{width:76px;height:76px;border-radius:10px;background:var(--app-bg-control);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--el-text-color-secondary);font-size:30px}.track-cover img{width:100%;height:100%;object-fit:cover}.track-info strong{font-size:17px}.time-row{display:flex;justify-content:space-between;color:var(--el-text-color-secondary);font-size:12px;font-variant-numeric:tabular-nums}.player-controls{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:14px 0}.volume-row{display:grid;grid-template-columns:50px 1fr;align-items:center;gap:12px}.volume-row span{font-size:13px;color:var(--el-text-color-secondary)}.hint{margin:12px 0 0}.search-row{display:flex;gap:10px}.lx-import-row{display:flex;gap:10px;align-items:center}.hidden-file-input{display:none}.lx-source-list{display:flex;flex-direction:column;margin-top:16px}.lx-source-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-top:1px solid var(--app-border)}.lx-source-row .source-copy{min-width:0}.lx-source-row .source-copy span{overflow-wrap:anywhere}.lx-source-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}.search-summary{margin-top:12px;color:var(--el-text-color-secondary);font-size:12px}.search-pagination{display:flex;justify-content:center;margin-top:18px}.queue-current{padding:10px 12px;margin-bottom:12px;border-radius:8px;background:var(--app-bg-control);font-size:13px}.setting-row p{margin:6px 0 0}@media(max-width:800px){.source-row,.setting-row{align-items:flex-start;flex-direction:column}.search-row,.lx-import-row{flex-direction:column;align-items:stretch}.lx-source-row{align-items:flex-start}}
+.music-tabs{display:flex;align-items:center;gap:6px;overflow-x:auto;padding:0 2px 8px;border-bottom:1px solid var(--app-border)}
+.music-tabs button{display:inline-flex;align-items:center;gap:7px;white-space:nowrap;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--el-text-color-secondary);padding:11px 14px;margin-bottom:-1px;font:inherit;font-size:14px;cursor:pointer;transition:color .15s,border-color .15s}
+.music-tabs button:hover{color:var(--el-text-color-primary)}
+.music-tabs button.active{color:var(--app-accent);border-bottom-color:var(--app-accent);font-weight:600}
+.music-tabs button span{font-size:11px;padding:1px 6px;border-radius:10px;background:var(--app-bg-control)}
+.mini-player{position:sticky;bottom:12px;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 14px;border:1px solid var(--app-border);border-radius:12px;background:var(--el-bg-color);box-shadow:0 6px 24px #00000012}
+.mini-player-track,.mini-player-actions{display:flex;align-items:center;gap:12px;min-width:0}
+.mini-player-track img{width:42px;height:42px;object-fit:cover;border-radius:7px}
+.mini-player-track>div{display:flex;flex-direction:column;gap:3px;min-width:0}
+.mini-player-track strong,.mini-player-track span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:280px}
+.mini-player-track span,.mini-player-actions>span{font-size:12px;color:var(--el-text-color-secondary)}
+.music-page{display:flex;flex-direction:column;gap:20px}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.section-description,.source-copy span,.setting-row p,.hint{color:var(--el-text-color-secondary);font-size:13px}.section-description{margin:0 0 16px}.card-heading{display:flex;align-items:center;justify-content:space-between}.source-list,.setting-list{display:flex;flex-direction:column}.source-row,.setting-row{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:14px 0;border-bottom:1px solid var(--app-border)}.source-row:last-child{border-bottom:0}.source-copy,.track-info{display:flex;flex-direction:column;gap:5px}.source-copy span,.track-info span,.track-info small{font-size:12px;color:var(--el-text-color-secondary)}.setting-row p{margin:6px 0 0}.card-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}.now-playing{display:flex;align-items:center;gap:16px}.track-cover{width:76px;height:76px;border-radius:10px;background:var(--app-bg-control);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--el-text-color-secondary);font-size:30px}.track-cover img{width:100%;height:100%;object-fit:cover}.track-info strong{font-size:17px}.time-row{display:flex;justify-content:space-between;color:var(--el-text-color-secondary);font-size:12px;font-variant-numeric:tabular-nums}.player-controls{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:14px 0}.volume-row{display:grid;grid-template-columns:50px 1fr;align-items:center;gap:12px}.volume-row span{font-size:13px;color:var(--el-text-color-secondary)}.hint{margin:12px 0 0}.search-row{display:flex;gap:10px}.lx-import-row{display:flex;gap:10px;align-items:center}.hidden-file-input{display:none}.lx-source-list{display:flex;flex-direction:column;margin-top:16px}.lx-source-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-top:1px solid var(--app-border)}.lx-source-row .source-copy{min-width:0}.lx-source-row .source-copy span{overflow-wrap:anywhere}.lx-source-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}.search-summary{margin-top:12px;color:var(--el-text-color-secondary);font-size:12px}.search-pagination{display:flex;justify-content:center;margin-top:18px}.queue-current{padding:10px 12px;margin-bottom:12px;border-radius:8px;background:var(--app-bg-control);font-size:13px}.setting-row p{margin:6px 0 0}@media(max-width:800px){.source-row,.setting-row{align-items:flex-start;flex-direction:column}.search-row,.lx-import-row{flex-direction:column;align-items:stretch}.lx-source-row{align-items:flex-start}.mini-player{align-items:flex-start;flex-direction:column}.mini-player-actions{width:100%;justify-content:space-between}}
 </style>
