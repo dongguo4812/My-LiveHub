@@ -117,3 +117,48 @@ lx.send(lx.EVENT_NAMES.inited, { sources: {} });`
 	if err != nil { t.Fatal(err) }
 	if len(value) != 0 { t.Fatalf("unknown LX actions should resolve without a result payload, got %s", value) }
 }
+
+
+func TestLXUserSourceSessionCancellationIgnoresLatePromiseAndKeepsSessionAlive(t *testing.T) {
+	script := `let completed = 0;
+lx.on(lx.EVENT_NAMES.request, function (request) {
+  return new Promise(function (resolve) {
+    setTimeout(function () {
+      completed++;
+      resolve("https://cdn.example.test/" + completed + "-" + request.info.musicInfo.id + ".mp3");
+    }, request.info.delay);
+  });
+});
+lx.send(lx.EVENT_NAMES.inited, {
+  sources: { wy: { type: "music", actions: ["musicUrl"], qualitys: ["320k"] } }
+});`
+	startupCtx, startupCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer startupCancel()
+	session, err := StartLXUserSourceSession(startupCtx, script, nil)
+	if err != nil { t.Fatal(err) }
+	defer session.Close()
+
+	firstCtx, firstCancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	firstPayload := json.RawMessage(`{"source":"wy","action":"musicUrl","info":{"type":"320k","delay":60,"musicInfo":{"id":"cancelled"}}}`)
+	_, err = session.Request(firstCtx, firstPayload)
+	firstCancel()
+	if err != context.DeadlineExceeded {
+		t.Fatalf("cancelled request error = %v, want context deadline exceeded", err)
+	}
+
+	// LX cancels the host requestKey wait, not the script's own Promise. Its
+	// late completion must be ignored without closing or poisoning the session.
+	time.Sleep(90 * time.Millisecond)
+	secondCtx, secondCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer secondCancel()
+	secondPayload := json.RawMessage(`{"source":"wy","action":"musicUrl","info":{"type":"320k","delay":1,"musicInfo":{"id":"next"}}}`)
+	value, err := session.Request(secondCtx, secondPayload)
+	if err != nil { t.Fatal(err) }
+	var result struct {
+		Data struct { URL string `json:"url"` } `json:"data"`
+	}
+	if err := json.Unmarshal(value, &result); err != nil { t.Fatal(err) }
+	if result.Data.URL != "https://cdn.example.test/2-next.mp3" {
+		t.Fatalf("late cancelled Promise was not isolated from the next request: %q", result.Data.URL)
+	}
+}
