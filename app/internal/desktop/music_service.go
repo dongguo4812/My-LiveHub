@@ -474,7 +474,7 @@ func (s *MusicService) ValidateLXUserSource(id string) (music.LXSourceRuntimeRes
 	if err != nil { return music.LXSourceRuntimeResult{}, err }
 	script, err := store.ReadScript(id)
 	if err != nil { return music.LXSourceRuntimeResult{}, err }
-	ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
 	return music.InspectLXUserSource(ctx, script)
 }
