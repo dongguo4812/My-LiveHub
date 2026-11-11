@@ -219,6 +219,13 @@ func (*QQMusicSource) Resolve(context.Context, Track) (PlaybackResource, error) 
 // KugouSource uses Kugou's public song search endpoint. It keeps the provider's
 // song ID and metadata but does not claim playback support until a playable
 // public URL can be obtained without bypassing platform restrictions.
+func rawJSONScalarString(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" { return "" }
+	var value string
+	if json.Unmarshal(raw, &value) == nil { return value }
+	return strings.TrimSpace(string(raw))
+}
+
 type kugouSearchSong struct {
 	AudioID int64 `json:"Audioid"`
 	MixSongID int64 `json:"MixSongID"`
@@ -230,7 +237,7 @@ type kugouSearchSong struct {
 	SQFileSize int64 `json:"SQFileSize"`
 	ResFileHash string `json:"ResFileHash"`
 	ResFileSize int64 `json:"ResFileSize"`
-	AlbumID string `json:"AlbumID"`
+	AlbumID json.RawMessage `json:"AlbumID"`
 	SongName string `json:"SongName"`
 	OriSongName string `json:"OriSongName"`
 	Suffix string `json:"Suffix"`
@@ -322,7 +329,7 @@ func (s *KugouSource) SearchPage(ctx context.Context, keyword string, page, limi
 		data := map[string]string{
 			"id": id, "audioid": id, "Audioid": id, "songmid": id,
 			"MixSongID": strconv.FormatInt(item.MixSongID, 10), "albumAudioId": strconv.FormatInt(item.MixSongID, 10),
-			"AlbumID": item.AlbumID, "albumId": item.AlbumID,
+			"AlbumID": rawJSONScalarString(item.AlbumID), "albumId": rawJSONScalarString(item.AlbumID),
 			"hash": item.FileHash, "FileHash": item.FileHash, "fileHash": item.FileHash,
 			"FileSize": strconv.FormatInt(item.FileSize, 10), "FileHash128": item.FileHash,
 			"HQFileHash": item.HQFileHash, "HQFileSize": strconv.FormatInt(item.HQFileSize, 10),
