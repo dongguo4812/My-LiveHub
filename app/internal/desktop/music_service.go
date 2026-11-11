@@ -857,6 +857,23 @@ func buildLXQQQualities(data map[string]string) ([]any, map[string]any) {
 	return types, available
 }
 
+func buildLXKugouQualities(data map[string]string) ([]any, map[string]any) {
+	fields := []struct{ sizeKey, hashKey, name string }{
+		{"FileSize", "FileHash", "128k"}, {"HQFileSize", "HQFileHash", "320k"},
+		{"SQFileSize", "SQFileHash", "flac"}, {"ResFileSize", "ResFileHash", "flac24bit"},
+	}
+	types := make([]any, 0, len(fields)); available := make(map[string]any, len(fields))
+	for _, field := range fields {
+		size, err := strconv.ParseInt(strings.TrimSpace(data[field.sizeKey]), 10, 64)
+		hash := strings.TrimSpace(data[field.hashKey])
+		if err != nil || size <= 0 || hash == "" { continue }
+		label := formatLXFileSize(size)
+		types = append(types, map[string]any{"type":field.name,"size":label,"hash":hash})
+		available[field.name] = map[string]any{"size":label,"hash":hash}
+	}
+	return types, available
+}
+
 func buildLXKuwoQualities(raw string) ([]any, map[string]any) {
 	qualityByBitrate := map[string]string{"4000": "flac24bit", "2000": "flac", "320": "320k", "128": "128k"}
 	pattern := regexp.MustCompile(`level:(\w+),bitrate:(\d+),format:(\w+),size:([\w.]+)`)
