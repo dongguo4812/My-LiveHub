@@ -216,3 +216,22 @@ func TestLXRequestUsesJSONOnlyWhenContentTypeRequestsIt(t *testing.T) {
 	if _,ok:=response["status"];ok { t.Error("LX preload response does not expose status") }
 	if response["statusMessage"]!="OK" { t.Errorf("statusMessage=%#v",response["statusMessage"]) }
 }
+
+
+func TestLXRequestPreservesJavaScriptObjectKeyOrder(t *testing.T) {
+	client := &http.Client{Transport: lxRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if got, want := request.URL.RawQuery, "z=1&a=2&m=3"; got != want {
+			t.Errorf("query parameter order = %q, want %q", got, want)
+		}
+		return &http.Response{StatusCode: 200, Status: "200 OK", Header: make(http.Header), Body: io.NopCloser(strings.NewReader("ok")), Request: request}, nil
+	})}
+	vm := goja.New()
+	lx := vm.NewObject()
+	if err := installLXRequestWithClient(vm, lx, client); err != nil { t.Fatal(err) }
+	if err := vm.Set("lx", lx); err != nil { t.Fatal(err) }
+	_, err := vm.RunString(`lx.request("https://music.example.test/search", {
+  method: "get",
+  body: { z: "1", a: "2", m: "3" }
+}, function (error) { if (error) throw error; });`)
+	if err != nil { t.Fatal(err) }
+}
