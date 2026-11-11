@@ -194,20 +194,39 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 		return 1
 	}
 	_ = lx.Set("send", func(call goja.FunctionCall) goja.Value {
-		if call.Argument(0).String() == "inited" {
-			encoded, marshalErr := json.Marshal(call.Argument(1).Export())
-			if marshalErr == nil {
-				initialized = encoded
-			}
+		promise, resolve, reject := vm.NewPromise()
+		event := call.Argument(0).String()
+		if event != "inited" {
+			_ = reject(vm.NewGoError(fmt.Errorf("The event is not supported: %s", event)))
+			return vm.ToValue(promise)
 		}
-		return goja.Undefined()
+		if len(initialized) > 0 {
+			_ = reject(vm.NewGoError(errors.New("Script is inited")))
+			return vm.ToValue(promise)
+		}
+		encoded, marshalErr := json.Marshal(call.Argument(1).Export())
+		if marshalErr != nil {
+			_ = reject(vm.NewGoError(marshalErr))
+			return vm.ToValue(promise)
+		}
+		initialized = encoded
+		_ = resolve(goja.Undefined())
+		return vm.ToValue(promise)
 	})
 	_ = lx.Set("on", func(call goja.FunctionCall) goja.Value {
+		promise, resolve, reject := vm.NewPromise()
 		event := call.Argument(0).String()
-		if _, ok := goja.AssertFunction(call.Argument(1)); ok && event != "" {
-			handlers[event] = call.Argument(1)
+		if event != "request" {
+			_ = reject(vm.NewGoError(fmt.Errorf("The event is not supported: %s", event)))
+			return vm.ToValue(promise)
 		}
-		return goja.Undefined()
+		if _, ok := goja.AssertFunction(call.Argument(1)); !ok {
+			_ = reject(vm.NewGoError(errors.New("LX request handler must be a function")))
+			return vm.ToValue(promise)
+		}
+		handlers[event] = call.Argument(1)
+		_ = resolve(goja.Undefined())
+		return vm.ToValue(promise)
 	})
 	if err := installLXRequestWithClient(vm, lx, requestClient); err != nil {
 		response.Error = "初始化 LX request 请求桥接失败"
@@ -281,7 +300,8 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 		if err := json.Unmarshal(request.Payload, &payload); err != nil { response.Error = "LX 音源请求数据格式无效"; return 1 }
 		callable, ok := goja.AssertFunction(handler)
 		if !ok { response.Error = "LX 音源 request 处理器不可调用"; return 1 }
-		value, callErr := callable(goja.Undefined(), vm.ToValue(payload))
+		//洛雪 calls the request handler with the lx API object as its this context.
+		value, callErr := callable(lx, vm.ToValue(payload))
 		if callErr != nil { response.Error = fmt.Sprintf("LX 音源 request 处理失败：%s", callErr.Error()); return 1 }
 		// LX sources commonly use async/await and Promise.then around the
 		// callback-based HTTP API. Drive Goja's microtask queue after the
