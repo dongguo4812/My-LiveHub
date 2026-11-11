@@ -216,6 +216,18 @@ func TestNewMusicServiceRegistersFiveSearchSources(t *testing.T) {
 }
 
 
+func assertLXMusicInfoKeys(t *testing.T, info map[string]any, want []string) {
+	t.Helper()
+	if len(info) != len(want) {
+		t.Fatalf("LX musicInfo contains unexpected/missing fields: got %d keys, want %d (%#v)", len(info), len(want), info)
+	}
+	for _, key := range want {
+		if _, exists := info[key]; !exists {
+			t.Errorf("LX musicInfo is missing contract field %q", key)
+		}
+	}
+}
+
 func TestLXQQMusicInfoMatchesLXMusicFlatContract(t *testing.T) {
 	track := music.Track{
 		ID: "song-mid", SourceID: "qq_music", LXSourceKey: "tx",
@@ -232,7 +244,7 @@ func TestLXQQMusicInfoMatchesLXMusicFlatContract(t *testing.T) {
 	if info["source"] != "tx" || info["songmid"] != "song-mid" || info["songId"] != int64(123456) ||
 		info["strMediaMid"] != "media-mid" || info["albumMid"] != "album-mid" ||
 		info["albumId"] != "album-mid" || info["albumName"] != "魔杰座" ||
-		info["img"] != track.CoverURL || info["interval"] != "03:43" || info["duration"] != int64(223) {
+		info["img"] != track.CoverURL || info["interval"] != "03:43" {
 		t.Fatalf("QQ musicInfo does not match LX Music flat fields: %#v", info)
 	}
 	types, ok := info["types"].([]any)
@@ -247,9 +259,7 @@ func TestLXQQMusicInfoMatchesLXMusicFlatContract(t *testing.T) {
 	if !ok || len(available) != 3 || available["320k"].(map[string]any)["size"] != "2.00 MiB" {
 		t.Fatalf("unexpected QQ _types: %#v", info["_types"])
 	}
-	if info["id"] != "song-mid" || info["mid"] != "song-mid" {
-		t.Fatalf("generic IDs were overwritten by provider metadata: %#v", info)
-	}
+	assertLXMusicInfoKeys(t, info, []string{"name", "singer", "source", "songmid", "interval", "albumName", "img", "typeUrl", "types", "_types", "songId", "strMediaMid", "albumMid", "albumId"})
 }
 
 func TestLXQQMusicInfoDoesNotFabricateMediaMid(t *testing.T) {
@@ -258,8 +268,8 @@ func TestLXQQMusicInfoDoesNotFabricateMediaMid(t *testing.T) {
 		SourceData: map[string]string{"id": "123456", "albummid": "album-mid"},
 	}
 	info := buildLXMusicInfo(track, "128k")
-	if info["strMediaMid"] != "" {
-		t.Fatalf("strMediaMid must preserve the missing provider value, got %#v", info["strMediaMid"])
+	if _, exists := info["strMediaMid"]; exists {
+		t.Fatalf("missing strMediaMid must be omitted like LX's undefined property, got %#v", info["strMediaMid"])
 	}
 	if info["albumId"] != "album-mid" { t.Fatalf("QQ albumId must mirror LX album.mid, got %#v",info["albumId"]) }
 	missingAlbum:=buildLXMusicInfo(music.Track{ID:"song-mid",LXSourceKey:"tx",Title:"稻香",SourceData:map[string]string{"id":"123456"}},"128k")
@@ -302,6 +312,7 @@ func TestLXKugouMusicInfoPreservesPerQualityHashes(t *testing.T) {
 	if info["source"]!="kg"||info["songmid"]!=int64(123)||info["albumAudioId"]!=int64(456)||info["albumId"]!="album-9"||info["hash"]!="base-hash"||info["interval"]!="05:04"{t.Fatalf("Kugou LX musicInfo mismatch: %#v",info)}
 	types,ok:=info["types"].([]any)
 	if !ok||len(types)!=4||types[0].(map[string]any)["hash"]!="base-hash"||types[3].(map[string]any)["hash"]!="res-hash"{t.Fatalf("Kugou quality hashes missing: %#v",info["types"])}
+	assertLXMusicInfoKeys(t, info, []string{"name", "singer", "source", "songmid", "interval", "albumName", "img", "typeUrl", "types", "_types", "albumId", "albumAudioId", "hash"})
 	if got:=selectLXQuality([]string{"flac24bit","flac","320k"},false,track);got!="320k"{t.Fatalf("expected 320k preference based on configured list, got %#v",got)}
 	if got:=selectLXQuality([]string{"flac24bit"},false,track);got!="flac24bit"{t.Fatalf("expected available 24bit quality, got %#v",got)}
 	track.SourceData["ResFileSize"]="0"
@@ -315,6 +326,7 @@ func TestLXNetEaseMusicInfoUsesPrivilegeAndQualityFiles(t *testing.T) {
 	}}
 	info:=buildLXMusicInfo(track,"flac")
 	if info["source"]!="wy"||info["songmid"]!=int64(321)||info["albumId"]!=int64(12)||info["interval"]!="03:00"||info["img"]!=track.CoverURL{t.Fatalf("NetEase LX musicInfo mismatch: %#v",info)}
+	assertLXMusicInfoKeys(t, info, []string{"name", "singer", "source", "songmid", "interval", "albumName", "img", "typeUrl", "types", "_types", "albumId"})
 	types,ok:=info["types"].([]any)
 	if !ok||len(types)!=4||types[0].(map[string]any)["type"]!="128k"||types[1].(map[string]any)["type"]!="320k"||types[3].(map[string]any)["type"]!="flac24bit"{t.Fatalf("unexpected NetEase qualities: %#v",info["types"])}
 	if got:=selectLXQuality([]string{"flac24bit","flac","320k","128k"},false,track);got!="flac24bit"{t.Fatalf("expected highest available NetEase quality, got %#v",got)}
@@ -333,10 +345,11 @@ func TestLXKuwoMusicInfoUsesNInfoQualityCapabilities(t *testing.T) {
 	}
 	info := buildLXMusicInfo(track, "flac")
 	if info["source"] != "kw" || info["songmid"] != "456" || info["albumId"] != "album-9" ||
-		info["albumName"] != "I'm OK" || info["interval"] != "05:04" || info["img"] != nil {
+		info["albumName"] != "I'm OK" || info["interval"] != "05:04" || info["img"] != "" {
 		t.Fatalf("Kuwo musicInfo mismatch: %#v", info)
 	}
 	types, ok := info["types"].([]any)
+	assertLXMusicInfoKeys(t, info, []string{"name", "singer", "source", "songmid", "interval", "albumName", "img", "typeUrl", "types", "_types", "albumId"})
 	if !ok || len(types) != 3 || types[0].(map[string]any)["type"] != "flac" ||
 		types[1].(map[string]any)["type"] != "320k" || types[2].(map[string]any)["type"] != "128k" {
 		t.Fatalf("unexpected Kuwo qualities: %#v", info["types"])
