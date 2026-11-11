@@ -158,13 +158,14 @@ func TestRunLXSourceWorkerResolvesMusicURLThroughHTTPCallback(t *testing.T) {
 	script := `/*
  * @name HTTP Resolver Test
  */
-lx.on(lx.EVENT_NAMES.request, function (request) {
-  return new Promise(function (resolve, reject) {
+lx.on(lx.EVENT_NAMES.request, async function (request) {
+  const response = await new Promise(function (resolve, reject) {
     lx.request("https://music.example.test/resolve", {}, function (err, response) {
       if (err) return reject(err);
-      resolve(response.body.url);
+      resolve(response);
     });
   });
+  return response.body.url;
 });
 lx.send(lx.EVENT_NAMES.inited, {
   sources: {
