@@ -152,7 +152,7 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 	lx := vm.NewObject()
 	_ = lx.Set("EVENT_NAMES", eventNames)
 	_ = lx.Set("env", "desktop")
-	_ = lx.Set("version", "1.0.0")
+	_ = lx.Set("version", "2.0.0")
 	if source, parseErr := ParseLXUserSource(request.Script); parseErr == nil {
 		currentInfo := vm.NewObject()
 		_ = currentInfo.Set("name", source.Metadata.Name)
