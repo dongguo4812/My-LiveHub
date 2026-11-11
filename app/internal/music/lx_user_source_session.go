@@ -314,7 +314,7 @@ func (s *LXUserSourceSession) run(script string, requestClient *http.Client) {
 		return
 	}
 	if len(initialized) == 0 {
-		if err := s.pumpUntil(loop, vm, func() bool { return len(initialized) > 0 }, lxRequestTimeout+5*time.Second); err != nil {
+		if err := s.pumpUntil(loop, vm, func() bool { return len(initialized) > 0 }, lxWorkerExecutionTimeout); err != nil {
 			s.ready <- lxSessionReady{err: fmt.Errorf("LX 音源未发送 inited 初始化事件：%w", err)}
 			return
 		}
