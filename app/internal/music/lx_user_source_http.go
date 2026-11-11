@@ -3,6 +3,7 @@ package music
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,7 +17,7 @@ import (
 )
 
 const (
-	lxRequestTimeout = 5 * time.Second
+	lxRequestTimeout = 10 * time.Second
 	lxRequestBodyLimit = 2 << 20
 	lxRequestRedirectLimit = 4
 )
@@ -41,7 +42,7 @@ func installLXRequestWithClient(vm *goja.Runtime, lx *goja.Object, client *http.
 		if err != nil {
 			errorValue = vm.ToValue(err.Error())
 		}
-		_, callbackErr := callback(goja.Undefined(), errorValue, vm.ToValue(response), vm.ToValue(body))
+		_, callbackErr := callback(goja.Undefined(), errorValue, vm.ToValue(response), vm.ToValue(response["body"]))
 		if callbackErr != nil {
 			return vm.ToValue(callbackErr.Error())
 		}
@@ -75,6 +76,10 @@ func performLXRequestWithClient(rawURL string, optionsValue goja.Value, client *
 		switch body := value.(type) {
 		case string: requestBody = []byte(body)
 		case []byte: requestBody = body
+		case map[string]interface{}, []interface{}:
+			encoded, marshalErr := json.Marshal(body)
+			if marshalErr != nil { return nil, "", fmt.Errorf("LX request body JSON 编码失败：%w", marshalErr) }
+			requestBody = encoded
 		default: requestBody = []byte(fmt.Sprint(body))
 		}
 	}
@@ -104,7 +109,12 @@ func performLXRequestWithClient(rawURL string, optionsValue goja.Value, client *
 		if number, ok := value.(int64); ok && number > 0 { timeout = time.Duration(number) * time.Millisecond }
 		if number, ok := value.(float64); ok && number > 0 { timeout = time.Duration(number) * time.Millisecond }
 	}
-	if timeout > lxRequestTimeout { timeout = lxRequestTimeout }
+	if timeout > 30*time.Second { timeout = 30*time.Second }
+	redirectLimit := lxRequestRedirectLimit
+	if value, ok := options["follow_max"]; ok {
+		if number, ok := value.(int64); ok && number >= 0 && number < 10 { redirectLimit = int(number) }
+		if number, ok := value.(float64); ok && number >= 0 && number < 10 { redirectLimit = int(number) }
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, method, parsed.String(), bytes.NewReader(requestBody))
@@ -132,7 +142,7 @@ func performLXRequestWithClient(rawURL string, optionsValue goja.Value, client *
 			Transport: transport,
 			Timeout: timeout,
 			CheckRedirect: func(next *http.Request, via []*http.Request) error {
-				if len(via) > lxRequestRedirectLimit { return errors.New("LX request 重定向次数过多") }
+				if len(via) > redirectLimit { return errors.New("LX request 重定向次数过多") }
 				return validateLXSourceURL(next.URL)
 			},
 		}
@@ -146,13 +156,21 @@ func performLXRequestWithClient(rawURL string, optionsValue goja.Value, client *
 	if len(data) > lxRequestBodyLimit { return nil, "", errors.New("LX request 响应体超过 2 MB 限制") }
 	responseHeaders := make(map[string]string, len(resp.Header))
 	for key, values := range resp.Header { responseHeaders[key] = strings.Join(values, ", ") }
+	var responseBody any = string(data)
+	if strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "json") || (len(data) > 0 && (data[0] == '{' || data[0] == '[')) {
+		var decoded any
+		if json.Unmarshal(data, &decoded) == nil { responseBody = decoded }
+	}
+	responseURL := parsed.String()
+	if resp.Request != nil && resp.Request.URL != nil { responseURL = resp.Request.URL.String() }
 	response := map[string]any{
 		"statusCode": resp.StatusCode,
+		"status": resp.StatusCode,
 		"headers": responseHeaders,
-		"url": resp.Request.URL.String(),
+		"url": responseURL,
 		"statusMessage": resp.Status,
-		// LX Music scripts read response.body in the second callback argument.
-		"body": string(data),
+		// LX Music scripts read response.body; JSON responses are decoded like LX Desktop.
+		"body": responseBody,
 	}
 	return response, string(data), nil
 }
