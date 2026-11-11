@@ -70,7 +70,7 @@ lx.on(lx.EVENT_NAMES.request, function (request) {
   return Promise.resolve("https://media.example.test/song.mp3");
 });`
 	payload, err := json.Marshal(map[string]any{
-		"source": "wy",
+		"source": "user_api",
 		"action": "musicUrl",
 		"info": map[string]any{"type": "wy", "musicInfo": map[string]any{"id": "150617", "name": "找自己", "artist": "陶喆"}},
 	})
@@ -90,7 +90,7 @@ lx.on(lx.EVENT_NAMES.request, function (request) {
 func TestRunLXSourceWorkerRejectsPendingRequestPromise(t *testing.T) {
 	script := `lx.send(lx.EVENT_NAMES.inited, { sources: { wy: { name: "网易云音乐", actions: ["musicUrl"], qualitys: ["standard"] } } });
 lx.on(lx.EVENT_NAMES.request, function () { return new Promise(function () {}); });`
-	payload := json.RawMessage(`{"source":"wy","action":"musicUrl","info":{"type":"wy","musicInfo":{"id":"1"}}}`)
+	payload := json.RawMessage(`{"source":"user_api","action":"musicUrl","info":{"type":"wy","musicInfo":{"id":"1"}}}`)
 	input, _ := json.Marshal(lxWorkerRequest{Script: script, Operation: "resolve", Payload: payload})
 	var output bytes.Buffer
 	_ = RunLXSourceWorker(bytes.NewReader(input), &output)
@@ -119,4 +119,16 @@ lx.on(lx.EVENT_NAMES.request, function () {
 	var message string
 	if err := json.Unmarshal(response.Value, &message); err != nil { t.Fatal(err) }
 	if !strings.Contains(message, "不允许访问本机或内网地址") { t.Fatalf("private request was not blocked: %q", message) }
+}
+
+
+func TestValidateLXPlaybackURLRejectsPrivateTargets(t *testing.T) {
+	for _, raw := range []string{
+		"http://127.0.0.1/song.mp3",
+		"http://localhost/song.mp3",
+		"file:///C:/music/song.mp3",
+		"javascript:alert(1)",
+	} {
+		if err := ValidateLXPlaybackURL(raw); err == nil { t.Fatalf("expected URL to be rejected: %s", raw) }
+	}
 }
