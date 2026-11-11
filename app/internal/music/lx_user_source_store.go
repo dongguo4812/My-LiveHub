@@ -64,8 +64,36 @@ func (s *LXUserSourceStore) dialPublic(ctx context.Context, network, address str
 	return nil, lastErr
 }
 
+var lxNonPublicPrefixes = func() []netip.Prefix {
+	raw := []string{
+		"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24",
+		"192.88.99.0/24", "198.18.0.0/15", "198.51.100.0/24",
+		"203.0.113.0/24", "240.0.0.0/4", "2001:db8::/32",
+		"2001::/23", "64:ff9b:1::/48",
+	}
+	prefixes := make([]netip.Prefix, 0, len(raw))
+	for _, value := range raw {
+		prefixes = append(prefixes, netip.MustParsePrefix(value))
+	}
+	return prefixes
+}()
+
 func isPublicLXIP(ip netip.Addr) bool {
-	return ip.IsValid() && ip.IsGlobalUnicast() && !ip.IsPrivate() && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast() && !ip.IsMulticast() && !ip.IsUnspecified()
+	if !ip.IsValid() {
+		return false
+	}
+	ip = ip.Unmap()
+	if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsMulticast() || ip.IsUnspecified() {
+		return false
+	}
+	for _, prefix := range lxNonPublicPrefixes {
+		if prefix.Contains(ip) {
+			return false
+		}
+	}
+	return true
 }
 
 func validateLXSourceURL(value *url.URL) error {
