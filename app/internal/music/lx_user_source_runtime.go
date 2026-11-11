@@ -352,7 +352,7 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 		if callErr != nil { response.Error = fmt.Sprintf("LX 音源 request 处理失败：%s", callErr.Error()); return 1 }
 		if promise, ok := value.Export().(*goja.Promise); ok {
 			if pumpErr:=loop.pumpUntil(func() bool { return promise.State()!=goja.PromiseStatePending }, lxWorkerExecutionTimeout); pumpErr!=nil {
-				response.Error=fmt.Sprintf("LX 音源异步执行失败：%s",pumpErr.Error()); return 1
+				response.Error=fmt.Sprintf("LX 音源异步执行失败：Promise 尚未完成（%s）",pumpErr.Error()); return 1
 			}
 			switch promise.State() {
 			case goja.PromiseStateFulfilled: value=promise.Result()
