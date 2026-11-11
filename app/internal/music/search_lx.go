@@ -518,7 +518,7 @@ func(p miguSearchProvider)Search(ctx context.Context,keyword string,page,limit i
 		if id==""||copyright==""||seen[copyright]{continue};seen[copyright]=true
 		types:=[]TrackQuality{}
 		for _,v:=range sliceValue(item["audioFormats"]){f:=mapValue(v);kind:="";switch stringValue(f["formatType"]){case "PQ":kind="128k";case "HQ":kind="320k";case "SQ":kind="flac";case "ZQ24":kind="flac24bit"};if kind!=""{types=append(types,quality(kind,func() int64 { if rawSize, exists := f["asize"]; exists && rawSize != nil { return intValue(rawSize) }; return intValue(f["isize"]) }(),nil))}}
-		img:=stringValue(item["img3"]);if img==""{img=stringValue(item["img2"])};if img==""{img=stringValue(item["img1"])};if img!=""&&!strings.Contains(stringValue(item["img3"]),"http:"){img="http://d.musicapp.migu.cn"+img}
+		img:=stringValue(item["img3"]);if img==""{img=stringValue(item["img2"])};if img==""{img=stringValue(item["img1"])};img3 := stringValue(item["img3"]); if img!=""&&!strings.Contains(img3,"http:")&&!strings.Contains(img3,"https:"){img="http://d.musicapp.migu.cn"+img}
 		artists:=[]string{};for _,v:=range sliceValue(item["singerList"]){if n:=stringValue(mapValue(v)["name"]);n!=""{artists=append(artists,n)}}
 		dataMap:=map[string]string{"songmid":id,"copyright_id":copyright,"album_id":stringValue(item["albumId"]),"lrc_url":stringValue(item["lrcUrl"]),"mrc_url":stringValue(item["mrcurl"]),"trc_url":stringValue(item["trcUrl"])}
 		tracks=append(tracks,newLXTrack("mg",id,stringValue(item["name"]),strings.Join(artists,"、"),stringValue(item["album"]),formatLXDuration(intValue(item["duration"])),img,dataMap,types))

@@ -87,7 +87,7 @@ func firstNonEmpty(values ...string) string {
 }
 
 func formatLXInterval(durationMS int64) string {
-	if durationMS < 0 { durationMS = 0 }
+	if durationMS <= 0 { return "--/--" }
 	seconds := durationMS / 1000
 	return fmt.Sprintf("%02d:%02d", seconds/60, seconds%60)
 }
