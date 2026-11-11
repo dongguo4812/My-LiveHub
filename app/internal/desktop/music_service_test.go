@@ -367,3 +367,46 @@ func TestLXMiguQualitySelectionUsesPerTrackAvailability(t *testing.T) {
 	if got:=selectLXQuality([]string{"320k","flac24bit","128k"},false,track);got!="flac24bit"{t.Fatalf("expected best available Migu quality flac24bit, got %#v",got)}
 	if got:=selectLXQuality([]string{"320k"},false,track);got!=nil{t.Fatalf("must not request unavailable Migu quality, got %#v",got)}
 }
+
+
+func TestLXMusicFallbackMatchesFiveSecondTolerance(t *testing.T) {
+	reference := music.Track{SourceID: "tx", Title: "稻香", Artist: "周杰伦", DurationMS: 180000}
+	candidates := []music.Track{
+		{SourceID: "wy", LXSourceKey: "wy", ID: "too-far", Title: "稻香", Artist: "周杰伦", DurationMS: 186000},
+		{SourceID: "kg", LXSourceKey: "kg", ID: "within", Title: "稻香", Artist: "周杰伦", DurationMS: 185000},
+	}
+	got := findLXMusicMatches(reference, candidates)
+	if len(got) != 1 || got[0].ID != "within" {
+		t.Fatalf("LX matcher must accept a 5-second difference and reject 6 seconds: %#v", got)
+	}
+}
+
+func TestLXMusicFallbackNormalizesPunctuationAndSingerOrder(t *testing.T) {
+	reference := music.Track{SourceID: "tx", Title: "稻香！", Artist: "周杰伦/方文山", DurationMS: 180000}
+	candidate := music.Track{SourceID: "wy", LXSourceKey: "wy", ID: "normalized", Title: "稻香", Artist: "方文山、周杰伦", DurationMS: 180000}
+	got := findLXMusicMatches(reference, []music.Track{candidate})
+	if len(got) != 1 || got[0].ID != "normalized" {
+		t.Fatalf("LX matcher should normalize punctuation and multi-singer order: %#v", got)
+	}
+}
+
+func TestLXMusicFallbackRejectsDifferentVersionMarkers(t *testing.T) {
+	reference := music.Track{SourceID: "tx", Title: "稻香", Artist: "周杰伦", DurationMS: 180000}
+	candidate := music.Track{SourceID: "wy", LXSourceKey: "wy", ID: "live", Title: "稻香 Live", Artist: "周杰伦", DurationMS: 180000}
+	if got := findLXMusicMatches(reference, []music.Track{candidate}); len(got) != 0 {
+		t.Fatalf("LX matcher must not substitute a different version: %#v", got)
+	}
+}
+
+func TestLXMusicFallbackUsesLXSourceOrderAndTenRankingTiers(t *testing.T) {
+	reference := music.Track{SourceID: "tx", Title: "稻香", Artist: "周杰伦", Album: "魔杰座", DurationMS: 180000}
+	candidates := []music.Track{
+		{SourceID: "mg", LXSourceKey: "mg", ID: "third-tier", Title: "稻香", Artist: "周杰伦", Album: "其他专辑", DurationMS: 181000},
+		{SourceID: "kg", LXSourceKey: "kg", ID: "second-source", Title: "稻香", Artist: "周杰伦", Album: "魔杰座", DurationMS: 180000},
+		{SourceID: "kw", LXSourceKey: "kw", ID: "first-source", Title: "稻香", Artist: "周杰伦", Album: "魔杰座", DurationMS: 180000},
+	}
+	got := findLXMusicMatches(reference, candidates)
+	if len(got) != 3 || got[0].ID != "first-source" || got[1].ID != "second-source" || got[2].ID != "third-tier" {
+		t.Fatalf("LX matcher should preserve source order within the highest matching tier and rank exact duration first: %#v", got)
+	}
+}
