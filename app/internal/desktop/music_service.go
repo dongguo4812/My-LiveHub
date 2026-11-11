@@ -70,6 +70,7 @@ type MusicService struct {
 	lxSessionID string
 	lxUpdateMu sync.Mutex
 	lxUpdates []music.LXUserSourceUpdate
+	searcher *music.LXSearchClient
 }
 
 func NewMusicService(manager *config.Manager, value config.MusicConfig, buffers ...*events.Buffer) *MusicService {
@@ -85,6 +86,7 @@ func NewMusicServiceWithDependencies(manager *config.Manager, value config.Music
 	return &MusicService{
 		manager: manager, buffer: buffer, value: cloneMusicConfig(value),
 		sources: sources, engine: engine, queue: music.NewQueue(value.QueueCapacity),
+		searcher: music.NewLXSearchClient(nil),
 	}
 }
 
@@ -220,6 +222,7 @@ func (s *MusicService) SaveConfig(value config.MusicConfig) error {
 func (s *MusicService) GetSources() []music.SourceSnapshot {
 	if s == nil { return []music.SourceSnapshot{} }
 	result := []music.SourceSnapshot{}
+	if s.searcher != nil { result = append(result, s.searcher.Sources()...) }
 	if s.sources != nil {
 		result = s.sources.List(nil)
 		for i := range result { result[i].Enabled = true }
@@ -279,7 +282,19 @@ func (s *MusicService) search(parent context.Context, keyword string) (MusicSear
 	return s.searchPage(parent, keyword, 1)
 }
 
-func (s *MusicService) searchPage(parent context.Context, keyword string, page int) (MusicSearchResponse, error) { return MusicSearchResponse{}, errors.New("洛雪 SDK 搜索尚未接入") }
+func (s *MusicService) searchPage(parent context.Context, keyword string, page int) (MusicSearchResponse, error) {
+	if s == nil || s.searcher == nil { return MusicSearchResponse{}, errors.New("洛雪搜索 SDK 未初始化") }
+	if parent == nil { parent = context.Background() }
+	ctx, cancel := context.WithTimeout(parent, 18*time.Second)
+	defer cancel()
+	result, sourceErrors, err := s.searcher.Search(ctx, keyword, page)
+	response := MusicSearchResponse{
+		Tracks: result.Tracks, Errors: sourceErrors, Page: result.Page,
+		PageSize: result.PageSize, Total: result.Total, MaxPage: result.MaxPage,
+	}
+	if response.Tracks == nil { response.Tracks = []music.Track{} }
+	return response, err
+}
 
 func (s *MusicService) Enqueue(track music.Track, requestedBy string) (music.QueueItem, error) {
 	if s == nil || s.queue == nil { return music.QueueItem{}, errors.New("music queue is unavailable") }

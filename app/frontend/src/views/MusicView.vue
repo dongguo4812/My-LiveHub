@@ -46,7 +46,13 @@ function formatDuration(value?: number) {
   const seconds = Math.floor(value / 1000)
   return `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`
 }
-function sourceName(id?: string) { return id ?? '洛雪音源' }
+function sourceName(id?: string) {
+  const names: Record<string, string> = { kw: '酷我音乐', kg: '酷狗音乐', tx: 'QQ 音乐', wy: '网易云音乐', mg: '咪咕音乐' }
+  return id ? (names[id] ?? id) : '洛雪音源'
+}
+function qualityNames(track: Track) {
+  return (track.qualities ?? []).map(item => item.type).join(' / ') || '未知'
+}
 function trackRowKey(row: Track) { return `${row.source_id}:${row.id}` }
 async function loadConfig() {
   loading.value = true
@@ -400,6 +406,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         <el-table-column prop="artist" label="歌手" min-width="140" />
         <el-table-column prop="album" label="专辑" min-width="140" />
         <el-table-column label="音源" width="130"><template #default="scope">{{ sourceName(scope.row.source_id) }}</template></el-table-column>
+        <el-table-column label="音质" min-width="150"><template #default="scope">{{ qualityNames(scope.row) }}</template></el-table-column>
         <el-table-column label="时长" width="90"><template #default="scope">{{ formatDuration(scope.row.duration_ms) }}</template></el-table-column>
         <el-table-column label="操作" width="110" fixed="right"><template #default="scope"><el-button link type="primary"  @click="addToQueue(scope.row)">加入队列</el-button></template></el-table-column>
       </el-table>

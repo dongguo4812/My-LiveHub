@@ -8,6 +8,7 @@ type SourceCapabilities struct {
 }
 
 type Track struct {
+	Qualities []TrackQuality `json:"qualities,omitempty"`
 	ID         string `json:"id"`
 	SourceID   string `json:"source_id"`
 	// LXSourceKey is the source key declared by an LX-compatible resolver.
