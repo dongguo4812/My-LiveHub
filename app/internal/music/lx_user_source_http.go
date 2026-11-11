@@ -181,7 +181,6 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.Proxy = http.ProxyFromEnvironment
 		transport.DisableCompression = true // Needle 3.2.0 defaults compressed=false.
-		transport.DialContext = (&LXUserSourceStore{}).dialPublic
 		client = &http.Client{
 			Transport: transport,
 			Timeout: timeout,
