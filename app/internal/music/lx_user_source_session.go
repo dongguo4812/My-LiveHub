@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -247,7 +248,7 @@ func (s *LXUserSourceSession) run(script string, requestClient *http.Client) {
 		return
 	}
 	if len(initialized) == 0 {
-		if err := loop.pumpUntil(func() bool { return len(initialized) > 0 }, lxRequestTimeout+5*time.Second); err != nil {
+		if err := s.pumpUntil(loop, vm, func() bool { return len(initialized) > 0 }, lxRequestTimeout+5*time.Second); err != nil {
 			s.ready <- lxSessionReady{err: fmt.Errorf("LX 音源未发送 inited 初始化事件：%w", err)}
 			return
 		}
@@ -258,7 +259,7 @@ func (s *LXUserSourceSession) run(script string, requestClient *http.Client) {
 		return
 	}
 	handlers := []string{}
-	if !goja.IsUndefined(requestHandler) && !goja.IsNull(requestHandler) { handlers = append(handlers, "request") }
+	if requestHandler != nil && !goja.IsUndefined(requestHandler) && !goja.IsNull(requestHandler) { handlers = append(handlers, "request") }
 	s.ready <- lxSessionReady{result: LXSourceRuntimeResult{
 		Initialized: true, Platforms: platforms, DeclaredSources: declared,
 		Sources: normalized, Handlers: handlers,
@@ -276,6 +277,23 @@ func (s *LXUserSourceSession) run(script string, requestClient *http.Client) {
 			_, _ = vm.RunString("void 0")
 		}
 	}
+}
+
+func (s *LXUserSourceSession) pumpUntil(loop *lxRuntimeEventLoop, vm *goja.Runtime, done func() bool, timeout time.Duration) error {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	for !done() {
+		select {
+		case <-s.closeCh:
+			return errors.New("LX 音源运行实例已关闭")
+		case task := <-loop.tasks:
+			if task != nil { task() }
+			if _, err := vm.RunString("void 0"); err != nil { return err }
+		case <-deadline.C:
+			return errors.New("LX 音源异步操作超时")
+		}
+	}
+	return nil
 }
 
 func (s *LXUserSourceSession) handleRequest(vm *goja.Runtime, lx *goja.Object, handler goja.Value, declared []LXDeclaredSource, call lxSessionRequest) {
@@ -314,24 +332,32 @@ func (s *LXUserSourceSession) handleRequest(vm *goja.Runtime, lx *goja.Object, h
 		call.result <- lxSessionResponse{err: err}
 		return
 	}
+	if goja.IsUndefined(value) || goja.IsNull(value) {
+		call.result <- lxSessionResponse{err: errors.New("LX request handler must return a Promise")}
+		return
+	}
 	promiseObject := value.ToObject(vm)
 	then, ok := goja.AssertFunction(promiseObject.Get("then"))
 	if !ok {
 		call.result <- lxSessionResponse{err: errors.New("LX request handler must return a Promise")}
 		return
 	}
+	var once sync.Once
+	finish := func(result lxSessionResponse) {
+		once.Do(func() { call.result <- result })
+	}
 	onFulfilled := vm.ToValue(func(callArgs goja.FunctionCall) goja.Value {
 		encoded, err := marshalLXUserAPIResult(source, action, payload, callArgs.Argument(0))
-		call.result <- lxSessionResponse{value: encoded, err: err}
+		finish(lxSessionResponse{value: encoded, err: err})
 		return goja.Undefined()
 	})
 	onRejected := vm.ToValue(func(callArgs goja.FunctionCall) goja.Value {
 		message := callArgs.Argument(0).String()
-		call.result <- lxSessionResponse{err: errors.New(message)}
+		finish(lxSessionResponse{err: errors.New(message)})
 		return goja.Undefined()
 	})
 	if _, err := then(promiseObject, onFulfilled, onRejected); err != nil {
-		call.result <- lxSessionResponse{err: err}
+		finish(lxSessionResponse{err: err})
 	}
 }
 
