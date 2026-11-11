@@ -323,6 +323,7 @@ func (s *LXUserSourceSession) run(script string, requestClient *http.Client) {
 		s.ready <- lxSessionReady{err: fmt.Errorf("LX 音源脚本初始化失败：%s", scriptErr.Error())}
 		return
 	}
+	loop.flushMicrotasks()
 	if len(initialized) == 0 {
 		if err := s.pumpUntil(loop, vm, func() bool { return len(initialized) > 0 }, lxWorkerExecutionTimeout); err != nil {
 			s.ready <- lxSessionReady{err: fmt.Errorf("LX 音源未发送 inited 初始化事件：%w", err)}
@@ -347,12 +348,15 @@ func (s *LXUserSourceSession) run(script string, requestClient *http.Client) {
 			return
 		case call := <-s.requests:
 			s.handleRequest(vm, lx, requestHandler, call)
-			_, _ = vm.RunString("void 0")
+			if _, err := vm.RunString("void 0"); err != nil { loop.recordAsyncError(err) }
+			loop.flushMicrotasks()
+			// Once initialization has completed, an uncaught callback error
+			// must not poison later requests in this session.
+			loop.takeAsyncError()
 		case task := <-loop.tasks:
 			if task != nil { task() }
-			_, _ = vm.RunString("void 0")
-			// Once initialization has completed, an uncaught timer/HTTP
-			// callback error must not poison later requests in this session.
+			if _, err := vm.RunString("void 0"); err != nil { loop.recordAsyncError(err) }
+			loop.flushMicrotasks()
 			loop.takeAsyncError()
 		}
 	}
@@ -366,12 +370,14 @@ func (s *LXUserSourceSession) pumpUntil(loop *lxRuntimeEventLoop, vm *goja.Runti
 			loop.takeAsyncError()
 			return nil
 		}
+		if err := loop.takeAsyncError(); err != nil { return err }
 		select {
 		case <-s.closeCh:
 			return errors.New("LX 音源运行实例已关闭")
 		case task := <-loop.tasks:
 			if task != nil { task() }
 			if _, err := vm.RunString("void 0"); err != nil { return err }
+			loop.flushMicrotasks()
 			if done() {
 				loop.takeAsyncError()
 				return nil

@@ -67,6 +67,7 @@ type lxRuntimeEventLoop struct {
 	timers map[int]*time.Timer
 	nextID int
 	asyncErr error
+	microtasks []func()
 }
 
 func newLXRuntimeEventLoop(vm *goja.Runtime) *lxRuntimeEventLoop {
@@ -79,6 +80,33 @@ func (loop *lxRuntimeEventLoop) enqueue(task func()) {
 	case <-loop.ctx.Done():
 	}
 }
+func (loop *lxRuntimeEventLoop) enqueueMicrotask(task func()) {
+	if task == nil { return }
+	loop.mu.Lock()
+	loop.microtasks = append(loop.microtasks, task)
+	loop.mu.Unlock()
+}
+
+func (loop *lxRuntimeEventLoop) flushMicrotasks() {
+	for count := 0; count < 10000; count++ {
+		loop.mu.Lock()
+		if len(loop.microtasks) == 0 {
+			loop.mu.Unlock()
+			return
+		}
+		task := loop.microtasks[0]
+		loop.microtasks[0] = nil
+		loop.microtasks = loop.microtasks[1:]
+		loop.mu.Unlock()
+		if task != nil { task() }
+		if _, err := loop.vm.RunString("void 0"); err != nil {
+			loop.recordAsyncError(err)
+			return
+		}
+	}
+	loop.recordAsyncError(errors.New("LX browser microtask queue exceeded limit"))
+}
+
 func (loop *lxRuntimeEventLoop) recordAsyncError(err error) {
 	if err == nil { return }
 	loop.mu.Lock()
@@ -132,6 +160,7 @@ func (loop *lxRuntimeEventLoop) stop() {
 		loop.cancel()
 		loop.mu.Lock()
 		for id, timer := range loop.timers { timer.Stop(); delete(loop.timers, id) }
+		loop.microtasks = nil
 		loop.mu.Unlock()
 	})
 }
@@ -143,10 +172,12 @@ func (loop *lxRuntimeEventLoop) pumpUntil(done func() bool, timeout time.Duratio
 			loop.takeAsyncError()
 			return nil
 		}
+		if err := loop.takeAsyncError(); err != nil { return err }
 		select {
 		case task := <-loop.tasks:
 			if task != nil { task() }
 			if _, err := loop.vm.RunString("void 0"); err != nil { return err }
+			loop.flushMicrotasks()
 			if done() {
 				loop.takeAsyncError()
 				return nil
@@ -519,6 +550,7 @@ func runLXSourceWorkerWithTimeout(input io.Reader, output io.Writer, requestClie
 		response.Error = fmt.Sprintf("LX 音源脚本初始化失败：%s", err.Error())
 		return 1
 	}
+	loop.flushMicrotasks()
 	if len(initialized) == 0 {
 		// LX source scripts may announce initialization asynchronously (for
 		// example from setTimeout or an HTTP callback). Keep the VM event loop

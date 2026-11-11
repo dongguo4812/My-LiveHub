@@ -51,21 +51,13 @@ func installLXBrowserGlobals(vm *goja.Runtime, loop *lxRuntimeEventLoop) {
 
 	_ = vm.Set("queueMicrotask", func(call goja.FunctionCall) goja.Value {
 		callback := call.Argument(0)
-		if _, ok := goja.AssertFunction(callback); !ok {
+		fn, ok := goja.AssertFunction(callback)
+		if !ok {
 			panic(vm.NewGoError(errors.New("TypeError: queueMicrotask callback must be a function")))
 		}
-		promise, resolve, _ := vm.NewPromise()
-		_ = resolve(goja.Undefined())
-		promiseValue := vm.ToValue(promise)
-		then, ok := goja.AssertFunction(promiseValue.ToObject(vm).Get("then"))
-		if !ok { return goja.Undefined() }
-		onRejected := vm.ToValue(func(call goja.FunctionCall) goja.Value {
-			loop.recordAsyncError(errors.New(lxUserAPIErrorMessage(vm, call.Argument(0))))
-			return goja.Undefined()
+		loop.enqueueMicrotask(func() {
+			if _, err := fn(goja.Undefined()); err != nil { loop.recordAsyncError(err) }
 		})
-		if _, err := then(promiseValue, callback, onRejected); err != nil {
-			loop.recordAsyncError(err)
-		}
 		return goja.Undefined()
 	})
 }
