@@ -398,6 +398,11 @@ func (s *MusicService) resolveAlternate(ctx context.Context, track music.Track) 
 		if candidate.SourceID == track.SourceID { continue }
 		fallback, ok := s.sources.Get(candidate.SourceID)
 		if !ok { continue }
+		if s.hasLXUserSources() {
+			resource, err := s.resolveLXTrack(ctx, candidate)
+			if err == nil { return resource, candidate, nil }
+			resolveErrors = append(resolveErrors, fmt.Errorf("%s (LX 音源): %w", fallback.Name(), err))
+		}
 		resource, err := fallback.Resolve(ctx, candidate)
 		if err == nil { return resource, candidate, nil }
 		resolveErrors = append(resolveErrors, fmt.Errorf("%s: %w", fallback.Name(), err))
@@ -826,14 +831,13 @@ func (s *MusicService) resolveLXTrack(ctx context.Context, track music.Track) (m
 		if err := ctx.Err(); err != nil { return music.PlaybackResource{}, err }
 		script, readErr := store.ReadScript(source.ID)
 		if readErr != nil { failures = append(failures, fmt.Errorf("%s: %w", source.Name, readErr)); continue }
-		inspection, inspectErr := music.InspectLXUserSource(ctx, script)
-		if inspectErr != nil { failures = append(failures, fmt.Errorf("%s: %w", source.Name, inspectErr)); continue }
-		var declared *music.LXDeclaredSource
-		for i := range inspection.DeclaredSources {
-			if inspection.DeclaredSources[i].Key == sourceKey { declared = &inspection.DeclaredSources[i]; break }
+		// Initialize the source and invoke musicUrl in one worker run. Running
+		// Inspect first would initialize the same script twice for every play.
+		quality := selectLXQuality(nil, sourceKey == "local", track)
+		if sourceKey != "local" && quality == nil {
+			failures = append(failures, fmt.Errorf("%s: 歌曲没有洛雪默认音质 128k", source.Name))
+			continue
 		}
-		if declared == nil || !containsString(declared.Actions, "musicUrl") { continue }
-		quality := selectLXQuality(declared.Qualitys, sourceKey == "local", track)
 		musicInfo := buildLXMusicInfo(track, quality)
 		musicInfo["source"] = sourceKey
 		payload, marshalErr := json.Marshal(map[string]any{
@@ -842,7 +846,12 @@ func (s *MusicService) resolveLXTrack(ctx context.Context, track music.Track) (m
 		})
 		if marshalErr != nil { failures = append(failures, marshalErr); continue }
 		result, resolveErr := music.ResolveLXUserSource(ctx, script, payload)
-		if resolveErr != nil { failures = append(failures, fmt.Errorf("%s/%s: %w", source.Name, sourceKey, resolveErr)); continue }
+		if resolveErr != nil {
+			message := resolveErr.Error()
+			if strings.Contains(message, "未声明来源") || strings.Contains(message, "不支持动作") { continue }
+			failures = append(failures, fmt.Errorf("%s/%s: %w", source.Name, sourceKey, resolveErr))
+			continue
+		}
 		var value any
 		if err := json.Unmarshal(result, &value); err != nil { failures = append(failures, fmt.Errorf("%s: 解析结果格式无效：%w", source.Name, err)); continue }
 		resource := music.PlaybackResource{}
@@ -1090,56 +1099,24 @@ func formatLXFileSize(size int64) string {
 	return fmt.Sprintf("%.2f %s", value, units[unit])
 }
 
-func selectLXQuality(qualities []string, local bool, track music.Track) any {
+func selectLXQuality(_ []string, local bool, track music.Track) any {
 	if local { return nil }
-	// QQ search results expose per-track file sizes. LX Music checks
-	// meta._qualitys before asking a source for a URL; do the same here so
-	// we never request a quality that this particular song does not have.
-	if track.LXSourceKey == "wy" {
-		_, available := buildLXNetEaseQualities(track.SourceData)
-		if len(available) == 0 { return nil }
-		for _, preferred := range []string{"flac24bit", "flac", "320k", "128k"} {
-			if _, exists := available[preferred]; exists && containsString(qualities, preferred) { return preferred }
-		}
-		return nil
+	sourceKey := strings.TrimSpace(track.LXSourceKey)
+	if sourceKey == "" { sourceKey = strings.TrimSpace(track.SourceID) }
+	var available map[string]any
+	switch sourceKey {
+	case "wy":
+		_, available = buildLXNetEaseQualities(track.SourceData)
+	case "kg":
+		_, available = buildLXKugouQualities(track.SourceData)
+	case "tx":
+		_, available = buildLXQQQualities(track.SourceData)
+	case "kw":
+		_, available = buildLXKuwoQualities(track.SourceData["N_MINFO"])
+	case "mg":
+		_, available = buildLXMiguQualities(track.SourceData["audio_formats_json"])
 	}
-	if track.LXSourceKey == "kg" {
-		_, available := buildLXKugouQualities(track.SourceData)
-		if len(available) == 0 { return nil }
-		for _, preferred := range []string{"320k", "flac24bit", "flac", "128k"} {
-			if _, exists := available[preferred]; exists && containsString(qualities, preferred) { return preferred }
-		}
-		return nil
-	}
-	if track.LXSourceKey == "tx" {
-		_, available := buildLXQQQualities(track.SourceData)
-		if len(available) == 0 { return nil }
-		for _, preferred := range []string{"320k", "flac24bit", "flac", "128k"} {
-			if _, exists := available[preferred]; !exists { continue }
-			if containsString(qualities, preferred) { return preferred }
-		}
-		return nil
-	}
-	if track.LXSourceKey == "kw" {
-		_, available := buildLXKuwoQualities(track.SourceData["N_MINFO"])
-		if len(available) == 0 { return nil }
-		for _, preferred := range []string{"320k", "flac24bit", "flac", "128k"} {
-			if _, exists := available[preferred]; exists && containsString(qualities, preferred) { return preferred }
-		}
-		return nil
-	}
-	if track.LXSourceKey == "mg" {
-		_, available := buildLXMiguQualities(track.SourceData["audio_formats_json"])
-		if len(available) == 0 { return nil }
-		for _, preferred := range []string{"320k", "flac24bit", "flac", "128k"} {
-			if _, exists := available[preferred]; !exists { continue }
-			if containsString(qualities, preferred) { return preferred }
-		}
-		return nil
-	}
-	for _, preferred := range []string{"320k", "flac", "flac24bit", "128k"} {
-		if containsString(qualities, preferred) { return preferred }
-	}
-	if len(qualities) > 0 { return qualities[0] }
+	// LX Music's default player.playQuality is 128k.
+	if _, exists := available["128k"]; exists { return "128k" }
 	return nil
 }

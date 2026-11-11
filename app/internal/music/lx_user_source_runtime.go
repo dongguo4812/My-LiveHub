@@ -364,8 +364,10 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 		if selected == nil { response.Error = fmt.Sprintf("LX 音源未声明来源 %q", resolveRequest.Source); return 1 }
 		if !containsLXValue(selected.Actions, resolveRequest.Action) { response.Error = fmt.Sprintf("LX 音源 %q 不支持动作 %q", resolveRequest.Source, resolveRequest.Action); return 1 }
 		if resolveRequest.Action == "musicUrl" && resolveRequest.Source != "local" {
-			quality, ok := resolveRequest.Info.Type.(string)
-			if !ok || !containsLXValue(selected.Qualitys, quality) { response.Error = fmt.Sprintf("LX 音源 %q 不支持音质 %v", resolveRequest.Source, resolveRequest.Info.Type); return 1 }
+			if _, ok := resolveRequest.Info.Type.(string); !ok {
+				response.Error = fmt.Sprintf("LX 音源 %q musicUrl 音质参数必须是字符串", resolveRequest.Source)
+				return 1
+			}
 		}
 		handler, ok := handlers["request"]
 		if !ok { response.Error = "LX 音源没有注册 request 处理器"; return 1 }

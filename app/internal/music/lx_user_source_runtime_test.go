@@ -230,13 +230,13 @@ func TestRunLXSourceWorkerRejectsUndeclaredPlatforms(t *testing.T) {
 func TestRunLXSourceWorkerInvokesRequestHandler(t *testing.T) {
 	script := `lx.send(lx.EVENT_NAMES.inited, { sources: { wy: { name: "网易云音乐", type: "music", actions: ["musicUrl"], qualitys: ["320k"] } } });
 lx.on(lx.EVENT_NAMES.request, function (request) {
-  if (request.action !== "musicUrl" || request.source !== "wy") throw new Error("unexpected request");
+  if (request.action !== "musicUrl" || request.source !== "wy" || request.info.type !== "128k") throw new Error("unexpected request");
   return Promise.resolve("https://media.example.test/song.mp3");
 });`
 	payload, err := json.Marshal(map[string]any{
 		"source": "wy",
 		"action": "musicUrl",
-		"info": map[string]any{"type": "320k", "musicInfo": map[string]any{"id": "150617", "name": "找自己", "artist": "陶喆"}},
+		"info": map[string]any{"type": "128k", "musicInfo": map[string]any{"id": "150617", "name": "找自己", "artist": "陶喆"}},
 	})
 	if err != nil { t.Fatal(err) }
 	input, err := json.Marshal(lxWorkerRequest{Script: script, Operation: "resolve", Payload: payload})

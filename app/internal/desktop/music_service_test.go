@@ -284,11 +284,11 @@ func TestLXQQQualitySelectionUsesPerTrackAvailability(t *testing.T) {
 			"size_flac": "2000", "size_hires": "0",
 		},
 	}
-	if got := selectLXQuality([]string{"320k", "flac", "128k"}, false, track); got != "flac" {
-		t.Fatalf("expected best available quality flac, got %#v", got)
+	if got := selectLXQuality([]string{"320k", "flac", "128k"}, false, track); got != "128k" {
+		t.Fatalf("expected LX default quality 128k, got %#v", got)
 	}
-	if got := selectLXQuality([]string{"320k"}, false, track); got != nil {
-		t.Fatalf("must not request unsupported per-track quality, got %#v", got)
+	if got := selectLXQuality([]string{"320k"}, false, track); got != "128k" {
+		t.Fatalf("LX default remains 128k when track provides it, got %#v", got)
 	}
 }
 
@@ -313,10 +313,10 @@ func TestLXKugouMusicInfoPreservesPerQualityHashes(t *testing.T) {
 	types,ok:=info["types"].([]any)
 	if !ok||len(types)!=4||types[0].(map[string]any)["hash"]!="base-hash"||types[3].(map[string]any)["hash"]!="res-hash"{t.Fatalf("Kugou quality hashes missing: %#v",info["types"])}
 	assertLXMusicInfoKeys(t, info, []string{"name", "singer", "source", "songmid", "interval", "albumName", "img", "typeUrl", "types", "_types", "albumId", "albumAudioId", "hash"})
-	if got:=selectLXQuality([]string{"flac24bit","flac","320k"},false,track);got!="320k"{t.Fatalf("expected 320k preference based on configured list, got %#v",got)}
-	if got:=selectLXQuality([]string{"flac24bit"},false,track);got!="flac24bit"{t.Fatalf("expected available 24bit quality, got %#v",got)}
+	if got:=selectLXQuality([]string{"flac24bit","flac","320k"},false,track);got!="128k"{t.Fatalf("expected LX default 128k, got %#v",got)}
+	if got:=selectLXQuality([]string{"flac24bit"},false,track);got!="128k"{t.Fatalf("expected LX default 128k, got %#v",got)}
 	track.SourceData["ResFileSize"]="0"
-	if got:=selectLXQuality([]string{"flac24bit"},false,track);got!=nil{t.Fatalf("must reject quality without an available file size, got %#v",got)}
+	if got:=selectLXQuality([]string{"flac24bit"},false,track);got!="128k"{t.Fatalf("LX default remains 128k while base MP3 exists, got %#v",got)}
 }
 
 func TestLXNetEaseMusicInfoUsesPrivilegeAndQualityFiles(t *testing.T) {
@@ -329,7 +329,7 @@ func TestLXNetEaseMusicInfoUsesPrivilegeAndQualityFiles(t *testing.T) {
 	assertLXMusicInfoKeys(t, info, []string{"name", "singer", "source", "songmid", "interval", "albumName", "img", "typeUrl", "types", "_types", "albumId"})
 	types,ok:=info["types"].([]any)
 	if !ok||len(types)!=4||types[0].(map[string]any)["type"]!="128k"||types[1].(map[string]any)["type"]!="320k"||types[3].(map[string]any)["type"]!="flac24bit"{t.Fatalf("unexpected NetEase qualities: %#v",info["types"])}
-	if got:=selectLXQuality([]string{"flac24bit","flac","320k","128k"},false,track);got!="flac24bit"{t.Fatalf("expected highest available NetEase quality, got %#v",got)}
+	if got:=selectLXQuality([]string{"flac24bit","flac","320k","128k"},false,track);got!="128k"{t.Fatalf("expected LX default 128k, got %#v",got)}
 	track.SourceData["wy_privilege"]=`{"maxbr":128000,"maxBrLevel":"standard"}`
 	if got:=selectLXQuality([]string{"flac","320k","128k"},false,track);got!="128k"{t.Fatalf("must not request unavailable NetEase quality, got %#v",got)}
 }
@@ -354,18 +354,18 @@ func TestLXKuwoMusicInfoUsesNInfoQualityCapabilities(t *testing.T) {
 		types[1].(map[string]any)["type"] != "320k" || types[2].(map[string]any)["type"] != "128k" {
 		t.Fatalf("unexpected Kuwo qualities: %#v", info["types"])
 	}
-	if got := selectLXQuality([]string{"320k", "flac", "128k"}, false, track); got != "320k" {
-		t.Fatalf("expected best available Kuwo quality 320k, got %#v", got)
+	if got := selectLXQuality([]string{"320k", "flac", "128k"}, false, track); got != "128k" {
+		t.Fatalf("expected LX default 128k, got %#v", got)
 	}
-	if got := selectLXQuality([]string{"flac24bit"}, false, track); got != nil {
-		t.Fatalf("must not request unavailable Kuwo quality, got %#v", got)
+	if got := selectLXQuality([]string{"flac24bit"}, false, track); got != "128k" {
+		t.Fatalf("LX default remains 128k when track provides it, got %#v", got)
 	}
 }
 
 func TestLXMiguQualitySelectionUsesPerTrackAvailability(t *testing.T) {
 	track:=music.Track{LXSourceKey:"mg",SourceData:map[string]string{"audio_formats_json":`[{"formatType":"PQ","asize":1000},{"formatType":"ZQ24","asize":2000}]`}}
-	if got:=selectLXQuality([]string{"320k","flac24bit","128k"},false,track);got!="flac24bit"{t.Fatalf("expected best available Migu quality flac24bit, got %#v",got)}
-	if got:=selectLXQuality([]string{"320k"},false,track);got!=nil{t.Fatalf("must not request unavailable Migu quality, got %#v",got)}
+	if got:=selectLXQuality([]string{"320k","flac24bit","128k"},false,track);got!="128k"{t.Fatalf("expected LX default 128k, got %#v",got)}
+	if got:=selectLXQuality([]string{"320k"},false,track);got!="128k"{t.Fatalf("LX default remains 128k when track provides it, got %#v",got)}
 }
 
 
