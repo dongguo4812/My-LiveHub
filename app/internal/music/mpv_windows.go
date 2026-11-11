@@ -37,6 +37,7 @@ type MpvEngine struct {
 	volume int
 	audioOutput string // Optional mpv audio output override, used by deterministic integration tests.
 	videoOutput bool
+	stderrTail string
 }
 
 func NewMpvEngine(executable string) *MpvEngine {
@@ -109,9 +110,11 @@ func (e *MpvEngine) Start(ctx context.Context) error {
 	}
 	cmd := exec.Command(executable, args...)
 	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
+	stderr, err := cmd.StderrPipe()
+	if err != nil { return fmt.Errorf("capture mpv diagnostics: %w", err) }
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow:true, CreationFlags:0x08000000}
 	if err := cmd.Start(); err != nil { return fmt.Errorf("start mpv: %w", err) }
+	go e.captureStderr(stderr)
 	done := make(chan error, 1)
 	go func() {
 		err := cmd.Wait()
@@ -129,6 +132,7 @@ func (e *MpvEngine) Start(ctx context.Context) error {
 
 	e.mu.Lock()
 	e.executable, e.pipePath, e.command, e.done = executable, pipePath, cmd, done
+	e.stderrTail = ""
 	e.mu.Unlock()
 
 	deadline := time.NewTimer(5*time.Second)
@@ -165,7 +169,7 @@ func buildMpvArgs(pipePath string, videoOutput bool) []string {
 		"--terminal=no",
 		"--idle=yes",
 		"--keep-open=no",
-		"--really-quiet",
+		"--msg-level=all=warn",
 		"--input-ipc-server=" + pipePath,
 	}
 	if !videoOutput {
@@ -184,6 +188,21 @@ func buildMpvArgs(pipePath string, videoOutput bool) []string {
 		"--input-default-bindings=no",
 		"--input-vo-keyboard=no",
 	)
+}
+
+func (e *MpvEngine) captureStderr(reader io.ReadCloser) {
+	defer reader.Close()
+	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 4096), 64<<10)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" { continue }
+		e.mu.Lock()
+		if e.stderrTail != "" { e.stderrTail += "\n" }
+		e.stderrTail += line
+		if len(e.stderrTail) > 8192 { e.stderrTail = e.stderrTail[len(e.stderrTail)-8192:] }
+		e.mu.Unlock()
+	}
 }
 
 func (e *MpvEngine) commandIPC(ctx context.Context, args ...any) (json.RawMessage, error) {
@@ -335,10 +354,15 @@ func (e *MpvEngine) Snapshot(ctx context.Context) (PlaybackSnapshot, error) {
 	if snapshot.Track != nil && !idle {
 		snapshot.State = PlaybackPlaying
 		if paused { snapshot.State = PlaybackPaused }
-	} else if snapshot.Track != nil && time.Since(loadStartedAt) < 15*time.Second {
+	} else if snapshot.Track != nil && time.Since(loadStartedAt) < 30*time.Second {
 		snapshot.State = PlaybackLoading
 	} else if snapshot.Track != nil {
-		snapshot.State = PlaybackStopped
+		snapshot.State = PlaybackError
+		e.mu.RLock()
+		detail := strings.TrimSpace(e.stderrTail)
+		e.mu.RUnlock()
+		snapshot.Error = "mpv 未能加载该音频资源"
+		if detail != "" { snapshot.Error += "：" + detail }
 	}
 	return snapshot, nil
 }
