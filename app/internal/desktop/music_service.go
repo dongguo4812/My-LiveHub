@@ -365,13 +365,17 @@ func (s *MusicService) playNext(parent context.Context) error {
 }
 
 func (s *MusicService) resolveWithFallback(ctx context.Context, track music.Track, preferred music.Source) (music.PlaybackResource, music.Track, error) {
+	var lxErr error
+	if s.hasLXUserSources() {
+		if resource, err := s.resolveLXTrack(ctx, track); err == nil {
+			return resource, track, nil
+		} else {
+			lxErr = err
+		}
+	}
 	resource, originalErr := preferred.Resolve(ctx, track)
 	if originalErr == nil { return resource, track, nil }
-	if lxResource, lxErr := s.resolveLXTrack(ctx, track); lxErr == nil {
-		return lxResource, track, nil
-	} else {
-		originalErr = errors.Join(originalErr, lxErr)
-	}
+	if lxErr != nil { originalErr = errors.Join(originalErr, lxErr) }
 	resource, candidate, fallbackErr := s.resolveAlternate(ctx, track)
 	if fallbackErr != nil { return music.PlaybackResource{}, track, errors.Join(originalErr, fallbackErr) }
 	return resource, candidate, nil
