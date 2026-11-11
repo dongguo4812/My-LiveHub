@@ -131,7 +131,7 @@ func (p *LXUserSourceProcess) Request(ctx context.Context, payload json.RawMessa
 		// script keeps running and any late response is ignored.
 		_ = p.write(lxSessionWorkerInput{Operation: "cancel", RequestKey: requestKey})
 		p.removePending(requestKey)
-		return nil, ctx.Err()
+		return nil, errors.New("Cancel request")
 	case <-p.done:
 		p.removePending(requestKey)
 		return nil, errors.New("LX 音源隔离进程已退出")
