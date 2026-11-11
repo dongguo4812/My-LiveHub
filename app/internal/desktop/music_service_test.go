@@ -173,3 +173,18 @@ func TestMusicServiceSearchPageReturnsPaginationMetadata(t *testing.T) {
 		t.Fatalf("unexpected paged search tracks: %#v", response.Tracks)
 	}
 }
+
+func TestNewMusicServiceRegistersFourSearchSources(t *testing.T) {
+	service := NewMusicService(nil, config.DefaultMusicConfig())
+	defer service.Shutdown()
+
+	sources := service.GetSources()
+	if len(sources) != 4 {
+		t.Fatalf("expected four registered music sources, got %#v", sources)
+	}
+	for _, source := range sources {
+		if !source.Available || !source.Capabilities.Search {
+			t.Errorf("source %q is not available for search: %#v", source.ID, source)
+		}
+	}
+}
