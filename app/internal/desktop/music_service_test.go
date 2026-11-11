@@ -196,7 +196,7 @@ func TestLXQQMusicInfoMatchesLXMusicContract(t *testing.T) {
 		Title: "稻香", Artist: "周杰伦", Album: "魔杰座",
 		DurationMS: 223000, CoverURL: "https://img.example/cover.jpg",
 		SourceData: map[string]string{
-			"id": "123456", "media_mid": "media-mid", "albummid": "album-mid",
+			"id": "123456", "media_mid": "media-mid", "albummid": "album-mid", "albumid": "789",
 			"size_128mp3": "1048576", "size_320mp3": "2097152",
 			"size_flac": "0", "size_hires": "4194304",
 		},
@@ -204,7 +204,7 @@ func TestLXQQMusicInfoMatchesLXMusicContract(t *testing.T) {
 	info := buildLXMusicInfo(track)
 	if info["source"] != "tx" || info["songmid"] != "song-mid" || info["songId"] != "123456" ||
 		info["strMediaMid"] != "media-mid" || info["albumMid"] != "album-mid" ||
-		info["albumId"] != "album-mid" || info["albumName"] != "魔杰座" ||
+		info["albumId"] != "789" || info["albumName"] != "魔杰座" ||
 		info["img"] != track.CoverURL || info["interval"] != "03:43" {
 		t.Fatalf("QQ musicInfo does not match LX Music fields: %#v", info)
 	}
