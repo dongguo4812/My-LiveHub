@@ -119,7 +119,9 @@ func (s *LXUserSourceStore) save(source LXUserSource) error {
 	if err := os.MkdirAll(s.dir, 0o700); err != nil { return err }
 	base := filepath.Join(s.dir, source.Metadata.ID)
 	scriptPath, metadataPath := base+".js", base+".json"
-	if err := writeLXAtomic(scriptPath, []byte(source.Script)); err != nil { return fmt.Errorf("保存音源脚本失败：%w", err) }
+	if existing, readErr := os.ReadFile(scriptPath); readErr != nil || string(existing) != source.Script {
+		if err := writeLXAtomic(scriptPath, []byte(source.Script)); err != nil { return fmt.Errorf("保存音源脚本失败：%w", err) }
+	}
 	metadata, err := json.MarshalIndent(source.Metadata, "", "  ")
 	if err != nil { _ = os.Remove(scriptPath); return err }
 	if err := writeLXAtomic(metadataPath, append(metadata, '\n')); err != nil { _ = os.Remove(scriptPath); return fmt.Errorf("保存音源信息失败：%w", err) }
@@ -136,6 +138,23 @@ func writeLXAtomic(path string, data []byte) error {
 	if err != nil { return err }
 	if closeErr != nil { return closeErr }
 	return os.Rename(temp, path)
+}
+
+
+func (s *LXUserSourceStore) Update(ctx context.Context, id string) (LXUserSourceMetadata, error) {
+	if s == nil { return LXUserSourceMetadata{}, errors.New("LX 音源存储不可用") }
+	if len(id) != 19 || !strings.HasPrefix(id, "lx_") { return LXUserSourceMetadata{}, errors.New("LX 音源 ID 无效") }
+	data, err := os.ReadFile(filepath.Join(s.dir, id+".json"))
+	if err != nil { return LXUserSourceMetadata{}, fmt.Errorf("读取音源信息失败：%w", err) }
+	var current LXUserSourceMetadata
+	if err := json.Unmarshal(data, &current); err != nil { return LXUserSourceMetadata{}, fmt.Errorf("解析音源信息失败：%w", err) }
+	if strings.TrimSpace(current.SourceURL) == "" { return LXUserSourceMetadata{}, errors.New("该音源没有更新 URL，请重新导入本地脚本或使用 URL 导入") }
+	updated, err := s.ImportURL(ctx, current.SourceURL)
+	if err != nil { return LXUserSourceMetadata{}, err }
+	if updated.ID != id {
+		if err := s.Delete(id); err != nil { return LXUserSourceMetadata{}, fmt.Errorf("新版本已保存，但旧版本清理失败：%w", err) }
+	}
+	return updated, nil
 }
 
 func (s *LXUserSourceStore) List() ([]LXUserSourceMetadata, error) {
