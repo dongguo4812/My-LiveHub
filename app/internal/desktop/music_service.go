@@ -554,6 +554,12 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 				if threshold < snapshot.DurationMS/2 { threshold = snapshot.DurationMS/2 }
 				if snapshot.PositionMS >= threshold { sawEndPosition = true }
 			}
+			if snapshot.State == music.PlaybackError {
+				message := strings.TrimSpace(snapshot.Error)
+				if message == "" { message = "mpv 加载音频失败；请检查音源返回的播放地址及网络访问" }
+				s.setLastError(errors.New(message))
+				return
+			}
 			if snapshot.State != music.PlaybackStopped { continue }
 			s.mu.RLock()
 			current := s.playGeneration == generation
