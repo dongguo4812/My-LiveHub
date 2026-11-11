@@ -18,10 +18,16 @@ var videoTrackSequence atomic.Uint64
 // VideoService owns the dedicated borderless mpv video process. Music remains
 // on its own audio-only process and is resumed only when it was playing before
 // the MV started.
+type musicPlaybackController interface {
+	Pause() error
+	Resume() error
+	GetPlaybackStatus() (music.PlaybackSnapshot, error)
+}
+
 type VideoService struct {
 	mu sync.Mutex
 	engine music.PlaybackEngine
-	music *MusicService
+	music musicPlaybackController
 	active bool
 	resumeMusic bool
 	volume int
@@ -29,7 +35,7 @@ type VideoService struct {
 	generation uint64
 }
 
-func NewVideoService(musicService *MusicService, engine music.PlaybackEngine) *VideoService {
+func NewVideoService(musicService musicPlaybackController, engine music.PlaybackEngine) *VideoService {
 	if engine == nil { engine = music.NewMpvVideoEngine("") }
 	return &VideoService{music:musicService, engine:engine, volume:80}
 }
