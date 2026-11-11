@@ -306,6 +306,9 @@ func (s *LXUserSourceSession) run(script string, requestClient *http.Client) {
 		s.ready <- lxSessionReady{err: fmt.Errorf("初始化 LX 音源运行环境失败：%w", err)}
 		return
 	}
+	globalObject := vm.GlobalObject()
+	_ = vm.Set("window", globalObject)
+	_ = vm.Set("self", globalObject)
 	_, scriptErr := vm.RunString(script)
 	if scriptErr != nil {
 		s.ready <- lxSessionReady{err: fmt.Errorf("LX 音源脚本初始化失败：%s", scriptErr.Error())}
