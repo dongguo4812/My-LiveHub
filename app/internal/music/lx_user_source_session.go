@@ -241,7 +241,7 @@ func (s *LXUserSourceSession) run(script string, requestClient *http.Client) {
 				_ = reject(vm.NewGoError(errors.New("Script is inited")))
 				return vm.ToValue(promise)
 			}
-			encoded, err := json.Marshal(call.Argument(1).Export())
+			encoded, err := json.Marshal(lxExportRequestValue(call.Argument(1)))
 			if err != nil {
 				_ = reject(vm.NewGoError(err))
 				return vm.ToValue(promise)
