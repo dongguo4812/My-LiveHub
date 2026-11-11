@@ -55,7 +55,7 @@ func StartLXUserSourceProcess(ctx context.Context, script string) (*LXUserSource
 	}
 	executable, err := os.Executable()
 	if err != nil { return nil, fmt.Errorf("定位 LX 音源运行进程失败：%w", err) }
-	command := exec.Command(executable, LXSourceWorkerArgument, lxSourceSessionWorkerArgument)
+	command := exec.Command(executable, LXSourceWorkerArgument, LXSourceSessionWorkerArgument)
 	stdin, err := command.StdinPipe()
 	if err != nil { return nil, fmt.Errorf("创建 LX 音源输入管道失败：%w", err) }
 	stdout, err := command.StdoutPipe()
