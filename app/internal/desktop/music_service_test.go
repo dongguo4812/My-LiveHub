@@ -240,7 +240,7 @@ func TestLXQQMusicInfoMatchesLXMusicFlatContract(t *testing.T) {
 			"size_flac": "0", "size_hires": "4194304",
 		},
 	}
-	info := buildLXOldMusicInfo(track, "320k")
+	info := buildLXMusicInfo(track, "320k")
 	if info["source"] != "tx" || info["songmid"] != "song-mid" || info["songId"] != int64(123456) ||
 		info["strMediaMid"] != "media-mid" || info["albumMid"] != "album-mid" ||
 		info["albumId"] != "album-mid" || info["albumName"] != "魔杰座" ||
@@ -267,12 +267,12 @@ func TestLXQQMusicInfoDoesNotFabricateMediaMid(t *testing.T) {
 		ID: "song-mid", LXSourceKey: "tx", Title: "稻香", Artist: "周杰伦",
 		SourceData: map[string]string{"id": "123456", "albummid": "album-mid"},
 	}
-	info := buildLXOldMusicInfo(track, "128k")
+	info := buildLXMusicInfo(track, "128k")
 	if _, exists := info["strMediaMid"]; exists {
 		t.Fatalf("missing strMediaMid must be omitted like LX's undefined property, got %#v", info["strMediaMid"])
 	}
 	if info["albumId"] != "album-mid" { t.Fatalf("QQ albumId must mirror LX album.mid, got %#v",info["albumId"]) }
-	missingAlbum:=buildLXOldMusicInfo(music.Track{ID:"song-mid",LXSourceKey:"tx",Title:"稻香",SourceData:map[string]string{"id":"123456"}},"128k")
+	missingAlbum:=buildLXMusicInfo(music.Track{ID:"song-mid",LXSourceKey:"tx",Title:"稻香",SourceData:map[string]string{"id":"123456"}},"128k")
 	if _, exists := missingAlbum["albumId"]; exists { t.Fatalf("QQ albumId must be omitted when album.mid is missing, got %#v", missingAlbum["albumId"]) }
 }
 
@@ -297,7 +297,7 @@ func TestLXMiguMusicInfoMatchesLXFields(t *testing.T){
  "songmid":"mg-song-id","copyrightId":"mg-copy-id","albumId":"album-9","lrcUrl":"https://lyrics.example/lrc",
  "audio_formats_json":`[{"formatType":"PQ","asize":1048576,"isize":0},{"formatType":"HQ","asize":2097152,"isize":0},{"formatType":"ZQ24","asize":4194304,"isize":0}]`,
  }}
- info:=buildLXOldMusicInfo(tr,"320k")
+ info:=buildLXMusicInfo(tr,"320k")
  if info["source"]!="mg"||info["songmid"]!="mg-song-id"||info["copyrightId"]!="mg-copy-id"||info["albumId"]!="album-9"||info["albumName"]!="I'm OK"||info["interval"]!="05:04"||info["img"]!=tr.CoverURL||info["lrcUrl"]!="https://lyrics.example/lrc"{t.Fatalf("Migu musicInfo mismatch: %#v",info)}
  types,ok:=info["types"].([]any);if !ok||len(types)!=3||types[0].(map[string]any)["type"]!="128k"||types[1].(map[string]any)["type"]!="320k"||types[2].(map[string]any)["type"]!="flac24bit"{t.Fatalf("unexpected Migu qualities: %#v",info["types"])}
 }
@@ -308,7 +308,7 @@ func TestLXKugouMusicInfoPreservesPerQualityHashes(t *testing.T) {
 		"HQFileHash":"hq-hash","HQFileSize":"2097152","SQFileHash":"sq-hash","SQFileSize":"4194304",
 		"ResFileHash":"res-hash","ResFileSize":"8388608",
 	}}
-	info:=buildLXOldMusicInfo(track,"320k")
+	info:=buildLXMusicInfo(track,"320k")
 	if info["source"]!="kg"||info["songmid"]!=int64(123)||info["albumAudioId"]!=int64(456)||info["albumId"]!="album-9"||info["hash"]!="base-hash"||info["interval"]!="05:04"{t.Fatalf("Kugou LX musicInfo mismatch: %#v",info)}
 	types,ok:=info["types"].([]any)
 	if !ok||len(types)!=4||types[0].(map[string]any)["hash"]!="base-hash"||types[3].(map[string]any)["hash"]!="res-hash"{t.Fatalf("Kugou quality hashes missing: %#v",info["types"])}
@@ -324,7 +324,7 @@ func TestLXNetEaseMusicInfoUsesPrivilegeAndQualityFiles(t *testing.T) {
 		"albumId":"12","wy_privilege":`{"maxbr":999000,"maxBrLevel":"hires"}`,
 		"wy_l":`{"size":1000}`,"wy_h":`{"size":3000}`,"wy_sq":`{"size":6000}`,"wy_hr":`{"size":12000}`,
 	}}
-	info:=buildLXOldMusicInfo(track,"flac")
+	info:=buildLXMusicInfo(track,"flac")
 	if info["source"]!="wy"||info["songmid"]!=int64(321)||info["albumId"]!=int64(12)||info["interval"]!="03:00"||info["img"]!=track.CoverURL{t.Fatalf("NetEase LX musicInfo mismatch: %#v",info)}
 	assertLXMusicInfoKeys(t, info, []string{"name", "singer", "source", "songmid", "interval", "albumName", "img", "typeUrl", "types", "_types", "albumId"})
 	types,ok:=info["types"].([]any)
@@ -343,7 +343,7 @@ func TestLXKuwoMusicInfoUsesNInfoQualityCapabilities(t *testing.T) {
 			"N_MINFO": "level:standard,bitrate:128,format:mp3,size:4.2;level:high,bitrate:320,format:mp3,size:8.6;level:sq,bitrate:2000,format:flac,size:25.4",
 		},
 	}
-	info := buildLXOldMusicInfo(track, "flac")
+	info := buildLXMusicInfo(track, "flac")
 	if info["source"] != "kw" || info["songmid"] != "456" || info["albumId"] != "album-9" ||
 		info["albumName"] != "I'm OK" || info["interval"] != "05:04" || info["img"] != "" {
 		t.Fatalf("Kuwo musicInfo mismatch: %#v", info)
@@ -447,7 +447,7 @@ func TestFlowerLXMusicURLLookupIdentifiersMatchAllFivePlatforms(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			info := buildLXOldMusicInfo(tc.track, "128k")
+			info := buildLXMusicInfo(tc.track, "128k")
 			if info["source"] != tc.track.LXSourceKey {
 				t.Fatalf("source key = %#v, want %q", info["source"], tc.track.LXSourceKey)
 			}
@@ -459,32 +459,3 @@ func TestFlowerLXMusicURLLookupIdentifiersMatchAllFivePlatforms(t *testing.T) {
 }
 
 
-func TestLXMusicInfoUsesNewMusicInfoShapeForUserSources(t *testing.T) {
-	track := music.Track{ID:"song-mid", SourceID:"qq_music", LXSourceKey:"tx", Title:"稻香", Artist:"周杰伦", Album:"魔杰座", DurationMS:223000, CoverURL:"https://img.example/cover.jpg", SourceData:map[string]string{
-		"id":"123456", "media_mid":"media-mid", "albummid":"album-mid", "size_128mp3":"1048576", "size_320mp3":"2097152",
-	}}
-	info := buildLXMusicInfo(track, "320k")
-	if info["id"]!="tx_song-mid" || info["name"]!="稻香" || info["singer"]!="周杰伦" || info["source"]!="tx" || info["interval"]!="03:43" {
-		t.Fatalf("new MusicInfo top-level fields mismatch: %#v", info)
-	}
-	if _, exists:=info["songmid"]; exists { t.Fatalf("legacy songmid leaked to user source: %#v", info) }
-	meta, ok:=info["meta"].(map[string]any)
-	if !ok { t.Fatalf("new MusicInfo meta missing: %#v",info["meta"]) }
-	if meta["songId"]!="song-mid" || meta["albumName"]!="魔杰座" || meta["picUrl"]!=track.CoverURL ||
-		meta["id"]!=int64(123456) || meta["strMediaMid"]!="media-mid" || meta["albumMid"]!="album-mid" {
-		t.Fatalf("QQ meta fields do not match LX toNewMusicInfo: %#v",meta)
-	}
-	if _, exists:=meta["types"]; exists { t.Fatalf("legacy types leaked into meta: %#v",meta) }
-	if _, ok:=meta["qualitys"].([]any); !ok { t.Fatalf("meta.qualitys missing: %#v",meta) }
-	if _, ok:=meta["_qualitys"].(map[string]any); !ok { t.Fatalf("meta._qualitys missing: %#v",meta) }
-}
-
-func TestLXMusicInfoKugouUsesLXIDAndMetaFields(t *testing.T) {
-	track:=music.Track{ID:"123",LXSourceKey:"kg",Title:"找自己",Artist:"陶喆",SourceData:map[string]string{"Audioid":"123","MixSongID":"456","FileHash":"abc","AlbumID":"album"}}
-	info:=buildLXMusicInfo(track,"320k")
-	meta,ok:=info["meta"].(map[string]any)
-	if !ok { t.Fatalf("Kugou meta missing: %#v",info) }
-	if info["id"]!="123_abc" || meta["songId"]!=int64(123) || meta["hash"]!="abc" || meta["albumAudioId"]!=int64(456) || meta["albumId"]!="album" {
-		t.Fatalf("Kugou MusicInfo does not match LX conversion: %#v",info)
-	}
-}
