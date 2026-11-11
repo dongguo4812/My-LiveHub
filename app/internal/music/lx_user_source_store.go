@@ -6,9 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -28,8 +26,7 @@ func NewLXUserSourceStore(dir string) (*LXUserSourceStore, error) {
 	if strings.TrimSpace(dir) == "" { return nil, errors.New("LX 音源存储目录不能为空") }
 	store := &LXUserSourceStore{dir: dir}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.Proxy = nil
-	transport.DialContext = store.dialPublic
+	transport.Proxy = http.ProxyFromEnvironment
 	store.client = &http.Client{
 		Transport: transport,
 		Timeout: 15 * time.Second,
@@ -42,70 +39,12 @@ func NewLXUserSourceStore(dir string) (*LXUserSourceStore, error) {
 	return store, nil
 }
 
-func (s *LXUserSourceStore) dialPublic(ctx context.Context, network, address string) (net.Conn, error) {
-	host, port, err := net.SplitHostPort(address)
-	if err != nil { return nil, err }
-	if ip, parseErr := netip.ParseAddr(host); parseErr == nil {
-		if !isPublicLXIP(ip) { return nil, errors.New("音源脚本 URL 不允许访问本机或内网地址") }
-		return (&net.Dialer{Timeout: 8*time.Second}).DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
-	}
-	ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
-	if err != nil { return nil, fmt.Errorf("解析音源服务器地址失败：%w", err) }
-	for _, ip := range ips {
-		if !isPublicLXIP(ip) { return nil, errors.New("音源脚本 URL 解析到了本机或内网地址，已阻止请求") }
-	}
-	var lastErr error
-	for _, ip := range ips {
-		conn, dialErr := (&net.Dialer{Timeout: 8*time.Second}).DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
-		if dialErr == nil { return conn, nil }
-		lastErr = dialErr
-	}
-	if lastErr == nil { lastErr = errors.New("音源服务器没有可用 IP 地址") }
-	return nil, lastErr
-}
-
-var lxNonPublicPrefixes = func() []netip.Prefix {
-	raw := []string{
-		"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24",
-		"192.88.99.0/24", "198.18.0.0/15", "198.51.100.0/24",
-		"203.0.113.0/24", "240.0.0.0/4", "2001:db8::/32",
-		"2001::/23", "2002::/16", "64:ff9b::/96", "64:ff9b:1::/48",
-	}
-	prefixes := make([]netip.Prefix, 0, len(raw))
-	for _, value := range raw {
-		prefixes = append(prefixes, netip.MustParsePrefix(value))
-	}
-	return prefixes
-}()
-
-func isPublicLXIP(ip netip.Addr) bool {
-	if !ip.IsValid() {
-		return false
-	}
-	ip = ip.Unmap()
-	if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() ||
-		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsMulticast() || ip.IsUnspecified() {
-		return false
-	}
-	for _, prefix := range lxNonPublicPrefixes {
-		if prefix.Contains(ip) {
-			return false
-		}
-	}
-	return true
-}
-
 func validateLXSourceURL(value *url.URL) error {
-	if value == nil || (value.Scheme != "https" && value.Scheme != "http") || value.Hostname() == "" || value.User != nil {
+	// LX's Electron renderer allows ordinary HTTP(S) destinations, including
+	// private-network endpoints. Custom source authors may intentionally use
+	// LAN services, so do not add a host allowlist that LX does not have.
+	if value == nil || (value.Scheme != "https" && value.Scheme != "http") || value.Hostname() == "" {
 		return errors.New("音源 URL 必须是有效的 HTTP 或 HTTPS 地址")
-	}
-	host := strings.TrimSuffix(strings.ToLower(value.Hostname()), ".")
-	if host == "localhost" || strings.HasSuffix(host, ".localhost") || strings.HasSuffix(host, ".local") {
-		return errors.New("音源 URL 不允许使用本机域名")
-	}
-	if ip, err := netip.ParseAddr(host); err == nil && !isPublicLXIP(ip) {
-		return errors.New("音源 URL 不允许访问本机或内网地址")
 	}
 	return nil
 }
