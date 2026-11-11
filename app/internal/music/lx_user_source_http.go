@@ -12,6 +12,7 @@ import (
 	"mime/multipart"
 	"strings"
 	"time"
+	"sync/atomic"
 
 	"github.com/dop251/goja"
 )
@@ -30,6 +31,37 @@ func installLXRequest(vm *goja.Runtime, lx *goja.Object) error {
 
 // installLXRequestWithClient keeps the production transport policy centralized
 // while allowing deterministic HTTP bridge tests to inject a mock client.
+func installLXRequestAsync(vm *goja.Runtime, lx *goja.Object, client *http.Client, loop *lxRuntimeEventLoop) error {
+	var requestID atomic.Int64
+	return lx.Set("request", func(call goja.FunctionCall) goja.Value {
+		rawURL:=strings.TrimSpace(call.Argument(0).String())
+		options:=call.Argument(1)
+		callback,ok:=goja.AssertFunction(call.Argument(2))
+		if !ok { return vm.ToValue(func(goja.FunctionCall) goja.Value { return goja.Undefined() }) }
+		optionsMap:=map[string]any{}
+		if options!=nil && !goja.IsUndefined(options) && !goja.IsNull(options) {
+			if exported,ok:=options.Export().(map[string]interface{}); ok { optionsMap=exported }
+		}
+		ctx,cancel:=context.WithCancel(context.Background())
+		id:=requestID.Add(1)
+		thisArg:=call.This
+		go func() {
+			response,_,err:=performLXRequestWithClientContext(ctx,rawURL,optionsMap,client)
+			loop.enqueue(func() {
+				var errValue goja.Value=goja.Null()
+				var responseValue goja.Value=goja.Null()
+				var bodyValue goja.Value=goja.Null()
+				if err!=nil { errValue=vm.NewGoError(err) } else {
+					responseValue=vm.ToValue(response)
+					bodyValue=vm.ToValue(response["body"])
+				}
+				if _,callbackErr:=callback(thisArg,errValue,responseValue,bodyValue); callbackErr!=nil { vm.Interrupt(callbackErr) }
+			})
+		}()
+		return vm.ToValue(func(goja.FunctionCall) goja.Value { cancel(); return vm.ToValue(id) })
+	})
+}
+
 func installLXRequestWithClient(vm *goja.Runtime, lx *goja.Object, client *http.Client) error {
 	return lx.Set("request", func(call goja.FunctionCall) goja.Value {
 		rawURL := strings.TrimSpace(call.Argument(0).String())
@@ -57,14 +89,16 @@ func performLXRequest(rawURL string, optionsValue goja.Value) (map[string]any, s
 }
 
 func performLXRequestWithClient(rawURL string, optionsValue goja.Value, client *http.Client) (map[string]any, string, error) {
+	options:=map[string]any{}
+	if optionsValue!=nil && !goja.IsUndefined(optionsValue) && !goja.IsNull(optionsValue) { if exported,ok:=optionsValue.Export().(map[string]interface{}); ok { options=exported } }
+	return performLXRequestWithClientContext(context.Background(),rawURL,options,client)
+}
+
+func performLXRequestWithClientContext(parent context.Context, rawURL string, options map[string]any, client *http.Client) (map[string]any, string, error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil { return nil, "", errors.New("LX request URL 无效") }
 	if err := validateLXSourceURL(parsed); err != nil { return nil, "", err }
 
-	options := map[string]any{}
-	if optionsValue != nil && !goja.IsUndefined(optionsValue) && !goja.IsNull(optionsValue) {
-		if exported, ok := optionsValue.Export().(map[string]interface{}); ok { options = exported }
-	}
 	method := strings.ToUpper(strings.TrimSpace(fmt.Sprint(options["method"])))
 	if method == "" || method == "<NIL>" { method = http.MethodGet }
 	if method != http.MethodGet && method != http.MethodHead && method != http.MethodPost && method != http.MethodPut && method != http.MethodPatch && method != http.MethodDelete && method != http.MethodOptions {
@@ -115,7 +149,7 @@ func performLXRequestWithClient(rawURL string, optionsValue goja.Value, client *
 		if number, ok := value.(int64); ok && number >= 0 && number < 10 { redirectLimit = int(number) }
 		if number, ok := value.(float64); ok && number >= 0 && number < 10 { redirectLimit = int(number) }
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, method, parsed.String(), bytes.NewReader(requestBody))
 	if err != nil { return nil, "", err }
