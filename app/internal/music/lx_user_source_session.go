@@ -366,8 +366,8 @@ func (s *LXUserSourceSession) handleRequest(vm *goja.Runtime, lx *goja.Object, h
 	}
 	source, _ := payload["source"].(string)
 	action, _ := payload["action"].(string)
-	// The LX host forwards requests to the selected user API without checking
-	// the declaration again; declaration filtering is used by source discovery.
+	// LX forwards exactly these three fields to the selected userApi handler.
+	payload = map[string]any{"source": source, "action": action, "info": payload["info"]}
 
 	if handler == nil || goja.IsUndefined(handler) || goja.IsNull(handler) {
 		s.completeRequest(call.requestKey, lxSessionResponse{err: errors.New("Request event is not defined")})
@@ -403,13 +403,28 @@ func (s *LXUserSourceSession) handleRequest(vm *goja.Runtime, lx *goja.Object, h
 		return goja.Undefined()
 	})
 	onRejected := vm.ToValue(func(callArgs goja.FunctionCall) goja.Value {
-		message := callArgs.Argument(0).String()
+		message := lxUserAPIErrorMessage(vm, callArgs.Argument(0))
 		finish(lxSessionResponse{err: errors.New(message)})
 		return goja.Undefined()
 	})
 	if _, err := then(promiseObject, onFulfilled, onRejected); err != nil {
 		finish(lxSessionResponse{err: err})
 	}
+}
+
+func lxJSStringLength(value string) int {
+	return len(utf16.Encode([]rune(value)))
+}
+
+func lxUserAPIErrorMessage(vm *goja.Runtime, value goja.Value) string {
+	if value == nil { return "unknown error" }
+	if !goja.IsUndefined(value) && !goja.IsNull(value) {
+		message := value.ToObject(vm).Get("message")
+		if message != nil && !goja.IsUndefined(message) && !goja.IsNull(message) && message.String() != "" {
+			return message.String()
+		}
+	}
+	return value.String()
 }
 
 func marshalLXUserAPIResult(source, action string, payload map[string]any, value goja.Value) (json.RawMessage, error) {
@@ -432,13 +447,13 @@ func marshalLXUserAPIResult(source, action string, payload map[string]any, value
 		return json.Marshal(map[string]any{"source": source, "action": action, "data": raw})
 	case "lyric":
 		info, ok := exported.(map[string]interface{})
-		if !ok { return nil, errors.New("LX lyric response is invalid") }
+		if !ok { return nil, errors.New("failed") }
 		lyric, ok := info["lyric"].(string)
-		if !ok || len(lyric) > 51200 { return nil, errors.New("LX lyric response is invalid") }
+		if !ok || lxJSStringLength(lyric) > 51200 { return nil, errors.New("failed") }
 		data := map[string]any{"lyric": lyric, "tlyric": nil, "rlyric": nil, "lxlyric": nil}
-		if value, ok := info["tlyric"].(string); ok && len(value) < 5120 { data["tlyric"] = value }
-		if value, ok := info["rlyric"].(string); ok && len(value) < 5120 { data["rlyric"] = value }
-		if value, ok := info["lxlyric"].(string); ok && len(value) < 8192 { data["lxlyric"] = value }
+		if value, ok := info["tlyric"].(string); ok && lxJSStringLength(value) < 5120 { data["tlyric"] = value }
+		if value, ok := info["rlyric"].(string); ok && lxJSStringLength(value) < 5120 { data["rlyric"] = value }
+		if value, ok := info["lxlyric"].(string); ok && lxJSStringLength(value) < 8192 { data["lxlyric"] = value }
 		return json.Marshal(map[string]any{"source": source, "action": action, "data": data})
 	default:
 		return json.Marshal(map[string]any{"source": source, "action": action})
