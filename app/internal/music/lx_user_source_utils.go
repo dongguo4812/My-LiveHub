@@ -1,13 +1,23 @@
 package music
 
 import (
+	"bytes"
+	"compress/zlib"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/md5"
 	"crypto/rand"
+	"crypto/rsa"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
+	"math/big"
 	"strings"
+
+	"crypto/x509"
 
 	"github.com/dop251/goja"
 )
@@ -49,7 +59,49 @@ func installLXSourceUtilities(vm *goja.Runtime, lx *goja.Object) error {
 		if _, err := rand.Read(data); err != nil { panic(vm.ToValue(err.Error())) }
 		return newLXBuffer(vm, data)
 	}); err != nil { return err }
+	if err := crypto.Set("aesEncrypt", func(call goja.FunctionCall) goja.Value {
+		data, err := lxBufferBytes(call.Argument(0))
+		if err != nil { panic(vm.ToValue(err.Error())) }
+		key, err := lxBufferBytes(call.Argument(2))
+		if err != nil { panic(vm.ToValue(err.Error())) }
+		var iv []byte
+		if !goja.IsUndefined(call.Argument(3)) && !goja.IsNull(call.Argument(3)) {
+			iv, err = lxBufferBytes(call.Argument(3))
+			if err != nil { panic(vm.ToValue(err.Error())) }
+		}
+		encrypted, err := lxAESEncrypt(data, call.Argument(1).String(), key, iv)
+		if err != nil { panic(vm.ToValue(err.Error())) }
+		return newLXBuffer(vm, encrypted)
+	}); err != nil { return err }
+	if err := crypto.Set("rsaEncrypt", func(call goja.FunctionCall) goja.Value {
+		data, err := lxBufferBytes(call.Argument(0))
+		if err != nil { panic(vm.ToValue(err.Error())) }
+		encrypted, err := lxRSAEncryptNoPadding(data, []byte(call.Argument(1).String()))
+		if err != nil { panic(vm.ToValue(err.Error())) }
+		return newLXBuffer(vm, encrypted)
+	}); err != nil { return err }
 	if err := utils.Set("crypto", crypto); err != nil { return err }
+
+	zlibUtils := vm.NewObject()
+	if err := zlibUtils.Set("inflate", func(call goja.FunctionCall) goja.Value {
+		data, err := lxBufferBytes(call.Argument(0))
+		if err != nil { panic(vm.ToValue(err.Error())) }
+		inflated, err := lxZlibInflate(data)
+		if err != nil { panic(vm.ToValue(err.Error())) }
+		promise, resolve, _ := vm.NewPromise()
+		_ = resolve(newLXBuffer(vm, inflated))
+		return vm.ToValue(promise)
+	}); err != nil { return err }
+	if err := zlibUtils.Set("deflate", func(call goja.FunctionCall) goja.Value {
+		data, err := lxBufferBytes(call.Argument(0))
+		if err != nil { panic(vm.ToValue(err.Error())) }
+		compressed, err := lxZlibDeflate(data)
+		if err != nil { panic(vm.ToValue(err.Error())) }
+		promise, resolve, _ := vm.NewPromise()
+		_ = resolve(newLXBuffer(vm, compressed))
+		return vm.ToValue(promise)
+	}); err != nil { return err }
+	if err := utils.Set("zlib", zlibUtils); err != nil { return err }
 	return lx.Set("utils", utils)
 }
 
@@ -113,4 +165,91 @@ func lxBufferBytes(value goja.Value) ([]byte, error) {
 	default:
 		return nil, fmt.Errorf("unsupported LX buffer value %T", data)
 	}
+}
+
+
+func lxAESEncrypt(data []byte, mode string, key, iv []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil { return nil, fmt.Errorf("LX AES key invalid: %w", err) }
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	blockSize := block.BlockSize()
+	switch {
+	case strings.HasSuffix(mode, "-ecb") || mode == "ecb":
+		padded := lxPKCS7Pad(data, blockSize)
+		result := make([]byte, len(padded))
+		for offset := 0; offset < len(padded); offset += blockSize {
+			block.Encrypt(result[offset:offset+blockSize], padded[offset:offset+blockSize])
+		}
+		return result, nil
+	case strings.HasSuffix(mode, "-cbc") || mode == "cbc":
+		if len(iv) != blockSize { return nil, fmt.Errorf("LX AES-CBC IV must be %d bytes", blockSize) }
+		padded := lxPKCS7Pad(data, blockSize)
+		result := make([]byte, len(padded))
+		cipher.NewCBCEncrypter(block, iv).CryptBlocks(result, padded)
+		return result, nil
+	case strings.HasSuffix(mode, "-ctr") || mode == "ctr":
+		if len(iv) != blockSize { return nil, fmt.Errorf("LX AES-CTR IV must be %d bytes", blockSize) }
+		result := make([]byte, len(data))
+		cipher.NewCTR(block, iv).XORKeyStream(result, data)
+		return result, nil
+	case strings.HasSuffix(mode, "-cfb") || mode == "cfb":
+		if len(iv) != blockSize { return nil, fmt.Errorf("LX AES-CFB IV must be %d bytes", blockSize) }
+		result := make([]byte, len(data))
+		cipher.NewCFBEncrypter(block, iv).XORKeyStream(result, data)
+		return result, nil
+	case strings.HasSuffix(mode, "-ofb") || mode == "ofb":
+		if len(iv) != blockSize { return nil, fmt.Errorf("LX AES-OFB IV must be %d bytes", blockSize) }
+		result := make([]byte, len(data))
+		cipher.NewOFB(block, iv).XORKeyStream(result, data)
+		return result, nil
+	default:
+		return nil, fmt.Errorf("unsupported LX AES mode %q", mode)
+	}
+}
+
+func lxPKCS7Pad(data []byte, blockSize int) []byte {
+	padding := blockSize - len(data)%blockSize
+	result := make([]byte, len(data)+padding)
+	copy(result, data)
+	for i := len(data); i < len(result); i++ { result[i] = byte(padding) }
+	return result
+}
+
+func lxRSAEncryptNoPadding(data, keyPEM []byte) ([]byte, error) {
+	block, _ := pem.Decode(keyPEM)
+	if block == nil { return nil, errors.New("LX RSA public key PEM is invalid") }
+	parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		var publicKey *rsa.PublicKey
+		publicKey, err = x509.ParsePKCS1PublicKey(block.Bytes)
+		if err == nil { parsed = publicKey }
+	}
+	if err != nil { return nil, fmt.Errorf("LX RSA public key is invalid: %w", err) }
+	publicKey, ok := parsed.(*rsa.PublicKey)
+	if !ok { return nil, errors.New("LX RSA key is not an RSA public key") }
+	size := publicKey.Size()
+	if len(data) != size { return nil, fmt.Errorf("LX RSA_NO_PADDING requires exactly %d input bytes, got %d", size, len(data)) }
+	message := new(big.Int).SetBytes(data)
+	if message.Cmp(publicKey.N) >= 0 { return nil, errors.New("LX RSA input is greater than or equal to the modulus") }
+	encrypted := new(big.Int).Exp(message, big.NewInt(int64(publicKey.E)), publicKey.N)
+	return encrypted.FillBytes(make([]byte, size)), nil
+}
+
+func lxZlibInflate(data []byte) ([]byte, error) {
+	reader, err := zlib.NewReader(bytes.NewReader(data))
+	if err != nil { return nil, fmt.Errorf("LX zlib inflate failed: %w", err) }
+	defer reader.Close()
+	result, err := io.ReadAll(io.LimitReader(reader, 8<<20+1))
+	if err != nil { return nil, fmt.Errorf("LX zlib inflate failed: %w", err) }
+	if len(result) > 8<<20 { return nil, errors.New("LX zlib inflated data exceeds 8 MB") }
+	return result, nil
+}
+
+func lxZlibDeflate(data []byte) ([]byte, error) {
+	if len(data) > 8<<20 { return nil, errors.New("LX zlib input exceeds 8 MB") }
+	var output bytes.Buffer
+	writer := zlib.NewWriter(&output)
+	if _, err := writer.Write(data); err != nil { return nil, err }
+	if err := writer.Close(); err != nil { return nil, err }
+	return output.Bytes(), nil
 }
