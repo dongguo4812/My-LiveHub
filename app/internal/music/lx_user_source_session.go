@@ -316,7 +316,7 @@ func (s *LXUserSourceSession) handleRequest(vm *goja.Runtime, lx *goja.Object, h
 		call.result <- lxSessionResponse{err: fmt.Errorf("LX 音源 %q 不支持动作 %q", source, action)}
 		return
 	}
-	if goja.IsUndefined(handler) || goja.IsNull(handler) {
+	if handler == nil || goja.IsUndefined(handler) || goja.IsNull(handler) {
 		call.result <- lxSessionResponse{err: errors.New("Request event is not defined")}
 		return
 	}
