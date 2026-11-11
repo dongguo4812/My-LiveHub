@@ -288,6 +288,15 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 		return 1
 	}
 	if len(initialized) == 0 {
+		// LX source scripts may announce initialization asynchronously (for
+		// example from setTimeout or an HTTP callback). Keep the VM event loop
+		// alive until the real inited event arrives or initialization times out.
+		if pumpErr := loop.pumpUntil(func() bool { return len(initialized) > 0 }, 4*time.Second); pumpErr != nil {
+			response.Error = fmt.Sprintf("LX 音源未发送 inited 初始化事件：%s", pumpErr.Error())
+			return 1
+		}
+	}
+	if len(initialized) == 0 {
 		response.Error = "LX 音源未发送 inited 初始化事件"
 		return 1
 	}
