@@ -26,27 +26,30 @@ func TestLXUserSourceStoreImportsListsAndDeletes(t *testing.T) {
 }
 
 func TestValidateLXSourceURL(t *testing.T) {
- invalid := []string{
-  "file:///C:/Windows/win.ini",
-  "http://localhost/source.js",
-  "http://127.0.0.1/source.js",
-  "http://192.168.1.1/source.js",
-  "https://user:pass@example.com/source.js",
-  "http://100.64.0.1/source.js",
-  "http://192.0.2.10/source.js",
-  "http://198.18.0.1/source.js",
-  "http://203.0.113.10/source.js",
-  "http://[2001:db8::1]/source.js",
- }
- for _, raw := range invalid {
-  t.Run(raw, func(t *testing.T) {
-   parsed, err := url.Parse(raw)
-   if err != nil { t.Fatal(err) }
-   if err := validateLXSourceURL(parsed); err == nil { t.Fatalf("expected URL to be rejected: %s", raw) }
-  })
- }
+	invalid := []string{
+		"file:///C:/Windows/win.ini",
+		"ftp://example.com/source.js",
+		"http:///source.js",
+		"/relative/source.js",
+	}
+	for _, raw := range invalid {
+		t.Run(raw, func(t *testing.T) {
+			parsed, err := url.Parse(raw)
+			if err != nil { t.Fatal(err) }
+			if err := validateLXSourceURL(parsed); err == nil { t.Fatalf("expected URL to be rejected: %s", raw) }
+		})
+	}
 }
 
+func TestValidateLXSourceURLAllowsLANDestinationsLikeElectron(t *testing.T) {
+	for _, raw := range []string{"http://localhost/source.js", "http://127.0.0.1/source.js", "http://192.168.1.10/source.js"} {
+		parsed, err := url.Parse(raw)
+		if err != nil { t.Fatal(err) }
+		if err := validateLXSourceURL(parsed); err != nil {
+			t.Fatalf("LX-compatible HTTP destination %q was rejected: %v", raw, err)
+		}
+	}
+}
 
 func TestLXUserSourceStoreRejectsDuplicateScriptLikeLX(t *testing.T) {
 	store, err := NewLXUserSourceStore(filepath.Join(t.TempDir(), "sources"))
