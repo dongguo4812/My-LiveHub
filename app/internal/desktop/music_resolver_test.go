@@ -59,6 +59,16 @@ func TestBuildLXMusicURLRequestUsesNestedLXMusicInfoContract(t *testing.T) {
 	if !ok || len(qualityList) != 2 { t.Fatalf("LX qualitys list missing: %#v", meta["qualitys"]) }
 }
 
+
+func TestLXMusicInfoIntervalMatchesSourceSpecificNullBehavior(t *testing.T) {
+	track := music.Track{ID:"tx:zero", SourceID:"tx", LXSourceKey:"tx", SourceData:map[string]string{"songmid":"zero"}}
+	_, musicInfo, _ := decodeLXRequest(t, track, music.TrackQuality{Type:"128k"})
+	if musicInfo["interval"] != nil { t.Fatalf("QQ zero interval should be null, got %#v", musicInfo["interval"]) }
+	track.SourceID = "kw"; track.LXSourceKey = "kw"; track.ID = "kw:zero"
+	_, musicInfo, _ = decodeLXRequest(t, track, music.TrackQuality{Type:"128k"})
+	if musicInfo["interval"] != "--/--" { t.Fatalf("non-QQ zero interval should use LX placeholder, got %#v", musicInfo["interval"]) }
+}
+
 func TestBuildLXMusicURLRequestMapsMiguCopyrightAndLyrics(t *testing.T) {
 	track := music.Track{
 		ID:"mg:1", SourceID:"mg", Title:"歌", Album:"专辑",

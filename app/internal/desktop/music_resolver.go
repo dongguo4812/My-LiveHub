@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/music"
@@ -44,7 +45,7 @@ func buildLXMusicURLRequest(track music.Track, selected music.TrackQuality) ([]b
 	}
 
 	meta := map[string]any{
-		"songId": songID, "albumName": track.Album, "picUrl": nullableString(track.CoverURL),
+		"songId": songID, "albumName": track.Album, "picUrl": nullableLXString(track.CoverURL),
 		"qualitys": qualityList, "_qualitys": qualityMap,
 	}
 	if value := firstNonEmpty(track.SourceData["album_id"], track.SourceData["albumId"]); value != "" { meta["albumId"] = value }
@@ -54,7 +55,7 @@ func buildLXMusicURLRequest(track music.Track, selected music.TrackQuality) ([]b
 		if value := track.SourceData["album_audio_id"]; value != "" { meta["albumAudioId"] = value }
 	case "tx":
 		meta["strMediaMid"] = track.SourceData["media_mid"]
-		if value := track.SourceData["song_id"]; value != "" { meta["id"] = value }
+		if value := track.SourceData["song_id"]; value != "" { if number, err := strconv.ParseInt(value, 10, 64); err == nil { meta["id"] = number } else { meta["id"] = value } }
 		if value := track.SourceData["album_mid"]; value != "" { meta["albumMid"] = value }
 	case "mg":
 		meta["copyrightId"] = track.SourceData["copyright_id"]
@@ -64,15 +65,20 @@ func buildLXMusicURLRequest(track music.Track, selected music.TrackQuality) ([]b
 	}
 	musicInfo := map[string]any{
 		"id": track.ID, "name": track.Title, "singer": track.Artist,
-		"source": source, "interval": formatLXInterval(track.DurationMS), "meta": meta,
+		"source": source, "interval": lxMusicInfoInterval(source, track.DurationMS), "meta": meta,
 	}
 	info := map[string]any{"type": selected.Type, "musicInfo": musicInfo}
 	return json.Marshal(map[string]any{"source": source, "action": "musicUrl", "info": info})
 }
 
-func nullableString(value string) any {
+func nullableLXString(value string) any {
 	if strings.TrimSpace(value) == "" { return nil }
 	return value
+}
+
+func lxMusicInfoInterval(source string, durationMS int64) any {
+	if source == "tx" && durationMS == 0 { return nil }
+	return formatLXInterval(durationMS)
 }
 
 func firstNonEmpty(values ...string) string {

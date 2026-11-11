@@ -33,7 +33,7 @@ func TestLXSearchClientCallsAllFiveProvidersAndKeepsPartialResults(t *testing.T)
 	mux.HandleFunc("/mg", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("pageSize") != "30" { t.Errorf("Migu page size = %q", r.URL.Query().Get("pageSize")) }
 		if r.Header.Get("sign") == "" { t.Errorf("Migu request missing signature") }
-		_, _ = w.Write([]byte(`{"code":"000000","songResultData":{"totalCount":1,"resultList":[[{"songId":"505","copyrightId":"COPY505","name":"Migu Song","duration":184,"singerList":[{"name":"Singer"}],"album":"Album","albumId":"5","audioFormats":[{"formatType":"PQ","asize":1000},{"formatType":"ZQ","asize":4000}],"img3":"https://img.test/5.jpg"}]]}}`))
+		_, _ = w.Write([]byte(`{"code":"000000","songResultData":{"totalCount":1,"resultList":[[{"songId":"505","copyrightId":"COPY505","name":"Migu Song","duration":184,"singerList":[{"name":"Singer"}],"album":"Album","albumId":"5","audioFormats":[{"formatType":"PQ","asize":1000},{"formatType":"ZQ24","asize":4000}],"img3":"https://img.test/5.jpg"}]]}}`))
 	})
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -112,6 +112,14 @@ func TestLXSearchPageTwoUsesSameLimitAndOffsets(t *testing.T) {
 	page, err := provider.Search(context.Background(), "song", 2, 30)
 	if err != nil { t.Fatal(err) }
 	if page.Page != 2 || page.PageSize != 30 || page.MaxPage != 2 { t.Fatalf("unexpected page metadata: %#v", page) }
+}
+
+
+func TestLXFormattingAndSimilarityMatchPinnedJavaScriptRules(t *testing.T) {
+	if got := formatLXSize(0); got != "0 B" { t.Fatalf("zero size = %q, want 0 B", got) }
+	if got := formatLXSize(1024); got != "1.00 KiB" { t.Fatalf("1 KiB = %q", got) }
+	if got := formatLXSize(1536); got != "1.50 KiB" { t.Fatalf("1.5 KiB = %q", got) }
+	if got := lxSimilarity("😀", "😁"); got != 0.5 { t.Fatalf("UTF-16 similarity = %v, want 0.5", got) }
 }
 
 func TestEAPIEncryptProducesHexCiphertext(t *testing.T) {

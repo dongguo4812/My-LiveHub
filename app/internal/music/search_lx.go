@@ -23,6 +23,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf16"
 )
 
 const (
@@ -219,12 +220,12 @@ func formatLXDuration(seconds int64) int64 {
 	return seconds * 1000
 }
 func formatLXSize(size int64) string {
-	if size <= 0 { return "" }
-	const unit = 1024
-	if size < unit { return fmt.Sprintf("%d B", size) }
-	div, exp := int64(unit), 0
-	for n := size / unit; n >= unit; n /= unit { div *= unit; exp++ }
-	return fmt.Sprintf("%.1f %ciB", float64(size)/float64(div), "KMGTPE"[exp])
+	if size == 0 { return "0 B" }
+	if size < 0 { return "" }
+	units := []string{"B", "KiB", "MiB", "GiB", "TiB"}
+	exponent := int(math.Floor(math.Log(float64(size)) / math.Log(1024)))
+	if exponent >= len(units) { exponent = len(units)-1 }
+	return fmt.Sprintf("%.2f %s", float64(size)/math.Pow(1024, float64(exponent)), units[exponent])
 }
 func newLXTrack(source, nativeID, title, artist, album string, duration int64, cover string, data map[string]string, qualities []TrackQuality) Track {
 	if data == nil { data = map[string]string{} }
@@ -237,6 +238,10 @@ func newLXTrack(source, nativeID, title, artist, album string, duration int64, c
 }
 func quality(kind string, size int64, data map[string]string) TrackQuality {
 	return TrackQuality{Type: kind, Size: formatLXSize(size), SourceData: data}
+}
+func qualityFromOptionalObject(kind string, raw any, sizeKey string) TrackQuality {
+	if raw == nil { return TrackQuality{Type: kind} }
+	return quality(kind, intValue(mapValue(raw)[sizeKey]), nil)
 }
 
 func deduplicateLXTracks(tracks []Track) []Track {
@@ -251,7 +256,7 @@ func deduplicateLXTracks(tracks []Track) []Track {
 }
 
 func lxSimilarity(a, b string) float64 {
-	ar, br := []rune(a), []rune(b)
+	ar, br := utf16.Encode([]rune(a)), utf16.Encode([]rune(b))
 	if len(ar) == 0 || len(br) == 0 { return 0 }
 	if len(ar) > len(br) { ar, br = br, ar }
 	prev := make([]int, len(br)+1)
@@ -478,10 +483,10 @@ func(p neteaseSearchProvider)Search(ctx context.Context,keyword string,page,limi
 		base:=mapValue(mapValue(entry)["baseInfo"]);item:=mapValue(base["simpleSongData"]);if len(item)==0{continue}
 		album:=mapValue(item["al"]);priv:=mapValue(item["privilege"])
 		types:=[]TrackQuality{};maxLevel:=stringValue(priv["maxBrLevel"]);maxBR:=intValue(priv["maxbr"])
-		if maxLevel=="hires"{hr:=mapValue(item["hr"]);types=append(types,quality("flac24bit",intValue(hr["size"]),nil))}
-		if maxBR>=999000{sq:=mapValue(item["sq"]);types=append(types,quality("flac",intValue(sq["size"]),nil))}
-		if maxBR>=320000{h:=mapValue(item["h"]);types=append(types,quality("320k",intValue(h["size"]),nil))}
-		if maxBR>=128000{l:=mapValue(item["l"]);types=append(types,quality("128k",intValue(l["size"]),nil))}
+		if maxLevel=="hires"{types=append(types,qualityFromOptionalObject("flac24bit",item["hr"],"size"))}
+		if maxBR>=999000{types=append(types,qualityFromOptionalObject("flac",item["sq"],"size"))}
+		if maxBR>=320000{types=append(types,qualityFromOptionalObject("320k",item["h"],"size"))}
+		if maxBR>=128000{types=append(types,qualityFromOptionalObject("128k",item["l"],"size"))}
 		for i,j:=0,len(types)-1;i<j;i,j=i+1,j-1 { types[i],types[j]=types[j],types[i] }
 		artists:=[]string{};for _,v:=range sliceValue(item["ar"]){if n:=stringValue(mapValue(v)["name"]);n!=""{artists=append(artists,n)}}
 		id:=stringValue(item["id"]);albumID:=stringValue(album["id"])
@@ -512,8 +517,8 @@ func(p miguSearchProvider)Search(ctx context.Context,keyword string,page,limit i
 		item:=mapValue(entry);id:=stringValue(item["songId"]);copyright:=stringValue(item["copyrightId"])
 		if id==""||copyright==""||seen[copyright]{continue};seen[copyright]=true
 		types:=[]TrackQuality{}
-		for _,v:=range sliceValue(item["audioFormats"]){f:=mapValue(v);kind:="";switch stringValue(f["formatType"]){case "PQ":kind="128k";case "HQ":kind="320k";case "SQ":kind="flac";case "ZQ", "ZQ24":kind="flac24bit"};if kind!=""{types=append(types,quality(kind,func() int64 { if n:=intValue(f["asize"]); n>0 { return n }; return intValue(f["isize"]) }(),nil))}}
-		img:=stringValue(item["img3"]);if img==""{img=stringValue(item["img2"])};if img==""{img=stringValue(item["img1"])};if img!=""&&!strings.HasPrefix(img,"http"){img="http://d.musicapp.migu.cn"+img}
+		for _,v:=range sliceValue(item["audioFormats"]){f:=mapValue(v);kind:="";switch stringValue(f["formatType"]){case "PQ":kind="128k";case "HQ":kind="320k";case "SQ":kind="flac";case "ZQ24":kind="flac24bit"};if kind!=""{types=append(types,quality(kind,func() int64 { if rawSize, exists := f["asize"]; exists && rawSize != nil { return intValue(rawSize) }; return intValue(f["isize"]) }(),nil))}}
+		img:=stringValue(item["img3"]);if img==""{img=stringValue(item["img2"])};if img==""{img=stringValue(item["img1"])};if img!=""&&!strings.Contains(stringValue(item["img3"]),"http:"){img="http://d.musicapp.migu.cn"+img}
 		artists:=[]string{};for _,v:=range sliceValue(item["singerList"]){if n:=stringValue(mapValue(v)["name"]);n!=""{artists=append(artists,n)}}
 		dataMap:=map[string]string{"songmid":id,"copyright_id":copyright,"album_id":stringValue(item["albumId"]),"lrc_url":stringValue(item["lrcUrl"]),"mrc_url":stringValue(item["mrcurl"]),"trc_url":stringValue(item["trcUrl"])}
 		tracks=append(tracks,newLXTrack("mg",id,stringValue(item["name"]),strings.Join(artists,"、"),stringValue(item["album"]),formatLXDuration(intValue(item["duration"])),img,dataMap,types))
