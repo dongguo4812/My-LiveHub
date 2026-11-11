@@ -22,7 +22,7 @@ import (
 const (
 	LXSourceWorkerArgument = "--lx-source-worker"
 	lxWorkerArgument = LXSourceWorkerArgument
-	lxWorkerInputLimit = MaxLXUserSourceBytes + 4096
+	lxWorkerInputLimit = MaxLXUserSourceBytes*6 + 64*1024
 	lxWorkerOutputLimit = 256 << 10
 	lxWorkerTimeout = 180 * time.Second
 	lxWorkerExecutionTimeout = 170 * time.Second
