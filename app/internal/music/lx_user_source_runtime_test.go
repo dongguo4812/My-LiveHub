@@ -177,6 +177,50 @@ lx.on(lx.EVENT_NAMES.request, function (request) { return request; });
 	}
 }
 
+
+func TestRunLXSourceWorkerFiltersDeclarationsLikeLXPreload(t *testing.T) {
+	script := `lx.send(lx.EVENT_NAMES.inited, {
+  sources: {
+    tx: { type: "music", actions: ["musicUrl", "lyric"], qualitys: ["128k", "lossless"] },
+    local: { type: "music", actions: ["musicUrl", "lyric", "pic"], qualitys: ["320k"] },
+    xm: { type: "music", actions: ["musicUrl"], qualitys: ["128k"] },
+    custom: { type: "music", actions: ["musicUrl"], qualitys: ["128k"] },
+    wy_disabled: { type: "video", actions: ["musicUrl"], qualitys: ["320k"] }
+  }
+});`
+	input, _ := json.Marshal(lxWorkerRequest{Script: script})
+	var output bytes.Buffer
+	if code := RunLXSourceWorker(bytes.NewReader(input), &output); code != 0 {
+		t.Fatalf("worker returned %d: %s", code, output.String())
+	}
+	var response lxWorkerResponse
+	if err := json.Unmarshal(output.Bytes(), &response); err != nil { t.Fatal(err) }
+	if got := strings.Join(response.Result.Platforms, ","); got != "local,tx" {
+		t.Fatalf("LX-supported platforms = %q, want local,tx", got)
+	}
+	if len(response.Result.DeclaredSources) != 2 { t.Fatalf("unexpected filtered declarations: %#v", response.Result.DeclaredSources) }
+	tx := response.Result.DeclaredSources[1]
+	if tx.Type != "music" || strings.Join(tx.Actions, ",") != "musicUrl" || strings.Join(tx.Qualitys, ",") != "128k" {
+		t.Fatalf("tx declaration was not filtered to LX capabilities: %#v", tx)
+	}
+	local := response.Result.DeclaredSources[0]
+	if strings.Join(local.Actions, ",") != "musicUrl,lyric,pic" || len(local.Qualitys) != 0 {
+		t.Fatalf("local declaration was not filtered to LX capabilities: %#v", local)
+	}
+	var normalized struct {
+		Sources map[string]struct {
+			Name string `json:"name"`
+			Type string `json:"type"`
+			Actions []string `json:"actions"`
+			Qualitys []string `json:"qualitys"`
+		} `json:"sources"`
+	}
+	if err := json.Unmarshal(response.Result.Sources, &normalized); err != nil { t.Fatal(err) }
+	if normalized.Sources["tx"].Name != "" {
+		t.Fatalf("LX init response must not preserve user-provided source name: %#v", normalized.Sources["tx"])
+	}
+}
+
 func TestRunLXSourceWorkerWaitsForAsyncInitialization(t *testing.T) {
 	script := `setTimeout(function () {
   lx.send(lx.EVENT_NAMES.inited, {
@@ -214,15 +258,17 @@ func TestRunLXSourceWorkerRejectsMissingHandshake(t *testing.T) {
 	}
 }
 
-func TestRunLXSourceWorkerRejectsUndeclaredPlatforms(t *testing.T) {
+func TestRunLXSourceWorkerAllowsEmptySourceDeclarationLikeLX(t *testing.T) {
 	script := `lx.send(lx.EVENT_NAMES.inited, { sources: {} });`
 	input, _ := json.Marshal(lxWorkerRequest{Script: script})
 	var output bytes.Buffer
-	_ = RunLXSourceWorker(bytes.NewReader(input), &output)
+	if code := RunLXSourceWorker(bytes.NewReader(input), &output); code != 0 {
+		t.Fatalf("LX accepts an empty source declaration, worker returned %d: %s", code, output.String())
+	}
 	var response lxWorkerResponse
 	if err := json.Unmarshal(output.Bytes(), &response); err != nil { t.Fatal(err) }
-	if !strings.Contains(response.Error, "没有声明 sources") {
-		t.Fatalf("unexpected error: %q", response.Error)
+	if response.Error != "" || !response.Result.Initialized || len(response.Result.Platforms) != 0 {
+		t.Fatalf("unexpected empty-source initialization: %#v", response)
 	}
 }
 
@@ -399,18 +445,14 @@ lx.send(lx.EVENT_NAMES.inited, {
 	}
 }
 
-func TestValidateLXSourceRuntimeResultRequiresPlaybackHandler(t *testing.T) {
-	result := LXSourceRuntimeResult{
-		Initialized: true,
-		Platforms: []string{"wy"},
-		DeclaredSources: []LXDeclaredSource{{Key:"wy", Actions:[]string{"musicUrl"}, Qualitys:[]string{"320k"}}},
-	}
-	if err := validateLXSourceRuntimeResult(result); err == nil || !strings.Contains(err.Error(), "request 处理器") {
-		t.Fatalf("expected missing request handler to be rejected, got %v", err)
-	}
-	result.Handlers = []string{"request"}
+func TestValidateLXSourceRuntimeResultMatchesLXInitializationHandshake(t *testing.T) {
+	result := LXSourceRuntimeResult{Initialized: true}
 	if err := validateLXSourceRuntimeResult(result); err != nil {
-		t.Fatalf("valid playback source was rejected: %v", err)
+		t.Fatalf("LX accepts initialized sources without request handlers: %v", err)
+	}
+	result.Initialized = false
+	if err := validateLXSourceRuntimeResult(result); err == nil {
+		t.Fatal("an incomplete inited handshake must be rejected")
 	}
 }
 
