@@ -354,10 +354,24 @@ func (e *MpvEngine) Snapshot(ctx context.Context) (PlaybackSnapshot, error) {
 	e.mu.RLock()
 	loadStartedAt := e.loadStartedAt
 	e.mu.RUnlock()
-	if snapshot.Track != nil && !idle {
+	loadExpired := !loadStartedAt.IsZero() && time.Since(loadStartedAt) >= 30*time.Second
+	// mpv can briefly report idle-active=false while an asynchronous load is
+	// still failing. Do not mistake that transient state for successful
+	// playback: an expired load with neither duration nor playback position
+	// is a terminal load failure. A live stream with unknown duration is still
+	// accepted once its playback clock starts advancing.
+	loadFailed := snapshot.Track != nil && loadExpired && duration == 0 && position == 0
+	if loadFailed {
+		snapshot.State = PlaybackError
+		e.mu.RLock()
+		detail := strings.TrimSpace(e.stderrTail)
+		e.mu.RUnlock()
+		snapshot.Error = "mpv 未能加载该音频资源"
+		if detail != "" { snapshot.Error += "：" + detail }
+	} else if snapshot.Track != nil && !idle {
 		snapshot.State = PlaybackPlaying
 		if paused { snapshot.State = PlaybackPaused }
-	} else if snapshot.Track != nil && time.Since(loadStartedAt) < 30*time.Second {
+	} else if snapshot.Track != nil && !loadExpired {
 		snapshot.State = PlaybackLoading
 	} else if snapshot.Track != nil {
 		snapshot.State = PlaybackError
