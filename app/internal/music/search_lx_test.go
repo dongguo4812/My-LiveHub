@@ -137,6 +137,35 @@ func TestNewLXTrackIDsMatchPinnedLXMusicInfoConversion(t *testing.T) {
 	}
 }
 
+
+func TestLXAllSourceSearchConvertsProviderFailuresToEmptyPages(t *testing.T) {
+	client := &LXSearchClient{providers: []SearchProvider{
+		stubSearchProvider{id:"kw", err:errors.New("kw unavailable")},
+		stubSearchProvider{id:"kg", err:errors.New("kg unavailable")},
+	}}
+	first, errs, err := client.Search(context.Background(), "song", 1)
+	if err != nil { t.Fatalf("all-source search should resolve with empty results: %v", err) }
+	if len(errs) != 2 || len(first.Tracks) != 0 || first.Total != 0 || first.MaxPage != 1 || first.PageSize != 30 {
+		t.Fatalf("unexpected empty first page: page=%#v errors=%#v", first, errs)
+	}
+	second, _, err := client.Search(context.Background(), "song", 2)
+	if err != nil { t.Fatal(err) }
+	if second.Total != 60 || second.MaxPage != 0 { t.Fatalf("unexpected empty later page: %#v", second) }
+}
+
+func TestKuwoRejectsResultsWithoutNMINFOMetadata(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/kw", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"TOTAL":"1","SHOW":"1","abslist":[{"MUSICRID":"MUSIC_1","SONGNAME":"song","ARTIST":"singer"}]}`))
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	provider := kuwoSearchProvider{client:server.Client(), endpoint:server.URL+"/kw"}
+	if _, err := provider.Search(context.Background(), "song", 1, 30); err == nil {
+		t.Fatal("expected missing N_MINFO metadata to reject the invalid Kuwo result")
+	}
+}
+
 func TestEAPIEncryptProducesHexCiphertext(t *testing.T) {
 	a, err := eapiEncrypt("/api/search/song/list/page", struct {
 		Keyword string `json:"keyword"`

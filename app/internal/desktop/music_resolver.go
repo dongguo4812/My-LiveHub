@@ -41,7 +41,9 @@ func buildLXMusicURLRequest(track music.Track, selected music.TrackQuality) ([]b
 		size := any(nil)
 		if item.Size != "" { size = item.Size }
 		value := map[string]any{"type": item.Type, "size": size}
-		meta := map[string]any{"size": size}
+		metaSize := size
+		if source == "kw" && item.Size != "" { metaSize = strings.ToUpper(item.Size) }
+		meta := map[string]any{"size": metaSize}
 		for key, field := range item.SourceData { value[key] = field; meta[key] = field }
 		qualityList = append(qualityList, value)
 		qualityMap[item.Type] = meta

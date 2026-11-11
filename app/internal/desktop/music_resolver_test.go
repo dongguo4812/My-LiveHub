@@ -89,7 +89,7 @@ func TestBuildLXMusicURLRequestPreservesPlatformNativeFieldsAndHashes(t *testing
 		selected music.TrackQuality
 		want map[string]string
 	}{
-		{"kuwo", music.Track{ID:"kw_kw-id",SourceID:"kw",LXSourceKey:"kw",Title:"song",SourceData:map[string]string{"songmid":"kw-id","album_id":"kw-album"},Qualities:[]music.TrackQuality{{Type:"flac",Size:"30 MB"}}}, music.TrackQuality{Type:"flac"}, map[string]string{"songId":"kw-id","albumId":"kw-album"}},
+		{"kuwo", music.Track{ID:"kw_kw-id",SourceID:"kw",LXSourceKey:"kw",Title:"song",SourceData:map[string]string{"songmid":"kw-id","album_id":"kw-album"},Qualities:[]music.TrackQuality{{Type:"flac",Size:"5.0mb"}}}, music.TrackQuality{Type:"flac"}, map[string]string{"songId":"kw-id","albumId":"kw-album"}},
 		{"kugou", music.Track{ID:"kg-id_base-hash",SourceID:"kg",LXSourceKey:"kg",Title:"song",SourceData:map[string]string{"songmid":"kg-id","hash":"base-hash","album_id":"kg-album","album_audio_id":"audio-id"},Qualities:[]music.TrackQuality{{Type:"320k",SourceData:map[string]string{"hash":"320-hash"}}}}, music.TrackQuality{Type:"320k",SourceData:map[string]string{"hash":"320-hash"}}, map[string]string{"songId":"kg-id","hash":"base-hash","albumId":"kg-album","albumAudioId":"audio-id"}},
 		{"qq", music.Track{ID:"tx_tx-id",SourceID:"tx",LXSourceKey:"tx",Title:"song",SourceData:map[string]string{"songmid":"tx-id","song_id":"123","media_mid":"media-id","album_mid":"album-mid","album_id":"album-mid"}}, music.TrackQuality{Type:"320k"}, map[string]string{"songId":"tx-id","strMediaMid":"media-id","albumMid":"album-mid"}},
 		{"netease", music.Track{ID:"wy_wy-id",SourceID:"wy",LXSourceKey:"wy",Title:"song",SourceData:map[string]string{"songmid":"wy-id","album_id":"wy-album"}}, music.TrackQuality{Type:"flac"}, map[string]string{"songId":"wy-id","albumId":"wy-album"}},
@@ -103,6 +103,12 @@ func TestBuildLXMusicURLRequestPreservesPlatformNativeFieldsAndHashes(t *testing
 				if test.name == "qq" && meta["id"] != float64(123) { t.Errorf("meta.id = %#v, want numeric song ID 123", meta["id"]) }
 			}
 			if meta["qualitys"] == nil || meta["_qualitys"] == nil { t.Errorf("missing LX quality metadata: %#v", meta) }
+			if test.name == "kuwo" {
+				qualityMap := meta["_qualitys"].(map[string]any)
+				if qualityMap["flac"].(map[string]any)["size"] != "5.0MB" { t.Errorf("Kuwo _qualitys size must be uppercased: %#v", qualityMap["flac"]) }
+				qualityList := meta["qualitys"].([]any)
+				if qualityList[0].(map[string]any)["size"] != "5.0mb" { t.Errorf("Kuwo qualitys size must retain original case: %#v", qualityList[0]) }
+			}
 		})
 	}
 }

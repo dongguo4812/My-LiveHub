@@ -147,8 +147,11 @@ func (c *LXSearchClient) Search(ctx context.Context, keyword string, page int) (
 		if outcome.page.MaxPage > result.MaxPage { result.MaxPage = outcome.page.MaxPage }
 	}
 	if successes == 0 {
-		if len(errs) == 0 { return result, errs, errors.New("五个平台均未返回搜索结果") }
-		return result, errs, fmt.Errorf("五个平台搜索均失败")
+		if len(errs) == 0 { return result, errs, errors.New("洛雪搜索 SDK 未配置任何来源") }
+		// The pinned LX all-source action converts each provider rejection into
+		// an empty SearchResult rather than failing the whole search operation.
+		if page == 1 { result.MaxPage = 1 } else { result.Total = int64(result.PageSize * page) }
+		return result, errs, nil
 	}
 	result.Tracks = deduplicateLXTracks(result.Tracks)
 	result.Tracks = sortLXTracksByRelevance(result.Tracks, keyword)
@@ -322,8 +325,14 @@ func (p kuwoSearchProvider) Search(ctx context.Context, keyword string, page, li
 	if err != nil { return SearchPage{}, err }
 	total, _ := strconv.ParseInt(stringValue(raw["TOTAL"]), 10, 64)
 	list := make([]Track, 0)
+	if stringValue(raw["TOTAL"]) != "0" && stringValue(raw["SHOW"]) == "0" {
+		return SearchPage{}, errors.New("酷我搜索未返回有效结果")
+	}
 	for _, entry := range sliceValue(raw["abslist"]) {
 		item := mapValue(entry)
+		if strings.TrimSpace(stringValue(item["N_MINFO"])) == "" {
+			return SearchPage{}, errors.New("酷我搜索结果缺少音质元数据")
+		}
 		id := strings.TrimPrefix(stringValue(item["MUSICRID"]), "MUSIC_")
 		name := stringValue(item["SONGNAME"])
 		if id == "" || name == "" { continue }
