@@ -29,7 +29,7 @@ var assets embed.FS
 var embeddedDefaultConfig embed.FS
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == music.LXSourceWorkerArgument() {
+	if len(os.Args) > 1 && os.Args[1] == music.LXSourceWorkerArgument {
 		os.Exit(music.RunLXSourceWorker(os.Stdin, os.Stdout))
 	}
 	environment := config.ResolveEnvironment(os.Args[1:])
