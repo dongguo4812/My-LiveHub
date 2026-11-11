@@ -200,7 +200,7 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 
 	var initialized json.RawMessage
 	handlers := make(map[string]goja.Value)
-	lastRequestSummary := ""
+	requestSummaries := make([]string, 0, 8)
 	eventNames := vm.NewObject()
 	_ = eventNames.Set("inited", "inited")
 	_ = eventNames.Set("request", "request")
@@ -277,12 +277,12 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 		_ = resolve(goja.Undefined())
 		return vm.ToValue(promise)
 	})
-	if err := installLXRequestAsync(vm, lx, requestClient, loop, func(response map[string]any, requestErr error) {
+	if err := installLXRequestAsync(vm, lx, requestClient, loop, func(requestID int64, rawURL string, response map[string]any, requestErr error) {
 		if requestErr != nil {
-			lastRequestSummary = "HTTP request failed"
+			requestSummaries = append(requestSummaries, summarizeLXRequestError(requestID, rawURL, requestErr))
 			return
 		}
-		lastRequestSummary = summarizeLXRequestResponse(response)
+		requestSummaries = append(requestSummaries, fmt.Sprintf("request#%d %s", requestID, summarizeLXRequestResponse(response)))
 	}); err != nil {
 		response.Error = "初始化 LX request 请求桥接失败"
 		return 1
@@ -365,7 +365,7 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 		callable, ok := goja.AssertFunction(handler)
 		if !ok { response.Error = "LX 音源 request 处理器不可调用"; return 1 }
 		// Clear initialization-request diagnostics so a rejected musicUrl reports its own request.
-		lastRequestSummary = ""
+		requestSummaries = requestSummaries[:0]
 		//洛雪 calls the request handler with the lx API object as its this context.
 		value, callErr := callable(lx, vm.ToValue(payload))
 		if callErr != nil { response.Error = fmt.Sprintf("LX 音源 request 处理失败：%s", callErr.Error()); return 1 }
@@ -377,8 +377,8 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 			case goja.PromiseStateFulfilled: value=promise.Result()
 			case goja.PromiseStateRejected:
 				response.Error = fmt.Sprintf("LX 音源 request Promise 被拒绝：%s", promise.Result().String())
-				if lastRequestSummary != "" {
-					response.Error += fmt.Sprintf("（%s）", lastRequestSummary)
+				if len(requestSummaries) > 0 {
+					response.Error += fmt.Sprintf("；请求诊断：%s", strings.Join(requestSummaries, " | "))
 				}
 				return 1
 			}
@@ -394,6 +394,42 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 }
 
 
+// safeLXRequestEndpoint omits credentials, query parameters, and fragments.
+func safeLXRequestEndpoint(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Host == "" {
+		return ""
+	}
+	path := parsed.EscapedPath()
+	if path == "" {
+		path = "/"
+	}
+	return parsed.Host + path
+}
+
+// summarizeLXRequestError preserves useful transport/security errors without
+// leaking the request URL's query string or credentials.
+func summarizeLXRequestError(requestID int64, rawURL string, requestErr error) string {
+	parts := []string{fmt.Sprintf("request#%d", requestID)}
+	if endpoint := safeLXRequestEndpoint(rawURL); endpoint != "" {
+		parts = append(parts, "endpoint="+endpoint)
+	}
+	cause := requestErr
+	var urlErr *url.Error
+	if errors.As(cause, &urlErr) && urlErr.Err != nil {
+		cause = urlErr.Err
+	}
+	message := "unknown request error"
+	if cause != nil {
+		message = strings.Join(strings.Fields(cause.Error()), " ")
+	}
+	if len(message) > 200 {
+		message = message[:200] + "…"
+	}
+	parts = append(parts, "request-error="+message)
+	return strings.Join(parts, "; ")
+}
+
 // summarizeLXRequestResponse records only non-secret response diagnostics for a
 // rejected custom-source request. URL credentials, query strings, fragments,
 // and request headers (which may contain source signatures) are never exposed.
@@ -404,11 +440,7 @@ func summarizeLXRequestResponse(response map[string]any) string {
 	}
 	parts := []string{fmt.Sprintf("HTTP %v", status)}
 	if rawURL, ok := response["url"].(string); ok {
-		if parsed, err := url.Parse(rawURL); err == nil && parsed.Host != "" {
-			endpoint := parsed.Host + parsed.EscapedPath()
-			if endpoint == parsed.Host {
-				endpoint += "/"
-			}
+		if endpoint := safeLXRequestEndpoint(rawURL); endpoint != "" {
 			parts = append(parts, "endpoint="+endpoint)
 		}
 	}

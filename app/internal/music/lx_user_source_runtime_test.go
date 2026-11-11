@@ -48,6 +48,96 @@ func TestSummarizeLXRequestResponseIncludesFlowerAPIError(t *testing.T) {
 	}
 }
 
+func TestRunLXSourceWorkerAggregatesConcurrentRequestDiagnostics(t *testing.T) {
+	client := &http.Client{Transport: lxRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		status := http.StatusBadGateway
+		body := "upstream A unavailable"
+		switch request.URL.Path {
+		case "/route-b":
+			status, body = http.StatusServiceUnavailable, "upstream B unavailable"
+		case "/route-c":
+			status, body = http.StatusNotFound, "upstream C unavailable"
+		}
+		return &http.Response{
+			StatusCode: status,
+			Status: http.StatusText(status),
+			Header: http.Header{"Content-Type": []string{"text/plain; charset=utf-8"}},
+			Body: io.NopCloser(strings.NewReader(body)),
+			Request: request,
+		}, nil
+	})}
+	script := `lx.on(lx.EVENT_NAMES.request, function () {
+  const urls = [
+    "https://music.example.test/route-a?token=SECRET_A",
+    "https://music.example.test/route-b?token=SECRET_B",
+    "https://music.example.test/route-c?token=SECRET_C"
+  ];
+  return Promise.any(urls.map(function (url) {
+    return new Promise(function (resolve, reject) {
+      lx.request(url, {}, function (err, response) {
+        if (err) return reject(err);
+        reject(new Error("HTTP " + response.statusCode));
+      });
+    });
+  }));
+});
+lx.send(lx.EVENT_NAMES.inited, {
+  sources: { tx: { name: "QQ Music", type: "music", actions: ["musicUrl"], qualitys: ["128k"] } }
+});`
+	payload := json.RawMessage(`{"source":"tx","action":"musicUrl","info":{"type":"128k","musicInfo":{"id":"1"}}}`)
+	input, err := json.Marshal(lxWorkerRequest{Script: script, Operation: "resolve", Payload: payload})
+	if err != nil { t.Fatal(err) }
+	var output bytes.Buffer
+	if code := runLXSourceWorker(bytes.NewReader(input), &output, client); code == 0 {
+		t.Fatalf("expected all concurrent resolvers to fail: %s", output.String())
+	}
+	var response lxWorkerResponse
+	if err := json.Unmarshal(output.Bytes(), &response); err != nil { t.Fatal(err) }
+	for _, want := range []string{
+		"request#1", "request#2", "request#3",
+		"music.example.test/route-a", "music.example.test/route-b", "music.example.test/route-c",
+		"HTTP 502", "HTTP 503", "HTTP 404",
+		"upstream A unavailable", "upstream B unavailable", "upstream C unavailable",
+	} {
+		if !strings.Contains(response.Error, want) {
+			t.Errorf("aggregated diagnostic missing %q: %s", want, response.Error)
+		}
+	}
+	for _, secret := range []string{"SECRET_A", "SECRET_B", "SECRET_C"} {
+		if strings.Contains(response.Error, secret) { t.Errorf("diagnostic leaked %s: %s", secret, response.Error) }
+	}
+}
+
+func TestRunLXSourceWorkerIncludesTransportFailurePerRequest(t *testing.T) {
+	client := &http.Client{Transport: lxRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return nil, errors.New("dial tcp: connection refused")
+	})}
+	script := `lx.on(lx.EVENT_NAMES.request, function () {
+  return new Promise(function (resolve, reject) {
+    lx.request("https://music.example.test/transport?token=DO_NOT_LOG", {}, function (err) {
+      if (err) return reject(err);
+      resolve("unexpected");
+    });
+  });
+});
+lx.send(lx.EVENT_NAMES.inited, {
+  sources: { tx: { name: "QQ Music", type: "music", actions: ["musicUrl"], qualitys: ["128k"] } }
+});`
+	payload := json.RawMessage(`{"source":"tx","action":"musicUrl","info":{"type":"128k","musicInfo":{"id":"1"}}}`)
+	input, err := json.Marshal(lxWorkerRequest{Script: script, Operation: "resolve", Payload: payload})
+	if err != nil { t.Fatal(err) }
+	var output bytes.Buffer
+	_ = runLXSourceWorker(bytes.NewReader(input), &output, client)
+	var response lxWorkerResponse
+	if err := json.Unmarshal(output.Bytes(), &response); err != nil { t.Fatal(err) }
+	for _, want := range []string{"request#1", "music.example.test/transport", "connection refused"} {
+		if !strings.Contains(response.Error, want) { t.Errorf("transport diagnostic missing %q: %s", want, response.Error) }
+	}
+	if strings.Contains(response.Error, "DO_NOT_LOG") || strings.Contains(response.Error, "?token") {
+		t.Fatalf("transport diagnostic leaked query data: %s", response.Error)
+	}
+}
+
 func TestRunLXSourceWorkerInitializesDeclaredPlatforms(t *testing.T) {
 	script := `/*
  * @name Runtime Test
