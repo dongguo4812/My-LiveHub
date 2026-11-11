@@ -50,6 +50,12 @@ func buildLXMusicURLRequest(track music.Track, selected music.TrackQuality) ([]b
 	native["albumName"] = track.Album
 	native["songmid"] = firstNonEmpty(track.SourceData["songmid"], strings.TrimPrefix(track.ID, source+":"))
 	native["type"] = selected.Type
+	native["albumId"] = firstNonEmpty(track.SourceData["album_id"], track.SourceData["albumId"])
+	native["interval"] = formatLXInterval(track.DurationMS)
+	native["img"] = track.CoverURL
+	native["lrc"] = firstNonEmpty(track.SourceData["lrc_url"], track.SourceData["lrcUrl"])
+	native["otherSource"] = nil
+	native["typeUrl"] = map[string]string{}
 	types := make([]map[string]string, 0, len(track.Qualities))
 	typeMap := make(map[string]map[string]string, len(track.Qualities))
 	for _, item := range track.Qualities {
@@ -57,7 +63,9 @@ func buildLXMusicURLRequest(track music.Track, selected music.TrackQuality) ([]b
 		if item.Size != "" { value["size"] = item.Size }
 		for key, field := range item.SourceData { value[key] = field }
 		types = append(types, value)
-		typeMap[item.Type] = value
+		meta := make(map[string]string, len(value))
+		for key, field := range value { if key != "type" { meta[key] = field } }
+		typeMap[item.Type] = meta
 	}
 	native["types"] = types
 	native["_types"] = typeMap
@@ -71,4 +79,10 @@ func buildLXMusicURLRequest(track music.Track, selected music.TrackQuality) ([]b
 func firstNonEmpty(values ...string) string {
 	for _, value := range values { if strings.TrimSpace(value) != "" { return value } }
 	return ""
+}
+
+func formatLXInterval(durationMS int64) string {
+	if durationMS < 0 { durationMS = 0 }
+	seconds := durationMS / 1000
+	return fmt.Sprintf("%02d:%02d", seconds/60, seconds%60)
 }

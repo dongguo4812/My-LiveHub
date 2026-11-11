@@ -362,9 +362,8 @@ func (s *MusicService) playNext(parent context.Context) error {
 	defer cancel()
 	rawURL, err := session.Request(ctx, payload)
 	if err != nil { return fmt.Errorf("解析歌曲播放地址失败：%w", err) }
-	var playbackURL string
-	if err := json.Unmarshal(rawURL, &playbackURL); err != nil { return errors.New("自定义源返回的播放地址格式无效") }
-	if err := music.ValidateLXPlaybackURL(playbackURL); err != nil { return errors.New("自定义源未返回有效的 HTTP(S) 播放地址") }
+	playbackURL, err := parseLXMusicURLResponse(rawURL, sourceKey, selected.Type)
+	if err != nil { return err }
 	if err := ctx.Err(); err != nil { return err }
 	if err := s.engine.Load(ctx, music.PlaybackResource{URL: playbackURL}, track); err != nil {
 		return fmt.Errorf("mpv 加载歌曲失败：%w", err)
