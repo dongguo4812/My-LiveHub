@@ -10,6 +10,8 @@ import (
 	"encoding/pem"
 	"math/big"
 	"testing"
+
+	"github.com/dop251/goja"
 )
 
 func TestLXAESEncryptSupportsECBAndCBC(t *testing.T) {
@@ -87,4 +89,20 @@ lx.send(lx.EVENT_NAMES.inited, {
 	var value string
 	if err := json.Unmarshal(response.Value, &value); err != nil { t.Fatal(err) }
 	if value != "resolved-audio-url" { t.Fatalf("utility result = %q", value) }
+}
+
+
+func TestLXBufferExposesCommonNodeBufferMethods(t *testing.T) {
+	vm := goja.New()
+	if err := vm.Set("buf", newLXBuffer(vm, []byte("music-source"))); err != nil { t.Fatal(err) }
+	value, err := vm.RunString(`[
+  buf.toString("hex"),
+  buf.slice(0, 5).toString("utf8"),
+  buf.indexOf("source"),
+  buf.includes("music"),
+  JSON.stringify(buf.toJSON())
+].join("|")`)
+	if err != nil { t.Fatal(err) }
+	want := "6d757369632d736f75726365|music|6|true|{\\"type\\":\\"Buffer\\",\\"data\\":[109,117,115,105,99,45,115,111,117,114,99,101]}"
+	if value.String() != want { t.Fatalf("Buffer compatibility result = %q, want %q", value.String(), want) }
 }
