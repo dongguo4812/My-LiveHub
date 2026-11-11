@@ -327,10 +327,11 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
     </header>
 
     <el-alert v-if="error" :title="error" type="error" :closable="true" show-icon @close="error = ''" />
+    <el-alert v-if="playback?.error" :title="playback.error" type="error" :closable="false" show-icon />
     <el-alert v-if="success" :title="success" type="success" :closable="true" show-icon @close="success = ''" />
 
     <el-card shadow="never">
-      <template #header><div class="card-heading"><strong>正在播放</strong><el-tag :type="playback?.state === 'playing' ? 'success' : 'info'">{{ playback?.state ?? '播放器未启动' }}</el-tag></div></template>
+      <template #header><div class="card-heading"><strong>正在播放</strong><el-tag :type="playback?.state === 'playing' ? 'success' : playback?.state === 'error' ? 'danger' : 'info'">{{ playback?.state === 'error' ? '播放失败' : playback?.state ?? '播放器未启动' }}</el-tag></div></template>
       <div class="now-playing">
         <div class="track-cover">
           <img v-if="playback?.track?.cover_url" :src="playback.track.cover_url" alt="歌曲封面" />
