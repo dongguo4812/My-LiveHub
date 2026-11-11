@@ -390,6 +390,9 @@ func (s *LXUserSourceSession) handleRequest(vm *goja.Runtime, lx *goja.Object, h
 	}
 	value, err := callable(lx, requestData)
 	if err != nil {
+		if exception, ok := err.(*goja.Exception); ok {
+			err = errors.New(lxUserAPIErrorMessage(vm, exception.Value()))
+		}
 		s.completeRequest(call.requestKey, lxSessionResponse{err: err})
 		return
 	}
