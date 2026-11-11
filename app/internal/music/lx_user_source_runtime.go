@@ -152,6 +152,7 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 	lx := vm.NewObject()
 	_ = lx.Set("EVENT_NAMES", eventNames)
 	_ = lx.Set("env", "desktop")
+	_ = lx.Set("version", "1.0.0")
 	if source, parseErr := ParseLXUserSource(request.Script); parseErr == nil {
 		currentInfo := vm.NewObject()
 		_ = currentInfo.Set("name", source.Metadata.Name)
@@ -163,10 +164,21 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 		_ = lx.Set("currentScriptInfo", currentInfo)
 	}
 	console := vm.NewObject()
-	for _, method := range []string{"log", "info", "warn", "error", "debug"} {
+	for _, method := range []string{"log", "info", "warn", "error", "debug", "group", "groupCollapsed", "groupEnd", "time", "timeEnd", "trace"} {
 		_ = console.Set(method, func(goja.FunctionCall) goja.Value { return goja.Undefined() })
 	}
 	_ = vm.Set("console", console)
+	// HTTP requests are executed synchronously and bounded by the host timeout;
+	// these timer shims keep common LX request wrappers compatible without
+	// allowing untrusted scripts to create background goroutines.
+	_ = vm.Set("setTimeout", func(goja.FunctionCall) goja.Value { return vm.ToValue(1) })
+	_ = vm.Set("clearTimeout", func(goja.FunctionCall) goja.Value { return goja.Undefined() })
+	_ = vm.Set("setInterval", func(goja.FunctionCall) goja.Value { return vm.ToValue(1) })
+	_ = vm.Set("clearInterval", func(goja.FunctionCall) goja.Value { return goja.Undefined() })
+	if err := installLXSourceUtilities(vm, lx); err != nil {
+		response.Error = "初始化 LX 工具函数失败"
+		return 1
+	}
 	_ = lx.Set("send", func(call goja.FunctionCall) goja.Value {
 		if call.Argument(0).String() == "inited" {
 			encoded, marshalErr := json.Marshal(call.Argument(1).Export())
