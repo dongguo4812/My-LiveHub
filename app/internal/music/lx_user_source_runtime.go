@@ -116,7 +116,7 @@ func InspectLXUserSource(parent context.Context, script string) (LXSourceRuntime
 		parent = context.Background()
 	}
 	if strings.TrimSpace(script) == "" || len(script) > MaxLXUserSourceBytes {
-		return LXSourceRuntimeResult{}, errors.New("LX 音源脚本为空或超过 1 MB 限制")
+		return LXSourceRuntimeResult{}, errors.New("LX 音源脚本为空或超过 9 MB 限制")
 	}
 	ctx, cancel := context.WithTimeout(parent, lxWorkerTimeout)
 	defer cancel()
