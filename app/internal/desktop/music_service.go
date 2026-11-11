@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"encoding/json"
 			"errors"
 	"fmt"
 	"os"
@@ -456,4 +457,23 @@ func (s *MusicService) ValidateLXUserSource(id string) (music.LXSourceRuntimeRes
 	ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
 	defer cancel()
 	return music.InspectLXUserSource(ctx, script)
+}
+
+
+// ResolveLXUserSource invokes an imported source's LX request handler in the
+// isolated JavaScript worker. The payload must use the official LX request
+// shape: {source, action, info}. Keeping this bridge on MusicService makes the
+// same runtime available to search, playback, lyrics, and cover integrations.
+func (s *MusicService) ResolveLXUserSource(id string, payload json.RawMessage) (json.RawMessage, error) {
+	store, err := s.lxUserSourceStore()
+	if err != nil {
+		return nil, err
+	}
+	script, err := store.ReadScript(id)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
+	defer cancel()
+	return music.ResolveLXUserSource(ctx, script, payload)
 }
