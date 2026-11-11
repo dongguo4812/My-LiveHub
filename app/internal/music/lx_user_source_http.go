@@ -275,14 +275,6 @@ func needleQueryString(value any, prefix string) (string, error) {
 			if part != "" { parts = append(parts, part) }
 		}
 		return strings.Join(parts, "&"), nil
-	case []any:
-		parts := make([]string, 0, len(v))
-		for _, item := range v {
-			part, err := needleQueryString(item, prefix+"[]")
-			if err != nil { return "", err }
-			if part != "" { parts = append(parts, part) }
-		}
-		return strings.Join(parts, "&"), nil
 	case nil:
 		if prefix == "" { return "", errors.New("Cannot build a querystring out of: null") }
 		return prefix + "=", nil
