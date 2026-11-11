@@ -15,7 +15,9 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"strconv"
 	"strings"
+	"unicode/utf16"
 
 	"crypto/x509"
 
@@ -106,11 +108,95 @@ func installLXSourceUtilities(vm *goja.Runtime, lx *goja.Object) error {
 }
 
 func newLXBuffer(vm *goja.Runtime, data []byte) *goja.Object {
+	data = append([]byte(nil), data...)
 	buffer := vm.NewObject()
 	_ = buffer.Set("type", "Buffer")
 	_ = buffer.Set("length", len(data))
 	_ = buffer.Set("__lx_buffer_data", base64.StdEncoding.EncodeToString(data))
+	for index, value := range data {
+		_ = buffer.Set(strconv.Itoa(index), int(value))
+	}
+	_ = buffer.Set("toString", func(call goja.FunctionCall) goja.Value {
+		encoding := "utf8"
+		if !goja.IsUndefined(call.Argument(0)) { encoding = call.Argument(0).String() }
+		start, end := int64(0), int64(len(data))
+		if !goja.IsUndefined(call.Argument(1)) { start = call.Argument(1).ToInteger() }
+		if !goja.IsUndefined(call.Argument(2)) { end = call.Argument(2).ToInteger() }
+		start, end = normalizeLXBufferRange(start, end, len(data))
+		return vm.ToValue(decodeLXBufferString(data[start:end], encoding))
+	})
+	makeSlice := func(call goja.FunctionCall) goja.Value {
+		start, end := int64(0), int64(len(data))
+		if !goja.IsUndefined(call.Argument(0)) { start = call.Argument(0).ToInteger() }
+		if !goja.IsUndefined(call.Argument(1)) { end = call.Argument(1).ToInteger() }
+		start, end = normalizeLXBufferRange(start, end, len(data))
+		return vm.ToValue(newLXBuffer(vm, data[start:end]))
+	}
+	_ = buffer.Set("slice", makeSlice)
+	_ = buffer.Set("subarray", makeSlice)
+	_ = buffer.Set("equals", func(call goja.FunctionCall) goja.Value {
+		other, err := lxBufferBytes(call.Argument(0))
+		return vm.ToValue(err == nil && bytes.Equal(data, other))
+	})
+	_ = buffer.Set("indexOf", func(call goja.FunctionCall) goja.Value {
+		needle, err := lxBufferInput(call.Argument(0), "utf8")
+		if err != nil { return vm.ToValue(int64(-1)) }
+		offset := int64(0)
+		if !goja.IsUndefined(call.Argument(1)) { offset = call.Argument(1).ToInteger() }
+		if offset < 0 { offset = int64(len(data)) + offset }
+		if offset < 0 { offset = 0 }
+		if offset > int64(len(data)) { return vm.ToValue(int64(-1)) }
+		index := bytes.Index(data[offset:], needle)
+		if index < 0 { return vm.ToValue(int64(-1)) }
+		return vm.ToValue(int64(index) + offset)
+	})
+	_ = buffer.Set("includes", func(call goja.FunctionCall) goja.Value {
+		needle, err := lxBufferInput(call.Argument(0), "utf8")
+		if err != nil { return vm.ToValue(false) }
+		return vm.ToValue(bytes.Contains(data, needle))
+	})
+	_ = buffer.Set("toJSON", func(goja.FunctionCall) goja.Value {
+		values := make([]int, len(data))
+		for index, value := range data { values[index] = int(value) }
+		return vm.ToValue(map[string]any{"type": "Buffer", "data": values})
+	})
 	return buffer
+}
+
+func normalizeLXBufferRange(start, end int64, length int) (int, int) {
+	size := int64(length)
+	if start < 0 { start += size }
+	if end < 0 { end += size }
+	if start < 0 { start = 0 }
+	if start > size { start = size }
+	if end < start { end = start }
+	if end > size { end = size }
+	return int(start), int(end)
+}
+
+func decodeLXBufferString(data []byte, encoding string) string {
+	switch strings.ToLower(strings.TrimSpace(encoding)) {
+	case "base64":
+		return base64.StdEncoding.EncodeToString(data)
+	case "base64url", "base64-url":
+		return base64.RawURLEncoding.EncodeToString(data)
+	case "hex":
+		return hex.EncodeToString(data)
+	case "ascii":
+		runes := make([]rune, len(data))
+		for i, value := range data { runes[i] = rune(value & 0x7f) }
+		return string(runes)
+	case "latin1", "binary":
+		runes := make([]rune, len(data))
+		for i, value := range data { runes[i] = rune(value) }
+		return string(runes)
+	case "utf16le", "utf-16le", "ucs2", "ucs-2":
+		units := make([]uint16, len(data)/2)
+		for i := range units { units[i] = uint16(data[i*2]) | uint16(data[i*2+1])<<8 }
+		return string(utf16.Decode(units))
+	default:
+		return string(data)
+	}
 }
 
 func lxBufferInput(value goja.Value, encoding string) ([]byte, error) {
@@ -121,9 +207,26 @@ func lxBufferInput(value goja.Value, encoding string) ([]byte, error) {
 			data, err := base64.StdEncoding.DecodeString(text)
 			if err != nil { return nil, fmt.Errorf("invalid base64 input: %w", err) }
 			return data, nil
+		case "base64url", "base64-url":
+			data, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(text, "="))
+			if err != nil { return nil, fmt.Errorf("invalid base64url input: %w", err) }
+			return data, nil
 		case "hex":
 			data, err := hex.DecodeString(text)
 			if err != nil { return nil, fmt.Errorf("invalid hex input: %w", err) }
+			return data, nil
+		case "ascii":
+			data := []byte(text)
+			for i := range data { data[i] &= 0x7f }
+			return data, nil
+		case "latin1", "binary":
+			data := make([]byte, 0, len(text))
+			for _, value := range text { data = append(data, byte(value)) }
+			return data, nil
+		case "utf16le", "utf-16le", "ucs2", "ucs-2":
+			units := utf16.Encode([]rune(text))
+			data := make([]byte, len(units)*2)
+			for i, value := range units { data[i*2], data[i*2+1] = byte(value), byte(value>>8) }
 			return data, nil
 		default:
 			return []byte(text), nil
