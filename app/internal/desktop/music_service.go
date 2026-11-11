@@ -771,6 +771,19 @@ func buildLXMusicInfo(track music.Track, quality any) map[string]any {
 	// Restore canonical generic IDs after merging provider-specific aliases.
 	info["id"], info["mid"], info["songmid"] = track.ID, track.ID, track.ID
 
+	if strings.TrimSpace(track.LXSourceKey) == "wy" {
+		info["source"] = "wy"
+		info["songmid"] = track.ID
+		info["albumId"] = track.SourceData["albumId"]
+		info["albumName"] = track.Album
+		info["name"] = track.Title
+		info["singer"] = track.Artist
+		info["interval"] = formatLXInterval(seconds)
+		info["img"] = track.CoverURL
+		if types, available := buildLXNetEaseQualities(track.SourceData); len(types) > 0 {
+			info["types"], info["_types"] = types, available
+		} else { info["types"], info["_types"] = []any{}, map[string]any{} }
+	}
 	if strings.TrimSpace(track.LXSourceKey) == "mg" {
 		info["source"]="mg"
 		songMid := strings.TrimSpace(track.SourceData["songmid"])
@@ -921,6 +934,22 @@ func selectLXQuality(qualities []string, local bool, track music.Track) any {
 	// QQ search results expose per-track file sizes. LX Music checks
 	// meta._qualitys before asking a source for a URL; do the same here so
 	// we never request a quality that this particular song does not have.
+	if track.LXSourceKey == "wy" {
+		_, available := buildLXNetEaseQualities(track.SourceData)
+		if len(available) == 0 { return nil }
+		for _, preferred := range []string{"flac24bit", "flac", "320k", "128k"} {
+			if _, exists := available[preferred]; exists && containsString(qualities, preferred) { return preferred }
+		}
+		return nil
+	}
+	if track.LXSourceKey == "kg" {
+		_, available := buildLXKugouQualities(track.SourceData)
+		if len(available) == 0 { return nil }
+		for _, preferred := range []string{"320k", "flac24bit", "flac", "128k"} {
+			if _, exists := available[preferred]; exists && containsString(qualities, preferred) { return preferred }
+		}
+		return nil
+	}
 	if track.LXSourceKey == "tx" {
 		_, available := buildLXQQQualities(track.SourceData)
 		if len(available) == 0 { return nil }
