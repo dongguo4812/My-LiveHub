@@ -433,7 +433,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
       <el-slider :model-value="progress" :disabled="!playback?.track || !playback.duration_ms" @change="seekTo" />
       <div class="time-row"><span>{{ formatDuration(playback?.position_ms) }}</span><span>{{ formatDuration(playback?.duration_ms) }}</span></div>
       <div class="player-controls">
-        <el-button @click="playNext">播放队列</el-button>
+        <el-button type="primary" @click="addHostPlaylistToQueue">播放主播歌单</el-button>
         <el-button :disabled="playback?.state !== 'playing'" @click="pause">暂停</el-button>
         <el-button :disabled="playback?.state !== 'paused'" @click="resume">继续</el-button>
         <el-button @click="previousTrack">上一首</el-button>
