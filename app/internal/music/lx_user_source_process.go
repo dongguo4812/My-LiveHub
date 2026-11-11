@@ -183,7 +183,7 @@ func (p *LXUserSourceProcess) readLoop(reader io.Reader) {
 		close(p.done)
 	}()
 	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 64*1024), 1<<20)
+	scanner.Buffer(make([]byte, 64*1024), MaxLXUserSourceBytes*6 + 64*1024)
 	for scanner.Scan() {
 		var message lxSessionWorkerOutput
 		if err := json.Unmarshal(scanner.Bytes(), &message); err != nil { continue }
