@@ -163,7 +163,7 @@ func TestLXUserSourceProcessSendsCancelAndReportsRequestTimeout(t *testing.T) {
 
 	first := <-writer.writes
 	var request struct {
-		Op string `json:"op"`
+		Op string `json:"operation"`
 		RequestKey string `json:"requestKey"`
 	}
 	if err := json.Unmarshal([]byte(first), &request); err != nil { t.Fatal(err) }
@@ -171,7 +171,7 @@ func TestLXUserSourceProcessSendsCancelAndReportsRequestTimeout(t *testing.T) {
 
 	second := <-writer.writes
 	var cancellation struct {
-		Op string `json:"op"`
+		Op string `json:"operation"`
 		RequestKey string `json:"requestKey"`
 	}
 	if err := json.Unmarshal([]byte(second), &cancellation); err != nil { t.Fatal(err) }
