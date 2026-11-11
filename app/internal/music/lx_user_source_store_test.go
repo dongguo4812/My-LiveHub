@@ -64,7 +64,7 @@ func TestLXUserSourceStoreRejectsDuplicateScriptLikeLX(t *testing.T) {
 func TestLXUserSourceStorePersistsActiveIDAndUpdateAlertPreference(t *testing.T) {
 	store, err := NewLXUserSourceStore(filepath.Join(t.TempDir(), "sources"))
 	if err != nil { t.Fatal(err) }
-	script := "/*\\n * @name State Test\\n */\\nlx.send(lx.EVENT_NAMES.inited, { sources: {} });"
+	script := "/*\n * @name State Test\n */\nlx.send(lx.EVENT_NAMES.inited, { sources: {} });"
 	metadata, err := store.ImportScript(script, "")
 	if err != nil { t.Fatal(err) }
 	if err := store.SetActiveID(metadata.ID); err != nil { t.Fatal(err) }

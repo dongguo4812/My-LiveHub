@@ -91,11 +91,11 @@ func (s *LXUserSourceStore) importURL(ctx context.Context, rawURL string, reject
 	if err != nil { return LXUserSourceMetadata{}, fmt.Errorf("下载音源脚本失败：%w", err) }
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 { return LXUserSourceMetadata{}, fmt.Errorf("下载音源脚本失败：HTTP %d", response.StatusCode) }
-	if response.ContentLength > MaxLXUserSourceBytes { return LXUserSourceMetadata{}, errors.New("LX 音源脚本超过 9 MB 限制") }
-	data, err := io.ReadAll(io.LimitReader(response.Body, MaxLXUserSourceBytes+1))
+	data, err := io.ReadAll(io.LimitReader(response.Body, MaxLXUserSourceBytes*4+1))
 	if err != nil { return LXUserSourceMetadata{}, fmt.Errorf("读取音源脚本失败：%w", err) }
-	if len(data) > MaxLXUserSourceBytes { return LXUserSourceMetadata{}, errors.New("LX 音源脚本超过 9 MB 限制") }
-	return s.importScript(string(data), parsed.String(), rejectDuplicate)
+	script := string(data)
+	if lxUserSourceStringLength(script) > MaxLXUserSourceBytes { return LXUserSourceMetadata{}, errors.New("LX 音源脚本超过 9 MB 限制") }
+	return s.importScript(script, parsed.String(), rejectDuplicate)
 }
 
 func (s *LXUserSourceStore) save(source LXUserSource) error {
@@ -219,7 +219,7 @@ func (s *LXUserSourceStore) SetActiveID(id string) error {
 	if id != "" && !validLXUserSourceID(id) { return errors.New("LX 音源 ID 无效") }
 	data, err := json.Marshal(struct { ID string `json:"id"` }{ID:id})
 	if err != nil { return err }
-	return writeLXAtomic(filepath.Join(s.dir, "active.json"), append(data, '\\n'))
+	return writeLXAtomic(filepath.Join(s.dir, "active.json"), append(data, '\n'))
 }
 
 func (s *LXUserSourceStore) List() ([]LXUserSourceMetadata, error) {

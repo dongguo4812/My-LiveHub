@@ -61,7 +61,7 @@ type lxSessionReady struct {
 
 func StartLXUserSourceSession(ctx context.Context, script string, requestClient *http.Client) (*LXUserSourceSession, error) {
 	if ctx == nil { ctx = context.Background() }
-	if strings.TrimSpace(script) == "" || len(script) > MaxLXUserSourceBytes {
+	if strings.TrimSpace(script) == "" || lxUserSourceStringLength(script) > MaxLXUserSourceBytes {
 		return nil, errors.New("LX 音源脚本为空或超过 9 MB 限制")
 	}
 	session := &LXUserSourceSession{

@@ -79,8 +79,8 @@ async function importLXSourceFile(event: Event) {
   success.value = ''
   try {
     if (lxSources.value.length > 20) throw new Error('最多只能导入 21 个自定义音源')
-    if (file.size > 9_000_000) throw new Error('音源脚本不能超过 9 MB')
     const script = await file.text()
+    if (script.length > 9_000_000) throw new Error('音源脚本不能超过 9 MB')
     const metadata = await MusicService.ImportLXSource(script)
     success.value = `已导入音源：${metadata.name}；可运行基础初始化验证`
     await refreshLXSources()

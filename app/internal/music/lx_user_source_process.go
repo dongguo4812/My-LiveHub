@@ -50,7 +50,7 @@ type LXUserSourceProcess struct {
 
 func StartLXUserSourceProcess(ctx context.Context, script string) (*LXUserSourceProcess, error) {
 	if ctx == nil { ctx = context.Background() }
-	if len(script) == 0 || len(script) > MaxLXUserSourceBytes {
+	if len(script) == 0 || lxUserSourceStringLength(script) > MaxLXUserSourceBytes {
 		return nil, errors.New("LX 音源脚本为空或超过 9 MB 限制")
 	}
 	executable, err := os.Executable()
