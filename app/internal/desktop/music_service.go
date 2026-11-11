@@ -3,6 +3,7 @@ package desktop
 import (
 	"context"
 	"regexp"
+	"sort"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -393,8 +394,8 @@ func (s *MusicService) resolveAlternate(ctx context.Context, track music.Track) 
 	candidates, _, searchErr := s.sources.Search(ctx, keyword, enabled, limit)
 	if searchErr != nil { return music.PlaybackResource{}, track, searchErr }
 	var resolveErrors []error
-	for _, candidate := range candidates {
-		if candidate.SourceID == track.SourceID || !sameTrack(track, candidate) { continue }
+	for _, candidate := range findLXMusicMatches(track, candidates) {
+		if candidate.SourceID == track.SourceID { continue }
 		fallback, ok := s.sources.Get(candidate.SourceID)
 		if !ok { continue }
 		resource, err := fallback.Resolve(ctx, candidate)
@@ -405,24 +406,139 @@ func (s *MusicService) resolveAlternate(ctx context.Context, track music.Track) 
 	return music.PlaybackResource{}, track, errors.New("no matching track found on another enabled source")
 }
 
-func sameTrack(left, right music.Track) bool {
-	normalize := func(value string) string {
-		value = strings.ToLower(strings.TrimSpace(value))
-		var builder strings.Builder
-		for _, char := range value {
-			if unicode.IsLetter(char) || unicode.IsNumber(char) { builder.WriteRune(char) }
+func findLXMusicMatches(reference music.Track, candidates []music.Track) []music.Track {
+	groups := make(map[string][]music.Track)
+	for _, candidate := range candidates {
+		if candidate.SourceID == reference.SourceID { continue }
+		key := candidate.LXSourceKey
+		if key == "" { key = candidate.SourceID }
+		groups[key] = append(groups[key], candidate)
+	}
+	priority := map[string]int{"kw": 0, "kg": 1, "tx": 2, "wy": 3, "mg": 4}
+	keys := make([]string, 0, len(groups))
+	for key := range groups { keys = append(keys, key) }
+	sort.SliceStable(keys, func(i, j int) bool {
+		left, leftOK := priority[keys[i]]
+		right, rightOK := priority[keys[j]]
+		if leftOK != rightOK { return leftOK }
+		if leftOK && left != right { return left < right }
+		return keys[i] < keys[j]
+	})
+
+	filter := func(value string) string {
+		value = strings.ToLower(value)
+		var b strings.Builder
+		for _, r := range value {
+			switch {
+			case unicode.IsSpace(r), strings.ContainsRune("'.,，&\"、()（）`~-<>|/][!！", r):
+				continue
+			default:
+				b.WriteRune(r)
+			}
 		}
-		return builder.String()
+		return b.String()
 	}
-	if normalize(left.Title) == "" || normalize(left.Title) != normalize(right.Title) { return false }
-	leftArtist, rightArtist := normalize(left.Artist), normalize(right.Artist)
-	if leftArtist != "" && rightArtist != "" && !strings.Contains(leftArtist, rightArtist) && !strings.Contains(rightArtist, leftArtist) { return false }
-	if left.DurationMS > 0 && right.DurationMS > 0 {
-		difference := left.DurationMS - right.DurationMS
-		if difference < 0 { difference = -difference }
-		if difference > 10000 { return false }
+	sortSinger := func(value string) string {
+		parts := strings.FieldsFunc(value, func(r rune) bool {
+			switch r { case '、', '&', ';', '；', '/', ',', '，', '|': return true }
+			return false
+		})
+		if len(parts) < 2 { return value }
+		for i := range parts { parts[i] = strings.TrimSpace(parts[i]) }
+		sort.Strings(parts)
+		return strings.Join(parts, "、")
 	}
-	return true
+	interval := func(track music.Track) int64 {
+		if track.DurationMS <= 0 { return 0 }
+		return track.DurationMS / 1000
+	}
+	intervalText := func(track music.Track) string {
+		seconds := interval(track)
+		if seconds == 0 { return "" }
+		return fmt.Sprintf("%02d:%02d", seconds/60, seconds%60)
+	}
+	queryName := filter(reference.Title)
+	querySinger := filter(sortSinger(reference.Artist))
+	queryAlbum := filter(reference.Album)
+	queryInterval := interval(reference)
+
+	versionChars := []string{
+		"instrumental", "inst", "karaoke", "backing track", "minus one", "minus vocal", "no vocal", "off vocal", "vocal removed",
+		"伴奏", "伴唱", "卡拉ok", "纯音乐", "无人声", "去人声", "消音", "オフボーカル", "インスト", "반주", "노래방",
+		"live", "concert", "tour", "festival", "stage", "session", "现场", "演唱会", "巡演", "音乐会", "ライブ", "공연", "라이브",
+		"cover", "tribute", "rendition", "remake", "翻唱", "致敬", "改编", "カバー", "커버",
+		"remix", "mix", "club", "dance", "extended", "house", "edm", "dj", "dub", "trap", "混音", "重混", "电音", "リミックス", "리믹스",
+		"acoustic", "unplugged", "stripped", "原声", "不插电", "アコースティック", "어쿠스틱",
+		"demo", "小样", "试听", "デモ", "데모",
+		"slowed", "slowed reverb", "sped up", "speed up", "nightcore", "慢速", "加速", "变速", "ナイトコア",
+		"piano", "guitar", "orchestra", "symphony", "violin", "钢琴", "吉他", "管弦乐", "小提琴", "ピアノ", "ギター", "피아노", "기타",
+	}
+	versionMatches := func(name string) bool {
+		for _, marker := range versionChars {
+			if strings.Contains(name, marker) != strings.Contains(queryName, marker) { return false }
+		}
+		return true
+	}
+	includesName := func(name string) bool {
+		return (strings.Contains(queryName, name) || strings.Contains(name, queryName)) && versionMatches(name)
+	}
+	includesSinger := func(singer string) bool {
+		return querySinger == "" || strings.Contains(querySinger, singer) || strings.Contains(singer, querySinger)
+	}
+	type match struct { track music.Track; name, singer, album, interval string }
+	selected := make([]match, 0, len(keys))
+	for _, key := range keys {
+		items := make([]match, 0, len(groups[key]))
+		for _, candidate := range groups[key] {
+			item := match{track: candidate, name: filter(candidate.Title), singer: filter(sortSinger(candidate.Artist)), album: filter(candidate.Album), interval: intervalText(candidate)}
+			if queryInterval > 0 && interval(candidate) > 0 {
+				delta := queryInterval - interval(candidate)
+				if delta < 0 { delta = -delta }
+				if delta > 5 { continue }
+			}
+			items = append(items, item)
+		}
+		var chosen *match
+		for i := range items {
+			item := &items[i]
+			if item.name == queryName && includesSinger(item.singer) { chosen = item; break }
+		}
+		if chosen == nil {
+			for i := range items {
+				item := &items[i]
+				if item.singer == querySinger && includesName(item.name) { chosen = item; break }
+			}
+		}
+		if chosen == nil {
+			for i := range items {
+				item := &items[i]
+				if (queryAlbum == "" || item.album == queryAlbum) && includesSinger(item.singer) && includesName(item.name) { chosen = item; break }
+			}
+		}
+		if chosen != nil { selected = append(selected, *chosen) }
+	}
+
+	result := make([]match, 0, len(selected))
+	used := make([]bool, len(selected))
+	appendTier := func(predicate func(match) bool) {
+		for i, item := range selected {
+			if !used[i] && predicate(item) { result = append(result, item); used[i] = true }
+		}
+	}
+	appendTier(func(item match) bool { return item.singer == querySinger && item.name == queryName && item.interval == intervalText(reference) })
+	appendTier(func(item match) bool { return item.name == queryName && item.singer == querySinger && item.album == queryAlbum })
+	appendTier(func(item match) bool { return item.singer == querySinger && item.name == queryName })
+	appendTier(func(item match) bool { return item.name == queryName && item.interval == intervalText(reference) })
+	appendTier(func(item match) bool { return item.singer == querySinger && item.interval == intervalText(reference) })
+	appendTier(func(item match) bool { return item.interval == intervalText(reference) })
+	appendTier(func(item match) bool { return item.name == queryName })
+	appendTier(func(item match) bool { return item.singer == querySinger })
+	appendTier(func(item match) bool { return item.album == queryAlbum })
+	appendTier(func(match) bool { return true })
+
+	tracks := make([]music.Track, 0, len(result))
+	for _, item := range result { tracks = append(tracks, item.track) }
+	return tracks
 }
 
 func (s *MusicService) Pause() error {
