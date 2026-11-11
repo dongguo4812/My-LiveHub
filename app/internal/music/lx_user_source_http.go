@@ -143,10 +143,6 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 					requestBody = []byte(encoded)
 				}
 			}
-		case []any:
-			encoded, encodeErr := needleQueryString(value, "")
-			if encodeErr != nil { return nil, "", fmt.Errorf("LX request body 表单编码失败：%w", encodeErr) }
-			if method == http.MethodGet { parsed.RawQuery = encoded } else { requestBody = []byte(encoded) }
 		default:
 			requestBody = []byte(fmt.Sprint(value))
 		}
