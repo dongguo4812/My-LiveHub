@@ -881,7 +881,7 @@ func buildLXMusicInfo(track music.Track, quality any) map[string]any {
 	seconds := track.DurationMS / 1000
 	source := strings.TrimSpace(track.LXSourceKey)
 	if source == "" { source = strings.TrimSpace(track.SourceID) }
-	songID := track.ID
+	var songID any = track.ID
 	meta := map[string]any{
 		"songId": songID,
 		"albumName": track.Album,
