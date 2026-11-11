@@ -38,6 +38,7 @@ type LXDeclaredSource struct {
 
 type LXSourceRuntimeResult struct {
 	Initialized bool `json:"initialized"`
+	Message string `json:"message,omitempty"`
 	Platforms []string `json:"platforms"`
 	DeclaredSources []LXDeclaredSource `json:"declared_sources"`
 	Sources json.RawMessage `json:"sources"`
@@ -172,6 +173,8 @@ func validateLXSourceRuntimeResult(result LXSourceRuntimeResult) error {
 
 // LX desktop user-api preload.js filters declarations against these exact
 // platform capabilities. Unknown platforms/actions/qualities are ignored.
+var lxAllSources = []string{"kw", "kg", "tx", "wy", "mg", "local"}
+
 var lxSupportedSourceActions = map[string][]string{
 	"kw": {"musicUrl"},
 	"kg": {"musicUrl"},
@@ -241,13 +244,11 @@ func filterLXSourceDeclaration(raw json.RawMessage) (json.RawMessage, []string, 
 	if input.Sources == nil {
 		return nil, nil, nil, errors.New("LX 音源初始化数据无效：缺少 sources")
 	}
-	keys, err := lxJSONPropertyKeys(raw, "sources")
-	if err != nil { return nil, nil, nil, fmt.Errorf("LX 音源 sources 格式无效：%w", err) }
-
-	filtered := lxOrderedObject{Keys: make([]string, 0, len(keys)), Values: make(map[string]any, len(keys))}
-	platforms := make([]string, 0, len(keys))
-	declared := make([]LXDeclaredSource, 0, len(keys))
-	for _, key := range keys {
+	filtered := lxOrderedObject{Keys: make([]string, 0, len(lxAllSources)), Values: make(map[string]any, len(lxAllSources))}
+	platforms := make([]string, 0, len(lxAllSources))
+	declared := make([]LXDeclaredSource, 0, len(lxAllSources))
+	// LX preload iterates its fixed allSources array rather than script key order.
+	for _, key := range lxAllSources {
 		source, exists := input.Sources[key]
 		if !exists { continue }
 		allowedActions, supported := lxSupportedSourceActions[key]
@@ -295,6 +296,11 @@ func RunLXSourceWorker(input io.Reader, output io.Writer) int {
 }
 
 func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Client) int {
+	return runLXSourceWorkerWithTimeout(input, output, requestClient, lxWorkerExecutionTimeout)
+}
+
+func runLXSourceWorkerWithTimeout(input io.Reader, output io.Writer, requestClient *http.Client, executionTimeout time.Duration) int {
+	if executionTimeout <= 0 { executionTimeout = lxWorkerExecutionTimeout }
 	response := lxWorkerResponse{}
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -323,7 +329,7 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 	}
 
 	vm := goja.New()
-	timeout := time.AfterFunc(lxWorkerExecutionTimeout, func() {
+	timeout := time.AfterFunc(executionTimeout, func() {
 		vm.Interrupt("LX source execution timeout")
 	})
 	defer timeout.Stop()
@@ -419,10 +425,6 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 			_ = reject(vm.NewGoError(fmt.Errorf("The event is not supported: %s", event)))
 			return vm.ToValue(promise)
 		}
-		if _, ok := goja.AssertFunction(call.Argument(1)); !ok {
-			_ = reject(vm.NewGoError(errors.New("LX request handler must be a function")))
-			return vm.ToValue(promise)
-		}
 		handlers[event] = call.Argument(1)
 		_ = resolve(goja.Undefined())
 		return vm.ToValue(promise)
@@ -432,7 +434,8 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 			requestSummaries = append(requestSummaries, summarizeLXRequestError(requestID, rawURL, requestErr))
 			return
 		}
-		requestSummaries = append(requestSummaries, fmt.Sprintf("request#%d %s", requestID, summarizeLXRequestResponse(response)))
+		response["url"] = rawURL
+		requestSummaries = append(requestSummaries, fmt.Sprintf("request#%d %s", requestID, summarizeLXRequestResponse(response))
 	}); err != nil {
 		response.Error = "初始化 LX request 请求桥接失败"
 		return 1
@@ -485,24 +488,22 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 			Info struct { Type any `json:"type"` } `json:"info"`
 		}
 		if err := json.Unmarshal(request.Payload, &resolveRequest); err != nil { response.Error = "LX 音源请求数据格式无效"; return 1 }
-		var selected *LXDeclaredSource
-		for i := range declaredSources { if declaredSources[i].Key == resolveRequest.Source { selected = &declaredSources[i]; break } }
-		if selected == nil { response.Error = fmt.Sprintf("LX 音源未声明来源 %q", resolveRequest.Source); return 1 }
-		if !containsLXValue(selected.Actions, resolveRequest.Action) { response.Error = fmt.Sprintf("LX 音源 %q 不支持动作 %q", resolveRequest.Source, resolveRequest.Action); return 1 }
 		handler, ok := handlers["request"]
 		if !ok { response.Error = "LX 音源没有注册 request 处理器"; return 1 }
 		if len(request.Payload) == 0 { response.Error = "LX 音源请求数据为空"; return 1 }
-		var payload any
+				var payload map[string]any
 		if err := json.Unmarshal(request.Payload, &payload); err != nil { response.Error = "LX 音源请求数据格式无效"; return 1 }
+		requestData := vm.NewObject()
+		for _, key := range []string{"source", "action", "info"} {
+			if field, exists := payload[key]; exists { _ = requestData.Set(key, vm.ToValue(field)) } else { _ = requestData.Set(key, goja.Undefined()) }
+		}
 		callable, ok := goja.AssertFunction(handler)
 		if !ok { response.Error = "LX 音源 request 处理器不可调用"; return 1 }
-		// Clear initialization-request diagnostics so a rejected musicUrl reports its own request.
 		requestSummaries = requestSummaries[:0]
-		//洛雪 calls the request handler with the lx API object as its this context.
-		value, callErr := callable(lx, vm.ToValue(payload))
+		value, callErr := callable(lx, requestData)
 		if callErr != nil { response.Error = fmt.Sprintf("LX 音源 request 处理失败：%s", callErr.Error()); return 1 }
 		if promise, ok := value.Export().(*goja.Promise); ok {
-			if pumpErr:=loop.pumpUntil(func() bool { return promise.State()!=goja.PromiseStatePending }, lxWorkerExecutionTimeout); pumpErr!=nil {
+			if pumpErr:=loop.pumpUntil(func() bool { return promise.State()!=goja.PromiseStatePending }, executionTimeout); pumpErr!=nil {
 				response.Error=fmt.Sprintf("LX 音源异步执行失败：Promise 尚未完成（%s）",pumpErr.Error()); return 1
 			}
 			switch promise.State() {

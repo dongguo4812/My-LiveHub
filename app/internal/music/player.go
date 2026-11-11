@@ -36,6 +36,8 @@ type SourceSnapshot struct {
 	ID           string             `json:"id"`
 	Name         string             `json:"name"`
 	Capabilities SourceCapabilities `json:"capabilities"`
+	Actions      []string           `json:"actions,omitempty"`
+	Qualitys     []string           `json:"qualitys,omitempty"`
 	Enabled      bool               `json:"enabled"`
 	Available    bool               `json:"available"`
 	Error        string             `json:"error,omitempty"`

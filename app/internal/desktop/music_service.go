@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 		"sync"
 	"sync/atomic"
@@ -215,7 +216,55 @@ func (s *MusicService) SaveConfig(value config.MusicConfig) error {
 	return nil
 }
 
-func (s *MusicService) GetSources() []music.SourceSnapshot { return []music.SourceSnapshot{} }
+func (s *MusicService) GetSources() []music.SourceSnapshot {
+	if s == nil { return []music.SourceSnapshot{} }
+	result := []music.SourceSnapshot{}
+	if s.sources != nil {
+		result = s.sources.List(nil)
+		for i := range result { result[i].Enabled = true }
+	}
+	s.lxSessionMu.Lock()
+	session := s.lxSession
+	s.lxSessionMu.Unlock()
+	if session != nil && session.IsRunning() {
+		state := session.Snapshot()
+		for _, declared := range state.DeclaredSources {
+			index := -1
+			for i := range result { if result[i].ID == declared.Key { index = i; break } }
+			canResolve := false
+			for _, action := range declared.Actions { if action == "musicUrl" { canResolve = true; break } }
+			if index >= 0 {
+				result[index].Capabilities.Resolve = result[index].Capabilities.Resolve || canResolve
+				result[index].Actions = append([]string(nil), declared.Actions...)
+				result[index].Qualitys = append([]string(nil), declared.Qualitys...)
+				result[index].Available = state.Initialized
+				result[index].Enabled = true
+				continue
+			}
+			result = append(result, music.SourceSnapshot{
+				ID: declared.Key, Name: lxPlatformDisplayName(declared.Key),
+				Capabilities: music.SourceCapabilities{Resolve: canResolve},
+				Actions: append([]string(nil), declared.Actions...),
+				Qualitys: append([]string(nil), declared.Qualitys...),
+				Enabled: true, Available: state.Initialized, Error: state.Message,
+			})
+		}
+	}
+	sort.Slice(result, func(i,j int) bool { return result[i].ID < result[j].ID })
+	return result
+}
+
+func lxPlatformDisplayName(key string) string {
+	switch key {
+	case "kw": return "酷我音乐"
+	case "kg": return "酷狗音乐"
+	case "tx": return "QQ 音乐"
+	case "wy": return "网易云音乐"
+	case "mg": return "咪咕音乐"
+	case "local": return "本地音乐"
+	default: return key
+	}
+}
 
 func (s *MusicService) Search(keyword string) (MusicSearchResponse, error) {
 	return s.SearchPage(keyword, 1)

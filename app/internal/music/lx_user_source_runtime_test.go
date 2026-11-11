@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSummarizeLXRequestResponseRedactsSensitiveURLParts(t *testing.T) {
@@ -195,15 +196,15 @@ func TestRunLXSourceWorkerFiltersDeclarationsLikeLXPreload(t *testing.T) {
 	}
 	var response lxWorkerResponse
 	if err := json.Unmarshal(output.Bytes(), &response); err != nil { t.Fatal(err) }
-	if got := strings.Join(response.Result.Platforms, ","); got != "local,tx" {
-		t.Fatalf("LX-supported platforms = %q, want local,tx", got)
+	if got := strings.Join(response.Result.Platforms, ","); got != "tx,local" {
+		t.Fatalf("LX-supported platforms = %q, want tx,local (fixed preload order)", got)
 	}
 	if len(response.Result.DeclaredSources) != 2 { t.Fatalf("unexpected filtered declarations: %#v", response.Result.DeclaredSources) }
-	tx := response.Result.DeclaredSources[1]
+	tx := response.Result.DeclaredSources[0]
 	if tx.Type != "music" || strings.Join(tx.Actions, ",") != "musicUrl" || strings.Join(tx.Qualitys, ",") != "128k" {
 		t.Fatalf("tx declaration was not filtered to LX capabilities: %#v", tx)
 	}
-	local := response.Result.DeclaredSources[0]
+	local := response.Result.DeclaredSources[1]
 	if strings.Join(local.Actions, ",") != "musicUrl,lyric,pic" || len(local.Qualitys) != 0 {
 		t.Fatalf("local declaration was not filtered to LX capabilities: %#v", local)
 	}
@@ -248,7 +249,7 @@ lx.on(lx.EVENT_NAMES.request, function (request) { return request; });
 func TestRunLXSourceWorkerRejectsMissingHandshake(t *testing.T) {
 	input := strings.NewReader(`{"script":"var source = 1;" }`)
 	var output bytes.Buffer
-	if code := RunLXSourceWorker(input, &output); code == 0 {
+	if code := runLXSourceWorkerWithTimeout(input, &output, nil, 40*time.Millisecond); code == 0 {
 		t.Fatal("expected worker to reject script without inited event")
 	}
 	var response lxWorkerResponse
@@ -357,36 +358,38 @@ lx.on(lx.EVENT_NAMES.request, function () { return new Promise(function () {}); 
 }
 
 
-func TestRunLXSourceWorkerProvidesSafeLXRequestBridge(t *testing.T) {
+func TestRunLXSourceWorkerAllowsPrivateNetworkRequestsLikeLX(t *testing.T) {
+	client := &http.Client{Transport: lxRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Hostname() != "127.0.0.1" { t.Fatalf("request host = %q", request.URL.Hostname()) }
+		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header), Body: io.NopCloser(strings.NewReader("local response")), Request: request}, nil
+	})}
 	script := `lx.send(lx.EVENT_NAMES.inited, { sources: { wy: { name: "网易云音乐", type: "music", actions: ["musicUrl"], qualitys: ["320k"] } } });
 lx.on(lx.EVENT_NAMES.request, function () {
-  return new Promise(function (resolve) {
-    lx.request("http://127.0.0.1/private", {}, function (err) {
-      resolve(String(err));
+  return new Promise(function (resolve, reject) {
+    lx.request("http://127.0.0.1/private", {}, function (err, response) {
+      if (err) return reject(err);
+      resolve(response.body);
     });
   });
 });`
 	payload := json.RawMessage(`{"source":"wy","action":"musicUrl","info":{"type":"320k","musicInfo":{"id":"1"}}}`)
 	input, _ := json.Marshal(lxWorkerRequest{Script: script, Operation: "resolve", Payload: payload})
 	var output bytes.Buffer
-	if code := RunLXSourceWorker(bytes.NewReader(input), &output); code != 0 { t.Fatalf("worker returned %d: %s", code, output.String()) }
+	if code := runLXSourceWorker(bytes.NewReader(input), &output, client); code != 0 { t.Fatalf("worker returned %d: %s", code, output.String()) }
 	var response lxWorkerResponse
 	if err := json.Unmarshal(output.Bytes(), &response); err != nil { t.Fatal(err) }
 	if response.Error != "" { t.Fatal(response.Error) }
 	var message string
 	if err := json.Unmarshal(response.Value, &message); err != nil { t.Fatal(err) }
-	if !strings.Contains(message, "不允许访问本机或内网地址") { t.Fatalf("private request was not blocked: %q", message) }
+	if message != "local response" { t.Fatalf("loopback response = %q", message) }
 }
 
-
-func TestValidateLXPlaybackURLRejectsPrivateTargets(t *testing.T) {
-	for _, raw := range []string{
-		"http://127.0.0.1/song.mp3",
-		"http://localhost/song.mp3",
-		"file:///C:/music/song.mp3",
-		"javascript:alert(1)",
-	} {
-		if err := ValidateLXPlaybackURL(raw); err == nil { t.Fatalf("expected URL to be rejected: %s", raw) }
+func TestValidateLXPlaybackURLMatchesLXPreloadPrefixCheck(t *testing.T) {
+	for _, raw := range []string{"http://127.0.0.1/song.mp3", "http://localhost/song.mp3", "https://media.example.test/song.mp3", "http:relative"} {
+		if err := ValidateLXPlaybackURL(raw); err != nil { t.Fatalf("LX-compatible URL %q was rejected: %v", raw, err) }
+	}
+	for _, raw := range []string{"", "file:///C:/music/song.mp3", "javascript:alert(1)", "ftp://media.example.test/song.mp3", strings.Repeat("a", 2049)} {
+		if err := ValidateLXPlaybackURL(raw); err == nil { t.Fatalf("expected invalid LX URL to be rejected: %s", raw) }
 	}
 }
 
