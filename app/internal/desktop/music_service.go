@@ -773,11 +773,11 @@ func buildLXMusicInfo(track music.Track, quality any) map[string]any {
 
 	if strings.TrimSpace(track.LXSourceKey) == "wy" {
 		info["source"] = "wy"
-		info["songmid"] = track.ID
-		info["albumId"] = track.SourceData["albumId"]
+		info["songmid"] = lxNumericID(track.ID)
+		info["albumId"] = lxNumericID(track.SourceData["albumId"])
 		info["albumName"] = track.Album
 		info["name"] = track.Title
-		info["singer"] = track.Artist
+		info["singer"] = strings.ReplaceAll(track.Artist, " / ", "、")
 		info["interval"] = formatLXInterval(seconds)
 		info["img"] = track.CoverURL
 		if types, available := buildLXNetEaseQualities(track.SourceData); len(types) > 0 {
