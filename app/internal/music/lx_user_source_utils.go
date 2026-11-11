@@ -47,7 +47,7 @@ func installLXSourceUtilities(vm *goja.Runtime, lx *goja.Object) error {
 	}); err != nil { return err }
 	if err := crypto.Set("randomBytes", func(call goja.FunctionCall) goja.Value {
 		size := call.Argument(0).ToInteger()
-		if size < 0 || size > 1<<20 { panic(vm.ToValue("LX randomBytes size must be between 0 and 1048576")) }
+		if size < 0 || size > 1<<30 { panic(vm.ToValue("Invalid randomBytes size")) }
 		data := make([]byte, int(size))
 		if _, err := rand.Read(data); err != nil { panic(vm.ToValue(err.Error())) }
 		return newLXBuffer(vm, data)
@@ -337,14 +337,12 @@ func lxZlibInflate(data []byte) ([]byte, error) {
 	reader, err := zlib.NewReader(bytes.NewReader(data))
 	if err != nil { return nil, fmt.Errorf("LX zlib inflate failed: %w", err) }
 	defer reader.Close()
-	result, err := io.ReadAll(io.LimitReader(reader, 8<<20+1))
+	result, err := io.ReadAll(reader)
 	if err != nil { return nil, fmt.Errorf("LX zlib inflate failed: %w", err) }
-	if len(result) > 8<<20 { return nil, errors.New("LX zlib inflated data exceeds 8 MB") }
 	return result, nil
 }
 
 func lxZlibDeflate(data []byte) ([]byte, error) {
-	if len(data) > 8<<20 { return nil, errors.New("LX zlib input exceeds 8 MB") }
 	var output bytes.Buffer
 	writer := zlib.NewWriter(&output)
 	if _, err := writer.Write(data); err != nil { return nil, err }
