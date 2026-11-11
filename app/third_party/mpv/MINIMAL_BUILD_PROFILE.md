@@ -1,6 +1,8 @@
 # My-LiveHub minimal mpv build profile (prototype)
 
-Status: **FIRST-STAGE BUILD SCRIPT ADDED / NOT YET BUILT**
+> Development decision (2026-11-11): the minimal cross-build prototype is paused. My-LiveHub development continues against the already validated full mpv v0.42.0 runtime and the existing JSON IPC engine. Do not trigger or spend CI time on this prototype unless the user explicitly reopens the size-reduction task. The minimal workflow is manual-dispatch only.
+
+Status: **PAUSED — full upstream mpv v0.42.0 is the active development baseline**
 
 This profile is an isolated build experiment. It does not replace the pinned upstream
 v0.42.0 full runtime, the existing Go MpvEngine, or the current CI job.
