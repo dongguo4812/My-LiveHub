@@ -20,8 +20,10 @@ LX 自定义源不是只包含播放 URL 的 JSON 配置。脚本通过 lx 运�
 - 本地保存脚本、元数据和 SHA-256 指纹；支持列出和删除。
 - 源脚本导入后不会自动执行，需用户主动点击“验证脚本”。
 - 已接入独立子进程初始化 worker：子进程使用 Goja 执行脚本，未注入 Node.js 的 process、require、文件系统或应用对象；设置 5 秒执行中断与调用栈深度限制。
-- 已实现 LX 的基础初始化握手：捕获 inited 声明的平台，以及 request 事件处理器注册情况；UI 显示验证结果。
-- 当前 worker 只做初始化验证，不调用 request handler，不提供 lx.request、Promise 调度、crypto、Buffer 或 zlib，因此验证通过不代表播放解析可用。
+- 已实现 LX 初始化握手，并在隔离 worker 中实际调用 request 事件处理器；支持同步返回值和已完成/已拒绝的 Promise。
+- 已提供受控的 lx.request 回调接口：仅允许 HTTP(S) 公网地址，限制请求方法、重定向、5 秒请求超时和 2 MB 请求/响应体；请求回调在 worker 内同步完成，以支持常见的 Promise 包装回调模式。
+- 音乐播放链路已尝试使用已导入的 LX 脚本：将网易云/QQ/酷狗/酷我搜索结果映射为 wy/tx/kg/kw，调用 user_api/musicUrl 处理器，校验返回播放 URL 后交给 mpv。
+- 当前 LX 兼容仍是受限子集：formData、crypto、Buffer、zlib 尚未实现；依赖这些能力的脚本仍会失败。网络桥接是同步回调执行，不等同于浏览器事件循环；复杂的异步定时器/多阶段回调脚本尚未支持。
 
 ## 安全实现要求与剩余工作
 
@@ -31,8 +33,8 @@ My-LiveHub 的 worker 已完成第一阶段，但要支持实际播放仍需：
 - 不暴露 process、require、文件系统、子进程、应用对象或任意 Go 对象。
 - HTTP 请求经受控桥接，限制协议、目标地址、响应体、超时和并发；禁止访问本机/内网地址。
 - 当前 5 秒执行中断、调用栈和脚本大小限制已实现；操作系统级内存/CPU 资源配额尚未实现，不能把子进程隔离描述为完整沙箱。后续需补充 Windows Job Object 等系统级限制并验证强制终止。
-- 兼容 lx.send/on/request 的 Promise 与回调语义，以及脚本使用到的 crypto、buffer、zlib 子集。
+- 扩展 lx.request 的 formData 及完整异步事件循环语义，并按真实音源脚本补齐 crypto、buffer、zlib 的必要子集。
 - 每次解析校验返回值为长度受限的 HTTP(S) URL；最终由 mpv 负责实际解码播放。
 - 用户导入的脚本默认标记为第三方未验证来源。
 
-**重要：目前可以导入、下载、保存、删除脚本，并在隔离子进程中执行基础初始化握手、读取脚本声明的平台。尚未实现 lx.request 和请求处理器调用，也尚未打通 musicUrl 返回值与 mpv，因此仍不能通过该功能播放歌曲。初始化验证通过不等于音源可用。**
+**重要：当前已经打通 request handler、受限 lx.request、musicUrl 结果校验与 mpv 调用链路，但尚未完成真实第三方音源脚本的兼容性验证，也未在用户 Windows 环境验证免登录歌曲播放。部分脚本依赖 formData、crypto、Buffer、zlib 或完整异步事件循环，仍可能无法运行。导入和初始化验证成功不代表每首歌都能播放。**
