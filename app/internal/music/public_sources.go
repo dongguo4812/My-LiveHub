@@ -270,7 +270,16 @@ func (s *KugouSource) SearchPage(ctx context.Context, keyword string, page, limi
 			Total int64 `json:"total"`
 			Lists []struct {
 				AudioID     int64  `json:"Audioid"`
+				MixSongID   int64  `json:"MixSongID"`
 				FileHash    string `json:"FileHash"`
+				FileSize    int64  `json:"FileSize"`
+				HQFileHash  string `json:"HQFileHash"`
+				HQFileSize  int64  `json:"HQFileSize"`
+				SQFileHash  string `json:"SQFileHash"`
+				SQFileSize  int64  `json:"SQFileSize"`
+				ResFileHash string `json:"ResFileHash"`
+				ResFileSize int64  `json:"ResFileSize"`
+				AlbumID     string `json:"AlbumID"`
 				SongName    string `json:"SongName"`
 				OriSongName string `json:"OriSongName"`
 				Suffix      string `json:"Suffix"`
@@ -279,6 +288,25 @@ func (s *KugouSource) SearchPage(ctx context.Context, keyword string, page, limi
 				Singers     []struct {
 					Name string `json:"name"`
 				} `json:"Singers"`
+				Grp []struct {
+					AudioID int64 `json:"Audioid"`
+					MixSongID int64 `json:"MixSongID"`
+					FileHash string `json:"FileHash"`
+					FileSize int64 `json:"FileSize"`
+					HQFileHash string `json:"HQFileHash"`
+					HQFileSize int64 `json:"HQFileSize"`
+					SQFileHash string `json:"SQFileHash"`
+					SQFileSize int64 `json:"SQFileSize"`
+					ResFileHash string `json:"ResFileHash"`
+					ResFileSize int64 `json:"ResFileSize"`
+					AlbumID string `json:"AlbumID"`
+					SongName string `json:"SongName"`
+					OriSongName string `json:"OriSongName"`
+					Suffix string `json:"Suffix"`
+					AlbumName string `json:"AlbumName"`
+					Duration int64 `json:"Duration"`
+					Singers []struct { Name string `json:"name"` } `json:"Singers"`
+				} `json:"Grp"`
 			} `json:"lists"`
 		} `json:"data"`
 	}
@@ -293,32 +321,57 @@ func (s *KugouSource) SearchPage(ctx context.Context, keyword string, page, limi
 		return SourceSearchPage{}, fmt.Errorf("Kugou search returned code %d", payload.ErrorCode)
 	}
 	tracks := make([]Track, 0, len(payload.Data.Lists))
-	for _, item := range payload.Data.Lists {
+	seen := make(map[string]struct{})
+	appendTrack := func(item struct {
+		AudioID int64 `json:"Audioid"`
+		MixSongID int64 `json:"MixSongID"`
+		FileHash string `json:"FileHash"`
+		FileSize int64 `json:"FileSize"`
+		HQFileHash string `json:"HQFileHash"`
+		HQFileSize int64 `json:"HQFileSize"`
+		SQFileHash string `json:"SQFileHash"`
+		SQFileSize int64 `json:"SQFileSize"`
+		ResFileHash string `json:"ResFileHash"`
+		ResFileSize int64 `json:"ResFileSize"`
+		AlbumID string `json:"AlbumID"`
+		SongName string `json:"SongName"`
+		OriSongName string `json:"OriSongName"`
+		Suffix string `json:"Suffix"`
+		AlbumName string `json:"AlbumName"`
+		Duration int64 `json:"Duration"`
+		Singers []struct { Name string `json:"name"` } `json:"Singers"`
+	}) {
 		id := strconv.FormatInt(item.AudioID, 10)
-		title := strings.TrimSpace(item.SongName)
-		if title == "" {
-			title = strings.TrimSpace(item.OriSongName + " " + item.Suffix)
-		}
-		title = html.UnescapeString(title)
-		if item.AudioID <= 0 || title == "" {
-			continue
-		}
+		key := id + item.FileHash
+		if item.AudioID <= 0 || item.FileHash == "" { return }
+		if _, exists := seen[key]; exists { return }
+		seen[key] = struct{}{}
+		title := strings.TrimSpace(item.OriSongName)
+		if title == "" { title = strings.TrimSpace(item.SongName) }
+		if item.Suffix != "" && !strings.Contains(title, item.Suffix) { title += " " + item.Suffix }
+		title = html.UnescapeString(strings.TrimSpace(title))
+		if title == "" { return }
 		artists := make([]string, 0, len(item.Singers))
-		for _, singer := range item.Singers {
-			if name := strings.TrimSpace(singer.Name); name != "" {
-				artists = append(artists, html.UnescapeString(name))
-			}
+		for _, singer := range item.Singers { if name := strings.TrimSpace(singer.Name); name != "" { artists = append(artists, html.UnescapeString(name)) } }
+		artist := strings.Join(artists, " / ")
+		album := html.UnescapeString(strings.TrimSpace(item.AlbumName))
+		data := map[string]string{
+			"id": id, "audioid": id, "Audioid": id, "songmid": id,
+			"MixSongID": strconv.FormatInt(item.MixSongID, 10), "albumAudioId": strconv.FormatInt(item.MixSongID, 10),
+			"AlbumID": item.AlbumID, "albumId": item.AlbumID,
+			"hash": item.FileHash, "FileHash": item.FileHash, "fileHash": item.FileHash,
+			"FileSize": strconv.FormatInt(item.FileSize, 10), "FileHash128": item.FileHash,
+			"HQFileHash": item.HQFileHash, "HQFileSize": strconv.FormatInt(item.HQFileSize, 10),
+			"SQFileHash": item.SQFileHash, "SQFileSize": strconv.FormatInt(item.SQFileSize, 10),
+			"ResFileHash": item.ResFileHash, "ResFileSize": strconv.FormatInt(item.ResFileSize, 10),
+			"name": title, "songname": title, "title": title, "singer": artist, "artist": artist,
+			"album": album, "albumName": album, "duration": strconv.FormatInt(item.Duration, 10), "interval": strconv.FormatInt(item.Duration, 10),
 		}
-		tracks = append(tracks, Track{
-			ID: id, SourceID: s.ID(), LXSourceKey: "kg", Title: title, Artist: strings.Join(artists, " / "),
-			Album: html.UnescapeString(strings.TrimSpace(item.AlbumName)), DurationMS: item.Duration * 1000,
-			SourceData: map[string]string{
-				"id": id, "audioid": id, "Audioid": id, "hash": item.FileHash, "fileHash": item.FileHash, "FileHash": item.FileHash,
-				"name": title, "songname": title, "title": title, "singer": strings.Join(artists, " / "),
-				"artist": strings.Join(artists, " / "), "album": html.UnescapeString(strings.TrimSpace(item.AlbumName)),
-				"duration": strconv.FormatInt(item.Duration, 10), "interval": strconv.FormatInt(item.Duration, 10),
-			},
-		})
+		tracks = append(tracks, Track{ID:id, SourceID:s.ID(), LXSourceKey:"kg", Title:title, Artist:artist, Album:album, DurationMS:item.Duration*1000, SourceData:data})
+	}
+	for _, item := range payload.Data.Lists {
+		appendTrack(item)
+		for _, child := range item.Grp { appendTrack(child) }
 	}
 	total, maxPage := sourcePageCount(payload.Data.Total, page, limit, len(tracks))
 	return SourceSearchPage{Tracks: tracks, Total: total, MaxPage: maxPage, PageSize: limit}, nil
