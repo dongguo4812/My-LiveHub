@@ -771,7 +771,10 @@ func buildLXMusicInfo(track music.Track, quality any) map[string]any {
 	info["id"], info["mid"], info["songmid"] = track.ID, track.ID, track.ID
 
 	if strings.TrimSpace(track.LXSourceKey) == "mg" {
-		info["source"]="mg";info["songmid"]=firstNonEmpty(track.SourceData["songmid"],track.ID)
+		info["source"]="mg"
+		songMid := strings.TrimSpace(track.SourceData["songmid"])
+		if songMid == "" { songMid = track.ID }
+		info["songmid"] = songMid
 		info["copyrightId"]=track.SourceData["copyrightId"];info["albumId"]=track.SourceData["albumId"]
 		info["albumName"]=track.Album;info["interval"]=formatLXInterval(seconds);info["img"]=track.CoverURL
 		info["lrcUrl"]=track.SourceData["lrcUrl"];info["mrcUrl"]=track.SourceData["mrcUrl"];info["trcUrl"]=track.SourceData["trcUrl"]
