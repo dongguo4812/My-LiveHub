@@ -25,11 +25,20 @@ const (
 	lxWorkerExecutionTimeout = 5 * time.Second
 )
 
+type LXDeclaredSource struct {
+	Key string `json:"key"`
+	Name string `json:"name,omitempty"`
+	Type string `json:"type,omitempty"`
+	Actions []string `json:"actions,omitempty"`
+	Qualitys []string `json:"qualitys,omitempty"`
+}
+
 type LXSourceRuntimeResult struct {
-	Initialized bool            `json:"initialized"`
-	Platforms   []string        `json:"platforms"`
-	Sources     json.RawMessage `json:"sources"`
-	Handlers    []string        `json:"handlers"`
+	Initialized bool `json:"initialized"`
+	Platforms []string `json:"platforms"`
+	DeclaredSources []LXDeclaredSource `json:"declared_sources"`
+	Sources json.RawMessage `json:"sources"`
+	Handlers []string `json:"handlers"`
 }
 
 type lxWorkerRequest struct {
@@ -169,20 +178,27 @@ func RunLXSourceWorker(input io.Reader, output io.Writer) int {
 		return 1
 	}
 	var declaration struct {
-		Sources map[string]json.RawMessage `json:"sources"`
+		Sources map[string]struct {
+			Name string `json:"name"`
+			Type string `json:"type"`
+			Actions []string `json:"actions"`
+			Qualitys []string `json:"qualitys"`
+		} `json:"sources"`
 	}
 	if err := json.Unmarshal(initialized, &declaration); err != nil || len(declaration.Sources) == 0 {
 		response.Error = "LX 音源初始化数据无效：没有声明 sources"
 		return 1
 	}
 	platforms := make([]string, 0, len(declaration.Sources))
-	for platform := range declaration.Sources {
-		platform = strings.TrimSpace(platform)
-		if platform != "" {
-			platforms = append(platforms, platform)
-		}
+	declaredSources := make([]LXDeclaredSource, 0, len(declaration.Sources))
+	for key, source := range declaration.Sources {
+		key = strings.TrimSpace(key)
+		if key == "" { continue }
+		platforms = append(platforms, key)
+		declaredSources = append(declaredSources, LXDeclaredSource{Key:key, Name:source.Name, Type:source.Type, Actions:append([]string(nil), source.Actions...), Qualitys:append([]string(nil), source.Qualitys...)})
 	}
 	sort.Strings(platforms)
+	sort.Slice(declaredSources, func(i,j int) bool { return declaredSources[i].Key < declaredSources[j].Key })
 	handlerNames := make([]string, 0, len(handlers))
 	for name := range handlers {
 		handlerNames = append(handlerNames, name)
@@ -191,10 +207,25 @@ func RunLXSourceWorker(input io.Reader, output io.Writer) int {
 	response.Result = LXSourceRuntimeResult{
 		Initialized: true,
 		Platforms: platforms,
+		DeclaredSources: declaredSources,
 		Sources: append(json.RawMessage(nil), initialized...),
 		Handlers: handlerNames,
 	}
 	if request.Operation == "resolve" {
+		var resolveRequest struct {
+			Source string `json:"source"`
+			Action string `json:"action"`
+			Info struct { Type any `json:"type"` } `json:"info"`
+		}
+		if err := json.Unmarshal(request.Payload, &resolveRequest); err != nil { response.Error = "LX 音源请求数据格式无效"; return 1 }
+		var selected *LXDeclaredSource
+		for i := range declaredSources { if declaredSources[i].Key == resolveRequest.Source { selected = &declaredSources[i]; break } }
+		if selected == nil { response.Error = fmt.Sprintf("LX 音源未声明来源 %q", resolveRequest.Source); return 1 }
+		if !containsLXValue(selected.Actions, resolveRequest.Action) { response.Error = fmt.Sprintf("LX 音源 %q 不支持动作 %q", resolveRequest.Source, resolveRequest.Action); return 1 }
+		if resolveRequest.Action == "musicUrl" && resolveRequest.Source != "local" {
+			quality, ok := resolveRequest.Info.Type.(string)
+			if !ok || !containsLXValue(selected.Qualitys, quality) { response.Error = fmt.Sprintf("LX 音源 %q 不支持音质 %v", resolveRequest.Source, resolveRequest.Info.Type); return 1 }
+		}
 		handler, ok := handlers["request"]
 		if !ok { response.Error = "LX 音源没有注册 request 处理器"; return 1 }
 		if len(request.Payload) == 0 { response.Error = "LX 音源请求数据为空"; return 1 }
@@ -221,6 +252,11 @@ func RunLXSourceWorker(input io.Reader, output io.Writer) int {
 	return 0
 }
 
+
+func containsLXValue(values []string, target string) bool {
+	for _, value := range values { if value == target { return true } }
+	return false
+}
 
 // ResolveLXUserSource invokes the request handler in a separate worker process.
 // Synchronous results and already-settled Promises are supported. Promise

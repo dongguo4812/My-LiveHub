@@ -13,8 +13,8 @@ func TestRunLXSourceWorkerInitializesDeclaredPlatforms(t *testing.T) {
  */
 lx.send(lx.EVENT_NAMES.inited, {
   sources: {
-    wy: { name: "网易云音乐", actions: ["musicUrl"], qualitys: ["standard"] },
-    tx: { name: "QQ音乐", actions: ["musicUrl"], qualitys: ["standard"] }
+    wy: { name: "网易云音乐", type: "music", actions: ["musicUrl"], qualitys: ["320k"] },
+    tx: { name: "QQ音乐", type: "music", actions: ["musicUrl"], qualitys: ["128k", "320k"] }
   }
 });
 lx.on(lx.EVENT_NAMES.request, function (request) { return request; });
@@ -31,6 +31,9 @@ lx.on(lx.EVENT_NAMES.request, function (request) { return request; });
 	if !response.Result.Initialized { t.Fatal("source was not initialized") }
 	if strings.Join(response.Result.Platforms, ",") != "tx,wy" {
 		t.Fatalf("unexpected platforms: %#v", response.Result.Platforms)
+	}
+	if len(response.Result.DeclaredSources) != 2 || response.Result.DeclaredSources[0].Key != "tx" || response.Result.DeclaredSources[0].Qualitys[1] != "320k" {
+		t.Fatalf("unexpected declared source details: %#v", response.Result.DeclaredSources)
 	}
 	if len(response.Result.Handlers) != 1 || response.Result.Handlers[0] != "request" {
 		t.Fatalf("unexpected handlers: %#v", response.Result.Handlers)
@@ -64,15 +67,15 @@ func TestRunLXSourceWorkerRejectsUndeclaredPlatforms(t *testing.T) {
 
 
 func TestRunLXSourceWorkerInvokesRequestHandler(t *testing.T) {
-	script := `lx.send(lx.EVENT_NAMES.inited, { sources: { wy: { name: "网易云音乐", actions: ["musicUrl"], qualitys: ["standard"] } } });
+	script := `lx.send(lx.EVENT_NAMES.inited, { sources: { wy: { name: "网易云音乐", type: "music", actions: ["musicUrl"], qualitys: ["320k"] } } });
 lx.on(lx.EVENT_NAMES.request, function (request) {
   if (request.action !== "musicUrl" || request.source !== "wy") throw new Error("unexpected request");
   return Promise.resolve("https://media.example.test/song.mp3");
 });`
 	payload, err := json.Marshal(map[string]any{
-		"source": "user_api",
+		"source": "wy",
 		"action": "musicUrl",
-		"info": map[string]any{"type": "wy", "musicInfo": map[string]any{"id": "150617", "name": "找自己", "artist": "陶喆"}},
+		"info": map[string]any{"type": "320k", "musicInfo": map[string]any{"id": "150617", "name": "找自己", "artist": "陶喆"}},
 	})
 	if err != nil { t.Fatal(err) }
 	input, err := json.Marshal(lxWorkerRequest{Script: script, Operation: "resolve", Payload: payload})
@@ -90,7 +93,7 @@ lx.on(lx.EVENT_NAMES.request, function (request) {
 func TestRunLXSourceWorkerRejectsPendingRequestPromise(t *testing.T) {
 	script := `lx.send(lx.EVENT_NAMES.inited, { sources: { wy: { name: "网易云音乐", actions: ["musicUrl"], qualitys: ["standard"] } } });
 lx.on(lx.EVENT_NAMES.request, function () { return new Promise(function () {}); });`
-	payload := json.RawMessage(`{"source":"user_api","action":"musicUrl","info":{"type":"wy","musicInfo":{"id":"1"}}}`)
+	payload := json.RawMessage(`{"source":"wy","action":"musicUrl","info":{"type":"320k","musicInfo":{"id":"1"}}}`)
 	input, _ := json.Marshal(lxWorkerRequest{Script: script, Operation: "resolve", Payload: payload})
 	var output bytes.Buffer
 	_ = RunLXSourceWorker(bytes.NewReader(input), &output)

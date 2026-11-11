@@ -672,53 +672,74 @@ func (s *MusicService) resolveLXTrack(ctx context.Context, track music.Track) (m
 	if err != nil { return music.PlaybackResource{}, err }
 	sources, err := store.List()
 	if err != nil { return music.PlaybackResource{}, err }
-	platforms := map[string]string{
-		"netease": "wy",
-		"qq_music": "tx",
-		"kugou": "kg",
-		"kuwo": "kw",
+	// LX's official source identifiers are fixed. These aliases adapt the
+	// existing search providers; imported scripts are selected dynamically
+	// from their own inited.sources declarations.
+	sourceKey := strings.TrimSpace(track.SourceID)
+	switch track.SourceID {
+	case "netease": sourceKey = "wy"
+	case "qq_music": sourceKey = "tx"
+	case "kugou": sourceKey = "kg"
+	case "kuwo": sourceKey = "kw"
 	}
-	platform, ok := platforms[track.SourceID]
-	if !ok { return music.PlaybackResource{}, fmt.Errorf("不支持的 LX 平台映射：%s", track.SourceID) }
 	seconds := track.DurationMS / 1000
 	musicInfo := map[string]any{
-		"id": track.ID, "mid": track.ID, "songmid": track.ID, "hash": track.ID, "rid": track.ID,
+		"id": track.ID, "mid": track.ID, "songmid": track.ID, "songId": track.ID,
+		"hash": track.ID, "rid": track.ID, "MUSICRID": track.ID,
 		"name": track.Title, "songname": track.Title, "title": track.Title,
 		"artist": track.Artist, "singer": track.Artist, "album": track.Album,
-		"interval": seconds, "duration": seconds, "source": platform,
+		"interval": seconds, "duration": seconds, "source": sourceKey,
 	}
-	payload, err := json.Marshal(map[string]any{
-		"source": "user_api",
-		"action": "musicUrl",
-		"info": map[string]any{"type": platform, "musicInfo": musicInfo},
-	})
-	if err != nil { return music.PlaybackResource{}, err }
 	var failures []error
 	for _, source := range sources {
 		if err := ctx.Err(); err != nil { return music.PlaybackResource{}, err }
 		script, readErr := store.ReadScript(source.ID)
 		if readErr != nil { failures = append(failures, fmt.Errorf("%s: %w", source.Name, readErr)); continue }
+		inspection, inspectErr := music.InspectLXUserSource(ctx, script)
+		if inspectErr != nil { failures = append(failures, fmt.Errorf("%s: %w", source.Name, inspectErr)); continue }
+		var declared *music.LXDeclaredSource
+		for i := range inspection.DeclaredSources {
+			if inspection.DeclaredSources[i].Key == sourceKey { declared = &inspection.DeclaredSources[i]; break }
+		}
+		if declared == nil || !containsString(declared.Actions, "musicUrl") { continue }
+		quality := selectLXQuality(declared.Qualitys, sourceKey == "local")
+		payload, marshalErr := json.Marshal(map[string]any{
+			"source": sourceKey, "action": "musicUrl",
+			"info": map[string]any{"type": quality, "musicInfo": musicInfo},
+		})
+		if marshalErr != nil { failures = append(failures, marshalErr); continue }
 		result, resolveErr := music.ResolveLXUserSource(ctx, script, payload)
-		if resolveErr != nil { failures = append(failures, fmt.Errorf("%s: %w", source.Name, resolveErr)); continue }
+		if resolveErr != nil { failures = append(failures, fmt.Errorf("%s/%s: %w", source.Name, sourceKey, resolveErr)); continue }
 		var value any
 		if err := json.Unmarshal(result, &value); err != nil { failures = append(failures, fmt.Errorf("%s: 解析结果格式无效：%w", source.Name, err)); continue }
 		resource := music.PlaybackResource{}
 		switch item := value.(type) {
-		case string:
-			resource.URL = item
+		case string: resource.URL = item
 		case map[string]any:
 			resource.URL, _ = item["url"].(string)
 			if headers, ok := item["headers"].(map[string]any); ok {
 				resource.Headers = make(map[string]string, len(headers))
 				for key, header := range headers { resource.Headers[key] = fmt.Sprint(header) }
 			}
-		default:
-			failures = append(failures, fmt.Errorf("%s: 音源没有返回 URL", source.Name))
-			continue
+		default: failures = append(failures, fmt.Errorf("%s: 音源没有返回 URL", source.Name)); continue
 		}
 		if err := music.ValidateLXPlaybackURL(resource.URL); err != nil { failures = append(failures, fmt.Errorf("%s: %w", source.Name, err)); continue }
 		return resource, nil
 	}
-	if len(failures) == 0 { return music.PlaybackResource{}, errors.New("没有导入洛雪自定义音源") }
-	return music.PlaybackResource{}, fmt.Errorf("所有已导入洛雪音源均未能解析：%w", errors.Join(failures...))
+	if len(failures) == 0 { return music.PlaybackResource{}, fmt.Errorf("没有已导入音源声明 LX 来源 %q 并支持 musicUrl", sourceKey) }
+	return music.PlaybackResource{}, fmt.Errorf("没有已导入洛雪音源解析来源 %q：%w", sourceKey, errors.Join(failures...))
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values { if value == target { return true } }
+	return false
+}
+
+func selectLXQuality(qualities []string, local bool) any {
+	if local { return nil }
+	for _, preferred := range []string{"320k", "flac", "flac24bit", "128k"} {
+		for _, quality := range qualities { if quality == preferred { return quality } }
+	}
+	if len(qualities) > 0 { return qualities[0] }
+	return nil
 }

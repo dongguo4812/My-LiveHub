@@ -323,8 +323,8 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
     </el-card>
 
     <el-card shadow="never" v-loading="loading">
-      <template #header><div class="card-heading"><strong>音源管理</strong><el-tag :type="enabledCount > 0 ? 'success' : 'danger'" effect="plain">已启用 {{ enabledCount }} 个</el-tag></div></template>
-      <p class="section-description">每个音源独立启停，可以同时勾选多个。搜索会并行查询所有已启用且已接入的音源。</p>
+      <template #header><div class="card-heading"><strong>内置搜索适配器</strong><el-tag :type="enabledCount > 0 ? 'success' : 'danger'" effect="plain">已启用 {{ enabledCount }} 个</el-tag></div></template>
+      <p class="section-description">这里管理当前内置的歌曲搜索适配器；洛雪 JS 音源在下方独立动态注册，负责解析播放地址。两者分离，新增洛雪播放来源不需要修改这份内置搜索列表。</p>
       <div v-if="config" class="source-list">
         <div v-for="source in sources" :key="source.id" class="source-row">
           <div class="source-copy"><strong>{{ source.name }}</strong><span>{{ source.status }}</span></div>
@@ -335,8 +335,8 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
     </el-card>
 
     <el-card shadow="never">
-      <template #header><div class="card-heading"><strong>洛雪自定义音源</strong><el-tag type="warning" effect="plain">兼容层开发中</el-tag></div></template>
-      <p class="section-description">支持导入洛雪格式的 JavaScript 音源文件，或通过 URL 下载脚本。脚本会保存到本机配置目录；在隔离运行环境接入前，不会执行第三方脚本，也不会参与播放解析。</p>
+      <template #header><div class="card-heading"><strong>洛雪自定义音源</strong><el-tag type="success" effect="plain">动态来源注册</el-tag></div></template>
+      <p class="section-description">每个 JS 脚本可以声明一个或多个洛雪来源。导入后可查看脚本实际声明的来源键、动作和音质；播放时只调用声明了对应来源键及 musicUrl 动作的脚本，不再把脚本固定绑定到四个平台。</p>
       <div class="lx-import-row">
         <el-input v-model="lxSourceURL" placeholder="粘贴 .js 音源脚本 URL" clearable @keyup.enter="importLXSourceURL" />
         <el-button type="primary" :loading="importingLXSource" @click="importLXSourceURL">从 URL 导入</el-button>
@@ -348,7 +348,8 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
           <div class="source-copy">
             <strong>{{ source.name }} <el-tag size="small" :type="lxValidation[source.id] ? 'success' : 'warning'">{{ lxValidation[source.id] ? '基础初始化通过' : '尚未验证' }}</el-tag></strong>
             <span>{{ source.author || '未知作者' }} · {{ source.version || '未标注版本' }} · SHA256 {{ source.sha256.slice(0, 12) }}</span>
-            <span v-if="lxValidation[source.id]">已声明平台：{{ lxValidation[source.id].platforms.join('、') }} · 已注册事件：{{ lxValidation[source.id].handlers.join('、') || '无' }}（尚未支持播放解析）</span>
+            <span v-if="lxValidation[source.id]">已声明来源：{{ lxValidation[source.id].declared_sources.map(item => (item.name || item.key) + '（' + item.key + '）').join('、') }} · 支持动作：{{ [...new Set(lxValidation[source.id].declared_sources.flatMap(item => item.actions || []))].join('、') || '无' }} · 音质：{{ [...new Set(lxValidation[source.id].declared_sources.flatMap(item => item.qualitys || []))].join('、') || '未声明' }}</span>
+            <span v-if="lxValidation[source.id]">已注册事件：{{ lxValidation[source.id].handlers.join('、') || '无' }}；仅声明 musicUrl 的来源可参与实际播放解析</span>
             <span v-if="source.source_url">{{ source.source_url }}</span>
           </div>
           <div class="lx-source-actions"><el-button link type="primary" :loading="validatingLXSourceID === source.id" :disabled="!!validatingLXSourceID || importingLXSource" @click="validateLXSource(source)">验证脚本</el-button><el-button v-if="source.source_url" link type="primary" :loading="importingLXSource" @click="updateLXSource(source)">检查更新</el-button><el-button link type="danger" @click="deleteLXSource(source)">删除</el-button></div>
