@@ -110,7 +110,7 @@ func TestLXRequestSupportsFormDataAndReturnsCancelFunction(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(string(body), "name="+"\\"keyword\\"") || !strings.Contains(string(body), "稻香") {
+		if !strings.Contains(string(body), "name=\"keyword\"") || !strings.Contains(string(body), "稻香") {
 			t.Errorf("multipart body does not contain form field: %s", body)
 		}
 		return &http.Response{
