@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"sort"
@@ -104,6 +105,10 @@ func InspectLXUserSource(parent context.Context, script string) (LXSourceRuntime
 
 // RunLXSourceWorker is called only by the private child-process entry point.
 func RunLXSourceWorker(input io.Reader, output io.Writer) int {
+	return runLXSourceWorker(input, output, nil)
+}
+
+func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Client) int {
 	response := lxWorkerResponse{}
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -178,7 +183,7 @@ func RunLXSourceWorker(input io.Reader, output io.Writer) int {
 		}
 		return goja.Undefined()
 	})
-	if err := installLXRequest(vm, lx); err != nil {
+	if err := installLXRequestWithClient(vm, lx, requestClient); err != nil {
 		response.Error = "初始化 LX request 请求桥接失败"
 		return 1
 	}
