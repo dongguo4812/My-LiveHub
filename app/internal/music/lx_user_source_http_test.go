@@ -18,13 +18,8 @@ func (f lxRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error
 
 func TestLXRequestDefaultTimeoutMatchesLXDesktop(t *testing.T) {
 	client := &http.Client{Transport: lxRoundTripFunc(func(request *http.Request) (*http.Response, error) {
-		deadline, ok := request.Context().Deadline()
-		if !ok {
-			t.Fatal("LX request must set a bounded default timeout")
-		}
-		remaining := time.Until(deadline)
-		if remaining < 59*time.Second || remaining > 60*time.Second {
-			t.Errorf("LX request default timeout = %s, want 60 seconds like LX custom-source preload", remaining)
+		if _, ok := request.Context().Deadline(); ok {
+			t.Error("Needle response_timeout is not a total request deadline")
 		}
 		return &http.Response{
 			StatusCode: http.StatusOK,
@@ -37,6 +32,17 @@ func TestLXRequestDefaultTimeoutMatchesLXDesktop(t *testing.T) {
 	vm := goja.New()
 	if _, _, err := performLXRequestWithClient("https://music.example.test/resolve", vm.ToValue(map[string]any{}), client); err != nil {
 		t.Fatal(err)
+	}
+	transport := newLXNeedleTransport(lxRequestTimeout)
+	defer transport.CloseIdleConnections()
+	if transport.ResponseHeaderTimeout != 60*time.Second {
+		t.Errorf("Needle response timeout = %s, want 60 seconds", transport.ResponseHeaderTimeout)
+	}
+	if transport.TLSHandshakeTimeout != 10*time.Second {
+		t.Errorf("Needle TLS/open timeout = %s, want 10 seconds", transport.TLSHandshakeTimeout)
+	}
+	if !transport.DisableCompression {
+		t.Error("Needle default compressed=false must not advertise compressed responses")
 	}
 }
 
