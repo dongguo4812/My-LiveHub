@@ -219,6 +219,27 @@ func (*QQMusicSource) Resolve(context.Context, Track) (PlaybackResource, error) 
 // KugouSource uses Kugou's public song search endpoint. It keeps the provider's
 // song ID and metadata but does not claim playback support until a playable
 // public URL can be obtained without bypassing platform restrictions.
+type kugouSearchSong struct {
+	AudioID int64 `json:"Audioid"`
+	MixSongID int64 `json:"MixSongID"`
+	FileHash string `json:"FileHash"`
+	FileSize int64 `json:"FileSize"`
+	HQFileHash string `json:"HQFileHash"`
+	HQFileSize int64 `json:"HQFileSize"`
+	SQFileHash string `json:"SQFileHash"`
+	SQFileSize int64 `json:"SQFileSize"`
+	ResFileHash string `json:"ResFileHash"`
+	ResFileSize int64 `json:"ResFileSize"`
+	AlbumID string `json:"AlbumID"`
+	SongName string `json:"SongName"`
+	OriSongName string `json:"OriSongName"`
+	Suffix string `json:"Suffix"`
+	AlbumName string `json:"AlbumName"`
+	Duration int64 `json:"Duration"`
+	Singers []struct { Name string `json:"name"` } `json:"Singers"`
+	Grp []kugouSearchSong `json:"Grp"`
+}
+
 type KugouSource struct {
 	client  *http.Client
 	baseURL string
@@ -268,46 +289,7 @@ func (s *KugouSource) SearchPage(ctx context.Context, keyword string, page, limi
 		ErrorCode int `json:"error_code"`
 		Data struct {
 			Total int64 `json:"total"`
-			Lists []struct {
-				AudioID     int64  `json:"Audioid"`
-				MixSongID   int64  `json:"MixSongID"`
-				FileHash    string `json:"FileHash"`
-				FileSize    int64  `json:"FileSize"`
-				HQFileHash  string `json:"HQFileHash"`
-				HQFileSize  int64  `json:"HQFileSize"`
-				SQFileHash  string `json:"SQFileHash"`
-				SQFileSize  int64  `json:"SQFileSize"`
-				ResFileHash string `json:"ResFileHash"`
-				ResFileSize int64  `json:"ResFileSize"`
-				AlbumID     string `json:"AlbumID"`
-				SongName    string `json:"SongName"`
-				OriSongName string `json:"OriSongName"`
-				Suffix      string `json:"Suffix"`
-				AlbumName   string `json:"AlbumName"`
-				Duration    int64  `json:"Duration"`
-				Singers     []struct {
-					Name string `json:"name"`
-				} `json:"Singers"`
-				Grp []struct {
-					AudioID int64 `json:"Audioid"`
-					MixSongID int64 `json:"MixSongID"`
-					FileHash string `json:"FileHash"`
-					FileSize int64 `json:"FileSize"`
-					HQFileHash string `json:"HQFileHash"`
-					HQFileSize int64 `json:"HQFileSize"`
-					SQFileHash string `json:"SQFileHash"`
-					SQFileSize int64 `json:"SQFileSize"`
-					ResFileHash string `json:"ResFileHash"`
-					ResFileSize int64 `json:"ResFileSize"`
-					AlbumID string `json:"AlbumID"`
-					SongName string `json:"SongName"`
-					OriSongName string `json:"OriSongName"`
-					Suffix string `json:"Suffix"`
-					AlbumName string `json:"AlbumName"`
-					Duration int64 `json:"Duration"`
-					Singers []struct { Name string `json:"name"` } `json:"Singers"`
-				} `json:"Grp"`
-			} `json:"lists"`
+			Lists []kugouSearchSong `json:"lists"`
 		} `json:"data"`
 	}
 	err = requestSourceJSON(ctx, s.client, endpoint.String(), map[string]string{
@@ -322,25 +304,7 @@ func (s *KugouSource) SearchPage(ctx context.Context, keyword string, page, limi
 	}
 	tracks := make([]Track, 0, len(payload.Data.Lists))
 	seen := make(map[string]struct{})
-	appendTrack := func(item struct {
-		AudioID int64 `json:"Audioid"`
-		MixSongID int64 `json:"MixSongID"`
-		FileHash string `json:"FileHash"`
-		FileSize int64 `json:"FileSize"`
-		HQFileHash string `json:"HQFileHash"`
-		HQFileSize int64 `json:"HQFileSize"`
-		SQFileHash string `json:"SQFileHash"`
-		SQFileSize int64 `json:"SQFileSize"`
-		ResFileHash string `json:"ResFileHash"`
-		ResFileSize int64 `json:"ResFileSize"`
-		AlbumID string `json:"AlbumID"`
-		SongName string `json:"SongName"`
-		OriSongName string `json:"OriSongName"`
-		Suffix string `json:"Suffix"`
-		AlbumName string `json:"AlbumName"`
-		Duration int64 `json:"Duration"`
-		Singers []struct { Name string `json:"name"` } `json:"Singers"`
-	}) {
+	appendTrack := func(item kugouSearchSong) {
 		id := strconv.FormatInt(item.AudioID, 10)
 		key := id + item.FileHash
 		if item.AudioID <= 0 || item.FileHash == "" { return }
