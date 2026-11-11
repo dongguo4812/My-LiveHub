@@ -107,6 +107,29 @@ func TestMpvPlaybackIntegration(t *testing.T) {
 	if stopped.Track != nil || volume.Volume != 37 {
 		t.Fatalf("unexpected final playback snapshots: stopped=%#v volume=%#v", stopped, volume)
 	}
+
+	missingPath := filepath.Join(t.TempDir(), "missing-audio-file.mp3")
+	missingSlashPath := filepath.ToSlash(missingPath)
+	if len(missingSlashPath) >= 2 && missingSlashPath[1] == ':' {
+		missingSlashPath = "/" + missingSlashPath
+	}
+	missingURL := (&url.URL{Scheme: "file", Path: missingSlashPath}).String()
+	failedTrack := Track{ID: "missing-fixture", SourceID: "test", Title: "Missing audio fixture"}
+	if err := engine.Load(ctx, PlaybackResource{URL: missingURL}, failedTrack); err != nil {
+		t.Fatalf("submit missing media fixture: %v", err)
+	}
+	// The real failure is asynchronous in mpv. Move the pending-load clock
+	// forward so the test can verify the terminal error state without waiting.
+	engine.mu.Lock()
+	engine.loadStartedAt = time.Now().Add(-31 * time.Second)
+	engine.mu.Unlock()
+	failed, err := engine.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("snapshot failed media load: %v", err)
+	}
+	if failed.State != PlaybackError || failed.Error == "" {
+		t.Fatalf("failed media load was not exposed as an error: %#v", failed)
+	}
 }
 
 func waitForMpvSnapshot(t *testing.T, ctx context.Context, engine *MpvEngine, predicate func(PlaybackSnapshot) bool, failure string) PlaybackSnapshot {
