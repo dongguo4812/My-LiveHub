@@ -2,6 +2,7 @@ package music
 
 import (
 	"bytes"
+	"errors"
 	"encoding/json"
 	"io"
 	"net/http"
