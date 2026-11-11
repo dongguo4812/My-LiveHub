@@ -1,15 +1,7 @@
-name: mpv minimal prototype
+name: mpv minimal prototype (paused)
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - dev
-    paths:
-      - .github/workflows/mpv-minimal-prototype.yml
-      - app/scripts/build-mpv-minimal.sh
-      - app/scripts/trim-mpv-mingw-bootstrap.sh
-      - app/third_party/mpv/**
 
 permissions:
   contents: read
