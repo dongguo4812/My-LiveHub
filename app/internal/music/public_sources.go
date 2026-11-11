@@ -392,6 +392,7 @@ func (s *KuwoSource) SearchPage(ctx context.Context, keyword string, page, limit
 			Duration string `json:"DURATION"`
 			AlbumID string `json:"ALBUMID"`
 			Album string `json:"ALBUM"`
+			NInfo string `json:"N_MINFO"`
 		} `json:"abslist"`
 	}
 	err = requestSourceJSON(ctx, s.client, endpoint.String(), map[string]string{
@@ -418,8 +419,9 @@ func (s *KuwoSource) SearchPage(ctx context.Context, keyword string, page, limit
 			SourceData: map[string]string{
 				"id": id, "rid": id, "MUSICRID": strings.TrimSpace(item.MusicRID), "musicrid": strings.TrimSpace(item.MusicRID),
 				"name": title, "songname": title, "title": title, "artist": html.UnescapeString(strings.TrimSpace(item.Artist)),
-				"album": html.UnescapeString(strings.TrimSpace(item.Album)), "duration": strconv.FormatInt(duration, 10),
-				"interval": strconv.FormatInt(duration, 10),
+				"album": html.UnescapeString(strings.TrimSpace(item.Album)), "albumId": html.UnescapeString(strings.TrimSpace(item.AlbumID)),
+				"duration": strconv.FormatInt(duration, 10), "interval": strconv.FormatInt(duration, 10),
+				"N_MINFO": strings.TrimSpace(item.NInfo),
 			},
 		})
 	}
