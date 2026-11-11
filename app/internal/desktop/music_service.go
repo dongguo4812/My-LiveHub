@@ -348,10 +348,12 @@ func (s *MusicService) Enqueue(track music.Track, requestedBy string) (music.Que
 		if err != nil { state.mu.Unlock(); return music.QueueItem{}, fmt.Errorf("保存主播歌曲播放进度失败：%w", err) }
 		state.resumeItem = current
 		state.resumePosition = snapshot.PositionMS
+		state.resumeWasPaused = snapshot.State == music.PlaybackPaused
 		state.resumePending = true
 		if err := s.engine.Pause(context.Background()); err != nil {
 			state.resumePending = false
 			state.resumeItem = nil
+			state.resumeWasPaused = false
 			state.mu.Unlock()
 			return music.QueueItem{}, fmt.Errorf("暂停主播歌曲失败：%w", err)
 		}
@@ -616,6 +618,15 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 				message := strings.TrimSpace(snapshot.Error)
 				if message == "" { message = "mpv 加载音频失败" }
 				s.setLastError(errors.New(message))
+				currentItem := s.queue.Snapshot().Current
+				s.queue.FinishCurrent()
+				if currentItem != nil && currentItem.RequestedBy == hostQueueMarker {
+					_ = s.advanceHostPlaylist()
+				} else if len(s.queue.Snapshot().Items) > 0 {
+					_ = s.PlayNext()
+				} else {
+					_ = s.resumeHostPlaylist()
+				}
 				return
 			}
 			if snapshot.State != music.PlaybackStopped { continue }

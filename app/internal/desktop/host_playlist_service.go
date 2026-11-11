@@ -29,6 +29,7 @@ type hostPlaylistState struct {
  resumeItem *music.QueueItem
  resumePosition int64
  resumePending bool
+ resumeWasPaused bool
 }
 var hostPlaylistStates sync.Map
 func hostStateFor(s *MusicService) *hostPlaylistState {
@@ -89,8 +90,8 @@ func(s *MusicService)advanceHostPlaylist()error{
 }
 func(s *MusicService)resumeHostPlaylist()bool{
  st:=hostStateFor(s);st.mu.Lock();if !st.resumePending||st.resumeItem==nil{st.mu.Unlock();return false}
- item,pos:=*st.resumeItem,st.resumePosition;st.resumePending=false;st.resumeItem=nil;st.resumePosition=0;st.mu.Unlock()
- if err:=s.queue.SetCurrent(item);err!=nil{s.setLastError(err);return false};if err:=s.PlayNext();err!=nil{s.setLastError(err);return false};if pos>0{time.Sleep(300*time.Millisecond);_ = s.Seek(pos)};return true
+ item,pos,wasPaused:=*st.resumeItem,st.resumePosition,st.resumeWasPaused;st.resumePending=false;st.resumeItem=nil;st.resumePosition=0;st.resumeWasPaused=false;st.mu.Unlock()
+ if err:=s.queue.SetCurrent(item);err!=nil{s.setLastError(err);return false};if err:=s.PlayNext();err!=nil{s.setLastError(err);return false};if pos>0{time.Sleep(300*time.Millisecond);_ = s.Seek(pos)};if wasPaused{_ = s.Pause()};return true
 }
 func(s *MusicService)StopHostPlayback()error{
  st:=hostStateFor(s);st.mu.Lock();st.resumePending=false;st.resumeItem=nil;st.mu.Unlock()
