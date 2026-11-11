@@ -91,7 +91,7 @@ lx.on(lx.EVENT_NAMES.request, function (request) {
 }
 
 func TestRunLXSourceWorkerRejectsPendingRequestPromise(t *testing.T) {
-	script := `lx.send(lx.EVENT_NAMES.inited, { sources: { wy: { name: "网易云音乐", actions: ["musicUrl"], qualitys: ["standard"] } } });
+	script := `lx.send(lx.EVENT_NAMES.inited, { sources: { wy: { name: "网易云音乐", type: "music", actions: ["musicUrl"], qualitys: ["320k"] } } });
 lx.on(lx.EVENT_NAMES.request, function () { return new Promise(function () {}); });`
 	payload := json.RawMessage(`{"source":"wy","action":"musicUrl","info":{"type":"320k","musicInfo":{"id":"1"}}}`)
 	input, _ := json.Marshal(lxWorkerRequest{Script: script, Operation: "resolve", Payload: payload})
@@ -112,7 +112,7 @@ lx.on(lx.EVENT_NAMES.request, function () {
     });
   });
 });`
-	payload := json.RawMessage(`{"source":"wy","action":"musicUrl","info":{"type":"wy","musicInfo":{"id":"1"}}}`)
+	payload := json.RawMessage(`{"source":"wy","action":"musicUrl","info":{"type":"320k","musicInfo":{"id":"1"}}}`)
 	input, _ := json.Marshal(lxWorkerRequest{Script: script, Operation: "resolve", Payload: payload})
 	var output bytes.Buffer
 	if code := RunLXSourceWorker(bytes.NewReader(input), &output); code != 0 { t.Fatalf("worker returned %d: %s", code, output.String()) }

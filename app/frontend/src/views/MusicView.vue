@@ -126,7 +126,7 @@ async function validateLXSource(source: LXSource) {
   try {
     const result = await MusicService.ValidateLXUserSource(source.id)
     lxValidation.value = { ...lxValidation.value, [source.id]: result }
-    success.value = `音源基础初始化通过：${source.name}；已声明平台：${result.platforms.join('、')}。播放地址解析接口仍在接入。`
+    success.value = `音源初始化通过：${source.name}；已声明来源：${result.platforms.join('、')}。脚本声明的 musicUrl 来源已接入播放解析。`
   } catch (reason) {
     delete lxValidation.value[source.id]
     error.value = reason instanceof Error ? reason.message : String(reason)
