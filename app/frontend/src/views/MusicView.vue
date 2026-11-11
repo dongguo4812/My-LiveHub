@@ -104,7 +104,7 @@ async function refreshLXSources() {
       }
     }))
     lxValidation.value = Object.fromEntries(entries.filter(
-      (entry): entry is NonNullable<typeof entry> => entry !== null,
+      (entry): entry is readonly [string, LXValidation] => entry !== null,
     ))
     refreshLXResolvableKeys()
   } catch (reason) {
