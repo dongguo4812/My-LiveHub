@@ -51,7 +51,9 @@ func installLXRequestAsyncWithProxyProvider(vm *goja.Runtime, lx *goja.Object, c
 		thisArg:=call.This
 		go func() {
 			defer cancel()
-			proxyConfig := config.LXUserSourceProxyConfig{}\n\t\t\tif proxyProvider != nil { proxyConfig = proxyProvider() }\n\t\t\tresponse,raw,err:=performLXRequestWithProxyConfigContext(ctx,rawURL,optionsMap,client,proxyConfig)
+			proxyConfig := config.LXUserSourceProxyConfig{}
+			if proxyProvider != nil { proxyConfig = proxyProvider() }
+			response,raw,err:=performLXRequestWithProxyConfigContext(ctx,rawURL,optionsMap,client,proxyConfig)
 			loop.enqueue(func() {
 				if onResult != nil { onResult(id, rawURL, response, err) }
 				var errValue goja.Value=goja.Null()
