@@ -24,7 +24,7 @@ var lxQQPart2 = []int{16,1,32,12,19,27,8,5}
 
 func lxQQSign(body []byte) string {
  sum:=sha1.Sum(body); h:=hex.EncodeToString(sum[:])
- pick:=func(indexes []int) string {var b strings.Builder;for _,i:=range indexes {b.WriteByte(h[i])};return b.String()}
+ pick:=func(indexes []int) string {var b strings.Builder;for _,i:=range indexes {if i>=0&&i<len(h){b.WriteByte(h[i])}};return b.String()}
  mixed:=make([]byte,len(lxQQScramble));for i,v:=range lxQQScramble {n,_:=strconv.ParseUint(h[i*2:i*2+2],16,8);mixed[i]=v^byte(n)}
  encoded:=base64.StdEncoding.EncodeToString(mixed)
  encoded=strings.NewReplacer("/","","+","","=","").Replace(encoded)
