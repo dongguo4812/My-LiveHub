@@ -630,3 +630,11 @@ func (s *MusicService) DeleteLXUserSource(id string) error {
 	if err != nil { return err }
 	return store.Delete(id)
 }
+
+func (s *MusicService) UpdateLXUserSource(id string) (music.LXUserSourceMetadata, error) {
+	store, err := s.lxUserSourceStore()
+	if err != nil { return music.LXUserSourceMetadata{}, err }
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	return store.Update(ctx, id)
+}
