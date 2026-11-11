@@ -358,8 +358,10 @@ func needleQueryString(value any, prefix string) (string, error) {
 		return strings.Join(parts, "&"), nil
 	case []interface{}:
 		parts := make([]string, 0, len(v))
+		itemPrefix := prefix
+		if prefix != "" { itemPrefix += "[]" }
 		for _, item := range v {
-			part, err := needleQueryString(item, prefix+"[]")
+			part, err := needleQueryString(item, itemPrefix)
 			if err != nil { return "", err }
 			if part != "" { parts = append(parts, part) }
 		}
