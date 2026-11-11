@@ -89,6 +89,22 @@ func TestMusicServiceSearchEnqueueAndPlay(t *testing.T) {
 	}
 }
 
+type serviceSearchOnlySource struct{ serviceTestSource }
+func (serviceSearchOnlySource) Capabilities() music.SourceCapabilities { return music.SourceCapabilities{Search:true, Resolve:false} }
+
+func TestMusicServiceCanEnqueueTrackWithoutPlaybackResolver(t *testing.T) {
+	sources := music.NewSourceRegistry()
+	if err := sources.Register(serviceSearchOnlySource{}); err != nil { t.Fatal(err) }
+	cfg := config.DefaultMusicConfig()
+	cfg.Enabled = true
+	cfg.Sources = map[string]bool{"test":true}
+	service := NewMusicServiceWithDependencies(nil, cfg, sources, &serviceTestEngine{state:music.PlaybackIdle, volume:80})
+	defer service.Shutdown()
+	track := music.Track{ID:"track-1", SourceID:"test", Title:"Search-only track"}
+	if _, err := service.Enqueue(track, "viewer"); err != nil { t.Fatalf("search-only track should be queueable before URL resolution: %v", err) }
+	if got := len(service.GetQueue().Items); got != 1 { t.Fatalf("expected one queued item, got %d", got) }
+}
+
 func TestMusicServiceRejectsDisabledSource(t *testing.T) {
 	service, _ := newTestMusicService(t, false)
 	_, err := service.Enqueue(music.Track{ID:"track-1", SourceID:"test", Title:"Test song"}, "")
