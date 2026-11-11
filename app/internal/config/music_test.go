@@ -7,8 +7,8 @@ func TestDefaultMusicConfigIsValid(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Enabled {
-		t.Fatal("music module should be opt-in by default")
+	if !cfg.Enabled {
+		t.Fatal("music module should be enabled by default")
 	}
 	if len(cfg.Sources) != 4 {
 		t.Fatalf("expected four independently configurable sources, got %d", len(cfg.Sources))
