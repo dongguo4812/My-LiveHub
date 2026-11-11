@@ -103,6 +103,6 @@ func TestLXBufferExposesCommonNodeBufferMethods(t *testing.T) {
   JSON.stringify(buf.toJSON())
 ].join("|")`)
 	if err != nil { t.Fatal(err) }
-	want := "6d757369632d736f75726365|music|6|true|{\\"type\\":\\"Buffer\\",\\"data\\":[109,117,115,105,99,45,115,111,117,114,99,101]}"
+	want := `6d757369632d736f75726365|music|6|true|{"type":"Buffer","data":[109,117,115,105,99,45,115,111,117,114,99,101]}`
 	if value.String() != want { t.Fatalf("Buffer compatibility result = %q, want %q", value.String(), want) }
 }
