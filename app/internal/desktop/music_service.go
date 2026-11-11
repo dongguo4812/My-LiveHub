@@ -417,9 +417,8 @@ func (s *MusicService) lxUserSourceStore() (*music.LXUserSourceStore, error) {
 	return s.lxStore, s.lxStoreErr
 }
 
-// GetLXUserSources lists imported LX-compatible source scripts. Importing does
-// not execute a script; execution is enabled only after the isolated runtime is
-// integrated and the source passes its runtime handshake.
+// GetLXUserSources lists imported LX-compatible source scripts. Scripts are
+// executed only when selected through SetActiveLXUserSource.
 func (s *MusicService) GetLXUserSources() ([]music.LXUserSourceMetadata, error) {
 	store, err := s.lxUserSourceStore()
 	if err != nil { return nil, err }
