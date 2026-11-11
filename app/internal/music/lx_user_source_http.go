@@ -115,31 +115,48 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 		}
 	}
 	requestBody := []byte(nil)
+	sendBody := false
 	if hasData && jsTruthy(data) {
+		jsonMode := !formMode && (jsTruthy(options["json"]) || (options["json"] != false && strings.EqualFold(strings.TrimSpace(contentType), "application/json")))
 		switch value := data.(type) {
-		case string:
-			requestBody = []byte(value)
 		case []byte:
 			requestBody = value
+			sendBody = true
+		case string:
+			if method == http.MethodGet && !jsonMode {
+				encoded, encodeErr := needleQueryString(value, "")
+				if encodeErr != nil { return nil, "", fmt.Errorf("LX request query 编码失败：%w", encodeErr) }
+				parsed.RawQuery = encoded
+			} else {
+				requestBody = []byte(value)
+				sendBody = true
+			}
 		case lxOrderedObject, map[string]interface{}, map[string]string, []interface{}:
-			jsonMode := !formMode && strings.EqualFold(strings.TrimSpace(contentType), "application/json")
-			if jsonMode {
+			if method == http.MethodGet && !jsonMode {
+				encoded, encodeErr := needleQueryString(value, "")
+				if encodeErr != nil { return nil, "", fmt.Errorf("LX request query 编码失败：%w", encodeErr) }
+				parsed.RawQuery = encoded
+			} else if jsonMode {
 				requestBody, err = json.Marshal(value)
 				if err != nil { return nil, "", fmt.Errorf("LX request body JSON 编码失败：%w", err) }
+				sendBody = true
 			} else {
 				encoded, encodeErr := needleQueryString(value, "")
 				if encodeErr != nil { return nil, "", fmt.Errorf("LX request body 表单编码失败：%w", encodeErr) }
-				if method == http.MethodGet {
-					parsed.RawQuery = encoded
-				} else {
-					requestBody = []byte(encoded)
-				}
+				requestBody = []byte(encoded)
+				sendBody = true
 			}
 		default:
-			requestBody = []byte(fmt.Sprint(value))
+			if method == http.MethodGet && !jsonMode {
+				encoded, encodeErr := needleQueryString(value, "")
+				if encodeErr != nil { return nil, "", fmt.Errorf("LX request query 编码失败：%w", encodeErr) }
+				parsed.RawQuery = encoded
+			} else {
+				requestBody = []byte(fmt.Sprint(value))
+				sendBody = true
+			}
 		}
 	}
-
 	timeout := lxRequestTimeout
 	if value, ok := options["timeout"]; ok {
 		if number, ok := value.(int64); ok && number > 0 { timeout = time.Duration(number) * time.Millisecond }
@@ -167,9 +184,10 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 			request.Header.Set(name, fmt.Sprint(value))
 		}
 	}
-	if len(requestBody) > 0 {
+	if sendBody {
 		if _, ok := request.Header["Content-Type"]; !ok {
-			if strings.EqualFold(strings.TrimSpace(contentType), "application/json") && !formMode {
+			jsonMode := !formMode && (jsTruthy(options["json"]) || (options["json"] != false && strings.EqualFold(strings.TrimSpace(contentType), "application/json")))
+			if jsonMode {
 				request.Header.Set("Content-Type", "application/json; charset=utf-8")
 			} else {
 				request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -253,6 +271,9 @@ func lxExportRequestValue(value goja.Value) any {
 	exported := value.Export()
 	object, isObject := value.(*goja.Object)
 	if !isObject { return exported }
+	if bufferData := object.Get("__lx_buffer_data"); bufferData != nil && !goja.IsUndefined(bufferData) {
+		if data, err := lxBufferBytes(value); err == nil { return data }
+	}
 	switch exported.(type) {
 	case []interface{}:
 		length := object.Get("length").ToInteger()
