@@ -887,6 +887,52 @@ func buildLXKugouQualities(data map[string]string) ([]any, map[string]any) {
 	return types, available
 }
 
+func buildLXKugouQualities(data map[string]string) ([]any, map[string]any) {
+	fields := []struct{ sizeKey, hashKey, name string }{
+		{"FileSize", "FileHash", "128k"}, {"HQFileSize", "HQFileHash", "320k"},
+		{"SQFileSize", "SQFileHash", "flac"}, {"ResFileSize", "ResFileHash", "flac24bit"},
+	}
+	types := make([]any, 0, len(fields))
+	available := make(map[string]any, len(fields))
+	for _, field := range fields {
+		size, err := strconv.ParseInt(strings.TrimSpace(data[field.sizeKey]), 10, 64)
+		hash := strings.TrimSpace(data[field.hashKey])
+		if err != nil || size <= 0 || hash == "" { continue }
+		label := formatLXFileSize(size)
+		types = append(types, map[string]any{"type": field.name, "size": label, "hash": hash})
+		available[field.name] = map[string]any{"size": label, "hash": hash}
+	}
+	return types, available
+}
+
+func buildLXNetEaseQualities(data map[string]string) ([]any, map[string]any) {
+	var privilege struct {
+		MaxBR int64 `json:"maxbr"`
+		MaxBRLevel string `json:"maxBrLevel"`
+	}
+	_ = json.Unmarshal([]byte(data["wy_privilege"]), &privilege)
+	fields := make([]struct{name, key string}, 0, 4)
+	if privilege.MaxBRLevel == "hires" { fields = append(fields, struct{name, key string}{"flac24bit", "wy_hr"}) }
+	switch privilege.MaxBR {
+	case 999000: fields = append(fields, struct{name, key string}{"flac", "wy_sq"}); fallthrough
+	case 320000: fields = append(fields, struct{name, key string}{"320k", "wy_h"}); fallthrough
+	case 192000, 128000: fields = append(fields, struct{name, key string}{"128k", "wy_l"})
+	}
+	types := make([]any, 0, len(fields))
+	available := make(map[string]any, len(fields))
+	for _, field := range fields {
+		var item struct { Size json.RawMessage `json:"size"` }
+		var size any
+		if raw := strings.TrimSpace(data[field.key]); raw != "" && json.Unmarshal([]byte(raw), &item) == nil && len(item.Size) > 0 && string(item.Size) != "null" {
+			var n int64
+			if json.Unmarshal(item.Size, &n) == nil && n > 0 { size = formatLXFileSize(n) }
+		}
+		types = append(types, map[string]any{"type": field.name, "size": size})
+		available[field.name] = map[string]any{"size": size}
+	}
+	return types, available
+}
+
 func buildLXKuwoQualities(raw string) ([]any, map[string]any) {
 	qualityByBitrate := map[string]string{"4000": "flac24bit", "2000": "flac", "320": "320k", "128": "128k"}
 	pattern := regexp.MustCompile(`level:(\w+),bitrate:(\d+),format:(\w+),size:([\w.]+)`)
