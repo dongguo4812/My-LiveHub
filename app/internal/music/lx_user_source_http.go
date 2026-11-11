@@ -43,7 +43,7 @@ func installLXRequestAsync(vm *goja.Runtime, lx *goja.Object, client *http.Clien
 		if options!=nil && !goja.IsUndefined(options) && !goja.IsNull(options) {
 			if exported,ok:=options.Export().(map[string]interface{}); ok { optionsMap=exported }
 		}
-		ctx,cancel:=context.WithCancel(context.Background())
+		ctx,cancel:=context.WithCancel(loop.ctx)
 		id:=requestID.Add(1)
 		thisArg:=call.This
 		go func() {
@@ -63,7 +63,7 @@ func installLXRequestAsync(vm *goja.Runtime, lx *goja.Object, client *http.Clien
 				if _,callbackErr:=callback(thisArg,errValue,responseValue,bodyValue); callbackErr!=nil { vm.Interrupt(callbackErr) }
 			})
 		}()
-		return vm.ToValue(func(goja.FunctionCall) goja.Value { cancel(); return vm.ToValue(id) })
+		return vm.ToValue(func(goja.FunctionCall) goja.Value { cancel(); return goja.Undefined() })
 	})
 }
 
