@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"regexp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -780,6 +781,21 @@ func buildLXMusicInfo(track music.Track, quality any) map[string]any {
 		info["lrcUrl"]=track.SourceData["lrcUrl"];info["mrcUrl"]=track.SourceData["mrcUrl"];info["trcUrl"]=track.SourceData["trcUrl"]
 		if types,available:=buildLXMiguQualities(track.SourceData["audio_formats_json"]);len(types)>0{info["types"],info["_types"]=types,available}else{info["types"],info["_types"]=[]any{},map[string]any{}}
 	}
+	if strings.TrimSpace(track.LXSourceKey) == "kw" {
+		info["source"] = "kw"
+		info["songmid"] = strings.TrimSpace(track.ID)
+		info["albumId"] = track.SourceData["albumId"]
+		info["albumName"] = track.Album
+		info["name"] = track.Title
+		info["singer"] = track.Artist
+		info["interval"] = formatLXInterval(seconds)
+		info["img"] = nil
+		if types, available := buildLXKuwoQualities(track.SourceData["N_MINFO"]); len(types) > 0 {
+			info["types"], info["_types"] = types, available
+		} else {
+			info["types"], info["_types"] = []any{}, map[string]any{}
+		}
+	}
 	if strings.TrimSpace(track.LXSourceKey) == "tx" {
 		songMid := strings.TrimSpace(track.ID)
 		mediaMid := strings.TrimSpace(track.SourceData["media_mid"])
@@ -841,6 +857,25 @@ func buildLXQQQualities(data map[string]string) ([]any, map[string]any) {
 	return types, available
 }
 
+func buildLXKuwoQualities(raw string) ([]any, map[string]any) {
+	qualityByBitrate := map[string]string{"4000": "flac24bit", "2000": "flac", "320": "320k", "128": "128k"}
+	pattern := regexp.MustCompile(`level:(\\w+),bitrate:(\\d+),format:(\\w+),size:([\\w.]+)`)
+	types := make([]any, 0, len(qualityByBitrate))
+	available := make(map[string]any, len(qualityByBitrate))
+	for _, entry := range strings.Split(raw, ";") {
+		match := pattern.FindStringSubmatch(entry)
+		if len(match) != 5 { continue }
+		name := qualityByBitrate[match[2]]
+		if name == "" { continue }
+		types = append(types, map[string]any{"type": name, "size": match[4]})
+		available[name] = map[string]any{"size": strings.ToUpper(match[4])}
+	}
+	for left, right := 0, len(types)-1; left < right; left, right = left+1, right-1 {
+		types[left], types[right] = types[right], types[left]
+	}
+	return types, available
+}
+
 func buildLXMiguQualities(raw string)([]any,map[string]any){
  var formats []map[string]json.RawMessage
  if strings.TrimSpace(raw)==""||json.Unmarshal([]byte(raw),&formats)!=nil{return []any{},map[string]any{}}
@@ -875,6 +910,14 @@ func selectLXQuality(qualities []string, local bool, track music.Track) any {
 		for _, preferred := range []string{"320k", "flac24bit", "flac", "128k"} {
 			if _, exists := available[preferred]; !exists { continue }
 			if containsString(qualities, preferred) { return preferred }
+		}
+		return nil
+	}
+	if track.LXSourceKey == "kw" {
+		_, available := buildLXKuwoQualities(track.SourceData["N_MINFO"])
+		if len(available) == 0 { return nil }
+		for _, preferred := range []string{"320k", "flac24bit", "flac", "128k"} {
+			if _, exists := available[preferred]; exists && containsString(qualities, preferred) { return preferred }
 		}
 		return nil
 	}
