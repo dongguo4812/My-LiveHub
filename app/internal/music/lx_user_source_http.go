@@ -187,7 +187,19 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 		defer transport.CloseIdleConnections()
 	}
 	resp, err := client.Do(request)
-	if err != nil { return nil, "", fmt.Errorf("LX request 请求失败：%w", err) }
+	if err != nil {
+		// net/http wraps transport errors in url.Error, whose Error() string
+		// includes the full request URL (including signed query parameters).
+		// Keep the useful transport cause while exposing only a sanitized endpoint.
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) && urlErr.Err != nil {
+			if endpoint := safeLXRequestEndpoint(rawURL); endpoint != "" {
+				return nil, "", fmt.Errorf("LX request 请求失败（%s）：%w", endpoint, urlErr.Err)
+			}
+			return nil, "", fmt.Errorf("LX request 请求失败：%w", urlErr.Err)
+		}
+		return nil, "", errors.New("LX request 请求失败")
+	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, lxRequestBodyLimit+1))
 	if err != nil { return nil, "", fmt.Errorf("读取 LX request 响应失败：%w", err) }
