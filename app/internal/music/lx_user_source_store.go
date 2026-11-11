@@ -159,7 +159,7 @@ func (s *LXUserSourceStore) importURL(ctx context.Context, rawURL string, reject
 	if response.ContentLength > MaxLXUserSourceBytes { return LXUserSourceMetadata{}, errors.New("LX 音源脚本超过 9 MB 限制") }
 	data, err := io.ReadAll(io.LimitReader(response.Body, MaxLXUserSourceBytes+1))
 	if err != nil { return LXUserSourceMetadata{}, fmt.Errorf("读取音源脚本失败：%w", err) }
-	if len(data) > MaxLXUserSourceBytes { return LXUserSourceMetadata{}, errors.New("LX 音源脚本超过 1 MB 限制") }
+	if len(data) > MaxLXUserSourceBytes { return LXUserSourceMetadata{}, errors.New("LX 音源脚本超过 9 MB 限制") }
 	return s.importScript(string(data), parsed.String(), rejectDuplicate)
 }
 
@@ -215,7 +215,7 @@ func (s *LXUserSourceStore) ReadScript(id string) (string, error) {
 	}
 	data, err := os.ReadFile(filepath.Join(s.dir, id+".js"))
 	if err != nil { return "", fmt.Errorf("读取音源脚本失败：%w", err) }
-	if len(data) == 0 || len(data) > MaxLXUserSourceBytes { return "", errors.New("LX 音源脚本为空或超过 1 MB 限制") }
+	if len(data) == 0 || len(data) > MaxLXUserSourceBytes { return "", errors.New("LX 音源脚本为空或超过 9 MB 限制") }
 	return string(data), nil
 }
 
