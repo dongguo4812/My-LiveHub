@@ -98,3 +98,25 @@ lx.on(lx.EVENT_NAMES.request, function () { return new Promise(function () {}); 
 	if err := json.Unmarshal(output.Bytes(), &response); err != nil { t.Fatal(err) }
 	if !strings.Contains(response.Error, "Promise 尚未完成") { t.Fatalf("unexpected error: %q", response.Error) }
 }
+
+
+func TestRunLXSourceWorkerProvidesSafeLXRequestBridge(t *testing.T) {
+	script := `lx.send(lx.EVENT_NAMES.inited, { sources: { wy: { name: "网易云音乐", actions: ["musicUrl"], qualitys: ["standard"] } } });
+lx.on(lx.EVENT_NAMES.request, function () {
+  return new Promise(function (resolve) {
+    lx.request("http://127.0.0.1/private", {}, function (err) {
+      resolve(String(err));
+    });
+  });
+});`
+	payload := json.RawMessage(`{"source":"wy","action":"musicUrl","info":{"type":"wy","musicInfo":{"id":"1"}}}`)
+	input, _ := json.Marshal(lxWorkerRequest{Script: script, Operation: "resolve", Payload: payload})
+	var output bytes.Buffer
+	if code := RunLXSourceWorker(bytes.NewReader(input), &output); code != 0 { t.Fatalf("worker returned %d: %s", code, output.String()) }
+	var response lxWorkerResponse
+	if err := json.Unmarshal(output.Bytes(), &response); err != nil { t.Fatal(err) }
+	if response.Error != "" { t.Fatal(response.Error) }
+	var message string
+	if err := json.Unmarshal(response.Value, &message); err != nil { t.Fatal(err) }
+	if !strings.Contains(message, "不允许访问本机或内网地址") { t.Fatalf("private request was not blocked: %q", message) }
+}
