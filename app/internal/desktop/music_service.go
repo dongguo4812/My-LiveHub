@@ -870,21 +870,10 @@ func buildLXQQQualities(data map[string]string) ([]any, map[string]any) {
 	return types, available
 }
 
-func buildLXKugouQualities(data map[string]string) ([]any, map[string]any) {
-	fields := []struct{ sizeKey, hashKey, name string }{
-		{"FileSize", "FileHash", "128k"}, {"HQFileSize", "HQFileHash", "320k"},
-		{"SQFileSize", "SQFileHash", "flac"}, {"ResFileSize", "ResFileHash", "flac24bit"},
-	}
-	types := make([]any, 0, len(fields)); available := make(map[string]any, len(fields))
-	for _, field := range fields {
-		size, err := strconv.ParseInt(strings.TrimSpace(data[field.sizeKey]), 10, 64)
-		hash := strings.TrimSpace(data[field.hashKey])
-		if err != nil || size <= 0 || hash == "" { continue }
-		label := formatLXFileSize(size)
-		types = append(types, map[string]any{"type":field.name,"size":label,"hash":hash})
-		available[field.name] = map[string]any{"size":label,"hash":hash}
-	}
-	return types, available
+func lxNumericID(raw string) any {
+	value, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil { return raw }
+	return value
 }
 
 func buildLXKugouQualities(data map[string]string) ([]any, map[string]any) {
@@ -897,7 +886,7 @@ func buildLXKugouQualities(data map[string]string) ([]any, map[string]any) {
 	for _, field := range fields {
 		size, err := strconv.ParseInt(strings.TrimSpace(data[field.sizeKey]), 10, 64)
 		hash := strings.TrimSpace(data[field.hashKey])
-		if err != nil || size <= 0 || hash == "" { continue }
+		if err != nil || size <= 0 { continue }
 		label := formatLXFileSize(size)
 		types = append(types, map[string]any{"type": field.name, "size": label, "hash": hash})
 		available[field.name] = map[string]any{"size": label, "hash": hash}
@@ -929,6 +918,9 @@ func buildLXNetEaseQualities(data map[string]string) ([]any, map[string]any) {
 		}
 		types = append(types, map[string]any{"type": field.name, "size": size})
 		available[field.name] = map[string]any{"size": size}
+	}
+	for left, right := 0, len(types)-1; left < right; left, right = left+1, right-1 {
+		types[left], types[right] = types[right], types[left]
 	}
 	return types, available
 }
