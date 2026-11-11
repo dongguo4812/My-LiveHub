@@ -64,22 +64,25 @@ func InspectLXUserSource(parent context.Context, script string) (LXSourceRuntime
 		return LXSourceRuntimeResult{}, err
 	}
 	command.Stdin = bytes.NewReader(request)
-	output, err := command.Output()
+	output, runErr := command.Output()
 	if ctx.Err() != nil {
 		return LXSourceRuntimeResult{}, fmt.Errorf("LX 音源执行超时（%s）", lxWorkerTimeout)
-	}
-	if err != nil {
-		return LXSourceRuntimeResult{}, fmt.Errorf("LX 音源隔离进程执行失败：%w", err)
 	}
 	if len(output) > lxWorkerOutputLimit {
 		return LXSourceRuntimeResult{}, errors.New("LX 音源运行结果超过大小限制")
 	}
 	var response lxWorkerResponse
 	if err := json.Unmarshal(output, &response); err != nil {
+		if runErr != nil {
+			return LXSourceRuntimeResult{}, fmt.Errorf("LX 音源隔离进程执行失败：%w", runErr)
+		}
 		return LXSourceRuntimeResult{}, fmt.Errorf("读取 LX 音源运行结果失败：%w", err)
 	}
 	if response.Error != "" {
 		return LXSourceRuntimeResult{}, errors.New(response.Error)
+	}
+	if runErr != nil {
+		return LXSourceRuntimeResult{}, fmt.Errorf("LX 音源隔离进程执行失败：%w", runErr)
 	}
 	if !response.Result.Initialized || len(response.Result.Platforms) == 0 {
 		return LXSourceRuntimeResult{}, errors.New("LX 音源未声明可用平台")
