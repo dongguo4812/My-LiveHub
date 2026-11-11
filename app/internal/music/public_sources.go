@@ -451,7 +451,7 @@ func(s *MiguSource)SearchPage(ctx context.Context,keyword string,page,limit int)
  endpoint,err:=url.Parse(s.baseURL);if err!=nil{return SourceSearchPage{},err};q:=endpoint.Query()
  q.Set("isCorrect","0");q.Set("isCopyright","1");q.Set("searchSwitch","{\"song\":1,\"album\":0,\"singer\":0,\"tagSong\":1,\"mvSong\":0,\"bestShow\":1,\"songlist\":0,\"lyricSong\":0}")
  q.Set("pageSize",strconv.Itoa(limit));q.Set("text",keyword);q.Set("pageNo",strconv.Itoa(page));q.Set("sort","0");q.Set("sid","USS");endpoint.RawQuery=q.Encode()
- var payload struct{Code string json:"code";Info string json:"info";SongResultData struct{TotalCount json.RawMessage json:"totalCount";ResultList [][]map[string]json.RawMessage json:"resultList"} json:"songResultData"}
+ var payload struct{Code string `json:"code"`;Info string `json:"info"`;SongResultData struct{TotalCount json.RawMessage `json:"totalCount"`;ResultList [][]map[string]json.RawMessage `json:"resultList"`} `json:"songResultData"`}
  err=requestSourceJSON(ctx,s.client,endpoint.String(),map[string]string{"uiVersion":"A_music_3.6.1","deviceId":device,"timestamp":stamp,"sign":sign,"channel":"0146921","User-Agent":"Mozilla/5.0 (Linux; U; Android 11.0.0; zh-cn; MI 11 Build/OPR1.170623.032) AppleWebKit/534.30 (KHTML, like Gecko) Version/4.0 Mobile Safari/534.30"},&payload)
  if err!=nil{return SourceSearchPage{},fmt.Errorf("search Migu Music: %w",err)};if payload.Code!="000000"{return SourceSearchPage{},fmt.Errorf("Migu Music search returned %s: %s",payload.Code,strings.TrimSpace(payload.Info))}
  tracks:=make([]Track,0,limit);seen:=map[string]struct{}{}

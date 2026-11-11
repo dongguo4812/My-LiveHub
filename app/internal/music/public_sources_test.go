@@ -76,7 +76,7 @@ func TestKuwoSourceSearchPage(t *testing.T) {
 }
 
 func TestSearchOnlySourcesCannotResolvePlayback(t *testing.T) {
-	sources := []Source{NewQQMusicSource(nil, ""), NewKugouSource(nil, ""), NewKuwoSource(nil, "")}
+	sources := []Source{NewQQMusicSource(nil, ""), NewKugouSource(nil, ""), NewKuwoSource(nil, ""), NewMiguSource(nil, "")}
 	for _, source := range sources {
 		if !source.Capabilities().Search || source.Capabilities().Resolve {
 			t.Errorf("unexpected capabilities for %s: %#v", source.ID(), source.Capabilities())
