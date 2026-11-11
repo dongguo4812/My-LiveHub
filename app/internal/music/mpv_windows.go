@@ -19,6 +19,10 @@ import (
 	"time"
 )
 
+var mpvInstanceSequence atomic.Uint64
+
+const mpvVideoWindowTitle = "My-LiveHub MV"
+
 type MpvEngine struct {
 	lifecycleMu sync.Mutex
 	mu sync.RWMutex
@@ -32,10 +36,17 @@ type MpvEngine struct {
 	loadStartedAt time.Time
 	volume int
 	audioOutput string // Optional mpv audio output override, used by deterministic integration tests.
+	videoOutput bool
 }
 
 func NewMpvEngine(executable string) *MpvEngine {
 	return &MpvEngine{executable: strings.TrimSpace(executable), volume: 80}
+}
+
+// NewMpvVideoEngine creates a separate mpv process that renders video in a
+// dedicated borderless window. It never shares the audio engine's IPC pipe.
+func NewMpvVideoEngine(executable string) *MpvEngine {
+	return &MpvEngine{executable: strings.TrimSpace(executable), volume: 80, videoOutput: true}
 }
 
 func (e *MpvEngine) Validate() error {
@@ -84,12 +95,12 @@ func (e *MpvEngine) Start(ctx context.Context) error {
 	e.mu.Unlock()
 
 
-	pipePath := fmt.Sprintf("\\\\.\\pipe\\my-livehub-mpv-%d", os.Getpid())
-	args := []string{
-		"--no-config", "--no-video", "--force-window=no", "--terminal=no",
-		"--idle=yes", "--keep-open=no", "--really-quiet",
-		"--input-ipc-server="+pipePath,
-	}
+	e.mu.RLock()
+	videoOutput := e.videoOutput
+	e.mu.RUnlock()
+	instanceID := mpvInstanceSequence.Add(1)
+	pipePath := fmt.Sprintf("\\\\.\\pipe\\my-livehub-mpv-%d-%d", os.Getpid(), instanceID)
+	args := buildMpvArgs(pipePath, videoOutput)
 	e.mu.RLock()
 	audioOutput := strings.TrimSpace(e.audioOutput)
 	e.mu.RUnlock()
@@ -145,6 +156,34 @@ func (e *MpvEngine) Start(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+
+func buildMpvArgs(pipePath string, videoOutput bool) []string {
+	args := []string{
+		"--no-config",
+		"--terminal=no",
+		"--idle=yes",
+		"--keep-open=no",
+		"--really-quiet",
+		"--input-ipc-server=" + pipePath,
+	}
+	if !videoOutput {
+		return append(args, "--no-video", "--force-window=no")
+	}
+	// This is a video surface, not an mpv player UI: no decorations, OSD,
+	// OSC controls, playlist UI, or default keyboard controls.
+	return append(args,
+		"--force-window=yes",
+		"--no-border",
+		"--title="+mpvVideoWindowTitle,
+		"--geometry=1280x720+100+100",
+		"--osd-level=0",
+		"--osd-bar=no",
+		"--no-osc",
+		"--input-default-bindings=no",
+		"--input-vo-keyboard=no",
+	)
 }
 
 func (e *MpvEngine) commandIPC(ctx context.Context, args ...any) (json.RawMessage, error) {
