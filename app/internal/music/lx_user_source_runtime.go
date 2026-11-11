@@ -351,6 +351,16 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 				return vm.ToValue(promise)
 			}
 			updateAlertSent = true
+			data, ok := call.Argument(1).Export().(map[string]interface{})
+			if !ok {
+				_ = reject(vm.NewGoError(errors.New("parameter format error.")))
+				return vm.ToValue(promise)
+			}
+			logText, ok := data["log"].(string)
+			if !ok || logText == "" {
+				_ = reject(vm.NewGoError(errors.New("log is required.")))
+				return vm.ToValue(promise)
+			}
 			_ = resolve(goja.Undefined())
 			return vm.ToValue(promise)
 		}
