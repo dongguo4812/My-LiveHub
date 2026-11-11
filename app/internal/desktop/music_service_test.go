@@ -225,11 +225,15 @@ func TestLXQQMusicInfoMatchesLXMusicFlatContract(t *testing.T) {
 		t.Fatalf("QQ musicInfo does not match LX Music flat fields: %#v", info)
 	}
 	types, ok := info["types"].([]any)
-	if !ok || len(types) != 1 || types[0].(map[string]any)["type"] != "320k" || types[0].(map[string]any)["size"] != nil {
+	if !ok || len(types) != 3 || types[0].(map[string]any)["type"] != "128k" ||
+		types[0].(map[string]any)["size"] != "1.00M" ||
+		types[1].(map[string]any)["type"] != "320k" ||
+		types[1].(map[string]any)["size"] != "2.00M" ||
+		types[2].(map[string]any)["type"] != "flac24bit" {
 		t.Fatalf("unexpected QQ types: %#v", info["types"])
 	}
 	available, ok := info["_types"].(map[string]any)
-	if !ok || len(available) != 1 || available["320k"].(map[string]any)["size"] != nil {
+	if !ok || len(available) != 3 || available["320k"].(map[string]any)["size"] != "2.00M" {
 		t.Fatalf("unexpected QQ _types: %#v", info["_types"])
 	}
 	if info["id"] != "song-mid" || info["mid"] != "song-mid" {
@@ -237,14 +241,14 @@ func TestLXQQMusicInfoMatchesLXMusicFlatContract(t *testing.T) {
 	}
 }
 
-func TestLXQQMusicInfoUsesSongMidWhenMediaMidIsMissing(t *testing.T) {
+func TestLXQQMusicInfoDoesNotFabricateMediaMid(t *testing.T) {
 	track := music.Track{
 		ID: "song-mid", LXSourceKey: "tx", Title: "稻香", Artist: "周杰伦",
 		SourceData: map[string]string{"id": "123456", "albummid": "album-mid"},
 	}
 	info := buildLXMusicInfo(track, "128k")
-	if info["strMediaMid"] != "song-mid" {
-		t.Fatalf("strMediaMid must fall back to songmid, got %#v", info["strMediaMid"])
+	if info["strMediaMid"] != "" {
+		t.Fatalf("strMediaMid must preserve the missing provider value, got %#v", info["strMediaMid"])
 	}
 	if info["albumId"] != "album-mid" {
 		t.Fatalf("QQ flat albumId must match albumMid, got %#v", info["albumId"])
