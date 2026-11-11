@@ -37,7 +37,7 @@ func installLXRequestWithClient(vm *goja.Runtime, lx *goja.Object, client *http.
 		if !ok {
 			return vm.ToValue("LX request callback is required")
 		}
-		response, body, err := performLXRequestWithClient(rawURL, call.Argument(1), client)
+		response, _, err := performLXRequestWithClient(rawURL, call.Argument(1), client)
 		var errorValue goja.Value = goja.Null()
 		if err != nil {
 			errorValue = vm.ToValue(err.Error())
