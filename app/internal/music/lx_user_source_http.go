@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"mime/multipart"
 	"strings"
 	"time"
 
@@ -44,7 +45,9 @@ func installLXRequestWithClient(vm *goja.Runtime, lx *goja.Object, client *http.
 		if callbackErr != nil {
 			return vm.ToValue(callbackErr.Error())
 		}
-		return goja.Undefined()
+		// LX exposes a cancellation function. Requests currently complete
+		// synchronously in the isolated worker, so cancellation is a safe no-op.
+		return vm.ToValue(func(goja.FunctionCall) goja.Value { return goja.Undefined() })
 	})
 }
 
@@ -80,8 +83,19 @@ func performLXRequestWithClient(rawURL string, optionsValue goja.Value, client *
 		for key, value := range form { values.Set(key, fmt.Sprint(value)) }
 		requestBody = []byte(values.Encode())
 	}
-	if _, ok := options["formData"]; ok {
-		return nil, "", errors.New("LX request formData 暂不支持；请使用 form 或 body")
+	if formData, ok := options["formData"].(map[string]interface{}); ok {
+		var multipartBody bytes.Buffer
+		writer := multipart.NewWriter(&multipartBody)
+		for key, value := range formData {
+			if err := writer.WriteField(key, fmt.Sprint(value)); err != nil {
+				return nil, "", fmt.Errorf("LX request formData 字段 %q 无效：%w", key, err)
+			}
+		}
+		if err := writer.Close(); err != nil { return nil, "", fmt.Errorf("LX request formData 编码失败：%w", err) }
+		requestBody = multipartBody.Bytes()
+		options["__lx_content_type"] = writer.FormDataContentType()
+	} else if _, exists := options["formData"]; exists {
+		return nil, "", errors.New("LX request formData 必须是普通对象")
 	}
 	if len(requestBody) > lxRequestBodyLimit { return nil, "", errors.New("LX request 请求体超过 2 MB 限制") }
 
@@ -103,7 +117,11 @@ func performLXRequestWithClient(rawURL string, optionsValue goja.Value, client *
 		}
 	}
 	if _, ok := request.Header["Content-Type"]; !ok && len(requestBody) > 0 {
-		if _, form := options["form"].(map[string]interface{}); form { request.Header.Set("Content-Type", "application/x-www-form-urlencoded") }
+		if contentType, ok := options["__lx_content_type"].(string); ok {
+			request.Header.Set("Content-Type", contentType)
+		} else if _, form := options["form"].(map[string]interface{}); form {
+			request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		}
 	}
 
 	if client == nil {
