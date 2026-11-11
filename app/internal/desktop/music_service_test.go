@@ -213,6 +213,7 @@ func TestLXQQMusicInfoMatchesLXMusicFlatContract(t *testing.T) {
 		DurationMS: 223000, CoverURL: "https://img.example/cover.jpg",
 		SourceData: map[string]string{
 			"id": "123456", "media_mid": "media-mid", "albummid": "album-mid", "albumid": "789",
+			"interval": "223", // QQ API seconds must not overwrite LX's mm:ss value.
 			"size_128mp3": "1048576", "size_320mp3": "2097152",
 			"size_flac": "0", "size_hires": "4194304",
 		},
@@ -221,7 +222,7 @@ func TestLXQQMusicInfoMatchesLXMusicFlatContract(t *testing.T) {
 	if info["source"] != "tx" || info["songmid"] != "song-mid" || info["songId"] != int64(123456) ||
 		info["strMediaMid"] != "media-mid" || info["albumMid"] != "album-mid" ||
 		info["albumId"] != "album-mid" || info["albumName"] != "魔杰座" ||
-		info["img"] != track.CoverURL || info["interval"] != "03:43" {
+		info["img"] != track.CoverURL || info["interval"] != "03:43" || info["duration"] != int64(223) {
 		t.Fatalf("QQ musicInfo does not match LX Music flat fields: %#v", info)
 	}
 	types, ok := info["types"].([]any)
