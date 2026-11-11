@@ -22,7 +22,7 @@ func TestChooseLXTrackQualityHonorsExplicitSelection(t *testing.T) {
 	if _, err := chooseLXTrackQuality(track, music.LXDeclaredSource{Qualitys:[]string{"flac"}}); err == nil { t.Fatal("expected unsupported selected quality error") }
 }
 
-func decodeLXRequest(t *testing.T, track music.Track, selected music.TrackQuality) (map[string]any, map[string]any, map[string]any) {
+func decodeLXRequest(t *testing.T, track music.Track, selected music.TrackQuality) (map[string]any, map[string]any) {
 	t.Helper()
 	payload, err := buildLXMusicURLRequest(track, selected)
 	if err != nil { t.Fatal(err) }
@@ -32,53 +32,56 @@ func decodeLXRequest(t *testing.T, track music.Track, selected music.TrackQualit
 	if !ok { t.Fatalf("LX request info envelope missing: %#v", request) }
 	musicInfo, ok := info["musicInfo"].(map[string]any)
 	if !ok { t.Fatalf("LX request info.musicInfo missing: %#v", info) }
-	meta, ok := musicInfo["meta"].(map[string]any)
-	if !ok { t.Fatalf("LX musicInfo.meta missing: %#v", musicInfo) }
 	if info["type"] != selected.Type { t.Fatalf("selected type = %#v, want %q", info["type"], selected.Type) }
 	if request["action"] != "musicUrl" || request["source"] != track.SourceID { t.Fatalf("wrong request envelope: %#v", request) }
-	if musicInfo["id"] != track.ID { t.Fatalf("LX MusicInfo id = %#v, want %q", musicInfo["id"], track.ID) }
-	if musicInfo["name"] != track.Title || musicInfo["singer"] != track.Artist || musicInfo["source"] != track.SourceID {
-		t.Fatalf("wrong LX MusicInfo base fields: %#v", musicInfo)
+	if musicInfo["source"] != track.SourceID || musicInfo["name"] != track.Title || musicInfo["singer"] != track.Artist {
+		t.Fatalf("wrong legacy LX MusicInfo fields: %#v", musicInfo)
 	}
-	return info, musicInfo, meta
+	if _, exists := musicInfo["meta"]; exists { t.Fatalf("source script contract must be legacy top-level fields, got meta: %#v", musicInfo) }
+	if musicInfo["typeUrl"] == nil || musicInfo["types"] == nil || musicInfo["_types"] == nil {
+		t.Fatalf("legacy typeUrl/types/_types fields missing: %#v", musicInfo)
+	}
+	return info, musicInfo
 }
 
-func TestBuildLXMusicURLRequestUsesNestedLXMusicInfoContract(t *testing.T) {
+func TestBuildLXMusicURLRequestUsesLegacySourceScriptContract(t *testing.T) {
 	track := music.Track{
-		ID:"tx_mid-1", SourceID:"tx", LXSourceKey:"tx", Title:"歌曲", Artist:"歌手", Album:"专辑", DurationMS:182000,
+		ID:"tx_mid-1", SourceID:"tx", LXSourceKey:"tx", Title:"歌曲", Artist:"歌手", Album:"专辑", CoverURL:"https://img.test/a.jpg", DurationMS:182000,
 		SourceData:map[string]string{"songmid":"mid-1","song_id":"123","media_mid":"media-1","album_mid":"album-1","album_id":"album-1"},
 		Qualities:[]music.TrackQuality{{Type:"128k"},{Type:"320k"}},
 	}
-	_, musicInfo, meta := decodeLXRequest(t, track, music.TrackQuality{Type:"320k"})
-	if musicInfo["interval"] != "03:02" { t.Fatalf("wrong interval: %#v", musicInfo["interval"]) }
-	if meta["songId"] != "mid-1" || meta["strMediaMid"] != "media-1" || meta["id"] != float64(123) || meta["albumMid"] != "album-1" {
-		t.Fatalf("native QQ metadata missing: %#v", meta)
+	_, info := decodeLXRequest(t, track, music.TrackQuality{Type:"320k"})
+	if info["songmid"] != "mid-1" || info["strMediaMid"] != "media-1" || info["songId"] != float64(123) || info["albumMid"] != "album-1" {
+		t.Fatalf("native QQ fields must be top-level for LX source scripts: %#v", info)
 	}
-	qualityMap, ok := meta["_qualitys"].(map[string]any)
-	if !ok || qualityMap["320k"] == nil { t.Fatalf("LX _qualitys metadata missing: %#v", meta["_qualitys"]) }
-	qualityList, ok := meta["qualitys"].([]any)
-	if !ok || len(qualityList) != 2 { t.Fatalf("LX qualitys list missing: %#v", meta["qualitys"]) }
+	if info["interval"] != "03:02" || info["albumName"] != "专辑" || info["img"] != "https://img.test/a.jpg" {
+		t.Fatalf("legacy common fields missing: %#v", info)
+	}
+	if _, exists := info["id"]; exists { t.Fatalf("legacy toOldMusicInfo does not expose id: %#v", info) }
+	qualityMap, ok := info["_types"].(map[string]any)
+	if !ok || qualityMap["320k"] == nil { t.Fatalf("LX _types metadata missing: %#v", info["_types"]) }
+	qualityList, ok := info["types"].([]any)
+	if !ok || len(qualityList) != 2 { t.Fatalf("LX types list missing: %#v", info["types"]) }
 }
-
 
 func TestLXMusicInfoIntervalMatchesSourceSpecificNullBehavior(t *testing.T) {
 	track := music.Track{ID:"tx_zero", SourceID:"tx", LXSourceKey:"tx", SourceData:map[string]string{"songmid":"zero"}}
-	_, musicInfo, _ := decodeLXRequest(t, track, music.TrackQuality{Type:"128k"})
-	if musicInfo["interval"] != nil { t.Fatalf("QQ zero interval should be null, got %#v", musicInfo["interval"]) }
+	_, info := decodeLXRequest(t, track, music.TrackQuality{Type:"128k"})
+	if info["interval"] != nil { t.Fatalf("QQ zero interval should be null, got %#v", info["interval"]) }
 	track.SourceID = "kw"; track.LXSourceKey = "kw"; track.ID = "kw_zero"
-	_, musicInfo, _ = decodeLXRequest(t, track, music.TrackQuality{Type:"128k"})
-	if musicInfo["interval"] != "--/--" { t.Fatalf("non-QQ zero interval should use LX placeholder, got %#v", musicInfo["interval"]) }
+	_, info = decodeLXRequest(t, track, music.TrackQuality{Type:"128k"})
+	if info["interval"] != "--/--" { t.Fatalf("non-QQ zero interval should use LX placeholder, got %#v", info["interval"]) }
 }
 
-func TestBuildLXMusicURLRequestMapsMiguCopyrightAndLyrics(t *testing.T) {
+func TestBuildLXMusicURLRequestMapsMiguCopyrightAndLyricsAtTopLevel(t *testing.T) {
 	track := music.Track{
-		ID:"mg_1", SourceID:"mg", Title:"歌", Album:"专辑",
-		SourceData:map[string]string{"songmid":"1","copyright_id":"copyright-1","lrc_url":"lrc","mrc_url":"mrc","trc_url":"trc"},
+		ID:"mg_1", SourceID:"mg", LXSourceKey:"mg", Title:"歌", Album:"专辑",
+		SourceData:map[string]string{"songmid":"1","copyright_id":"copyright-1","album_id":"album-1","lrc_url":"lrc","mrc_url":"mrc","trc_url":"trc"},
 		Qualities:[]music.TrackQuality{{Type:"128k"}},
 	}
-	_, _, meta := decodeLXRequest(t, track, music.TrackQuality{Type:"128k"})
-	for key, want := range map[string]string{"copyrightId":"copyright-1","lrcUrl":"lrc","mrcUrl":"mrc","trcUrl":"trc"} {
-		if meta[key] != want { t.Errorf("%s = %#v, want %q", key, meta[key], want) }
+	_, info := decodeLXRequest(t, track, music.TrackQuality{Type:"128k"})
+	for key, want := range map[string]string{"copyrightId":"copyright-1","albumId":"album-1","lrcUrl":"lrc","mrcUrl":"mrc","trcUrl":"trc"} {
+		if info[key] != want { t.Errorf("%s = %#v, want %q", key, info[key], want) }
 	}
 }
 
@@ -89,25 +92,24 @@ func TestBuildLXMusicURLRequestPreservesPlatformNativeFieldsAndHashes(t *testing
 		selected music.TrackQuality
 		want map[string]string
 	}{
-		{"kuwo", music.Track{ID:"kw_kw-id",SourceID:"kw",LXSourceKey:"kw",Title:"song",SourceData:map[string]string{"songmid":"kw-id","album_id":"kw-album"},Qualities:[]music.TrackQuality{{Type:"flac",Size:"5.0mb"}}}, music.TrackQuality{Type:"flac"}, map[string]string{"songId":"kw-id","albumId":"kw-album"}},
-		{"kugou", music.Track{ID:"kg-id_base-hash",SourceID:"kg",LXSourceKey:"kg",Title:"song",SourceData:map[string]string{"songmid":"kg-id","hash":"base-hash","album_id":"kg-album","album_audio_id":"audio-id"},Qualities:[]music.TrackQuality{{Type:"320k",SourceData:map[string]string{"hash":"320-hash"}}}}, music.TrackQuality{Type:"320k",SourceData:map[string]string{"hash":"320-hash"}}, map[string]string{"songId":"kg-id","hash":"base-hash","albumId":"kg-album","albumAudioId":"audio-id"}},
-		{"qq", music.Track{ID:"tx_tx-id",SourceID:"tx",LXSourceKey:"tx",Title:"song",SourceData:map[string]string{"songmid":"tx-id","song_id":"123","media_mid":"media-id","album_mid":"album-mid","album_id":"album-mid"}}, music.TrackQuality{Type:"320k"}, map[string]string{"songId":"tx-id","strMediaMid":"media-id","albumMid":"album-mid"}},
-		{"netease", music.Track{ID:"wy_wy-id",SourceID:"wy",LXSourceKey:"wy",Title:"song",SourceData:map[string]string{"songmid":"wy-id","album_id":"wy-album"}}, music.TrackQuality{Type:"flac"}, map[string]string{"songId":"wy-id","albumId":"wy-album"}},
-		{"migu", music.Track{ID:"mg_mg-id",SourceID:"mg",LXSourceKey:"mg",Title:"song",SourceData:map[string]string{"songmid":"mg-id","copyright_id":"copyright","album_id":"mg-album","lrc_url":"lrc","mrc_url":"mrc","trc_url":"trc"}}, music.TrackQuality{Type:"128k"}, map[string]string{"songId":"mg-id","copyrightId":"copyright","albumId":"mg-album","lrcUrl":"lrc","mrcUrl":"mrc","trcUrl":"trc"}},
+		{"kuwo", music.Track{ID:"kw_kw-id",SourceID:"kw",LXSourceKey:"kw",Title:"song",SourceData:map[string]string{"songmid":"kw-id","album_id":"kw-album"},Qualities:[]music.TrackQuality{{Type:"flac",Size:"5.0mb"}}}, music.TrackQuality{Type:"flac"}, map[string]string{"songmid":"kw-id","albumId":"kw-album"}},
+		{"kugou", music.Track{ID:"kg-id_base-hash",SourceID:"kg",LXSourceKey:"kg",Title:"song",SourceData:map[string]string{"songmid":"kg-id","hash":"base-hash","album_id":"kg-album","album_audio_id":"audio-id"},Qualities:[]music.TrackQuality{{Type:"320k",SourceData:map[string]string{"hash":"320-hash"}}}}, music.TrackQuality{Type:"320k",SourceData:map[string]string{"hash":"320-hash"}}, map[string]string{"songmid":"kg-id","hash":"base-hash","albumId":"kg-album","albumAudioId":"audio-id"}},
+		{"qq", music.Track{ID:"tx_tx-id",SourceID:"tx",LXSourceKey:"tx",Title:"song",SourceData:map[string]string{"songmid":"tx-id","song_id":"123","media_mid":"media-id","album_mid":"album-mid","album_id":"album-mid"}}, music.TrackQuality{Type:"320k"}, map[string]string{"songmid":"tx-id","strMediaMid":"media-id","albumMid":"album-mid"}},
+		{"netease", music.Track{ID:"wy_wy-id",SourceID:"wy",LXSourceKey:"wy",Title:"song",SourceData:map[string]string{"songmid":"wy-id","album_id":"wy-album"}}, music.TrackQuality{Type:"flac"}, map[string]string{"songmid":"wy-id","albumId":"wy-album"}},
+		{"migu", music.Track{ID:"mg_mg-id",SourceID:"mg",LXSourceKey:"mg",Title:"song",SourceData:map[string]string{"songmid":"mg-id","copyright_id":"copyright","album_id":"mg-album","lrc_url":"lrc","mrc_url":"mrc","trc_url":"trc"}}, music.TrackQuality{Type:"128k"}, map[string]string{"songmid":"mg-id","copyrightId":"copyright","albumId":"mg-album","lrcUrl":"lrc","mrcUrl":"mrc","trcUrl":"trc"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, _, meta := decodeLXRequest(t, test.track, test.selected)
+			_, info := decodeLXRequest(t, test.track, test.selected)
 			for key, want := range test.want {
-				if got, _ := meta[key].(string); got != want { t.Errorf("meta.%s = %q, want %q", key, got, want) }
-				if test.name == "qq" && meta["id"] != float64(123) { t.Errorf("meta.id = %#v, want numeric song ID 123", meta["id"]) }
+				if got, _ := info[key].(string); got != want { t.Errorf("musicInfo.%s = %q, want %q", key, got, want) }
 			}
-			if meta["qualitys"] == nil || meta["_qualitys"] == nil { t.Errorf("missing LX quality metadata: %#v", meta) }
+			if test.name == "kugou" && info["hash"] != "base-hash" { t.Errorf("top-level hash = %#v, want base-hash", info["hash"]) }
 			if test.name == "kuwo" {
-				qualityMap := meta["_qualitys"].(map[string]any)
-				if qualityMap["flac"].(map[string]any)["size"] != "5.0MB" { t.Errorf("Kuwo _qualitys size must be uppercased: %#v", qualityMap["flac"]) }
-				qualityList := meta["qualitys"].([]any)
-				if qualityList[0].(map[string]any)["size"] != "5.0mb" { t.Errorf("Kuwo qualitys size must retain original case: %#v", qualityList[0]) }
+				qualityMap := info["_types"].(map[string]any)
+				if qualityMap["flac"].(map[string]any)["size"] != "5.0MB" { t.Errorf("Kuwo _types size must be uppercased: %#v", qualityMap["flac"]) }
+				qualityList := info["types"].([]any)
+				if qualityList[0].(map[string]any)["size"] != "5.0mb" { t.Errorf("Kuwo types size must retain original case: %#v", qualityList[0]) }
 			}
 		})
 	}

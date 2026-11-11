@@ -68,9 +68,39 @@ func buildLXMusicURLRequest(track music.Track, selected music.TrackQuality) ([]b
 			if value := track.SourceData[from]; value != "" { meta[to] = value }
 		}
 	}
+	// LX converts its current MusicInfo model back to the legacy source-script
+	// contract before dispatching user API actions (toOldMusicInfo in tools.ts).
+	// Source scripts therefore read songmid/hash/types at the top level, not meta.*.
 	musicInfo := map[string]any{
-		"id": track.ID, "name": track.Title, "singer": track.Artist,
-		"source": source, "interval": lxMusicInfoInterval(source, track.DurationMS), "meta": meta,
+		"name": track.Title,
+		"singer": track.Artist,
+		"source": source,
+		"songmid": songID,
+		"interval": lxMusicInfoInterval(source, track.DurationMS),
+		"albumName": track.Album,
+		"img": nullableLXString(track.CoverURL),
+		"typeUrl": map[string]any{},
+		"types": qualityList,
+		"_types": qualityMap,
+	}
+	if value := firstNonEmpty(track.SourceData["album_id"], track.SourceData["albumId"]); value != "" {
+		musicInfo["albumId"] = value
+	}
+	switch source {
+	case "kg":
+		if value := track.SourceData["hash"]; value != "" { musicInfo["hash"] = value }
+		if value := track.SourceData["album_audio_id"]; value != "" { musicInfo["albumAudioId"] = value }
+	case "tx":
+		if value := track.SourceData["media_mid"]; value != "" { musicInfo["strMediaMid"] = value }
+		if value := track.SourceData["song_id"]; value != "" {
+			if number, err := strconv.ParseInt(value, 10, 64); err == nil { musicInfo["songId"] = number } else { musicInfo["songId"] = value }
+		}
+		if value := track.SourceData["album_mid"]; value != "" { musicInfo["albumMid"] = value }
+	case "mg":
+		if value := track.SourceData["copyright_id"]; value != "" { musicInfo["copyrightId"] = value }
+		for from, to := range map[string]string{"lrc_url":"lrcUrl", "mrc_url":"mrcUrl", "trc_url":"trcUrl"} {
+			if value := track.SourceData[from]; value != "" { musicInfo[to] = value }
+		}
 	}
 	info := map[string]any{"type": selected.Type, "musicInfo": musicInfo}
 	return json.Marshal(map[string]any{"source": source, "action": "musicUrl", "info": info})
