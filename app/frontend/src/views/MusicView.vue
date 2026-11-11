@@ -88,7 +88,7 @@ async function importLXSourceFile(event: Event) {
   error.value = ''
   success.value = ''
   try {
-    if (file.size > 1024 * 1024) throw new Error('音源脚本不能超过 1 MB')
+    if (file.size > 9_000_000) throw new Error('音源脚本不能超过 9 MB')
     const script = await file.text()
     const metadata = await MusicService.ImportLXSource(script)
     success.value = `已导入音源：${metadata.name}；可运行基础初始化验证`
