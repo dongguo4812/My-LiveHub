@@ -130,7 +130,7 @@ func (c *LXSearchClient) Search(ctx context.Context, keyword string, page int) (
 	}
 	wg.Wait()
 
-	result := SearchPage{Tracks: []Track{}, Page: page, PageSize: 20}
+	result := SearchPage{Tracks: []Track{}, Page: page, PageSize: 160}
 	errs := make(map[string]string)
 	successes := 0
 	for i, provider := range c.providers {
@@ -164,6 +164,7 @@ func doLXJSON(ctx context.Context, client *http.Client, method, rawURL string, h
 	req, err := http.NewRequestWithContext(ctx, method, rawURL, body)
 	if err != nil { return nil, err }
 	req.Header.Set("User-Agent", "lx-music request")
+	req.Header.Set("bHhtl", "bHhtl")
 	for key, value := range headers { req.Header.Set(key, value) }
 	resp, err := client.Do(req)
 	if err != nil { return nil, fmt.Errorf("请求音乐平台失败：%w", err) }
@@ -346,7 +347,7 @@ type qqSearchRequest struct {
 func qqSignature(text string) string {
 	sum:=sha1.Sum([]byte(text));h:=hex.EncodeToString(sum[:])
 	p1:=[]int{23,14,6,36,16,40,7,19};p2:=[]int{16,1,32,12,19,27,8,5}
-	var a,b strings.Builder;for _,i:=range p1{a.WriteByte(h[i])};for _,i:=range p2{b.WriteByte(h[i])}
+	var a,b strings.Builder;for _,i:=range p1{if i>=0 && i<len(h){a.WriteByte(h[i])}};for _,i:=range p2{if i>=0 && i<len(h){b.WriteByte(h[i])}}
 	scramble:=[]byte{89,39,179,150,218,82,58,252,177,52,186,123,120,64,242,133,143,161,121,179}
 	raw:=make([]byte,len(scramble));for i,v:=range scramble{n,_:=strconv.ParseUint(h[i*2:i*2+2],16,8);raw[i]=v^byte(n)}
 	mid:=base64.StdEncoding.EncodeToString(raw);mid=strings.NewReplacer("/","","+","","=","").Replace(mid)

@@ -224,7 +224,7 @@ func (s *MusicService) GetSources() []music.SourceSnapshot {
 	result := []music.SourceSnapshot{}
 	if s.searcher != nil { result = append(result, s.searcher.Sources()...) }
 	if s.sources != nil {
-		result = s.sources.List(nil)
+		result = append(result, s.sources.List(nil)...)
 		for i := range result { result[i].Enabled = true }
 	}
 	s.lxSessionMu.Lock()
