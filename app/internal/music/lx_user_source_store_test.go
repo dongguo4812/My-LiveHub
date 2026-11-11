@@ -4,6 +4,7 @@ import (
  "os"
  "path/filepath"
  "testing"
+ "strings"
  "net/url"
 )
 
@@ -44,4 +45,15 @@ func TestValidateLXSourceURL(t *testing.T) {
    if err := validateLXSourceURL(parsed); err == nil { t.Fatalf("expected URL to be rejected: %s", raw) }
   })
  }
+}
+
+
+func TestLXUserSourceStoreRejectsDuplicateScriptLikeLX(t *testing.T) {
+	store, err := NewLXUserSourceStore(filepath.Join(t.TempDir(), "sources"))
+	if err != nil { t.Fatal(err) }
+	script := "/*\n * @name Duplicate Test\n */\nlx.send(lx.EVENT_NAMES.inited, { sources: {} });\n"
+	if _, err := store.ImportScript(script, ""); err != nil { t.Fatal(err) }
+	if _, err := store.ImportScript(script, ""); err == nil || !strings.Contains(err.Error(), "脚本内容与已有的源") {
+		t.Fatalf("duplicate LX source script was not rejected: %v", err)
+	}
 }
