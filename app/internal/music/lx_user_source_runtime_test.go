@@ -98,6 +98,31 @@ lx.on(lx.EVENT_NAMES.request, function (request) {
 	if resolved != "https://media.example.test/song.mp3" { t.Fatalf("unexpected resolve value: %q", resolved) }
 }
 
+func TestRunLXSourceWorkerMatchesLXEventPromiseAndThisContext(t *testing.T) {
+	script := `lx.on(lx.EVENT_NAMES.request, function (request) {
+  if (this !== lx) throw new Error("request handler this context is not lx");
+  if (request.action !== "musicUrl") throw new Error("unexpected action");
+  return Promise.resolve("https://cdn.example.test/song.mp3");
+}).then(function () {
+  return lx.send(lx.EVENT_NAMES.inited, {
+    sources: { wy: { name: "NetEase", type: "music", actions: ["musicUrl"], qualitys: ["320k"] } }
+  });
+});`
+	payload := json.RawMessage(`{"source":"wy","action":"musicUrl","info":{"type":"320k","musicInfo":{"id":"1"}}}`)
+	input, err := json.Marshal(lxWorkerRequest{Script: script, Operation: "resolve", Payload: payload})
+	if err != nil { t.Fatal(err) }
+	var output bytes.Buffer
+	if code := RunLXSourceWorker(bytes.NewReader(input), &output); code != 0 {
+		t.Fatalf("worker returned %d: %s", code, output.String())
+	}
+	var response lxWorkerResponse
+	if err := json.Unmarshal(output.Bytes(), &response); err != nil { t.Fatal(err) }
+	if response.Error != "" { t.Fatal(response.Error) }
+	var resolved string
+	if err := json.Unmarshal(response.Value, &resolved); err != nil { t.Fatal(err) }
+	if resolved != "https://cdn.example.test/song.mp3" { t.Fatalf("resolved URL = %q", resolved) }
+}
+
 func TestRunLXSourceWorkerRejectsPendingRequestPromise(t *testing.T) {
 	script := `lx.send(lx.EVENT_NAMES.inited, { sources: { wy: { name: "网易云音乐", type: "music", actions: ["musicUrl"], qualitys: ["320k"] } } });
 lx.on(lx.EVENT_NAMES.request, function () { return new Promise(function () {}); });`
