@@ -197,3 +197,29 @@ lx.send(lx.EVENT_NAMES.inited, {
 		t.Fatalf("resolved URL = %q", resolved)
 	}
 }
+
+func TestValidateLXSourceRuntimeResultRequiresPlaybackHandler(t *testing.T) {
+	result := LXSourceRuntimeResult{
+		Initialized: true,
+		Platforms: []string{"wy"},
+		DeclaredSources: []LXDeclaredSource{{Key:"wy", Actions:[]string{"musicUrl"}, Qualitys:[]string{"320k"}}},
+	}
+	if err := validateLXSourceRuntimeResult(result); err == nil || !strings.Contains(err.Error(), "request 处理器") {
+		t.Fatalf("expected missing request handler to be rejected, got %v", err)
+	}
+	result.Handlers = []string{"request"}
+	if err := validateLXSourceRuntimeResult(result); err != nil {
+		t.Fatalf("valid playback source was rejected: %v", err)
+	}
+}
+
+func TestValidateLXSourceRuntimeResultAllowsNonPlaybackSourcesWithoutRequest(t *testing.T) {
+	result := LXSourceRuntimeResult{
+		Initialized: true,
+		Platforms: []string{"wy"},
+		DeclaredSources: []LXDeclaredSource{{Key:"wy", Actions:[]string{"lyric"}}},
+	}
+	if err := validateLXSourceRuntimeResult(result); err != nil {
+		t.Fatalf("non-playback source should not require a request handler: %v", err)
+	}
+}
