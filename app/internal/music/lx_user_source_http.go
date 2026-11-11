@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 
 	"github.com/dop251/goja"
+	"github.com/dongguo4812/My-LiveHub/app/internal/config"
 )
 
 const (
@@ -34,6 +35,10 @@ func installLXRequest(vm *goja.Runtime, lx *goja.Object) error {
 // installLXRequestWithClient keeps the production transport policy centralized
 // while allowing deterministic HTTP bridge tests to inject a mock client.
 func installLXRequestAsync(vm *goja.Runtime, lx *goja.Object, client *http.Client, loop *lxRuntimeEventLoop, onResult func(int64, string, map[string]any, error)) error {
+	return installLXRequestAsyncWithProxyProvider(vm, lx, client, loop, onResult, nil)
+}
+
+func installLXRequestAsyncWithProxyProvider(vm *goja.Runtime, lx *goja.Object, client *http.Client, loop *lxRuntimeEventLoop, onResult func(int64, string, map[string]any, error), proxyProvider func() config.LXUserSourceProxyConfig) error {
 	var requestID atomic.Int64
 	return lx.Set("request", func(call goja.FunctionCall) goja.Value {
 		rawURL:=strings.TrimSpace(call.Argument(0).String())
@@ -46,7 +51,7 @@ func installLXRequestAsync(vm *goja.Runtime, lx *goja.Object, client *http.Clien
 		thisArg:=call.This
 		go func() {
 			defer cancel()
-			response,raw,err:=performLXRequestWithClientContext(ctx,rawURL,optionsMap,client)
+			proxyConfig := config.LXUserSourceProxyConfig{}\n\t\t\tif proxyProvider != nil { proxyConfig = proxyProvider() }\n\t\t\tresponse,raw,err:=performLXRequestWithProxyConfigContext(ctx,rawURL,optionsMap,client,proxyConfig)
 			loop.enqueue(func() {
 				if onResult != nil { onResult(id, rawURL, response, err) }
 				var errValue goja.Value=goja.Null()
@@ -97,8 +102,16 @@ func performLXRequestWithClient(rawURL string, optionsValue goja.Value, client *
 }
 
 func newLXNeedleTransport(responseTimeout time.Duration) *http.Transport {
+	return newLXNeedleTransportWithProxy(responseTimeout, config.LXUserSourceProxyConfig{})
+}
+
+func newLXNeedleTransportWithProxy(responseTimeout time.Duration, proxyConfig config.LXUserSourceProxyConfig) *http.Transport {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = http.ProxyFromEnvironment
+	if proxyConfig.Enabled && strings.TrimSpace(proxyConfig.Host) != "" && strings.TrimSpace(proxyConfig.Port) != "" {
+		proxyURL := &url.URL{Scheme: "http", Host: net.JoinHostPort(strings.TrimSpace(proxyConfig.Host), strings.TrimSpace(proxyConfig.Port))}
+		transport.Proxy = http.ProxyURL(proxyURL)
+	}
 	transport.DialContext = (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext
 	transport.TLSHandshakeTimeout = 10 * time.Second
 	transport.ResponseHeaderTimeout = responseTimeout
@@ -110,6 +123,10 @@ func newLXNeedleTransport(responseTimeout time.Duration) *http.Transport {
 }
 
 func performLXRequestWithClientContext(parent context.Context, rawURL string, options map[string]any, client *http.Client) (map[string]any, string, error) {
+	return performLXRequestWithProxyConfigContext(parent, rawURL, options, client, config.LXUserSourceProxyConfig{})
+}
+
+func performLXRequestWithProxyConfigContext(parent context.Context, rawURL string, options map[string]any, client *http.Client, proxyConfig config.LXUserSourceProxyConfig) (map[string]any, string, error) {
 	if parent == nil { parent = context.Background() }
 	if !strings.Contains(rawURL, "http") { rawURL = "http://" + strings.TrimPrefix(rawURL, "//") }
 	parsed, err := url.Parse(rawURL)
@@ -215,7 +232,7 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 	}
 
 	if client == nil {
-		transport := newLXNeedleTransport(timeout)
+		transport := newLXNeedleTransportWithProxy(timeout, proxyConfig)
 		client = &http.Client{
 			Transport: transport,
 			CheckRedirect: func(next *http.Request, via []*http.Request) error {
