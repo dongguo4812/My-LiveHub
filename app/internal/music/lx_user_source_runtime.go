@@ -17,7 +17,8 @@ import (
 )
 
 const (
-	lxWorkerArgument = "--lx-source-worker"
+	LXSourceWorkerArgument = "--lx-source-worker"
+	lxWorkerArgument = LXSourceWorkerArgument
 	lxWorkerInputLimit = MaxLXUserSourceBytes + 4096
 	lxWorkerOutputLimit = 256 << 10
 	lxWorkerTimeout = 6 * time.Second
