@@ -463,7 +463,7 @@ func marshalLXUserAPIResult(source, action string, payload map[string]any, value
 		if !ok { return nil, errors.New("failed") }
 		lyric, ok := info["lyric"].(string)
 		if !ok || lxJSStringLength(lyric) > 51200 { return nil, errors.New("failed") }
-		data := map[string]any{"lyric": lyric, "tlyric": nil, "rlyric": nil, "lxlyric": nil}
+		data := map[string]any{"lyric": lyric}
 		if value, ok := info["tlyric"].(string); ok && lxJSStringLength(value) < 5120 { data["tlyric"] = value }
 		if value, ok := info["rlyric"].(string); ok && lxJSStringLength(value) < 5120 { data["rlyric"] = value }
 		if value, ok := info["lxlyric"].(string); ok && lxJSStringLength(value) < 8192 { data["lxlyric"] = value }
