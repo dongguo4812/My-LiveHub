@@ -34,7 +34,8 @@ func TestLXRequestDefaultTimeoutMatchesLXDesktop(t *testing.T) {
 			Request: request,
 		}, nil
 	})}
-	if _, _, err := performLXRequestWithClient("https://music.example.test/resolve", map[string]any{}, client); err != nil {
+	vm := goja.New()
+	if _, _, err := performLXRequestWithClient("https://music.example.test/resolve", vm.ToValue(map[string]any{}), client); err != nil {
 		t.Fatal(err)
 	}
 }
