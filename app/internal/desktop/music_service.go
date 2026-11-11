@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -185,7 +186,7 @@ func (s *MusicService) processSongRequest(ctx context.Context, event events.Even
 	enqueued := false
 	for _, track := range response.Tracks {
 		source, ok := s.sources.Get(track.SourceID)
-		if !ok || !source.Capabilities().Resolve {
+		if !ok || (!source.Capabilities().Resolve && !s.hasLXUserSources()) {
 			continue
 		}
 		if _, err := s.Enqueue(track, event.UserName); err == nil {
@@ -306,8 +307,8 @@ func (s *MusicService) Enqueue(track music.Track, requestedBy string) (music.Que
 	if !enabled { return music.QueueItem{}, fmt.Errorf("music source %q is disabled", track.SourceID) }
 	source, ok := s.sources.Get(track.SourceID)
 	if !ok { return music.QueueItem{}, fmt.Errorf("music source %q is not available", track.SourceID) }
-	if !source.Capabilities().Resolve {
-		return music.QueueItem{}, fmt.Errorf("%s 已支持聚合搜索，但尚未实现免登录播放资源解析", source.Name())
+	if !source.Capabilities().Resolve && !s.hasLXUserSources() {
+		return music.QueueItem{}, fmt.Errorf("%s 已支持搜索；请先导入并验证一个洛雪自定义音源脚本以启用播放解析", source.Name())
 	}
 	return s.queue.Enqueue(track, requestedBy)
 }
@@ -366,6 +367,11 @@ func (s *MusicService) playNext(parent context.Context) error {
 func (s *MusicService) resolveWithFallback(ctx context.Context, track music.Track, preferred music.Source) (music.PlaybackResource, music.Track, error) {
 	resource, originalErr := preferred.Resolve(ctx, track)
 	if originalErr == nil { return resource, track, nil }
+	if lxResource, lxErr := s.resolveLXTrack(ctx, track); lxErr == nil {
+		return lxResource, track, nil
+	} else {
+		originalErr = errors.Join(originalErr, lxErr)
+	}
 	resource, candidate, fallbackErr := s.resolveAlternate(ctx, track)
 	if fallbackErr != nil { return music.PlaybackResource{}, track, errors.Join(originalErr, fallbackErr) }
 	return resource, candidate, nil
@@ -647,4 +653,68 @@ func (s *MusicService) ValidateLXUserSource(id string) (music.LXSourceRuntimeRes
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return music.InspectLXUserSource(ctx, script)
+}
+
+
+func (s *MusicService) hasLXUserSources() bool {
+	store, err := s.lxUserSourceStore()
+	if err != nil { return false }
+	sources, err := store.List()
+	return err == nil && len(sources) > 0
+}
+
+func (s *MusicService) resolveLXTrack(ctx context.Context, track music.Track) (music.PlaybackResource, error) {
+	store, err := s.lxUserSourceStore()
+	if err != nil { return music.PlaybackResource{}, err }
+	sources, err := store.List()
+	if err != nil { return music.PlaybackResource{}, err }
+	platforms := map[string]string{
+		"netease": "wy",
+		"qq_music": "tx",
+		"kugou": "kg",
+		"kuwo": "kw",
+	}
+	platform, ok := platforms[track.SourceID]
+	if !ok { return music.PlaybackResource{}, fmt.Errorf("不支持的 LX 平台映射：%s", track.SourceID) }
+	seconds := track.DurationMS / 1000
+	musicInfo := map[string]any{
+		"id": track.ID, "mid": track.ID, "songmid": track.ID, "hash": track.ID, "rid": track.ID,
+		"name": track.Title, "songname": track.Title, "title": track.Title,
+		"artist": track.Artist, "singer": track.Artist, "album": track.Album,
+		"interval": seconds, "duration": seconds, "source": platform,
+	}
+	payload, err := json.Marshal(map[string]any{
+		"source": "user_api",
+		"action": "musicUrl",
+		"info": map[string]any{"type": platform, "musicInfo": musicInfo},
+	})
+	if err != nil { return music.PlaybackResource{}, err }
+	var failures []error
+	for _, source := range sources {
+		if err := ctx.Err(); err != nil { return music.PlaybackResource{}, err }
+		script, readErr := store.ReadScript(source.ID)
+		if readErr != nil { failures = append(failures, fmt.Errorf("%s: %w", source.Name, readErr)); continue }
+		result, resolveErr := music.ResolveLXUserSource(ctx, script, payload)
+		if resolveErr != nil { failures = append(failures, fmt.Errorf("%s: %w", source.Name, resolveErr)); continue }
+		var value any
+		if err := json.Unmarshal(result, &value); err != nil { failures = append(failures, fmt.Errorf("%s: 解析结果格式无效：%w", source.Name, err)); continue }
+		resource := music.PlaybackResource{}
+		switch item := value.(type) {
+		case string:
+			resource.URL = item
+		case map[string]any:
+			resource.URL, _ = item["url"].(string)
+			if headers, ok := item["headers"].(map[string]any); ok {
+				resource.Headers = make(map[string]string, len(headers))
+				for key, header := range headers { resource.Headers[key] = fmt.Sprint(header) }
+			}
+		default:
+			failures = append(failures, fmt.Errorf("%s: 音源没有返回 URL", source.Name))
+			continue
+		}
+		if err := music.ValidateLXPlaybackURL(resource.URL); err != nil { failures = append(failures, fmt.Errorf("%s: %w", source.Name, err)); continue }
+		return resource, nil
+	}
+	if len(failures) == 0 { return music.PlaybackResource{}, errors.New("没有导入洛雪自定义音源") }
+	return music.PlaybackResource{}, fmt.Errorf("所有已导入洛雪音源均未能解析：%w", errors.Join(failures...))
 }
