@@ -17,6 +17,7 @@ import (
 	"github.com/dongguo4812/My-LiveHub/app/internal/voice"
 	"github.com/dongguo4812/My-LiveHub/app/internal/media/imagecache"
 	"github.com/dongguo4812/My-LiveHub/app/internal/media/resource"
+	"github.com/dongguo4812/My-LiveHub/app/internal/music"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
