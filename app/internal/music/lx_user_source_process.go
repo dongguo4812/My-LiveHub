@@ -124,6 +124,10 @@ func (p *LXUserSourceProcess) Request(ctx context.Context, payload json.RawMessa
 	if len(payload) == 0 {
 		return nil, errors.New("LX 音源请求数据为空")
 	}
+	// Do not enqueue work that the caller has already cancelled.
+	if ctx.Err() != nil {
+		return nil, errors.New("Cancel request")
+	}
 	requestKey := fmt.Sprintf("request__%d", p.requestCounter.Add(1))
 	result := make(chan lxSessionResponse, 1)
 	p.pendingMu.Lock()

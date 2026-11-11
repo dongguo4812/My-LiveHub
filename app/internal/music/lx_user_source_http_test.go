@@ -2,6 +2,7 @@ package music
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"strings"
@@ -263,4 +264,68 @@ func TestLXRequestSendsBufferBodyAsRawBytes(t *testing.T) {
   body: buffer
 }, function (error) { if (error) throw error; });`)
 	if err != nil { t.Fatal(err) }
+}
+
+
+func TestLXRequestAsyncCancelAbortsTransportAndCallsCallback(t *testing.T) {
+	started := make(chan struct{})
+	cancelled := make(chan struct{})
+	client := &http.Client{Transport: lxRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		close(started)
+		select {
+		case <-request.Context().Done():
+			close(cancelled)
+			return nil, request.Context().Err()
+		case <-time.After(time.Second):
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status: "200 OK",
+				Header: make(http.Header),
+				Body: io.NopCloser(strings.NewReader("unexpected")),
+				Request: request,
+			}, nil
+		}
+	})}
+
+	vm := goja.New()
+	lx := vm.NewObject()
+	loop := newLXRuntimeEventLoop(vm)
+	defer loop.stop()
+	if err := installLXRequestAsync(vm, lx, client, loop, nil); err != nil { t.Fatal(err) }
+	if err := vm.Set("lx", lx); err != nil { t.Fatal(err) }
+	if err := vm.Set("window", vm.GlobalObject()); err != nil { t.Fatal(err) }
+	_, err := vm.RunString(`
+		var callbackCalled = false;
+		var callbackThis = false;
+		var callbackError = "";
+		var cancelRequest = lx.request("https://music.example.test/slow", {}, function (error) {
+			callbackCalled = true;
+			callbackThis = this === lx;
+			callbackError = error ? error.message : "";
+		});
+	`)
+	if err != nil { t.Fatal(err) }
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("HTTP request did not start")
+	}
+	if _, err := vm.RunString("cancelRequest()"); err != nil { t.Fatal(err) }
+	if err := loop.pumpUntil(func() bool {
+		value, runErr := vm.RunString("callbackCalled")
+		return runErr == nil && value.ToBoolean()
+	}, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	value, err := vm.RunString("callbackCalled && callbackThis && callbackError !== ''")
+	if err != nil { t.Fatal(err) }
+	if !value.ToBoolean() {
+		t.Fatal("cancelled request did not call back with the original lx.request this context and an error")
+	}
+	select {
+	case <-cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("cancel function did not abort the underlying HTTP request")
+	}
 }

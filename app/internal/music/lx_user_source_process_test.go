@@ -2,6 +2,7 @@ package music
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"io"
 	"strings"
@@ -78,4 +79,38 @@ lx.send(lx.EVENT_NAMES.inited, {
 	_ = outputReader.Close()
 	_ = outputWriter.Close()
 	if strings.Contains(results["request_slow"], "fast") { t.Fatal("request responses crossed") }
+}
+
+
+type lxTestWriteCloser struct {
+	writes int
+}
+
+func (w *lxTestWriteCloser) Write(value []byte) (int, error) {
+	w.writes++
+	return len(value), nil
+}
+
+func (w *lxTestWriteCloser) Close() error { return nil }
+
+func TestLXUserSourceProcessDoesNotDispatchAlreadyCancelledRequest(t *testing.T) {
+	writer := &lxTestWriteCloser{}
+	process := &LXUserSourceProcess{
+		stdin: writer,
+		pending: make(map[string]chan lxSessionResponse),
+		done: make(chan struct{}),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := process.Request(ctx, json.RawMessage(`{"source":"wy","action":"musicUrl","info":{"type":"320k"}}`))
+	if err == nil || err.Error() != "Cancel request" {
+		t.Fatalf("already-cancelled request error = %v", err)
+	}
+	if writer.writes != 0 {
+		t.Fatalf("already-cancelled request wrote %d protocol messages, want none", writer.writes)
+	}
+	if len(process.pending) != 0 {
+		t.Fatalf("already-cancelled request left pending entries: %#v", process.pending)
+	}
 }
