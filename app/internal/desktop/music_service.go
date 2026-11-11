@@ -388,10 +388,10 @@ func (s *MusicService) resolveWithFallback(ctx context.Context, track music.Trac
 func (s *MusicService) resolveAlternate(ctx context.Context, track music.Track) (music.PlaybackResource, music.Track, error) {
 	s.mu.RLock()
 	enabled := cloneBoolMap(s.value.Sources)
-	limit := s.value.SearchLimit
 	s.mu.RUnlock()
 	keyword := strings.TrimSpace(track.Title + " " + track.Artist)
-	candidates, _, searchErr := s.sources.Search(ctx, keyword, enabled, limit)
+	// LX findMusic searches up to 25 candidates per alternate source.
+	candidates, _, searchErr := s.sources.Search(ctx, keyword, enabled, 25)
 	if searchErr != nil { return music.PlaybackResource{}, track, searchErr }
 	var resolveErrors []error
 	for _, candidate := range findLXMusicMatches(track, candidates) {
