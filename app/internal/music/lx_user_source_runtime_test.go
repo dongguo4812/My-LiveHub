@@ -209,7 +209,7 @@ lx.on(lx.EVENT_NAMES.request, async function (request) {
   const response = await new Promise(function (resolve, reject) {
     lx.request("https://music.example.test/resolve", {}, function (err, response) {
       if (err) return reject(err);
-      if (response.bytes !== 39 || lx.utils.buffer.bufToString(response.raw, "utf8").indexOf("cdn.example.test") < 0) return reject(new Error("LX response raw/bytes fields are missing"));
+      if (response.bytes !== 44 || lx.utils.buffer.bufToString(response.raw, "utf8").indexOf("cdn.example.test") < 0) return reject(new Error("LX response raw/bytes fields are missing"));
       resolve(response);
     });
   });
