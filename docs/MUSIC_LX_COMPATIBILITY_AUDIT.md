@@ -125,6 +125,21 @@ My-LiveHub 的 Goja 已模拟 request 事件、lx this 上下文、Promise、定
 | desktop/music_service.go | 每次解析先检查所有导入脚本，再构造扁平对象 | 应保留隔离执行，但需确认脚本注册生命周期、平台声明、音质和请求参数与洛雪 wrapper 一致 |
 | desktop/music_service.go | 播放失败后重新搜索并尝试其他来源 | 方向正确，但匹配规则、音质选择、已尝试来源记录和超时重试需与洛雪行为对齐 |
 
+### 3.2.1 四个平台的搜索数据对照
+
+| 平台 | 洛雪实际搜索数据 | My-LiveHub 当前情况 | 结论 |
+|---|---|---|---|
+| QQ / tx | songId、songmid、albumId、albumMid、strMediaMid、interval、types、_types | LXQQMusicSource 已使用相同桌面搜索接口并保存文件大小；此前 albumId 转换错误已单独修复 | 仍需以 JSON fixture 验证完整旧式对象和音质大小格式 |
+| 网易云 / wy | 使用 EAPI /api/search/song/list/page；从 resources[].baseInfo.simpleSongData 提取歌曲、专辑、封面、时长、privilege 和各音质文件大小 | 当前 NetEaseSource 使用旧 /api/search/get/web；保存基本歌曲字段，但没有洛雪的 privilege / 文件质量对象 | 搜索协议和元数据结构均不同，需按洛雪实际接口重做适配，不能把当前 endpoint 当作等价实现 |
+| 酷狗 / kg | 保存 Audioid、FileHash、MixSongID、AlbumID、Duration、专辑、歌手；FileSize/HQFileSize/SQFileSize/ResFileSize 对应各音质 hash 和 size；还展开 Grp 子项 | 当前 KugouSource 保存 AudioID、FileHash、标题、歌手、专辑和时长，但未解析音质文件大小/hash、MixSongID、AlbumID，也未展开 Grp | 现有数据不足以生成洛雪 KG musicInfo，且会漏掉分组候选 |
+| 酷我 / kw | 从 MUSICRID 提取 songmid；解析 N_MINFO 中的 bitrate/format/size，生成 types/_types；保存 albumId、albumName、格式化 interval | 当前 KuwoSource 仅提取 MUSICRID、标题、歌手、专辑和 DURATION，没有读取 N_MINFO | 缺少每首歌的音质能力，不能正确按音质选择或生成洛雪旧式对象 |
+
+注意：洛雪各平台的音质信息不是统一从一个字段推导。QQ 以 file.size_* 为依据；酷狗以各质量文件大小和 hash 为依据；酷我解析 N_MINFO；网易云以 privilege 和各质量文件对象为依据。必须为每个平台单独实现映射。
+
+### 3.2.2 当前 LX 扁平对象构造的共性问题
+
+洛雪 toOldMusicInfo 对所有在线来源都会提供 albumId、types、_types、interval、albumName、img 和 typeUrl，再按平台补充专属字段。当前 My-LiveHub buildLXMusicInfo 只有 QQ 分支生成 types/_types；其他在线来源没有按各自元数据生成完整质量对象。当前 selectLXQuality 对非 QQ 来源主要依赖音源声明的 qualitys，而没有检查该首歌曲的实际质量能力。这会导致把音源支持的音质误认为歌曲本身支持的音质。
+
 ### 3.3 不能提前下结论的部分
 
 - Goja 当前环境是否完整兼容所有洛雪自定义源所用的 Node/Electron API，必须用真实源脚本逐项验证；不能因初始化成功就认定播放 API 兼容。
