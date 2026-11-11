@@ -188,3 +188,46 @@ func TestNewMusicServiceRegistersFourSearchSources(t *testing.T) {
 		}
 	}
 }
+
+
+func TestLXQQMusicInfoMatchesLXMusicContract(t *testing.T) {
+	track := music.Track{
+		ID: "song-mid", SourceID: "qq_music", LXSourceKey: "tx",
+		Title: "稻香", Artist: "周杰伦", Album: "魔杰座",
+		DurationMS: 223000, CoverURL: "https://img.example/cover.jpg",
+		SourceData: map[string]string{
+			"id": "123456", "media_mid": "media-mid", "albummid": "album-mid",
+			"size_128mp3": "1048576", "size_320mp3": "2097152",
+			"size_flac": "0", "size_hires": "4194304",
+		},
+	}
+	info := buildLXMusicInfo(track)
+	if info["source"] != "tx" || info["songmid"] != "song-mid" || info["songId"] != "123456" ||
+		info["strMediaMid"] != "media-mid" || info["albumMid"] != "album-mid" ||
+		info["albumId"] != "album-mid" || info["albumName"] != "魔杰座" ||
+		info["img"] != track.CoverURL || info["interval"] != "03:43" {
+		t.Fatalf("QQ musicInfo does not match LX Music fields: %#v", info)
+	}
+	types, ok := info["types"].([]any)
+	if !ok || len(types) != 3 { t.Fatalf("unexpected QQ quality list: %#v", info["types"]) }
+	available, ok := info["_types"].(map[string]any)
+	if !ok || len(available) != 3 || available["flac"] != nil {
+		t.Fatalf("unexpected QQ _types: %#v", info["_types"])
+	}
+}
+
+func TestLXQQQualitySelectionUsesPerTrackAvailability(t *testing.T) {
+	track := music.Track{
+		LXSourceKey: "tx",
+		SourceData: map[string]string{
+			"size_128mp3": "1000", "size_320mp3": "0",
+			"size_flac": "2000", "size_hires": "0",
+		},
+	}
+	if got := selectLXQuality([]string{"320k", "flac", "128k"}, false, track); got != "flac" {
+		t.Fatalf("expected best available quality flac, got %#v", got)
+	}
+	if got := selectLXQuality([]string{"320k"}, false, track); got != nil {
+		t.Fatalf("must not request unsupported per-track quality, got %#v", got)
+	}
+}

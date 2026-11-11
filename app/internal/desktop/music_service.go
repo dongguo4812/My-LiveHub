@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -702,17 +703,8 @@ func (s *MusicService) resolveLXTrack(ctx context.Context, track music.Track) (m
 	// in the playback service; custom search adapters can set their own key.
 	sourceKey := strings.TrimSpace(track.LXSourceKey)
 	if sourceKey == "" { sourceKey = strings.TrimSpace(track.SourceID) }
-	seconds := track.DurationMS / 1000
-	musicInfo := map[string]any{
-		"id": track.ID, "mid": track.ID, "songmid": track.ID, "songId": track.ID,
-		"hash": track.ID, "rid": track.ID, "MUSICRID": track.ID,
-		"name": track.Title, "songname": track.Title, "title": track.Title,
-		"artist": track.Artist, "singer": track.Artist, "album": track.Album,
-		"interval": seconds, "duration": seconds, "source": sourceKey,
-	}
-	for key, value := range track.SourceData {
-		if strings.TrimSpace(key) != "" { musicInfo[key] = value }
-	}
+	musicInfo := buildLXMusicInfo(track)
+	musicInfo["source"] = sourceKey
 	var failures []error
 	for _, source := range sources {
 		if err := ctx.Err(); err != nil { return music.PlaybackResource{}, err }
@@ -725,7 +717,7 @@ func (s *MusicService) resolveLXTrack(ctx context.Context, track music.Track) (m
 			if inspection.DeclaredSources[i].Key == sourceKey { declared = &inspection.DeclaredSources[i]; break }
 		}
 		if declared == nil || !containsString(declared.Actions, "musicUrl") { continue }
-		quality := selectLXQuality(declared.Qualitys, sourceKey == "local")
+		quality := selectLXQuality(declared.Qualitys, sourceKey == "local", track)
 		payload, marshalErr := json.Marshal(map[string]any{
 			"source": sourceKey, "action": "musicUrl",
 			"info": map[string]any{"type": quality, "musicInfo": musicInfo},
@@ -758,10 +750,75 @@ func containsString(values []string, target string) bool {
 	return false
 }
 
-func selectLXQuality(qualities []string, local bool) any {
+func buildLXMusicInfo(track music.Track) map[string]any {
+	seconds := track.DurationMS / 1000
+	info := map[string]any{
+		"id": track.ID, "mid": track.ID, "songmid": track.ID,
+		"hash": track.ID, "rid": track.ID, "MUSICRID": track.ID,
+		"name": track.Title, "songname": track.Title, "title": track.Title,
+		"artist": track.Artist, "singer": track.Artist, "album": track.Album,
+		"interval": formatLXInterval(seconds), "duration": seconds, "source": strings.TrimSpace(track.LXSourceKey),
+		"albumName": track.Album, "img": track.CoverURL, "typeUrl": map[string]any{},
+	}
+	for key, value := range track.SourceData {
+		if strings.TrimSpace(key) != "" { info[key] = value }
+	}
+	if strings.TrimSpace(track.LXSourceKey) == "tx" {
+		info["source"] = "tx"
+		info["songmid"] = track.ID
+		info["songId"] = strings.TrimSpace(track.SourceData["id"])
+		info["strMediaMid"] = strings.TrimSpace(track.SourceData["media_mid"])
+		info["albumMid"] = strings.TrimSpace(track.SourceData["albummid"])
+		info["albumId"] = strings.TrimSpace(track.SourceData["albummid"])
+		info["albumName"] = track.Album
+		info["img"] = track.CoverURL
+		types, available := buildLXQQQualities(track.SourceData)
+		info["types"], info["_types"] = types, available
+	}
+	return info
+}
+
+func formatLXInterval(seconds int64) string {
+	if seconds <= 0 { return "" }
+	return fmt.Sprintf("%02d:%02d", seconds/60, seconds%60)
+}
+
+func buildLXQQQualities(data map[string]string) ([]any, map[string]any) {
+	type qualityField struct { key, name string }
+	fields := []qualityField{
+		{"size_128mp3", "128k"},
+		{"size_320mp3", "320k"},
+		{"size_flac", "flac"},
+		{"size_hires", "flac24bit"},
+	}
+	types := make([]any, 0, len(fields))
+	available := make(map[string]any, len(fields))
+	for _, field := range fields {
+		size, err := strconv.ParseInt(strings.TrimSpace(data[field.key]), 10, 64)
+		if err != nil || size <= 0 { continue }
+		sizeLabel := fmt.Sprintf("%.2fM", float64(size)/(1024*1024))
+		types = append(types, map[string]any{"type": field.name, "size": sizeLabel})
+		available[field.name] = map[string]any{"size": sizeLabel}
+	}
+	return types, available
+}
+
+func selectLXQuality(qualities []string, local bool, track music.Track) any {
 	if local { return nil }
+	// QQ search results expose per-track file sizes. LX Music checks
+	// meta._qualitys before asking a source for a URL; do the same here so
+	// we never request a quality that this particular song does not have.
+	if track.LXSourceKey == "tx" {
+		_, available := buildLXQQQualities(track.SourceData)
+		if len(available) == 0 { return nil }
+		for _, preferred := range []string{"320k", "flac24bit", "flac", "128k"} {
+			if _, exists := available[preferred]; !exists { continue }
+			if containsString(qualities, preferred) { return preferred }
+		}
+		return nil
+	}
 	for _, preferred := range []string{"320k", "flac", "flac24bit", "128k"} {
-		for _, quality := range qualities { if quality == preferred { return quality } }
+		if containsString(qualities, preferred) { return preferred }
 	}
 	if len(qualities) > 0 { return qualities[0] }
 	return nil
