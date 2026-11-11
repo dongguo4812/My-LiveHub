@@ -334,7 +334,6 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 	}
 
 	vm := goja.New()
-	vm.SetMaxCallStackSize(256)
 	timeout := time.AfterFunc(lxWorkerExecutionTimeout, func() {
 		vm.Interrupt("LX source execution timeout")
 	})
