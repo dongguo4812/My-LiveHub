@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -57,6 +59,9 @@ type MusicService struct {
 
 	watchCancel context.CancelFunc
 	playGeneration uint64
+	lxStoreOnce sync.Once
+	lxStore *music.LXUserSourceStore
+	lxStoreErr error
 }
 
 func NewMusicService(manager *config.Manager, value config.MusicConfig, buffers ...*events.Buffer) *MusicService {
@@ -585,4 +590,43 @@ func cloneBoolMap(value map[string]bool) map[string]bool {
 	copy := make(map[string]bool, len(value))
 	for id, enabled := range value { copy[id] = enabled }
 	return copy
+}
+
+func (s *MusicService) lxUserSourceStore() (*music.LXUserSourceStore, error) {
+	if s == nil { return nil, errors.New("音乐服务不可用") }
+	s.lxStoreOnce.Do(func() {
+		configDir, err := os.UserConfigDir()
+		if err != nil { s.lxStoreErr = fmt.Errorf("获取用户配置目录失败：%w", err); return }
+		s.lxStore, s.lxStoreErr = music.NewLXUserSourceStore(filepath.Join(configDir, "My-LiveHub", "music-sources"))
+	})
+	return s.lxStore, s.lxStoreErr
+}
+
+// GetLXUserSources lists imported LX-compatible source scripts. Importing does
+// not execute a script; execution is enabled only after the isolated runtime is
+// integrated and the source passes its runtime handshake.
+func (s *MusicService) GetLXUserSources() ([]music.LXUserSourceMetadata, error) {
+	store, err := s.lxUserSourceStore()
+	if err != nil { return nil, err }
+	return store.List()
+}
+
+func (s *MusicService) ImportLXSource(script string) (music.LXUserSourceMetadata, error) {
+	store, err := s.lxUserSourceStore()
+	if err != nil { return music.LXUserSourceMetadata{}, err }
+	return store.ImportScript(script, "")
+}
+
+func (s *MusicService) ImportLXSourceURL(sourceURL string) (music.LXUserSourceMetadata, error) {
+	store, err := s.lxUserSourceStore()
+	if err != nil { return music.LXUserSourceMetadata{}, err }
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	return store.ImportURL(ctx, sourceURL)
+}
+
+func (s *MusicService) DeleteLXUserSource(id string) error {
+	store, err := s.lxUserSourceStore()
+	if err != nil { return err }
+	return store.Delete(id)
 }
