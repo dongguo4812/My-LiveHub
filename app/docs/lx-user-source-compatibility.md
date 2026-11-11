@@ -19,7 +19,7 @@ LX 自定义源不是只包含播放 URL 的 JSON 配置。脚本通过 lx 运�
 - URL 导入拒绝本机/内网地址，并在实际拨号时校验 DNS 解析结果，防止简单的内网地址访问。
 - 本地保存脚本、元数据和 SHA-256 指纹；支持列出和删除。
 - 源脚本导入后不会自动执行，需用户主动点击“验证脚本”。
-- 已接入独立子进程初始化 worker：子进程使用 Goja 执行脚本，未注入 Node.js 的 process、require、文件系统或应用对象；设置 6 秒执行中断与调用栈深度限制。
+- 已接入独立子进程初始化 worker：子进程使用 Goja 执行脚本，未注入 Node.js 的 process、require、文件系统或应用对象；设置 5 秒执行中断与调用栈深度限制。
 - 已实现 LX 的基础初始化握手：捕获 inited 声明的平台，以及 request 事件处理器注册情况；UI 显示验证结果。
 - 当前 worker 只做初始化验证，不调用 request handler，不提供 lx.request、Promise 调度、crypto、Buffer 或 zlib，因此验证通过不代表播放解析可用。
 
