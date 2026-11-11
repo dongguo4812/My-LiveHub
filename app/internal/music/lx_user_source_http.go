@@ -201,7 +201,7 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 	}
 	if sendBody {
 		if _, ok := request.Header["Content-Type"]; !ok {
-			jsonMode := !formMode && (jsTruthy(options["json"]) || (options["json"] != false && strings.EqualFold(strings.TrimSpace(contentType), "application/json")))
+			jsonMode := !formMode && (jsTruthy(options["json"]) || (options["json"] != false && contentType == "application/json"))
 			if jsonMode {
 				request.Header.Set("Content-Type", "application/json; charset=utf-8")
 			} else {
