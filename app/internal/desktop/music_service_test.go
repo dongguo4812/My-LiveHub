@@ -292,6 +292,36 @@ func TestLXMiguMusicInfoMatchesLXFields(t *testing.T){
  types,ok:=info["types"].([]any);if !ok||len(types)!=3||types[0].(map[string]any)["type"]!="128k"||types[1].(map[string]any)["type"]!="320k"||types[2].(map[string]any)["type"]!="flac24bit"{t.Fatalf("unexpected Migu qualities: %#v",info["types"])}
 }
 
+func TestLXKugouMusicInfoPreservesPerQualityHashes(t *testing.T) {
+	track := music.Track{ID:"123",LXSourceKey:"kg",Title:"找自己",Artist:"陶喆",Album:"I'm OK",DurationMS:304000,SourceData:map[string]string{
+		"MixSongID":"456","AlbumID":"album-9","FileHash":"base-hash","FileSize":"1048576",
+		"HQFileHash":"hq-hash","HQFileSize":"2097152","SQFileHash":"sq-hash","SQFileSize":"4194304",
+		"ResFileHash":"res-hash","ResFileSize":"8388608",
+	}}
+	info:=buildLXMusicInfo(track,"320k")
+	if info["source"]!="kg"||info["songmid"]!="123"||info["albumAudioId"]!="456"||info["albumId"]!="album-9"||info["hash"]!="base-hash"||info["interval"]!="05:04"{t.Fatalf("Kugou LX musicInfo mismatch: %#v",info)}
+	types,ok:=info["types"].([]any)
+	if !ok||len(types)!=4||types[0].(map[string]any)["hash"]!="base-hash"||types[3].(map[string]any)["hash"]!="res-hash"{t.Fatalf("Kugou quality hashes missing: %#v",info["types"])}
+	if got:=selectLXQuality([]string{"flac24bit","flac","320k"},false,track);got!="320k"{t.Fatalf("expected 320k preference based on configured list, got %#v",got)}
+	if got:=selectLXQuality([]string{"flac24bit"},false,track);got!="flac24bit"{t.Fatalf("expected available 24bit quality, got %#v",got)}
+	track.SourceData["ResFileHash"]=""
+	if got:=selectLXQuality([]string{"flac24bit"},false,track);got!=nil{t.Fatalf("must reject quality without its file hash, got %#v",got)}
+}
+
+func TestLXNetEaseMusicInfoUsesPrivilegeAndQualityFiles(t *testing.T) {
+	track:=music.Track{ID:"321",LXSourceKey:"wy",Title:"第三页歌曲",Artist:"歌手",Album:"专辑",DurationMS:180000,CoverURL:"https://img.invalid/cover.jpg",SourceData:map[string]string{
+		"albumId":"12","wy_privilege":`{"maxbr":999000,"maxBrLevel":"hires"}`,
+		"wy_l":`{"size":1000}`,"wy_h":`{"size":3000}`,"wy_sq":`{"size":6000}`,"wy_hr":`{"size":12000}`,
+	}}
+	info:=buildLXMusicInfo(track,"flac")
+	if info["source"]!="wy"||info["songmid"]!="321"||info["albumId"]!="12"||info["interval"]!="03:00"||info["img"]!=track.CoverURL{t.Fatalf("NetEase LX musicInfo mismatch: %#v",info)}
+	types,ok:=info["types"].([]any)
+	if !ok||len(types)!=4||types[0].(map[string]any)["type"]!="flac24bit"||types[1].(map[string]any)["type"]!="flac"||types[3].(map[string]any)["type"]!="128k"{t.Fatalf("unexpected NetEase qualities: %#v",info["types"])}
+	if got:=selectLXQuality([]string{"flac24bit","flac","320k","128k"},false,track);got!="flac24bit"{t.Fatalf("expected highest available NetEase quality, got %#v",got)}
+	track.SourceData["wy_privilege"]=`{"maxbr":128000,"maxBrLevel":"standard"}`
+	if got:=selectLXQuality([]string{"flac","320k","128k"},false,track);got!="128k"{t.Fatalf("must not request unavailable NetEase quality, got %#v",got)}
+}
+
 func TestLXKuwoMusicInfoUsesNInfoQualityCapabilities(t *testing.T) {
 	track := music.Track{
 		ID: "456", LXSourceKey: "kw", Title: "找自己", Artist: "陶喆",
