@@ -10,7 +10,10 @@ type PlaybackSnapshot = Awaited<ReturnType<typeof MusicService.GetPlaybackStatus
 
 const config = ref<MusicConfig | null>(null)
 type LXSource = Awaited<ReturnType<typeof MusicService.GetLXUserSources>>[number]
+type LXValidation = Awaited<ReturnType<typeof MusicService.ValidateLXUserSource>>
 const lxSources = ref<LXSource[]>([])
+const lxValidation = ref<Record<string, LXValidation>>({})
+const validatingLXSourceID = ref('')
 const lxSourceURL = ref('')
 const importingLXSource = ref(false)
 const sourceFileInput = ref<HTMLInputElement | null>(null)
@@ -91,7 +94,7 @@ async function importLXSourceFile(event: Event) {
     if (file.size > 1024 * 1024) throw new Error('音源脚本不能超过 1 MB')
     const script = await file.text()
     const metadata = await MusicService.ImportLXSource(script)
-    success.value = `已导入音源：${metadata.name}（当前仅完成脚本导入，解析运行环境仍在接入）`
+    success.value = `已导入音源：${metadata.name}；可运行基础初始化验证`
     await refreshLXSources()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
@@ -107,7 +110,7 @@ async function importLXSourceURL() {
   success.value = ''
   try {
     const metadata = await MusicService.ImportLXSourceURL(lxSourceURL.value.trim())
-    success.value = `已下载并导入音源：${metadata.name}（当前仅完成脚本导入，解析运行环境仍在接入）`
+    success.value = `已下载并导入音源：${metadata.name}；可运行基础初始化验证`
     lxSourceURL.value = ''
     await refreshLXSources()
   } catch (reason) {
@@ -116,13 +119,29 @@ async function importLXSourceURL() {
     importingLXSource.value = false
   }
 }
+async function validateLXSource(source: LXSource) {
+  validatingLXSourceID.value = source.id
+  error.value = ''
+  success.value = ''
+  try {
+    const result = await MusicService.ValidateLXUserSource(source.id)
+    lxValidation.value = { ...lxValidation.value, [source.id]: result }
+    success.value = `音源基础初始化通过：${source.name}；已声明平台：${result.platforms.join('、')}。播放地址解析接口仍在接入。`
+  } catch (reason) {
+    delete lxValidation.value[source.id]
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  } finally {
+    validatingLXSourceID.value = ''
+  }
+}
 async function updateLXSource(source: LXSource) {
   importingLXSource.value = true
   error.value = ''
   success.value = ''
   try {
     const metadata = await MusicService.UpdateLXUserSource(source.id)
-    success.value = `已更新音源：${metadata.name}（解析运行环境仍在接入）`
+    success.value = `已更新音源：${metadata.name}；请重新运行基础初始化验证`
+    delete lxValidation.value[source.id]
     await refreshLXSources()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
@@ -327,11 +346,12 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
       <div v-if="lxSources.length" class="lx-source-list">
         <div v-for="source in lxSources" :key="source.id" class="lx-source-row">
           <div class="source-copy">
-            <strong>{{ source.name }} <el-tag size="small" type="warning">尚未启用解析</el-tag></strong>
+            <strong>{{ source.name }} <el-tag size="small" :type="lxValidation[source.id] ? 'success' : 'warning'">{{ lxValidation[source.id] ? '基础初始化通过' : '尚未验证' }}</el-tag></strong>
             <span>{{ source.author || '未知作者' }} · {{ source.version || '未标注版本' }} · SHA256 {{ source.sha256.slice(0, 12) }}</span>
+            <span v-if="lxValidation[source.id]">已声明平台：{{ lxValidation[source.id].platforms.join('、') }} · 已注册事件：{{ lxValidation[source.id].handlers.join('、') || '无' }}（尚未支持播放解析）</span>
             <span v-if="source.source_url">{{ source.source_url }}</span>
           </div>
-          <div class="lx-source-actions"><el-button v-if="source.source_url" link type="primary" :loading="importingLXSource" @click="updateLXSource(source)">检查更新</el-button><el-button link type="danger" @click="deleteLXSource(source)">删除</el-button></div>
+          <div class="lx-source-actions"><el-button link type="primary" :loading="validatingLXSourceID === source.id" :disabled="!!validatingLXSourceID || importingLXSource" @click="validateLXSource(source)">验证脚本</el-button><el-button v-if="source.source_url" link type="primary" :loading="importingLXSource" @click="updateLXSource(source)">检查更新</el-button><el-button link type="danger" @click="deleteLXSource(source)">删除</el-button></div>
         </div>
       </div>
       <el-empty v-else description="尚未导入自定义音源" :image-size="64" />
