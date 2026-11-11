@@ -339,7 +339,35 @@ func (s *MusicService) Enqueue(track music.Track, requestedBy string) (music.Que
 	if s == nil || s.queue == nil { return music.QueueItem{}, errors.New("music queue is unavailable") }
 	s.mu.RLock(); enabled := s.value.Enabled; s.mu.RUnlock()
 	if !enabled { return music.QueueItem{}, errors.New("music module is disabled") }
-	return s.queue.Enqueue(track, requestedBy)
+	state := hostStateFor(s)
+	state.mu.Lock()
+	current := s.queue.Snapshot().Current
+	preempt := current != nil && current.RequestedBy == hostQueueMarker
+	if preempt {
+		snapshot, err := s.engine.Snapshot(context.Background())
+		if err != nil { state.mu.Unlock(); return music.QueueItem{}, fmt.Errorf("保存主播歌曲播放进度失败：%w", err) }
+		state.resumeItem = current
+		state.resumePosition = snapshot.PositionMS
+		state.resumePending = true
+		if err := s.engine.Pause(context.Background()); err != nil {
+			state.resumePending = false
+			state.resumeItem = nil
+			state.mu.Unlock()
+			return music.QueueItem{}, fmt.Errorf("暂停主播歌曲失败：%w", err)
+		}
+		s.cancelPlaybackWatcher()
+		s.queue.FinishCurrent()
+	}
+	state.mu.Unlock()
+	item, err := s.queue.Enqueue(track, requestedBy)
+	if err != nil {
+		if preempt { _ = s.resumeHostPlaylist() }
+		return music.QueueItem{}, err
+	}
+	if preempt {
+		if err := s.PlayNext(); err != nil { return item, err }
+	}
+	return item, nil
 }
 
 func (s *MusicService) GetQueue() music.QueueSnapshot {
@@ -430,9 +458,13 @@ func (s *MusicService) SetVolume(volume int) error {
 func (s *MusicService) Next() error {
 	if s == nil || s.engine == nil || s.queue == nil { return errors.New("music playback service is unavailable") }
 	s.cancelPlaybackWatcher()
-	if current := s.queue.Snapshot().Current; current != nil { s.pushHistory(*current) }
+	current := s.queue.Snapshot().Current
+	if current != nil { s.pushHistory(*current) }
 	_ = s.engine.Stop(context.Background())
 	s.queue.FinishCurrent()
+	if current != nil && current.RequestedBy == hostQueueMarker { return s.advanceHostPlaylist() }
+	if pending := s.queue.Snapshot().Items; len(pending) > 0 { return s.PlayNext() }
+	if s.resumeHostPlaylist() { return nil }
 	return s.PlayNext()
 }
 
@@ -588,9 +620,16 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 			s.mu.RUnlock()
 			if !current { return }
 			if sawEndPosition {
-				if currentItem := s.queue.Snapshot().Current; currentItem != nil { s.pushHistory(*currentItem) }
+				currentItem := s.queue.Snapshot().Current
+				if currentItem != nil { s.pushHistory(*currentItem) }
 				s.queue.FinishCurrent()
-				_ = s.PlayNext()
+				if currentItem != nil && currentItem.RequestedBy == hostQueueMarker {
+					_ = s.advanceHostPlaylist()
+				} else if len(s.queue.Snapshot().Items) == 0 {
+					if !s.resumeHostPlaylist() { _ = s.PlayNext() }
+				} else {
+					_ = s.PlayNext()
+				}
 				return
 			}
 			if time.Since(startedAt) >= 20*time.Second {

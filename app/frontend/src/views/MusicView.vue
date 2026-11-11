@@ -12,7 +12,7 @@ const config = ref<MusicConfig | null>(null)
 type MusicTab = 'now-playing' | 'host-playlist' | 'visitor-requests' | 'search' | 'settings'
 const activeTab = ref<MusicTab>('now-playing')
 const favorites = ref<Track[]>([])
-const favoriteStorageKey = 'my-livehub.music.host-favorites'
+const hostPlayMode = ref('list')
 type LXSource = Awaited<ReturnType<typeof MusicService.GetLXUserSources>>[number]
 type LXValidation = Awaited<ReturnType<typeof MusicService.ValidateLXUserSource>>
 const lxSources = ref<LXSource[]>([])
@@ -61,44 +61,65 @@ function qualityNames(track: Track) {
 }
 function trackRowKey(row: Track) { return `${row.source_id}:${row.id}` }
 function isFavorite(track: Track) { return favorites.value.some(item => trackRowKey(item) === trackRowKey(track)) }
-function persistFavorites() {
-  try { localStorage.setItem(favoriteStorageKey, JSON.stringify(favorites.value)) }
-  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
-}
-function loadFavorites() {
+async function loadFavorites() {
   try {
-    const raw = localStorage.getItem(favoriteStorageKey)
-    const parsed = raw ? JSON.parse(raw) : []
-    favorites.value = Array.isArray(parsed) ? parsed.filter(item => item && typeof item.id === 'string' && typeof item.source_id === 'string' && typeof item.title === 'string') : []
-  } catch { favorites.value = [] }
-}
-function toggleFavorite(track: Track) {
-  if (isFavorite(track)) favorites.value = favorites.value.filter(item => trackRowKey(item) !== trackRowKey(track))
-  else favorites.value = [...favorites.value, track]
-  persistFavorites()
-}
-function removeFavorite(track: Track) {
-  favorites.value = favorites.value.filter(item => trackRowKey(item) !== trackRowKey(track))
-  persistFavorites()
-}
-async function playFavorite(track: Track) {
-  await addToQueue(track)
-  if (!playback.value?.track || playback.value.state === 'stopped' || playback.value.state === 'error') await playNext()
-}
-async function addHostPlaylistToQueue() {
-  if (!favorites.value.length) return
-  error.value = ''
-  try {
-    for (const track of favorites.value) {
-      await MusicService.Enqueue(track, '主播歌单')
+    let playlist = await MusicService.GetHostPlaylist()
+    if (!(playlist.tracks ?? []).length) {
+      try {
+        const legacy = JSON.parse(localStorage.getItem('my-livehub.music.host-favorites') ?? '[]') as Track[]
+        if (Array.isArray(legacy)) {
+          for (const track of legacy) {
+            if (track && typeof track.id === 'string' && typeof track.source_id === 'string' && typeof track.title === 'string') {
+              await MusicService.AddHostTrack(track)
+            }
+          }
+          playlist = await MusicService.GetHostPlaylist()
+        }
+      } catch { /* Ignore malformed legacy browser data. */ }
     }
-    success.value = `已将 ${favorites.value.length} 首主播歌单歌曲加入播放队列`
-    await refreshQueue()
-    if (!playback.value?.track || playback.value.state === 'stopped' || playback.value.state === 'error') await playNext()
+    favorites.value = playlist.tracks ?? []
+    hostPlayMode.value = playlist.mode ?? 'list'
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
-    await refreshQueue()
+    favorites.value = []
   }
+}
+async function toggleFavorite(track: Track) {
+  error.value = ''
+  try {
+    if (isFavorite(track)) await MusicService.RemoveHostTrack(track.source_id, track.id)
+    else await MusicService.AddHostTrack(track)
+    await loadFavorites()
+    success.value = isFavorite(track) ? '已加入主播歌单' : '已从主播歌单移除'
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  }
+}
+async function removeFavorite(track: Track) {
+  try {
+    await MusicService.RemoveHostTrack(track.source_id, track.id)
+    await loadFavorites()
+  } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+}
+async function playFavorite(track: Track) {
+  const index = favorites.value.findIndex(item => trackRowKey(item) === trackRowKey(track))
+  if (index < 0) return
+  try { await MusicService.PlayHostTrack(index); await refreshPlayback(); success.value = '开始播放主播歌单' }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+}
+async function addHostPlaylistToQueue() {
+  try { await MusicService.PlayHostPlaylist(); await refreshPlayback(); success.value = '已开始播放主播歌单' }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+}
+async function moveFavorite(index: number, offset: number) {
+  const target = index + offset
+  if (target < 0 || target >= favorites.value.length) return
+  try { await MusicService.MoveHostTrack(index, target); await loadFavorites() }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+}
+async function changeHostPlayMode(mode: string) {
+  try { await MusicService.SetHostPlayMode(mode); hostPlayMode.value = mode }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
 }
 async function loadConfig() {
   loading.value = true
@@ -363,7 +384,7 @@ async function seekTo(value: number | number[]) {
 }
 
 onMounted(() => {
-  loadFavorites()
+  void loadFavorites()
   void loadConfig()
   statusTimer = setInterval(() => void refreshPlayback(), 1500)
 })
@@ -405,6 +426,8 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
           <strong>{{ playback?.track?.title ?? '尚未播放歌曲' }}</strong>
           <span>{{ playback?.track?.artist ?? '搜索歌曲并加入播放队列' }}</span>
           <small v-if="playback?.track">{{ sourceName(playback.track.source_id) }}</small>
+          <el-tag v-if="queue?.current?.requested_by === '__my_livehub_host_playlist__'" type="success" size="small">主播歌单</el-tag>
+          <el-tag v-else-if="queue?.current" type="warning" size="small">观众点播</el-tag>
         </div>
       </div>
       <el-slider :model-value="progress" :disabled="!playback?.track || !playback.duration_ms" @change="seekTo" />
@@ -493,15 +516,22 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
 
     <el-card v-if="activeTab === 'host-playlist'" shadow="never">
       <template #header><div class="card-heading"><strong>主播常驻歌单</strong><el-tag effect="plain">{{ favorites.length }} 首收藏</el-tag></div></template>
-      <p class="section-description">这里保存你经常播放的歌曲，作为主播日常音乐歌单。收藏数据保存在本机，不会因切换页面或重启应用而丢失。</p>
-      <div class="card-actions"><el-button type="primary" :disabled="favorites.length === 0" @click="addHostPlaylistToQueue">将歌单加入播放队列</el-button></div>
+      <p class="section-description">这里保存你经常播放的歌曲，作为直播期间的默认背景音乐。观众点播会暂时打断当前歌曲，点播队列结束后自动恢复原歌曲和进度。</p>
+      <div class="card-actions">
+        <el-select v-model="hostPlayMode" style="width:150px" @change="changeHostPlayMode">
+          <el-option label="列表循环" value="list" />
+          <el-option label="单曲循环" value="single" />
+          <el-option label="随机播放" value="shuffle" />
+        </el-select>
+        <el-button type="primary" :disabled="favorites.length === 0" @click="addHostPlaylistToQueue">播放主播歌单</el-button>
+      </div>
       <el-table v-if="favorites.length" :data="favorites" :row-key="trackRowKey" style="width:100%">
         <el-table-column type="index" label="#" width="55" />
         <el-table-column prop="title" label="歌曲" min-width="180" />
         <el-table-column prop="artist" label="歌手" min-width="140" />
         <el-table-column prop="album" label="专辑" min-width="140" />
         <el-table-column label="音源" width="130"><template #default="scope">{{ sourceName(scope.row.source_id) }}</template></el-table-column>
-        <el-table-column label="操作" width="150" fixed="right"><template #default="scope"><el-button link type="primary" @click="playFavorite(scope.row)">播放</el-button><el-button link type="danger" @click="removeFavorite(scope.row)">移出歌单</el-button></template></el-table-column>
+        <el-table-column label="操作" width="220" fixed="right"><template #default="scope"><el-button link type="primary" @click="playFavorite(scope.row)">播放</el-button><el-button link :disabled="scope.$index === 0" @click="moveFavorite(scope.$index, -1)">上移</el-button><el-button link :disabled="scope.$index === favorites.length - 1" @click="moveFavorite(scope.$index, 1)">下移</el-button><el-button link type="danger" @click="removeFavorite(scope.row)">移除</el-button></template></el-table-column>
       </el-table>
       <el-empty v-else description="还没有收藏歌曲。可以在歌曲搜索中点击「收藏」，将常听歌曲加入主播歌单。" :image-size="76" />
     </el-card>
