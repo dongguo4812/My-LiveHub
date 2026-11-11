@@ -11,6 +11,9 @@ func TestRunLXSourceWorkerInitializesDeclaredPlatforms(t *testing.T) {
 	script := `/*
  * @name Runtime Test
  */
+if (lx.currentScriptInfo.name !== "Runtime Test" || lx.env !== "desktop" || typeof console.log !== "function") {
+  throw new Error("LX runtime metadata globals are unavailable");
+}
 lx.send(lx.EVENT_NAMES.inited, {
   sources: {
     wy: { name: "网易云音乐", type: "music", actions: ["musicUrl"], qualitys: ["320k"] },
