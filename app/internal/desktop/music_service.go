@@ -779,16 +779,12 @@ func buildLXMusicInfo(track music.Track, quality any) map[string]any {
 		if id, err := strconv.ParseInt(strings.TrimSpace(track.SourceData["id"]), 10, 64); err == nil {
 			numericSongID = id
 		}
-		var numericAlbumID any
-		if id, err := strconv.ParseInt(strings.TrimSpace(track.SourceData["albumid"]), 10, 64); err == nil {
-			numericAlbumID = id
-		}
 		info["source"] = "tx"
 		info["songmid"] = songMid
 		info["songId"] = numericSongID
 		info["strMediaMid"] = mediaMid
 		info["albumMid"] = albumMid
-		info["albumId"] = numericAlbumID
+		info["albumId"] = albumMid
 		info["albumName"] = track.Album
 		info["img"] = track.CoverURL
 		// QQ search SourceData.interval is the provider's raw seconds value.
