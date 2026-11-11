@@ -23,14 +23,15 @@ var lxHeaderPattern = regexp.MustCompile("(?s)^\\s*/\\*.*?\\*/")
 var lxMetadataPattern = regexp.MustCompile("^\\s?\\*\\s?@(name|description|author|homepage|version)\\s+(.+)$")
 
 type LXUserSourceMetadata struct {
- ID string
- Name string
- Description string
- Author string
- Homepage string
- Version string
- SHA256 string
- ImportedAt time.Time
+ ID string `json:"id"`
+ Name string `json:"name"`
+ Description string `json:"description,omitempty"`
+ Author string `json:"author,omitempty"`
+ Homepage string `json:"homepage,omitempty"`
+ Version string `json:"version,omitempty"`
+ SHA256 string `json:"sha256"`
+ SourceURL string `json:"source_url,omitempty"`
+ ImportedAt time.Time `json:"imported_at"`
 }
 
 type LXUserSource struct {
