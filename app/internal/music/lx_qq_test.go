@@ -30,3 +30,34 @@ func TestLXQQMusicSourceUsesSignedDesktopSearch(t *testing.T) {
  got:=result.Tracks[0]
  if got.ID!="song-mid"||got.LXSourceKey!="tx"||got.Artist!="陶喆"||got.SourceData["singer"]!="陶喆"||got.SourceData["media_mid"]!="media-mid"||got.SourceData["albumid"]!="789"||got.SourceData["albummid"]!="album-mid"||got.SourceData["size_flac"]!="3456" {t.Fatalf("LX metadata lost %#v",got)}
 }
+
+
+func TestLXQQCodeMatchesLXDesktopLooseZeroComparison(t *testing.T) {
+ for _, raw := range []string{`0`, `"0"`, `0.0`, `"0.0"`, `false`} {
+  if !lxQQCodeOK(json.RawMessage(raw)) { t.Errorf("expected %s to match LX success code 0", raw) }
+ }
+ for _, raw := range []string{`1`, `"1"`, `-1`, `null`, `"bad"`} {
+  if lxQQCodeOK(json.RawMessage(raw)) { t.Errorf("expected %s to be rejected", raw) }
+ }
+ if got:=lxQQCodeLabel(nil);got!="<missing>" { t.Fatalf("missing code label=%q",got) }
+}
+
+func TestLXQQSearchRetriesWithFreshSearchIDAndReportsResponseCodes(t *testing.T) {
+ calls:=0
+ searchIDs:=map[string]bool{}
+ server:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+  calls++
+  var request map[string]json.RawMessage
+  if err:=json.NewDecoder(r.Body).Decode(&request);err!=nil { t.Fatal(err) }
+  var service struct { Param struct { SearchID string `json:"searchid"` } `json:"param"` }
+  if err:=json.Unmarshal(request["music.search.SearchCgiService"],&service);err!=nil { t.Fatal(err) }
+  if searchIDs[service.Param.SearchID] { t.Errorf("retry reused searchid %q",service.Param.SearchID) }
+  searchIDs[service.Param.SearchID]=true
+  _,_=w.Write([]byte(`{"code":0,"music.search.SearchCgiService":{"code":1001,"data":{}}}`))
+ }))
+ defer server.Close()
+ source:=NewLXQQMusicSource(server.Client(),server.URL)
+ _,err:=source.SearchPage(context.Background(),"稻香",1,10)
+ if err==nil || !strings.Contains(err.Error(),"body.code=0, service.code=1001") { t.Fatalf("expected safe response code diagnostics, got %v",err) }
+ if calls!=6 { t.Fatalf("expected LX desktop's initial request plus five retries, got %d",calls) }
+}
