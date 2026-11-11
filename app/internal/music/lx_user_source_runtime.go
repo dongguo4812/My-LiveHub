@@ -143,8 +143,25 @@ func RunLXSourceWorker(input io.Reader, output io.Writer) int {
 	eventNames := vm.NewObject()
 	_ = eventNames.Set("inited", "inited")
 	_ = eventNames.Set("request", "request")
+	_ = eventNames.Set("updateAlert", "updateAlert")
 	lx := vm.NewObject()
 	_ = lx.Set("EVENT_NAMES", eventNames)
+	_ = lx.Set("env", "desktop")
+	if source, parseErr := ParseLXUserSource(request.Script); parseErr == nil {
+		currentInfo := vm.NewObject()
+		_ = currentInfo.Set("name", source.Metadata.Name)
+		_ = currentInfo.Set("description", source.Metadata.Description)
+		_ = currentInfo.Set("author", source.Metadata.Author)
+		_ = currentInfo.Set("homepage", source.Metadata.Homepage)
+		_ = currentInfo.Set("version", source.Metadata.Version)
+		_ = currentInfo.Set("rawScript", request.Script)
+		_ = lx.Set("currentScriptInfo", currentInfo)
+	}
+	console := vm.NewObject()
+	for _, method := range []string{"log", "info", "warn", "error", "debug"} {
+		_ = console.Set(method, func(goja.FunctionCall) goja.Value { return goja.Undefined() })
+	}
+	_ = vm.Set("console", console)
 	_ = lx.Set("send", func(call goja.FunctionCall) goja.Value {
 		if call.Argument(0).String() == "inited" {
 			encoded, marshalErr := json.Marshal(call.Argument(1).Export())
