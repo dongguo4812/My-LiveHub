@@ -106,7 +106,7 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 		return nil, "", errors.New("LX request HTTP method 不受支持")
 	}
 
-	headers, _ := options["headers"].(map[string]interface{})
+	headers := lxObjectMap(options["headers"])
 	contentType := ""
 	for key, value := range headers { if strings.EqualFold(strings.TrimSpace(key), "content-type") { contentType = strings.TrimSpace(fmt.Sprint(value)); break } }
 	data, hasData := options["body"]
@@ -125,7 +125,7 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 			requestBody = []byte(value)
 		case []byte:
 			requestBody = value
-		case map[string]interface{}, map[string]string, []interface{}:
+		case lxOrderedObject, map[string]interface{}, map[string]string, []interface{}:
 			jsonMode := !formMode && strings.EqualFold(strings.TrimSpace(contentType), "application/json")
 			if jsonMode {
 				requestBody, err = json.Marshal(value)
@@ -263,8 +263,6 @@ func lxObjectMap(value any) map[string]any {
 	switch object := value.(type) {
 	case lxOrderedObject:
 		return object.Values
-	case map[string]any:
-		return object
 	case map[string]interface{}:
 		return object
 	default:
