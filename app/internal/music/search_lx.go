@@ -452,7 +452,7 @@ func(p miguSearchProvider)Search(ctx context.Context,keyword string,page int)(Se
 		item:=mapValue(entry);id:=stringValue(item["songId"]);copyright:=stringValue(item["copyrightId"])
 		if id==""||copyright==""||seen[copyright]{continue};seen[copyright]=true
 		types:=[]TrackQuality{}
-		for _,v:=range sliceValue(item["audioFormats"]){f:=mapValue(v);kind:="";switch stringValue(f["formatType"]){case "PQ":kind="128k";case "HQ":kind="320k";case "SQ":kind="flac";case "ZQ24":kind="flac24bit"};if kind!=""{types=append(types,quality(kind,func() int64 { if n:=intValue(f["asize"]); n>0 { return n }; return intValue(f["isize"]) }(),nil))}}
+		for _,v:=range sliceValue(item["audioFormats"]){f:=mapValue(v);kind:="";switch stringValue(f["formatType"]){case "PQ":kind="128k";case "HQ":kind="320k";case "SQ":kind="flac";case "ZQ", "ZQ24":kind="flac24bit"};if kind!=""{types=append(types,quality(kind,func() int64 { if n:=intValue(f["asize"]); n>0 { return n }; return intValue(f["isize"]) }(),nil))}}
 		img:=stringValue(item["img3"]);if img==""{img=stringValue(item["img2"])};if img==""{img=stringValue(item["img1"])};if img!=""&&!strings.HasPrefix(img,"http"){img="http://d.musicapp.migu.cn"+img}
 		artists:=[]string{};for _,v:=range sliceValue(item["singerList"]){if n:=stringValue(mapValue(v)["name"]);n!=""{artists=append(artists,n)}}
 		dataMap:=map[string]string{"songmid":id,"copyright_id":copyright,"album_id":stringValue(item["albumId"]),"lrc_url":stringValue(item["lrcUrl"]),"mrc_url":stringValue(item["mrcurl"]),"trc_url":stringValue(item["trcUrl"])}

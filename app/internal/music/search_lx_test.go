@@ -26,7 +26,7 @@ func TestLXSearchClientCallsAllFiveProvidersAndKeepsPartialResults(t *testing.T)
 	})
 	mux.HandleFunc("/mg", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("sign") == "" { t.Errorf("Migu request missing signature") }
-		_, _ = w.Write([]byte(`{"code":"000000","songResultData":{"totalCount":1,"resultList":[[{"songId":"505","copyrightId":"COPY505","name":"Migu Song","duration":184,"singerList":[{"name":"Singer"}],"album":"Album","albumId":"5","audioFormats":[{"formatType":"PQ","asize":1000}],"img3":"https://img.test/5.jpg"}]]}}`))
+		_, _ = w.Write([]byte(`{"code":"000000","songResultData":{"totalCount":1,"resultList":[[{"songId":"505","copyrightId":"COPY505","name":"Migu Song","duration":184,"singerList":[{"name":"Singer"}],"album":"Album","albumId":"5","audioFormats":[{"formatType":"PQ","asize":1000},{"formatType":"ZQ","asize":4000}],"img3":"https://img.test/5.jpg"}]]}}`))
 	})
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -47,6 +47,9 @@ func TestLXSearchClientCallsAllFiveProvidersAndKeepsPartialResults(t *testing.T)
 	if result.Tracks[2].SourceData["media_mid"] != "MEDIA" { t.Fatalf("QQ native media ID was not retained: %#v", result.Tracks[2].SourceData) }
 	if result.Tracks[4].ID != "mg:505" { t.Fatalf("Migu native song ID was not retained: %q", result.Tracks[4].ID) }
 	if result.Tracks[4].SourceData["copyright_id"] != "COPY505" { t.Fatalf("Migu copyright ID was not retained: %#v", result.Tracks[4].SourceData) }
+	hasMiguHiRes := false
+	for _, item := range result.Tracks[4].Qualities { if item.Type == "flac24bit" { hasMiguHiRes = true } }
+	if !hasMiguHiRes { t.Fatalf("Migu ZQ quality was not mapped to flac24bit: %#v", result.Tracks[4].Qualities) }
 }
 
 func TestLXSearchClientReturnsSuccessfulProvidersWhenOneFails(t *testing.T) {

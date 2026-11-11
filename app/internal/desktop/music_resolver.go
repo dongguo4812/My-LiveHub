@@ -86,3 +86,27 @@ func formatLXInterval(durationMS int64) string {
 	seconds := durationMS / 1000
 	return fmt.Sprintf("%02d:%02d", seconds/60, seconds%60)
 }
+
+func parseLXMusicURLResponse(raw []byte, expectedSource, expectedQuality string) (string, error) {
+	var result struct {
+		Source string `json:"source"`
+		Action string `json:"action"`
+		Data struct {
+			URL string `json:"url"`
+			Type string `json:"type"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return "", errors.New("自定义源返回的播放结果格式无效")
+	}
+	if result.Source != expectedSource || result.Action != "musicUrl" {
+		return "", errors.New("自定义源返回的播放结果与当前歌曲不匹配")
+	}
+	if result.Data.Type != "" && result.Data.Type != expectedQuality {
+		return "", errors.New("自定义源返回的音质与所选音质不匹配")
+	}
+	if err := music.ValidateLXPlaybackURL(result.Data.URL); err != nil {
+		return "", errors.New("自定义源未返回有效的 HTTP(S) 播放地址")
+	}
+	return result.Data.URL, nil
+}
