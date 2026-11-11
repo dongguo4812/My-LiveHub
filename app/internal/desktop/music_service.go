@@ -278,6 +278,28 @@ func (s *MusicService) SearchPage(keyword string, page int) (MusicSearchResponse
 	return s.searchPage(context.Background(), keyword, page)
 }
 
+func (s *MusicService) SearchSourcePage(keyword, source string, page int) (MusicSearchResponse, error) {
+	if s == nil || s.searcher == nil {
+		return MusicSearchResponse{}, errors.New("洛雪搜索 SDK 未初始化")
+	}
+	if strings.TrimSpace(keyword) == "" {
+		return MusicSearchResponse{}, errors.New("请输入歌曲名称或歌手")
+	}
+	if page < 1 {
+		return MusicSearchResponse{}, errors.New("搜索页码必须大于 0")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 18*time.Second)
+	defer cancel()
+	result, err := s.searcher.SearchProvider(ctx, source, keyword, page)
+	if err != nil {
+		return MusicSearchResponse{}, err
+	}
+	return MusicSearchResponse{
+		Tracks: result.Tracks, Page: result.Page, PageSize: result.PageSize,
+		Total: result.Total, MaxPage: result.MaxPage, Errors: map[string]string{},
+	}, nil
+}
+
 func (s *MusicService) search(parent context.Context, keyword string) (MusicSearchResponse, error) {
 	return s.searchPage(parent, keyword, 1)
 }

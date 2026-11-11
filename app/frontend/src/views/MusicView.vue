@@ -24,13 +24,14 @@ const results = ref<Track[]>([])
 const searchErrors = ref<Record<string, string>>({})
 const qualitySelections = ref<Record<string, string>>({})
 const query = ref('')
+const selectedSource = ref('all')
 const volume = ref(80)
 const loading = ref(false)
 const searching = ref(false)
 const currentPage = ref(1)
 const maxPage = ref(0)
 const total = ref(0)
-const pageSize = ref(20)
+const pageSize = ref(30)
 let searchRequestID = 0
 const saving = ref(false)
 const error = ref('')
@@ -240,7 +241,9 @@ async function loadSearchPage(page: number) {
   success.value = ''
   searchErrors.value = {}
   try {
-    const response = await MusicService.SearchPage(query.value, page)
+    const response = selectedSource.value === 'all'
+      ? await MusicService.SearchPage(query.value, page)
+      : await MusicService.SearchSourcePage(query.value, selectedSource.value, page)
     if (requestID !== searchRequestID) return
     results.value = response.tracks ?? []
     currentPage.value = response.page ?? page
@@ -399,6 +402,14 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
     <el-card shadow="never">
       <template #header><strong>搜索歌曲</strong></template>
       <div class="search-row">
+        <el-select v-model="selectedSource" style="width:160px" @change="search">
+          <el-option label="全部音源" value="all" />
+          <el-option label="酷我音乐" value="kw" />
+          <el-option label="酷狗音乐" value="kg" />
+          <el-option label="QQ 音乐" value="tx" />
+          <el-option label="网易云音乐" value="wy" />
+          <el-option label="咪咕音乐" value="mg" />
+        </el-select>
         <el-input v-model="query" placeholder="输入歌曲名或歌手，例如：稻香 周杰伦" clearable @keyup.enter="search" />
         <el-button type="primary" :loading="searching" @click="search">搜索</el-button>
       </div>
