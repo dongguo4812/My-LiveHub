@@ -36,6 +36,14 @@ jobs:
           cache: true
           cache-dependency-path: app/go.sum
 
+      - name: Tidy and capture Go module metadata
+        shell: pwsh
+        run: |
+          go mod tidy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host "GO_MOD_BASE64=$([Convert]::ToBase64String([IO.File]::ReadAllBytes('go.mod')))"
+          Write-Host "GO_SUM_BASE64=$([Convert]::ToBase64String([IO.File]::ReadAllBytes('go.sum')))"
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
