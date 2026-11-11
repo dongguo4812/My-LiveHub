@@ -549,3 +549,27 @@ lx.send(lx.EVENT_NAMES.inited, {
 		t.Fatalf("Flower diagnostics did not safely identify the endpoint: %v", err)
 	}
 }
+
+
+func TestFilterLXSourceDeclarationUsesJavaScriptIncludesSemantics(t *testing.T) {
+	raw := json.RawMessage(`{"sources":{
+		"wy":{"type":"music","actions":"prefix-musicUrl-suffix","qualitys":"320k-lossless"},
+		"local":{"type":"music","actions":["musicUrl","lyric","pic"]}
+	}}`)
+	_, platforms, declared, err := filterLXSourceDeclaration(raw)
+	if err != nil { t.Fatal(err) }
+	if len(platforms) != 2 { t.Fatalf("platforms = %#v", platforms) }
+	var wy, local *LXDeclaredSource
+	for i := range declared {
+		switch declared[i].Key {
+		case "wy": wy = &declared[i]
+		case "local": local = &declared[i]
+		}
+	}
+	if wy == nil || len(wy.Actions) != 1 || wy.Actions[0] != "musicUrl" || len(wy.Qualitys) != 1 || wy.Qualitys[0] != "320k" {
+		t.Fatalf("string includes semantics mismatch: %#v", wy)
+	}
+	if local == nil || len(local.Actions) != 3 || len(local.Qualitys) != 0 {
+		t.Fatalf("local source without qualitys should remain valid: %#v", local)
+	}
+}
