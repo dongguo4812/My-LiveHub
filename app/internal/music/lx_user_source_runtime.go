@@ -66,7 +66,7 @@ type lxRuntimeEventLoop struct {
 func newLXRuntimeEventLoop(vm *goja.Runtime) *lxRuntimeEventLoop {
 	return &lxRuntimeEventLoop{vm:vm, tasks:make(chan func(),256), timers:make(map[int]*time.Timer)}
 }
-func (loop *lxRuntimeEventLoop) enqueue(task func()) { select { case loop.tasks <- task: default: } }
+func (loop *lxRuntimeEventLoop) enqueue(task func()) { loop.tasks <- task }
 func (loop *lxRuntimeEventLoop) setTimer(callback goja.Value, delay time.Duration, repeat bool) int {
 	fn, ok := goja.AssertFunction(callback); if !ok { return 0 }
 	loop.mu.Lock(); loop.nextID++; id:=loop.nextID
