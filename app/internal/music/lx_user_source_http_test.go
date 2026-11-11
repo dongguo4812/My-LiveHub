@@ -21,7 +21,7 @@ func TestLXRequestCallbackReceivesResponseBody(t *testing.T) {
 			StatusCode: http.StatusOK,
 			Status: "200 OK",
 			Header: make(http.Header),
-			Body: io.NopCloser(strings.NewReader("{\\"url\\":\\"https://cdn.example.test/song.mp3\\"}")),
+			Body: io.NopCloser(strings.NewReader("{\"url\":\"https://cdn.example.test/song.mp3\"}")),
 			Request: request,
 		}, nil
 	})}
@@ -45,7 +45,7 @@ func TestLXRequestCallbackReceivesResponseBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := value.String(), "{\\"url\\":\\"https://cdn.example.test/song.mp3\\"}"; got != want {
+	if got, want := value.String(), "{\"url\":\"https://cdn.example.test/song.mp3\"}"; got != want {
 		t.Fatalf("LX request callback body = %q, want %q", got, want)
 	}
 }
