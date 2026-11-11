@@ -12,6 +12,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/dongguo4812/My-LiveHub/app/internal/config"
 )
 
 const (
@@ -24,6 +26,7 @@ type lxSessionWorkerInput struct {
 	Script string `json:"script,omitempty"`
 	RequestKey string `json:"requestKey,omitempty"`
 	Payload json.RawMessage `json:"payload,omitempty"`
+	Proxy config.LXUserSourceProxyConfig `json:"proxy,omitempty"`
 }
 
 type lxSessionWorkerOutput struct {
@@ -51,7 +54,10 @@ type LXUserSourceProcess struct {
 	result LXSourceRuntimeResult
 }
 
-func StartLXUserSourceProcess(ctx context.Context, script string) (*LXUserSourceProcess, error) {
+func StartLXUserSourceProcess(ctx context.Context, script string, proxyConfigs ...config.LXUserSourceProxyConfig) (*LXUserSourceProcess, error) {
+	proxyConfig := config.LXUserSourceProxyConfig{}
+	if len(proxyConfigs) > 0 { proxyConfig = proxyConfigs[0] }
+	if err := proxyConfig.Validate(); err != nil { return nil, err }
 	if ctx == nil { ctx = context.Background() }
 	if len(script) == 0 || lxUserSourceStringLength(script) > MaxLXUserSourceBytes {
 		return nil, errors.New("LX 音源脚本为空或超过 9 MB 限制")
@@ -76,7 +82,7 @@ func StartLXUserSourceProcess(ctx context.Context, script string) (*LXUserSource
 		return nil, fmt.Errorf("启动 LX 音源隔离进程失败：%w", err)
 	}
 	go process.readLoop(stdout)
-	if err := process.write(lxSessionWorkerInput{Operation: "init", Script: script}); err != nil {
+	if err := process.write(lxSessionWorkerInput{Operation: "init", Script: script, Proxy: proxyConfig}); err != nil {
 		_ = process.Close()
 		return nil, err
 	}
@@ -99,6 +105,12 @@ func StartLXUserSourceProcess(ctx context.Context, script string) (*LXUserSource
 		}
 		return nil, errors.New("LX 音源隔离进程在初始化完成前退出")
 	}
+}
+
+func (p *LXUserSourceProcess) SetProxy(proxyConfig config.LXUserSourceProxyConfig) error {
+	if p == nil { return errors.New("LX 音源隔离进程不可用") }
+	if err := proxyConfig.Validate(); err != nil { return err }
+	return p.write(lxSessionWorkerInput{Operation: "proxy", Proxy: proxyConfig})
 }
 
 func (p *LXUserSourceProcess) IsRunning() bool {
@@ -252,7 +264,7 @@ func RunLXUserSourceSessionWorker(input io.Reader, output io.Writer) int {
 	if err := json.Unmarshal(scanner.Bytes(), &initMessage); err != nil || initMessage.Operation != "init" {
 		return 1
 	}
-	session, err := StartLXUserSourceSession(context.Background(), initMessage.Script, nil)
+	session, err := StartLXUserSourceSessionWithProxy(context.Background(), initMessage.Script, nil, initMessage.Proxy)
 	writeMu := sync.Mutex{}
 	write := func(message lxSessionWorkerOutput) {
 		writeMu.Lock()
@@ -303,6 +315,8 @@ func RunLXUserSourceSessionWorker(input io.Reader, output io.Writer) int {
 				if requestErr != nil { response.Error = requestErr.Error() }
 				write(response)
 			}(message.RequestKey, append(json.RawMessage(nil), message.Payload...), requestCtx, cancel)
+		case "proxy":
+			if err := message.Proxy.Validate(); err == nil { session.SetProxy(message.Proxy) }
 		case "cancel":
 			requestMu.Lock()
 			cancel := requestCancels[message.RequestKey]

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dop251/goja"
+	"github.com/dongguo4812/My-LiveHub/app/internal/config"
 )
 
 // LXUserSourceSession mirrors the lifecycle of the desktop userApi window:
@@ -29,6 +30,8 @@ type LXUserSourceSession struct {
 	pendingMu sync.Mutex
 	pending map[string]chan lxSessionResponse
 	mu sync.RWMutex
+	proxyMu sync.RWMutex
+	proxyConfig config.LXUserSourceProxyConfig
 	vm *goja.Runtime
 	result LXSourceRuntimeResult
 	updates chan LXUserSourceUpdate
@@ -60,6 +63,10 @@ type lxSessionReady struct {
 }
 
 func StartLXUserSourceSession(ctx context.Context, script string, requestClient *http.Client) (*LXUserSourceSession, error) {
+	return StartLXUserSourceSessionWithProxy(ctx, script, requestClient, config.LXUserSourceProxyConfig{})
+}
+
+func StartLXUserSourceSessionWithProxy(ctx context.Context, script string, requestClient *http.Client, proxyConfig config.LXUserSourceProxyConfig) (*LXUserSourceSession, error) {
 	if ctx == nil { ctx = context.Background() }
 	if strings.TrimSpace(script) == "" || lxUserSourceStringLength(script) > MaxLXUserSourceBytes {
 		return nil, errors.New("LX 音源脚本为空或超过 9 MB 限制")
@@ -71,6 +78,7 @@ func StartLXUserSourceSession(ctx context.Context, script string, requestClient 
 		ready: make(chan lxSessionReady, 1),
 		pending: make(map[string]chan lxSessionResponse),
 		updates: make(chan LXUserSourceUpdate, 4),
+		proxyConfig: proxyConfig,
 	}
 	go session.run(script, requestClient)
 	select {
@@ -94,6 +102,19 @@ func StartLXUserSourceSession(ctx context.Context, script string, requestClient 
 		}
 		return nil, errors.New("LX 音源运行实例已退出")
 	}
+}
+
+func (s *LXUserSourceSession) SetProxy(proxyConfig config.LXUserSourceProxyConfig) {
+	if s == nil { return }
+	s.proxyMu.Lock()
+	s.proxyConfig = proxyConfig
+	s.proxyMu.Unlock()
+}
+
+func (s *LXUserSourceSession) currentProxyConfig() config.LXUserSourceProxyConfig {
+	s.proxyMu.RLock()
+	defer s.proxyMu.RUnlock()
+	return s.proxyConfig
 }
 
 func (s *LXUserSourceSession) Updates() <-chan LXUserSourceUpdate {
@@ -307,7 +328,7 @@ func (s *LXUserSourceSession) run(script string, requestClient *http.Client) {
 		_ = resolve(goja.Undefined())
 		return vm.ToValue(promise)
 	})
-	if err := installLXRequestAsync(vm, lx, requestClient, loop, nil); err != nil {
+	if err := installLXRequestAsyncWithProxyProvider(vm, lx, requestClient, loop, nil, s.currentProxyConfig); err != nil {
 		s.ready <- lxSessionReady{err: fmt.Errorf("初始化 LX request 请求桥接失败：%w", err)}
 		return
 	}
