@@ -208,7 +208,7 @@ func RunLXSourceWorker(input io.Reader, output io.Writer) int {
 			switch promise.State() {
 			case goja.PromiseStateFulfilled: value = promise.Result()
 			case goja.PromiseStateRejected: response.Error = fmt.Sprintf("LX 音源 request Promise 被拒绝：%s", promise.Result().String()); return 1
-			default: response.Error = "LX 音源 request Promise 尚未完成；异步网络请求桥接尚未接入"; return 1
+			default: response.Error = "LX 音源 request Promise 尚未完成；当前只支持请求回调同步完成的脚本"; return 1
 			}
 		}
 		encoded, marshalErr := json.Marshal(value.Export())
@@ -224,7 +224,7 @@ func RunLXSourceWorker(input io.Reader, output io.Writer) int {
 
 // ResolveLXUserSource invokes the request handler in a separate worker process.
 // Synchronous results and already-settled Promises are supported. Promise
-// results waiting on lx.request are not supported until the HTTP bridge lands.
+// lx.request callback requests are executed synchronously inside the isolated worker.
 func ResolveLXUserSource(parent context.Context, script string, payload json.RawMessage) (json.RawMessage, error) {
 	if parent == nil { parent = context.Background() }
 	if strings.TrimSpace(script) == "" || len(script) > MaxLXUserSourceBytes { return nil, errors.New("LX 音源脚本为空或超过 1 MB 限制") }
