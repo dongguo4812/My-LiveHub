@@ -45,6 +45,9 @@ func TestLXRequestDefaultTimeoutMatchesLXDesktop(t *testing.T) {
 	if !transport.DisableCompression {
 		t.Error("Needle default compressed=false must not advertise compressed responses")
 	}
+	if lxRequestRedirectLimit != 5 {
+		t.Errorf("Needle redirect limit = %d, want 5", lxRequestRedirectLimit)
+	}
 }
 
 func TestLXRequestCallbackReceivesResponseBody(t *testing.T) {

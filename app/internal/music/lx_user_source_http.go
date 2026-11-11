@@ -22,7 +22,7 @@ import (
 const (
 	// LX userApi preload.js defaults lx.request to 60 seconds and caps it at 60 seconds.
 	lxRequestTimeout = 60 * time.Second
-	lxRequestRedirectLimit = 0
+	lxRequestRedirectLimit = 5
 	lxRequestBodyLimit = 2 << 20
 )
 
@@ -102,7 +102,7 @@ func newLXNeedleTransport(responseTimeout time.Duration) *http.Transport {
 	transport.DialContext = (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext
 	transport.TLSHandshakeTimeout = 10 * time.Second
 	transport.ResponseHeaderTimeout = responseTimeout
-	transport.DisableCompression = true // Needle defaults compressed=false and does not send Accept-Encoding.
+	transport.DisableCompression = true // Needle follows up to five redirects by default and defaults compressed=false.
 	transport.MaxIdleConns = 16
 	transport.MaxIdleConnsPerHost = 4
 	transport.IdleConnTimeout = 30 * time.Second
