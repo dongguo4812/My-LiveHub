@@ -129,6 +129,7 @@ func (p *LXUserSourceProcess) Request(ctx context.Context, payload json.RawMessa
 	case <-ctx.Done():
 		// LX removes the timed-out requestKey from its response queue; the
 		// script keeps running and any late response is ignored.
+		_ = p.write(lxSessionWorkerInput{Operation: "cancel", RequestKey: requestKey})
 		p.removePending(requestKey)
 		return nil, ctx.Err()
 	case <-p.done:
@@ -243,8 +244,13 @@ func RunLXUserSourceSessionWorker(input io.Reader, output io.Writer) int {
 		}
 	}()
 	var requestWG sync.WaitGroup
+	var requestMu sync.Mutex
+	requestCancels := make(map[string]context.CancelFunc)
 	defer func() {
 		_ = session.Close()
+		requestMu.Lock()
+		for key, cancel := range requestCancels { cancel(); delete(requestCancels, key) }
+		requestMu.Unlock()
 		requestWG.Wait()
 	}()
 	for scanner.Scan() {
@@ -252,16 +258,30 @@ func RunLXUserSourceSessionWorker(input io.Reader, output io.Writer) int {
 		if err := json.Unmarshal(scanner.Bytes(), &message); err != nil { continue }
 		switch message.Operation {
 		case "request":
+			requestCtx, cancel := context.WithCancel(context.Background())
+			requestMu.Lock()
+			requestCancels[message.RequestKey] = cancel
+			requestMu.Unlock()
 			requestWG.Add(1)
-			go func(requestKey string, payload json.RawMessage) {
+			go func(requestKey string, payload json.RawMessage, ctx context.Context, cancel context.CancelFunc) {
 				defer requestWG.Done()
-				ctx, cancel := context.WithTimeout(context.Background(), 24*time.Hour)
 				defer cancel()
+				defer func() {
+					requestMu.Lock()
+					delete(requestCancels, requestKey)
+					requestMu.Unlock()
+				}()
 				value, requestErr := session.Request(ctx, payload)
 				response := lxSessionWorkerOutput{Type: "response", RequestKey: requestKey, Value: value}
 				if requestErr != nil { response.Error = requestErr.Error() }
 				write(response)
-			}(message.RequestKey, append(json.RawMessage(nil), message.Payload...))
+			}(message.RequestKey, append(json.RawMessage(nil), message.Payload...), requestCtx, cancel)
+		case "cancel":
+			requestMu.Lock()
+			cancel := requestCancels[message.RequestKey]
+			delete(requestCancels, message.RequestKey)
+			requestMu.Unlock()
+			if cancel != nil { cancel() }
 		case "close":
 			return 0
 		}
