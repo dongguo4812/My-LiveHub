@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	lxRequestTimeout = 10 * time.Second
+	lxRequestTimeout = 15 * time.Second
 	lxRequestBodyLimit = 2 << 20
 	lxRequestRedirectLimit = 4
 )

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dop251/goja"
 )
@@ -13,6 +14,29 @@ type lxRoundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f lxRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return f(request)
+}
+
+func TestLXRequestDefaultTimeoutMatchesLXDesktop(t *testing.T) {
+	client := &http.Client{Transport: lxRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		deadline, ok := request.Context().Deadline()
+		if !ok {
+			t.Fatal("LX request must set a bounded default timeout")
+		}
+		remaining := time.Until(deadline)
+		if remaining < 14*time.Second || remaining > 15*time.Second {
+			t.Errorf("LX request default timeout = %s, want 15 seconds like LX Desktop", remaining)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status: "200 OK",
+			Header: make(http.Header),
+			Body: io.NopCloser(strings.NewReader("ok")),
+			Request: request,
+		}, nil
+	})}
+	if _, _, err := performLXRequestWithClient("https://music.example.test/resolve", map[string]any{}, client); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestLXRequestCallbackReceivesResponseBody(t *testing.T) {
