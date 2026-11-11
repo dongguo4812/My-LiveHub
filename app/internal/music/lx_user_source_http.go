@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -124,6 +123,5 @@ func performLXRequest(rawURL string, optionsValue goja.Value) (map[string]any, s
 		"url": resp.Request.URL.String(),
 		"statusMessage": resp.Status,
 	}
-	_ = strconv.Itoa(resp.StatusCode)
 	return response, string(data), nil
 }
