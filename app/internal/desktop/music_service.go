@@ -2,7 +2,6 @@ package desktop
 
 import (
 	"context"
-	"regexp"
 			"errors"
 	"fmt"
 	"os"
