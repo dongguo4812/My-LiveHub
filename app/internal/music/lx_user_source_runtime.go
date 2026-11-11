@@ -23,8 +23,8 @@ const (
 	lxWorkerArgument = LXSourceWorkerArgument
 	lxWorkerInputLimit = MaxLXUserSourceBytes + 4096
 	lxWorkerOutputLimit = 256 << 10
-	lxWorkerTimeout = 18 * time.Second
-	lxWorkerExecutionTimeout = 15 * time.Second
+	lxWorkerTimeout = 65 * time.Second
+	lxWorkerExecutionTimeout = 60 * time.Second
 )
 
 type LXDeclaredSource struct {

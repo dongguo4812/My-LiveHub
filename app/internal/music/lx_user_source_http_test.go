@@ -23,8 +23,8 @@ func TestLXRequestDefaultTimeoutMatchesLXDesktop(t *testing.T) {
 			t.Fatal("LX request must set a bounded default timeout")
 		}
 		remaining := time.Until(deadline)
-		if remaining < 14*time.Second || remaining > 15*time.Second {
-			t.Errorf("LX request default timeout = %s, want 15 seconds like LX Desktop", remaining)
+		if remaining < 59*time.Second || remaining > 60*time.Second {
+			t.Errorf("LX request default timeout = %s, want 60 seconds like LX custom-source preload", remaining)
 		}
 		return &http.Response{
 			StatusCode: http.StatusOK,

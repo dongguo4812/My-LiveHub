@@ -18,7 +18,8 @@ import (
 )
 
 const (
-	lxRequestTimeout = 15 * time.Second
+	// LX userApi preload.js defaults lx.request to 60 seconds and caps it at 60 seconds.
+	lxRequestTimeout = 60 * time.Second
 	lxRequestBodyLimit = 2 << 20
 	lxRequestRedirectLimit = 4
 )
@@ -146,7 +147,7 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 		if number, ok := value.(int64); ok && number > 0 { timeout = time.Duration(number) * time.Millisecond }
 		if number, ok := value.(float64); ok && number > 0 { timeout = time.Duration(number) * time.Millisecond }
 	}
-	if timeout > 30*time.Second { timeout = 30*time.Second }
+	if timeout > 60*time.Second { timeout = 60*time.Second }
 	redirectLimit := lxRequestRedirectLimit
 	if value, ok := options["follow_max"]; ok {
 		if number, ok := value.(int64); ok && number >= 0 && number < 10 { redirectLimit = int(number) }
