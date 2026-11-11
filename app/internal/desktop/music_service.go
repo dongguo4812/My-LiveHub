@@ -880,72 +880,101 @@ func containsString(values []string, target string) bool {
 func buildLXMusicInfo(track music.Track, quality any) map[string]any {
 	seconds := track.DurationMS / 1000
 	source := strings.TrimSpace(track.LXSourceKey)
-	if source == "" { source = strings.TrimSpace(track.SourceID) }
-	var songID any = track.ID
-	meta := map[string]any{
-		"songId": songID,
-		"albumName": track.Album,
-		"picUrl": track.CoverURL,
+	if source == "" {
+		source = strings.TrimSpace(track.SourceID)
 	}
-	var qualitys []any
-	var qualityMap map[string]any
-	switch source {
-	case "wy":
-		songID = lxNumericID(track.ID)
-		if albumID := strings.TrimSpace(track.SourceData["albumId"]); albumID != "" { meta["albumId"] = lxNumericID(albumID) }
-		qualitys, qualityMap = buildLXNetEaseQualities(track.SourceData)
-	case "kg":
-		songID = lxNumericID(track.SourceData["Audioid"])
-		if albumAudioID := strings.TrimSpace(track.SourceData["MixSongID"]); albumAudioID != "" { meta["albumAudioId"] = lxNumericID(albumAudioID) }
-		if albumID := strings.TrimSpace(track.SourceData["AlbumID"]); albumID != "" { meta["albumId"] = lxNumericID(albumID) }
-		meta["hash"] = track.SourceData["FileHash"]
-		if hash := strings.TrimSpace(track.SourceData["FileHash"]); hash != "" { meta["hash"] = hash } else { delete(meta,"hash") }
-		if original := strings.TrimSpace(track.SourceData["OriSongName"]); original != "" {
-			name := original
-			if suffix := strings.TrimSpace(track.SourceData["Suffix"]); suffix != "" { name += " " + suffix }
-			track.Title = name
-		}
-		if singer := strings.TrimSpace(track.SourceData["lxSinger"]); singer != "" { track.Artist = singer }
-		qualitys, qualityMap = buildLXKugouQualities(track.SourceData)
-	case "tx":
-		if albumMid := strings.TrimSpace(track.SourceData["albummid"]); albumMid != "" {
-			meta["albumId"] = albumMid
-			meta["albumMid"] = albumMid
-		}
-		if mediaMid := strings.TrimSpace(track.SourceData["media_mid"]); mediaMid != "" { meta["strMediaMid"] = mediaMid }
-		if id, err := strconv.ParseInt(strings.TrimSpace(track.SourceData["id"]),10,64); err == nil { meta["id"] = id }
-		qualitys, qualityMap = buildLXQQQualities(track.SourceData)
-	case "mg":
-		if songMid := strings.TrimSpace(track.SourceData["songmid"]); songMid != "" { songID = songMid }
-		if albumID := strings.TrimSpace(track.SourceData["albumId"]); albumID != "" { meta["albumId"] = albumID }
-		for _, key := range []string{"copyrightId","lrcUrl","mrcUrl","trcUrl"} {
-			if value := strings.TrimSpace(track.SourceData[key]); value != "" { meta[key] = value }
-		}
-		qualitys, qualityMap = buildLXMiguQualities(track.SourceData["audio_formats_json"])
-	case "kw":
-		if albumID := strings.TrimSpace(track.SourceData["albumId"]); albumID != "" { meta["albumId"] = albumID }
-		qualitys, qualityMap = buildLXKuwoQualities(track.SourceData["N_MINFO"])
-	default:
-		if source != "local" { meta["albumId"] = "" }
-	}
-	meta["songId"] = songID
-	if qualitys == nil { qualitys = []any{} }
-	if qualityMap == nil { qualityMap = map[string]any{} }
-	meta["qualitys"] = qualitys
-	meta["_qualitys"] = qualityMap
 
-	id := fmt.Sprintf("%s_%v", source, songID)
-	if source == "kg" {
-		if hash := strings.TrimSpace(track.SourceData["FileHash"]); hash != "" { id = fmt.Sprintf("%v_%s", songID, hash) }
-	}
-	return map[string]any{
-		"id": id,
+	// LX passes toOldMusicInfo() into the custom musicUrl API, so scripts receive
+	// this legacy flat object rather than the newer MusicInfo wrapper.
+	info := map[string]any{
 		"name": track.Title,
 		"singer": track.Artist,
 		"source": source,
+		"songmid": track.ID,
 		"interval": formatLXInterval(seconds),
-		"meta": meta,
+		"albumName": track.Album,
+		"img": track.CoverURL,
+		"typeUrl": map[string]any{},
+		"types": []any{},
+		"_types": map[string]any{},
 	}
+
+	switch source {
+	case "wy":
+		info["songmid"] = lxNumericID(track.ID)
+		if albumID := strings.TrimSpace(track.SourceData["albumId"]); albumID != "" {
+			info["albumId"] = lxNumericID(albumID)
+		}
+		if types, available := buildLXNetEaseQualities(track.SourceData); len(types) > 0 {
+			info["types"], info["_types"] = types, available
+		}
+	case "kg":
+		info["songmid"] = lxNumericID(track.SourceData["Audioid"])
+		if albumAudioID := strings.TrimSpace(track.SourceData["MixSongID"]); albumAudioID != "" {
+			info["albumAudioId"] = lxNumericID(albumAudioID)
+		}
+		if albumID := strings.TrimSpace(track.SourceData["AlbumID"]); albumID != "" {
+			info["albumId"] = lxNumericID(albumID)
+		}
+		info["hash"] = track.SourceData["FileHash"]
+		if original := strings.TrimSpace(track.SourceData["OriSongName"]); original != "" {
+			name := original
+			if suffix := strings.TrimSpace(track.SourceData["Suffix"]); suffix != "" {
+				name += " " + suffix
+			}
+			info["name"] = name
+		}
+		if singer := strings.TrimSpace(track.SourceData["lxSinger"]); singer != "" {
+			info["singer"] = singer
+		}
+		if types, available := buildLXKugouQualities(track.SourceData); len(types) > 0 {
+			info["types"], info["_types"] = types, available
+		}
+	case "tx":
+		if songID, err := strconv.ParseInt(strings.TrimSpace(track.SourceData["id"]), 10, 64); err == nil {
+			info["songId"] = songID
+		}
+		if mediaMid := strings.TrimSpace(track.SourceData["media_mid"]); mediaMid != "" {
+			info["strMediaMid"] = mediaMid
+		}
+		if albumMid := strings.TrimSpace(track.SourceData["albummid"]); albumMid != "" {
+			info["albumMid"] = albumMid
+			info["albumId"] = albumMid
+		}
+		if types, available := buildLXQQQualities(track.SourceData); len(types) > 0 {
+			info["types"], info["_types"] = types, available
+		}
+	case "mg":
+		if copyrightID := strings.TrimSpace(track.SourceData["copyrightId"]); copyrightID != "" {
+			info["copyrightId"] = copyrightID
+		}
+		for _, key := range []string{"lrcUrl", "mrcUrl", "trcUrl"} {
+			if value := strings.TrimSpace(track.SourceData[key]); value != "" {
+				info[key] = value
+			}
+		}
+		if albumID := strings.TrimSpace(track.SourceData["albumId"]); albumID != "" {
+			info["albumId"] = albumID
+		}
+		if songMid := strings.TrimSpace(track.SourceData["songmid"]); songMid != "" {
+			info["songmid"] = songMid
+		}
+		if types, available := buildLXMiguQualities(track.SourceData["audio_formats_json"]); len(types) > 0 {
+			info["types"], info["_types"] = types, available
+		}
+	case "kw":
+		if albumID := strings.TrimSpace(track.SourceData["albumId"]); albumID != "" {
+			info["albumId"] = albumID
+		}
+		if types, available := buildLXKuwoQualities(track.SourceData["N_MINFO"]); len(types) > 0 {
+			info["types"], info["_types"] = types, available
+		}
+	default:
+		if source != "local" {
+			info["albumId"] = ""
+		}
+	}
+	return info
 }
 
 func formatLXInterval(seconds int64) string {
