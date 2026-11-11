@@ -207,11 +207,12 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 	if len(data) > lxRequestBodyLimit { return nil, "", errors.New("LX request 响应体超过 2 MB 限制") }
 	responseHeaders := make(map[string]string, len(resp.Header))
 	for key, values := range resp.Header { responseHeaders[key] = strings.Join(values, ", ") }
+	// LX Desktop's needle wrapper attempts JSON.parse on every response body,
+	// independent of Content-Type and leading whitespace. Match that behavior
+	// so source scripts receive the same response.body value as they do in LX.
 	var responseBody any = string(data)
-	if strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "json") || (len(data) > 0 && (data[0] == '{' || data[0] == '[')) {
-		var decoded any
-		if json.Unmarshal(data, &decoded) == nil { responseBody = decoded }
-	}
+	var decoded any
+	if json.Unmarshal(data, &decoded) == nil { responseBody = decoded }
 	responseURL := parsed.String()
 	if resp.Request != nil && resp.Request.URL != nil { responseURL = resp.Request.URL.String() }
 	response := map[string]any{
