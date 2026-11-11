@@ -114,3 +114,65 @@ func TestLXUserSourceProcessDoesNotDispatchAlreadyCancelledRequest(t *testing.T)
 		t.Fatalf("already-cancelled request left pending entries: %#v", process.pending)
 	}
 }
+
+
+type lxTestProtocolWriter struct {
+	writes chan string
+}
+
+func (w *lxTestProtocolWriter) Write(value []byte) (int, error) {
+	w.writes <- string(value)
+	return len(value), nil
+}
+
+func (w *lxTestProtocolWriter) Close() error { return nil }
+
+func TestLXUserSourceProcessMapsDeadlineToRequestTimeout(t *testing.T) {
+	writer := &lxTestWriteCloser{}
+	process := &LXUserSourceProcess{
+		stdin: writer,
+		pending: make(map[string]chan lxSessionResponse),
+		done: make(chan struct{}),
+	}
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+
+	_, err := process.Request(ctx, json.RawMessage(`{"source":"wy","action":"musicUrl","info":{"type":"320k"}}`))
+	if err == nil || err.Error() != "Request timeout" {
+		t.Fatalf("expired request error = %v, want Request timeout", err)
+	}
+	if writer.writes != 0 {
+		t.Fatalf("expired request wrote %d protocol messages, want none", writer.writes)
+	}
+}
+
+func TestLXUserSourceProcessSendsCancelAndReportsRequestTimeout(t *testing.T) {
+	writer := &lxTestProtocolWriter{writes: make(chan string, 2)}
+	process := &LXUserSourceProcess{
+		stdin: writer,
+		pending: make(map[string]chan lxSessionResponse),
+		done: make(chan struct{}),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		_, err := process.Request(ctx, json.RawMessage(`{"source":"wy","action":"musicUrl","info":{"type":"320k"}}`))
+		result <- err
+	}()
+
+	first := <-writer.writes
+	var request lxSessionRequest
+	if err := json.Unmarshal([]byte(first), &request); err != nil { t.Fatal(err) }
+	if request.Op != "request" { t.Fatalf("first protocol op = %q, want request", request.Op) }
+
+	second := <-writer.writes
+	var cancellation lxSessionRequest
+	if err := json.Unmarshal([]byte(second), &cancellation); err != nil { t.Fatal(err) }
+	if cancellation.Op != "cancel" || cancellation.RequestKey != request.RequestKey {
+		t.Fatalf("cancellation message = %#v, want cancel for %q", cancellation, request.RequestKey)
+	}
+	if err := <-result; err == nil || err.Error() != "Request timeout" {
+		t.Fatalf("deadline result error = %v, want Request timeout", err)
+	}
+}

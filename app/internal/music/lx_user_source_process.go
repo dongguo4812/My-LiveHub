@@ -118,6 +118,13 @@ func (p *LXUserSourceProcess) Updates() <-chan LXUserSourceUpdate {
 	return p.updates
 }
 
+func lxRequestContextError(err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return errors.New("Request timeout")
+	}
+	return errors.New("Cancel request")
+}
+
 func (p *LXUserSourceProcess) Request(ctx context.Context, payload json.RawMessage) (json.RawMessage, error) {
 	if p == nil { return nil, errors.New("LX 音源隔离进程不可用") }
 	if ctx == nil { ctx = context.Background() }
@@ -126,7 +133,7 @@ func (p *LXUserSourceProcess) Request(ctx context.Context, payload json.RawMessa
 	}
 	// Do not enqueue work that the caller has already cancelled.
 	if ctx.Err() != nil {
-		return nil, errors.New("Cancel request")
+		return nil, lxRequestContextError(ctx.Err())
 	}
 	requestKey := fmt.Sprintf("request__%d", p.requestCounter.Add(1))
 	result := make(chan lxSessionResponse, 1)
