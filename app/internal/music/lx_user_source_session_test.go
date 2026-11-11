@@ -98,3 +98,22 @@ lx.send(lx.EVENT_NAMES.inited, {
 		t.Fatalf("invalid musicUrl result was accepted: %v", err)
 	}
 }
+
+
+func TestLXUserSourceSessionForwardsUnknownActionLikeLX(t *testing.T) {
+	script := `lx.on(lx.EVENT_NAMES.request, function (request) {
+  if (request.source !== "custom" || request.action !== "customAction" || request.info.value !== 7) {
+    return Promise.reject(new Error("request payload mismatch"));
+  }
+  return Promise.resolve("ignored");
+});
+lx.send(lx.EVENT_NAMES.inited, { sources: {} });`
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	session, err := StartLXUserSourceSession(ctx, script, nil)
+	if err != nil { t.Fatal(err) }
+	defer session.Close()
+	value, err := session.Request(ctx, json.RawMessage(`{"source":"custom","action":"customAction","info":{"value":7},"extra":"must be dropped"}`))
+	if err != nil { t.Fatal(err) }
+	if len(value) != 0 { t.Fatalf("unknown LX actions should resolve without a result payload, got %s", value) }
+}
