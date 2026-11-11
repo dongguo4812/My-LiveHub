@@ -82,8 +82,8 @@ func (r *SourceRegistry) Register(source Source) error {
 		return errors.New("music source ID and name are required")
 	}
 	capabilities := source.Capabilities()
-	if !capabilities.Search || !capabilities.Resolve {
-		return fmt.Errorf("music source %q must support search and playback resource resolution", id)
+	if !capabilities.Search {
+		return fmt.Errorf("music source %q must support search", id)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
