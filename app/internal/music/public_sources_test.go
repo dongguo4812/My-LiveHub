@@ -42,7 +42,7 @@ func TestKugouSourceSearchPage(t *testing.T) {
 	source := NewKugouSource(server.Client(), server.URL)
 	result, err := source.SearchPage(context.Background(), "找自己 陶喆", 2, 10)
 	if err != nil { t.Fatal(err) }
-	if result.Total != 21 || result.MaxPage != 3 || len(result.Tracks) != 1 {
+	if result.Total != 21 || result.MaxPage != 3 || len(result.Tracks) != 2 {
 		t.Fatalf("unexpected Kugou result: %#v", result)
 	}
 	if result.Tracks[0].ID != "123" || result.Tracks[0].Artist != "陶喆" || result.Tracks[0].DurationMS != 304000 {
