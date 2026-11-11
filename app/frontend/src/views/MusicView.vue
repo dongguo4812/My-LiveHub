@@ -17,7 +17,6 @@ const validatingLXSourceID = ref('')
 const lxSourceURL = ref('')
 const importingLXSource = ref(false)
 const sourceFileInput = ref<HTMLInputElement | null>(null)
-const sourceCapabilities = ref<Record<string, { search: boolean; resolve: boolean }>>({})
 const queue = ref<QueueSnapshot | null>(null)
 const playback = ref<PlaybackSnapshot | null>(null)
 const results = ref<Track[]>([])
@@ -36,39 +35,24 @@ const error = ref('')
 const success = ref('')
 let statusTimer: ReturnType<typeof setInterval> | undefined
 
-const sourceNames: Record<string, string> = {
-  netease: '网易云音乐',
-  qq_music: 'QQ 音乐',
-  kugou: '酷狗音乐',
-  kuwo: '酷我音乐',
-}
-const sources = computed(() => Object.entries(config.value?.sources ?? {}).map(([id, enabled]) => ({
-  id, name: sourceNames[id] ?? id, enabled,
-  status: !sourceCapabilities.value[id] ? '适配器尚未接入' : sourceCapabilities.value[id].resolve ? '搜索与播放解析均已接入' : '已接入搜索，播放解析待完成',
-})))
-const enabledCount = computed(() => sources.value.filter(source => source.enabled).length)
-const canSave = computed(() => enabledCount.value > 0)
 const progress = computed(() => {
   if (!playback.value || playback.value.duration_ms <= 0) return 0
   return Math.min(100, Math.max(0, playback.value.position_ms / playback.value.duration_ms * 100))
 })
-const searchErrorText = computed(() => Object.entries(searchErrors.value)
-  .map(([id, message]) => `${sourceNames[id] ?? id}：${message}`).join('；'))
-
+const searchErrorText = computed(() => Object.values(searchErrors.value).join('；'))
 function formatDuration(value?: number) {
   if (!value || value < 0) return '--:--'
   const seconds = Math.floor(value / 1000)
   return `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`
 }
-function sourceName(id?: string) { return sourceNames[id ?? ''] ?? id ?? '未知音源' }
+function sourceName(id?: string) { return id ?? '洛雪音源' }
 function trackRowKey(row: Track) { return `${row.source_id}:${row.id}` }
 async function loadConfig() {
   loading.value = true
   error.value = ''
   try {
     config.value = await MusicService.GetConfig()
-    sourceCapabilities.value = Object.fromEntries((await MusicService.GetSources()).map(source => [source.id, source.capabilities]))
-    await refreshQueue()
+      await refreshQueue()
     await refreshLXSources()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
@@ -139,7 +123,7 @@ async function validateLXSource(source: LXSource) {
   try {
     const result = await MusicService.ValidateLXUserSource(source.id)
     lxValidation.value = { ...lxValidation.value, [source.id]: result }
-    success.value = `音源初始化通过：${source.name}；已声明来源：${result.platforms.join('、')}。脚本声明的 musicUrl 来源已接入播放解析。`
+    success.value = `音源初始化通过：${source.name}；已声明来源：${result.platforms.join('、')}。实际搜索与播放解析待洛雪 SDK 接管。`
   } catch (reason) {
     delete lxValidation.value[source.id]
     error.value = reason instanceof Error ? reason.message : String(reason)
@@ -187,7 +171,6 @@ async function refreshPlayback() {
 }
 async function saveConfig() {
   if (!config.value) return
-  if (!canSave.value) { error.value = '至少需要启用一个音乐音源'; return }
   saving.value = true
   error.value = ''
   success.value = ''
@@ -195,8 +178,7 @@ async function saveConfig() {
     await MusicService.SaveConfig(config.value)
     success.value = '音乐设置已保存'
     config.value = await MusicService.GetConfig()
-    sourceCapabilities.value = Object.fromEntries((await MusicService.GetSources()).map(source => [source.id, source.capabilities]))
-  } catch (reason) {
+    } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
   } finally {
     saving.value = false
@@ -296,7 +278,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
       <div>
         <p class="eyebrow">MUSIC PLAYER</p>
         <h2>音乐播放器</h2>
-        <p class="description">一个 My-LiveHub 播放器，多个可同时启用的音乐音源。搜索结果标注来源，实际播放统一交给 My-LiveHub 的 mpv 播放引擎。</p>
+        <p class="description">音乐队列与 mpv 播放控制。歌曲搜索和播放解析统一由导入的洛雪音源及洛雪 SDK 提供。</p>
         <el-alert v-if="config && !config.enabled" title="音乐模块当前已关闭：无法加入歌曲队列或播放。请在下方「点歌设置」中启用音乐模块并保存全部设置。" type="warning" :closable="false" show-icon style="margin-top:12px" />
       </div>
       <el-tag type="info" effect="plain">首期开发中</el-tag>
@@ -331,18 +313,6 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
       </div>
       <div class="volume-row"><span>音量</span><el-slider v-model="volume" :min="0" :max="100" @change="setVolume" /></div>
       <p class="hint">首次播放前需要在 Windows 中安装 mpv，并确保 mpv.exe 已加入 PATH。</p>
-    </el-card>
-
-    <el-card shadow="never" v-loading="loading">
-      <template #header><div class="card-heading"><strong>内置搜索适配器</strong><el-tag :type="enabledCount > 0 ? 'success' : 'danger'" effect="plain">已启用 {{ enabledCount }} 个</el-tag></div></template>
-      <p class="section-description">这里管理当前内置的歌曲搜索适配器；洛雪 JS 音源在下方独立动态注册，负责解析播放地址。两者分离，新增洛雪播放来源不需要修改这份内置搜索列表。</p>
-      <div v-if="config" class="source-list">
-        <div v-for="source in sources" :key="source.id" class="source-row">
-          <div class="source-copy"><strong>{{ source.name }}</strong><span>{{ source.status }}</span></div>
-          <el-checkbox v-model="config.sources[source.id]">启用</el-checkbox>
-        </div>
-      </div>
-      <div class="card-actions"><el-button type="primary" :loading="saving" :disabled="!canSave" @click="saveConfig">保存音源设置</el-button></div>
     </el-card>
 
     <el-card shadow="never">
@@ -424,7 +394,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         <el-divider />
         <div class="setting-row"><div><strong>每个音源搜索数量</strong><p>各音源单次搜索的候选数量上限。</p></div><el-input-number v-model="config.search_limit" :min="1" :max="50" /></div>
       </div>
-      <div class="card-actions"><el-button type="primary" :loading="saving" :disabled="!config || !canSave" @click="saveConfig">保存全部设置</el-button></div>
+      <div class="card-actions"><el-button type="primary" :loading="saving" :disabled="!config" @click="saveConfig">保存全部设置</el-button></div>
     </el-card>
   </section>
 </template>

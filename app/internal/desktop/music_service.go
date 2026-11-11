@@ -3,15 +3,12 @@ package desktop
 import (
 	"context"
 	"regexp"
-	"sort"
-	"encoding/json"
-	"errors"
+			"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"strconv"
-	"sync"
+		"sync"
 	"sync/atomic"
 	"time"
 	"unicode"
@@ -70,11 +67,6 @@ type MusicService struct {
 
 func NewMusicService(manager *config.Manager, value config.MusicConfig, buffers ...*events.Buffer) *MusicService {
 	sources := music.NewSourceRegistry()
-	_ = sources.Register(music.NewNetEaseSource(nil, ""))
-	_ = sources.Register(music.NewLXQQMusicSource(nil, ""))
-	_ = sources.Register(music.NewKugouSource(nil, ""))
-	_ = sources.Register(music.NewKuwoSource(nil, ""))
-	_ = sources.Register(music.NewMiguSource(nil, ""))
 	return NewMusicServiceWithDependencies(manager, value, sources, music.NewMpvEngine(""), buffers...)
 }
 
@@ -234,44 +226,16 @@ func (s *MusicService) GetConfig() config.MusicConfig {
 
 func (s *MusicService) SaveConfig(value config.MusicConfig) error {
 	if s == nil || s.manager == nil { return errors.New("music configuration service is unavailable") }
-	value.LegacyDefaultPlayer, value.LegacyPlayers = "", nil
 	if err := value.Validate(); err != nil { return err }
-	availableEnabled := false
-	for _, source := range s.sources.List(value.Sources) {
-		availableEnabled = availableEnabled || (source.Available && source.Enabled)
-	}
-	if !availableEnabled { return errors.New("at least one implemented music source must remain enabled") }
 	oldCapacity := s.queue.Snapshot().Capacity
 	if err := s.queue.Resize(value.QueueCapacity); err != nil { return err }
-	if err := config.SaveTyped(s.manager, "music.json", value, func(candidate config.MusicConfig) error {
-		return candidate.Validate()
-	}); err != nil {
-		_ = s.queue.Resize(oldCapacity)
-		return err
-	}
-	s.mu.Lock()
-	wasEnabled := s.value.Enabled
-	s.value = cloneMusicConfig(value)
-	s.mu.Unlock()
-	if wasEnabled && !value.Enabled {
-		s.cancelPlaybackWatcher()
-		_ = s.engine.Stop(context.Background())
-		s.queue.Clear()
-		s.queue.FinishCurrent()
-		s.mu.Lock()
-		s.history = nil
-		s.mu.Unlock()
-	}
+	if err := config.SaveTyped(s.manager, "music.json", value, func(candidate config.MusicConfig) error { return candidate.Validate() }); err != nil { _ = s.queue.Resize(oldCapacity); return err }
+	s.mu.Lock(); wasEnabled := s.value.Enabled; s.value = cloneMusicConfig(value); s.mu.Unlock()
+	if wasEnabled && !value.Enabled { s.cancelPlaybackWatcher(); _ = s.engine.Stop(context.Background()); s.queue.Clear(); s.queue.FinishCurrent(); s.mu.Lock(); s.history = nil; s.mu.Unlock() }
 	return nil
 }
 
-func (s *MusicService) GetSources() []music.SourceSnapshot {
-	if s == nil { return []music.SourceSnapshot{} }
-	s.mu.RLock()
-	enabled := cloneBoolMap(s.value.Sources)
-	s.mu.RUnlock()
-	return s.sources.List(enabled)
-}
+func (s *MusicService) GetSources() []music.SourceSnapshot { return []music.SourceSnapshot{} }
 
 func (s *MusicService) Search(keyword string) (MusicSearchResponse, error) {
 	return s.SearchPage(keyword, 1)
@@ -285,35 +249,12 @@ func (s *MusicService) search(parent context.Context, keyword string) (MusicSear
 	return s.searchPage(parent, keyword, 1)
 }
 
-func (s *MusicService) searchPage(parent context.Context, keyword string, page int) (MusicSearchResponse, error) {
-	if s == nil || s.sources == nil { return MusicSearchResponse{}, errors.New("music source registry is unavailable") }
-	s.mu.RLock()
-	enabled, limit := cloneBoolMap(s.value.Sources), s.value.SearchLimit
-	s.mu.RUnlock()
-	if page < 1 { page = 1 }
-	ctx, cancel := context.WithTimeout(parent, 25*time.Second)
-	defer cancel()
-	tracks, failures, total, maxPage, err := s.sources.SearchPage(ctx, keyword, enabled, limit, page)
-	if err != nil { return MusicSearchResponse{}, err }
-	return MusicSearchResponse{
-		Tracks: tracks, Errors: failures, Page: page, PageSize: limit,
-		Total: total, MaxPage: maxPage,
-	}, nil
-}
+func (s *MusicService) searchPage(parent context.Context, keyword string, page int) (MusicSearchResponse, error) { return MusicSearchResponse{}, errors.New("洛雪 SDK 搜索尚未接入") }
 
 func (s *MusicService) Enqueue(track music.Track, requestedBy string) (music.QueueItem, error) {
 	if s == nil || s.queue == nil { return music.QueueItem{}, errors.New("music queue is unavailable") }
-	s.mu.RLock()
-	moduleEnabled := s.value.Enabled
-	enabled := s.value.Sources[track.SourceID]
-	s.mu.RUnlock()
-	if !moduleEnabled { return music.QueueItem{}, errors.New("music module is disabled") }
-	if !enabled { return music.QueueItem{}, fmt.Errorf("music source %q is disabled", track.SourceID) }
-	_, ok := s.sources.Get(track.SourceID)
-	if !ok { return music.QueueItem{}, fmt.Errorf("music source %q is not available", track.SourceID) }
-	// Queue insertion is independent from playback URL resolution. Keep search
-	// results in the queue even when the selected source needs an LX resolver;
-	// PlayNext reports resolution errors and preserves the current item.
+	s.mu.RLock(); enabled := s.value.Enabled; s.mu.RUnlock()
+	if !enabled { return music.QueueItem{}, errors.New("music module is disabled") }
 	return s.queue.Enqueue(track, requestedBy)
 }
 
@@ -324,227 +265,7 @@ func (s *MusicService) GetQueue() music.QueueSnapshot {
 
 func (s *MusicService) PlayNext() error { return s.playNext(context.Background()) }
 
-func (s *MusicService) playNext(parent context.Context) error {
-	if s == nil || s.engine == nil || s.queue == nil { return errors.New("music playback service is unavailable") }
-	ctx, cancel := context.WithTimeout(parent, 240*time.Second)
-	defer cancel()
-	queueSnapshot := s.queue.Snapshot()
-	var item music.QueueItem
-	if queueSnapshot.Current != nil {
-		status, statusErr := s.engine.Snapshot(ctx)
-		if statusErr == nil && (status.State == music.PlaybackPlaying || status.State == music.PlaybackPaused || status.State == music.PlaybackLoading) {
-			return errors.New("a music track is already playing")
-		}
-		item = *queueSnapshot.Current
-	} else {
-		var ok bool
-		item, ok = s.queue.TakeNext()
-		if !ok { return errors.New("music queue is empty") }
-	}
-	s.mu.RLock()
-	enabled := s.value.Sources[item.Track.SourceID]
-	s.mu.RUnlock()
-	if !enabled { return fmt.Errorf("music source %q is disabled; the current queue item was kept for retry", item.Track.SourceID) }
-	source, ok := s.sources.Get(item.Track.SourceID)
-	if !ok { return fmt.Errorf("music source %q is not available; the current queue item was kept for retry", item.Track.SourceID) }
-	if validator, ok := s.engine.(music.PlaybackEngineValidator); ok {
-		if err := validator.Validate(); err != nil {
-			return fmt.Errorf("music playback runtime validation failed: %w", err)
-		}
-	}
-	resource, selectedTrack, err := s.resolveWithFallback(ctx, item.Track, source)
-	if err != nil { return fmt.Errorf("resolve %q: %w; the current queue item was kept for retry", item.Track.Title, err) }
-	if selectedTrack.SourceID != item.Track.SourceID {
-		item.Track = selectedTrack
-		if err := s.queue.SetCurrent(item); err != nil { return err }
-	}
-	if lifecycle, ok := s.engine.(music.PlaybackEngineLifecycle); ok {
-		if err := lifecycle.Start(ctx); err != nil { return err }
-	}
-	if err := s.engine.Load(ctx, resource, selectedTrack); err != nil {
-		return fmt.Errorf("play %q: %w; the current queue item was kept for retry", selectedTrack.Title, err)
-	}
-	s.startPlaybackWatcher()
-	return nil
-}
-
-func (s *MusicService) resolveWithFallback(ctx context.Context, track music.Track, preferred music.Source) (music.PlaybackResource, music.Track, error) {
-	var lxErr error
-	if s.hasLXUserSources() {
-		if resource, err := s.resolveLXTrack(ctx, track); err == nil {
-			return resource, track, nil
-		} else {
-			lxErr = err
-		}
-	}
-	resource, originalErr := preferred.Resolve(ctx, track)
-	if originalErr == nil { return resource, track, nil }
-	if lxErr != nil { originalErr = errors.Join(originalErr, lxErr) }
-	resource, candidate, fallbackErr := s.resolveAlternate(ctx, track)
-	if fallbackErr != nil { return music.PlaybackResource{}, track, errors.Join(originalErr, fallbackErr) }
-	return resource, candidate, nil
-}
-
-func (s *MusicService) resolveAlternate(ctx context.Context, track music.Track) (music.PlaybackResource, music.Track, error) {
-	s.mu.RLock()
-	enabled := cloneBoolMap(s.value.Sources)
-	s.mu.RUnlock()
-	keyword := strings.TrimSpace(track.Title + " " + track.Artist)
-	// LX findMusic searches up to 25 candidates per alternate source.
-	candidates, _, searchErr := s.sources.Search(ctx, keyword, enabled, 25)
-	if searchErr != nil { return music.PlaybackResource{}, track, searchErr }
-	var resolveErrors []error
-	for _, candidate := range findLXMusicMatches(track, candidates) {
-		if candidate.SourceID == track.SourceID { continue }
-		fallback, ok := s.sources.Get(candidate.SourceID)
-		if !ok { continue }
-		if s.hasLXUserSources() {
-			resource, err := s.resolveLXTrack(ctx, candidate)
-			if err == nil { return resource, candidate, nil }
-			resolveErrors = append(resolveErrors, fmt.Errorf("%s (LX 音源): %w", fallback.Name(), err))
-		}
-		resource, err := fallback.Resolve(ctx, candidate)
-		if err == nil { return resource, candidate, nil }
-		resolveErrors = append(resolveErrors, fmt.Errorf("%s: %w", fallback.Name(), err))
-	}
-	if len(resolveErrors) > 0 { return music.PlaybackResource{}, track, errors.Join(resolveErrors...) }
-	return music.PlaybackResource{}, track, errors.New("no matching track found on another enabled source")
-}
-
-func findLXMusicMatches(reference music.Track, candidates []music.Track) []music.Track {
-	groups := make(map[string][]music.Track)
-	for _, candidate := range candidates {
-		if candidate.SourceID == reference.SourceID { continue }
-		key := candidate.LXSourceKey
-		if key == "" { key = candidate.SourceID }
-		groups[key] = append(groups[key], candidate)
-	}
-	priority := map[string]int{"kw": 0, "kg": 1, "tx": 2, "wy": 3, "mg": 4}
-	keys := make([]string, 0, len(groups))
-	for key := range groups { keys = append(keys, key) }
-	sort.SliceStable(keys, func(i, j int) bool {
-		left, leftOK := priority[keys[i]]
-		right, rightOK := priority[keys[j]]
-		if leftOK != rightOK { return leftOK }
-		if leftOK && left != right { return left < right }
-		return keys[i] < keys[j]
-	})
-
-	filter := func(value string) string {
-		value = strings.ToLower(value)
-		var b strings.Builder
-		for _, r := range value {
-			switch {
-			case unicode.IsSpace(r), strings.ContainsRune("'.,，&\"、()（）`~-<>|/][!！", r):
-				continue
-			default:
-				b.WriteRune(r)
-			}
-		}
-		return b.String()
-	}
-	sortSinger := func(value string) string {
-		parts := strings.FieldsFunc(value, func(r rune) bool {
-			switch r { case '、', '&', ';', '；', '/', ',', '，', '|': return true }
-			return false
-		})
-		if len(parts) < 2 { return value }
-		for i := range parts { parts[i] = strings.TrimSpace(parts[i]) }
-		sort.Strings(parts)
-		return strings.Join(parts, "、")
-	}
-	interval := func(track music.Track) int64 {
-		if track.DurationMS <= 0 { return 0 }
-		return track.DurationMS / 1000
-	}
-	intervalText := func(track music.Track) string {
-		seconds := interval(track)
-		if seconds == 0 { return "" }
-		return fmt.Sprintf("%02d:%02d", seconds/60, seconds%60)
-	}
-	queryName := filter(reference.Title)
-	querySinger := filter(sortSinger(reference.Artist))
-	queryAlbum := filter(reference.Album)
-	queryInterval := interval(reference)
-
-	versionChars := []string{
-		"instrumental", "inst", "karaoke", "backing track", "minus one", "minus vocal", "no vocal", "off vocal", "vocal removed",
-		"伴奏", "伴唱", "卡拉ok", "纯音乐", "无人声", "去人声", "消音", "オフボーカル", "インスト", "반주", "노래방",
-		"live", "concert", "tour", "festival", "stage", "session", "现场", "演唱会", "巡演", "音乐会", "ライブ", "공연", "라이브",
-		"cover", "tribute", "rendition", "remake", "翻唱", "致敬", "改编", "カバー", "커버",
-		"remix", "mix", "club", "dance", "extended", "house", "edm", "dj", "dub", "trap", "混音", "重混", "电音", "リミックス", "리믹스",
-		"acoustic", "unplugged", "stripped", "原声", "不插电", "アコースティック", "어쿠스틱",
-		"demo", "小样", "试听", "デモ", "데모",
-		"slowed", "slowed reverb", "sped up", "speed up", "nightcore", "慢速", "加速", "变速", "ナイトコア",
-		"piano", "guitar", "orchestra", "symphony", "violin", "钢琴", "吉他", "管弦乐", "小提琴", "ピアノ", "ギター", "피아노", "기타",
-	}
-	versionMatches := func(name string) bool {
-		for _, marker := range versionChars {
-			if strings.Contains(name, marker) != strings.Contains(queryName, marker) { return false }
-		}
-		return true
-	}
-	includesName := func(name string) bool {
-		return (strings.Contains(queryName, name) || strings.Contains(name, queryName)) && versionMatches(name)
-	}
-	includesSinger := func(singer string) bool {
-		return querySinger == "" || strings.Contains(querySinger, singer) || strings.Contains(singer, querySinger)
-	}
-	type match struct { track music.Track; name, singer, album, interval string }
-	selected := make([]match, 0, len(keys))
-	for _, key := range keys {
-		items := make([]match, 0, len(groups[key]))
-		for _, candidate := range groups[key] {
-			item := match{track: candidate, name: filter(candidate.Title), singer: filter(sortSinger(candidate.Artist)), album: filter(candidate.Album), interval: intervalText(candidate)}
-			if queryInterval > 0 && interval(candidate) > 0 {
-				delta := queryInterval - interval(candidate)
-				if delta < 0 { delta = -delta }
-				if delta > 5 { continue }
-			}
-			items = append(items, item)
-		}
-		var chosen *match
-		for i := range items {
-			item := &items[i]
-			if item.name == queryName && includesSinger(item.singer) { chosen = item; break }
-		}
-		if chosen == nil {
-			for i := range items {
-				item := &items[i]
-				if item.singer == querySinger && includesName(item.name) { chosen = item; break }
-			}
-		}
-		if chosen == nil {
-			for i := range items {
-				item := &items[i]
-				if (queryAlbum == "" || item.album == queryAlbum) && includesSinger(item.singer) && includesName(item.name) { chosen = item; break }
-			}
-		}
-		if chosen != nil { selected = append(selected, *chosen) }
-	}
-
-	result := make([]match, 0, len(selected))
-	used := make([]bool, len(selected))
-	appendTier := func(predicate func(match) bool) {
-		for i, item := range selected {
-			if !used[i] && predicate(item) { result = append(result, item); used[i] = true }
-		}
-	}
-	appendTier(func(item match) bool { return item.singer == querySinger && item.name == queryName && item.interval == intervalText(reference) })
-	appendTier(func(item match) bool { return item.name == queryName && item.singer == querySinger && item.album == queryAlbum })
-	appendTier(func(item match) bool { return item.singer == querySinger && item.name == queryName })
-	appendTier(func(item match) bool { return item.name == queryName && item.interval == intervalText(reference) })
-	appendTier(func(item match) bool { return item.singer == querySinger && item.interval == intervalText(reference) })
-	appendTier(func(item match) bool { return item.interval == intervalText(reference) })
-	appendTier(func(item match) bool { return item.name == queryName })
-	appendTier(func(item match) bool { return item.singer == querySinger })
-	appendTier(func(item match) bool { return item.album == queryAlbum })
-	appendTier(func(match) bool { return true })
-
-	tracks := make([]music.Track, 0, len(result))
-	for _, item := range result { tracks = append(tracks, item.track) }
-	return tracks
-}
+func (s *MusicService) playNext(parent context.Context) error { return errors.New("洛雪 SDK 播放解析尚未接入") }
 
 func (s *MusicService) Pause() error {
 	if s == nil || s.engine == nil { return music.ErrPlaybackEngineUnavailable }
@@ -739,13 +460,7 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 	}
 }
 
-func cloneMusicConfig(value config.MusicConfig) config.MusicConfig {
-	copy := value
-	copy.Sources = cloneBoolMap(value.Sources)
-	copy.LegacyPlayers = nil
-	copy.LegacyDefaultPlayer = ""
-	return copy
-}
+func cloneMusicConfig(value config.MusicConfig) config.MusicConfig { return value }
 func cloneBoolMap(value map[string]bool) map[string]bool {
 	copy := make(map[string]bool, len(value))
 	for id, enabled := range value { copy[id] = enabled }
@@ -807,316 +522,4 @@ func (s *MusicService) ValidateLXUserSource(id string) (music.LXSourceRuntimeRes
 	ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
 	defer cancel()
 	return music.InspectLXUserSource(ctx, script)
-}
-
-
-func (s *MusicService) hasLXUserSources() bool {
-	store, err := s.lxUserSourceStore()
-	if err != nil { return false }
-	sources, err := store.List()
-	return err == nil && len(sources) > 0
-}
-
-func (s *MusicService) resolveLXTrack(ctx context.Context, track music.Track) (music.PlaybackResource, error) {
-	store, err := s.lxUserSourceStore()
-	if err != nil { return music.PlaybackResource{}, err }
-	sources, err := store.List()
-	if err != nil { return music.PlaybackResource{}, err }
-	// Search adapters carry their own LX source key. No platform switch lives
-	// in the playback service; custom search adapters can set their own key.
-	sourceKey := strings.TrimSpace(track.LXSourceKey)
-	if sourceKey == "" { sourceKey = strings.TrimSpace(track.SourceID) }
-	var failures []error
-	for _, source := range sources {
-		if err := ctx.Err(); err != nil { return music.PlaybackResource{}, err }
-		script, readErr := store.ReadScript(source.ID)
-		if readErr != nil { failures = append(failures, fmt.Errorf("%s: %w", source.Name, readErr)); continue }
-		// Initialize the source and invoke musicUrl in one worker run. Running
-		// Inspect first would initialize the same script twice for every play.
-		quality := selectLXQuality(nil, sourceKey == "local", track)
-		if sourceKey != "local" && quality == nil {
-			failures = append(failures, fmt.Errorf("%s: 歌曲没有洛雪默认音质 128k", source.Name))
-			continue
-		}
-		musicInfo := buildLXMusicInfo(track, quality)
-		musicInfo["source"] = sourceKey
-		payload, marshalErr := json.Marshal(map[string]any{
-			"source": sourceKey, "action": "musicUrl",
-			"info": map[string]any{"type": quality, "musicInfo": musicInfo},
-		})
-		if marshalErr != nil { failures = append(failures, marshalErr); continue }
-		result, resolveErr := music.ResolveLXUserSource(ctx, script, payload)
-		if resolveErr != nil {
-			message := resolveErr.Error()
-			if strings.Contains(message, "未声明来源") || strings.Contains(message, "不支持动作") { continue }
-			failures = append(failures, fmt.Errorf("%s/%s: %w", source.Name, sourceKey, resolveErr))
-			continue
-		}
-		var value any
-		if err := json.Unmarshal(result, &value); err != nil { failures = append(failures, fmt.Errorf("%s: 解析结果格式无效：%w", source.Name, err)); continue }
-		resource := music.PlaybackResource{}
-		switch item := value.(type) {
-		case string: resource.URL = item
-		case map[string]any:
-			resource.URL, _ = item["url"].(string)
-			if headers, ok := item["headers"].(map[string]any); ok {
-				resource.Headers = make(map[string]string, len(headers))
-				for key, header := range headers { resource.Headers[key] = fmt.Sprint(header) }
-			}
-		default: failures = append(failures, fmt.Errorf("%s: 音源没有返回 URL", source.Name)); continue
-		}
-		if err := music.ValidateLXPlaybackURL(resource.URL); err != nil { failures = append(failures, fmt.Errorf("%s: %w", source.Name, err)); continue }
-		return resource, nil
-	}
-	if len(failures) == 0 { return music.PlaybackResource{}, fmt.Errorf("没有已导入音源声明 LX 来源 %q 并支持 musicUrl", sourceKey) }
-	return music.PlaybackResource{}, fmt.Errorf("没有已导入洛雪音源解析来源 %q：%w", sourceKey, errors.Join(failures...))
-}
-
-func containsString(values []string, target string) bool {
-	for _, value := range values { if value == target { return true } }
-	return false
-}
-
-func buildLXMusicInfo(track music.Track, quality any) map[string]any {
-	seconds := track.DurationMS / 1000
-	source := strings.TrimSpace(track.LXSourceKey)
-	if source == "" {
-		source = strings.TrimSpace(track.SourceID)
-	}
-
-	// LX passes toOldMusicInfo() into the custom musicUrl API, so scripts receive
-	// this legacy flat object rather than the newer MusicInfo wrapper.
-	info := map[string]any{
-		"name": track.Title,
-		"singer": track.Artist,
-		"source": source,
-		"songmid": track.ID,
-		"interval": formatLXInterval(seconds),
-		"albumName": track.Album,
-		"img": track.CoverURL,
-		"typeUrl": map[string]any{},
-		"types": []any{},
-		"_types": map[string]any{},
-	}
-
-	switch source {
-	case "wy":
-		info["songmid"] = lxNumericID(track.ID)
-		if albumID := strings.TrimSpace(track.SourceData["albumId"]); albumID != "" {
-			info["albumId"] = lxNumericID(albumID)
-		}
-		if types, available := buildLXNetEaseQualities(track.SourceData); len(types) > 0 {
-			info["types"], info["_types"] = types, available
-		}
-	case "kg":
-		info["songmid"] = lxNumericID(track.SourceData["Audioid"])
-		if albumAudioID := strings.TrimSpace(track.SourceData["MixSongID"]); albumAudioID != "" {
-			info["albumAudioId"] = lxNumericID(albumAudioID)
-		}
-		if albumID := strings.TrimSpace(track.SourceData["AlbumID"]); albumID != "" {
-			info["albumId"] = lxNumericID(albumID)
-		}
-		info["hash"] = track.SourceData["FileHash"]
-		if original := strings.TrimSpace(track.SourceData["OriSongName"]); original != "" {
-			name := original
-			if suffix := strings.TrimSpace(track.SourceData["Suffix"]); suffix != "" {
-				name += " " + suffix
-			}
-			info["name"] = name
-		}
-		if singer := strings.TrimSpace(track.SourceData["lxSinger"]); singer != "" {
-			info["singer"] = singer
-		}
-		if types, available := buildLXKugouQualities(track.SourceData); len(types) > 0 {
-			info["types"], info["_types"] = types, available
-		}
-	case "tx":
-		if songID, err := strconv.ParseInt(strings.TrimSpace(track.SourceData["id"]), 10, 64); err == nil {
-			info["songId"] = songID
-		}
-		if mediaMid := strings.TrimSpace(track.SourceData["media_mid"]); mediaMid != "" {
-			info["strMediaMid"] = mediaMid
-		}
-		if albumMid := strings.TrimSpace(track.SourceData["albummid"]); albumMid != "" {
-			info["albumMid"] = albumMid
-			info["albumId"] = albumMid
-		}
-		if types, available := buildLXQQQualities(track.SourceData); len(types) > 0 {
-			info["types"], info["_types"] = types, available
-		}
-	case "mg":
-		if copyrightID := strings.TrimSpace(track.SourceData["copyrightId"]); copyrightID != "" {
-			info["copyrightId"] = copyrightID
-		}
-		for _, key := range []string{"lrcUrl", "mrcUrl", "trcUrl"} {
-			if value := strings.TrimSpace(track.SourceData[key]); value != "" {
-				info[key] = value
-			}
-		}
-		if albumID := strings.TrimSpace(track.SourceData["albumId"]); albumID != "" {
-			info["albumId"] = albumID
-		}
-		if songMid := strings.TrimSpace(track.SourceData["songmid"]); songMid != "" {
-			info["songmid"] = songMid
-		}
-		if types, available := buildLXMiguQualities(track.SourceData["audio_formats_json"]); len(types) > 0 {
-			info["types"], info["_types"] = types, available
-		}
-	case "kw":
-		if albumID := strings.TrimSpace(track.SourceData["albumId"]); albumID != "" {
-			info["albumId"] = albumID
-		}
-		if types, available := buildLXKuwoQualities(track.SourceData["N_MINFO"]); len(types) > 0 {
-			info["types"], info["_types"] = types, available
-		}
-	default:
-		if source != "local" {
-			info["albumId"] = ""
-		}
-	}
-	return info
-}
-
-func formatLXInterval(seconds int64) string {
-	if seconds <= 0 { return "" }
-	return fmt.Sprintf("%02d:%02d", seconds/60, seconds%60)
-}
-
-func buildLXQQQualities(data map[string]string) ([]any, map[string]any) {
-	type qualityField struct { key, name string }
-	fields := []qualityField{
-		{"size_128mp3", "128k"},
-		{"size_320mp3", "320k"},
-		{"size_flac", "flac"},
-		{"size_hires", "flac24bit"},
-	}
-	types := make([]any, 0, len(fields))
-	available := make(map[string]any, len(fields))
-	for _, field := range fields {
-		size, err := strconv.ParseInt(strings.TrimSpace(data[field.key]), 10, 64)
-		if err != nil || size <= 0 { continue }
-		sizeLabel := formatLXFileSize(size)
-		types = append(types, map[string]any{"type": field.name, "size": sizeLabel})
-		available[field.name] = map[string]any{"size": sizeLabel}
-	}
-	return types, available
-}
-
-func lxNumericID(raw string) any {
-	value, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
-	if err != nil { return raw }
-	return value
-}
-
-func buildLXKugouQualities(data map[string]string) ([]any, map[string]any) {
-	fields := []struct{ sizeKey, hashKey, name string }{
-		{"FileSize", "FileHash", "128k"}, {"HQFileSize", "HQFileHash", "320k"},
-		{"SQFileSize", "SQFileHash", "flac"}, {"ResFileSize", "ResFileHash", "flac24bit"},
-	}
-	types := make([]any, 0, len(fields))
-	available := make(map[string]any, len(fields))
-	for _, field := range fields {
-		size, err := strconv.ParseInt(strings.TrimSpace(data[field.sizeKey]), 10, 64)
-		hash := strings.TrimSpace(data[field.hashKey])
-		if err != nil || size <= 0 { continue }
-		label := formatLXFileSize(size)
-		types = append(types, map[string]any{"type": field.name, "size": label, "hash": hash})
-		available[field.name] = map[string]any{"size": label, "hash": hash}
-	}
-	return types, available
-}
-
-func buildLXNetEaseQualities(data map[string]string) ([]any, map[string]any) {
-	var privilege struct {
-		MaxBR int64 `json:"maxbr"`
-		MaxBRLevel string `json:"maxBrLevel"`
-	}
-	_ = json.Unmarshal([]byte(data["wy_privilege"]), &privilege)
-	fields := make([]struct{name, key string}, 0, 4)
-	if privilege.MaxBRLevel == "hires" { fields = append(fields, struct{name, key string}{"flac24bit", "wy_hr"}) }
-	switch privilege.MaxBR {
-	case 999000: fields = append(fields, struct{name, key string}{"flac", "wy_sq"}); fallthrough
-	case 320000: fields = append(fields, struct{name, key string}{"320k", "wy_h"}); fallthrough
-	case 192000, 128000: fields = append(fields, struct{name, key string}{"128k", "wy_l"})
-	}
-	types := make([]any, 0, len(fields))
-	available := make(map[string]any, len(fields))
-	for _, field := range fields {
-		var item struct { Size json.RawMessage `json:"size"` }
-		var size any
-		if raw := strings.TrimSpace(data[field.key]); raw != "" && json.Unmarshal([]byte(raw), &item) == nil && len(item.Size) > 0 && string(item.Size) != "null" {
-			var n int64
-			if json.Unmarshal(item.Size, &n) == nil && n > 0 { size = formatLXFileSize(n) }
-		}
-		types = append(types, map[string]any{"type": field.name, "size": size})
-		available[field.name] = map[string]any{"size": size}
-	}
-	for left, right := 0, len(types)-1; left < right; left, right = left+1, right-1 {
-		types[left], types[right] = types[right], types[left]
-	}
-	return types, available
-}
-
-func buildLXKuwoQualities(raw string) ([]any, map[string]any) {
-	qualityByBitrate := map[string]string{"4000": "flac24bit", "2000": "flac", "320": "320k", "128": "128k"}
-	pattern := regexp.MustCompile(`level:(\w+),bitrate:(\d+),format:(\w+),size:([\w.]+)`)
-	types := make([]any, 0, len(qualityByBitrate))
-	available := make(map[string]any, len(qualityByBitrate))
-	for _, entry := range strings.Split(raw, ";") {
-		match := pattern.FindStringSubmatch(entry)
-		if len(match) != 5 { continue }
-		name := qualityByBitrate[match[2]]
-		if name == "" { continue }
-		types = append(types, map[string]any{"type": name, "size": match[4]})
-		available[name] = map[string]any{"size": strings.ToUpper(match[4])}
-	}
-	for left, right := 0, len(types)-1; left < right; left, right = left+1, right-1 {
-		types[left], types[right] = types[right], types[left]
-	}
-	return types, available
-}
-
-func buildLXMiguQualities(raw string)([]any,map[string]any){
- var formats []map[string]json.RawMessage
- if strings.TrimSpace(raw)==""||json.Unmarshal([]byte(raw),&formats)!=nil{return []any{},map[string]any{}}
- names:=map[string]string{"PQ":"128k","HQ":"320k","SQ":"flac","ZQ24":"flac24bit"}
- types:=make([]any,0,len(formats));available:=make(map[string]any,len(formats))
- for _,f:=range formats{name:=names[musicRawString(f["formatType"])];if name==""{continue};sizeRaw:=f["asize"];if len(sizeRaw)==0||string(sizeRaw)=="null"{sizeRaw=f["isize"]}
- size,err:=strconv.ParseInt(musicRawString(sizeRaw),10,64);if err!=nil||size<0{continue};label:="0 B";if size>0{label=formatLXFileSize(size)}
- types=append(types,map[string]any{"type":name,"size":label});available[name]=map[string]any{"size":label}}
- return types,available
-}
-func musicRawString(raw json.RawMessage)string{if len(raw)==0||string(raw)=="null"{return ""};var v string;if json.Unmarshal(raw,&v)==nil{return v};return strings.TrimSpace(string(raw))}
-
-func formatLXFileSize(size int64) string {
-	units := []string{"B", "KiB", "MiB", "GiB", "TiB"}
-	value := float64(size)
-	unit := 0
-	for value >= 1024 && unit < len(units)-1 {
-		value /= 1024
-		unit++
-	}
-	return fmt.Sprintf("%.2f %s", value, units[unit])
-}
-
-func selectLXQuality(_ []string, local bool, track music.Track) any {
-	if local { return nil }
-	sourceKey := strings.TrimSpace(track.LXSourceKey)
-	if sourceKey == "" { sourceKey = strings.TrimSpace(track.SourceID) }
-	var available map[string]any
-	switch sourceKey {
-	case "wy":
-		_, available = buildLXNetEaseQualities(track.SourceData)
-	case "kg":
-		_, available = buildLXKugouQualities(track.SourceData)
-	case "tx":
-		_, available = buildLXQQQualities(track.SourceData)
-	case "kw":
-		_, available = buildLXKuwoQualities(track.SourceData["N_MINFO"])
-	case "mg":
-		_, available = buildLXMiguQualities(track.SourceData["audio_formats_json"])
-	}
-	// LX Music's default player.playQuality is 128k.
-	if _, exists := available["128k"]; exists { return "128k" }
-	return nil
 }
