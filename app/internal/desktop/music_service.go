@@ -822,11 +822,22 @@ func buildLXQQQualities(data map[string]string) ([]any, map[string]any) {
 	for _, field := range fields {
 		size, err := strconv.ParseInt(strings.TrimSpace(data[field.key]), 10, 64)
 		if err != nil || size <= 0 { continue }
-		sizeLabel := fmt.Sprintf("%.2fM", float64(size)/(1024*1024))
+		sizeLabel := formatLXFileSize(size)
 		types = append(types, map[string]any{"type": field.name, "size": sizeLabel})
 		available[field.name] = map[string]any{"size": sizeLabel}
 	}
 	return types, available
+}
+
+func formatLXFileSize(size int64) string {
+	units := []string{"B", "KiB", "MiB", "GiB", "TiB"}
+	value := float64(size)
+	unit := 0
+	for value >= 1024 && unit < len(units)-1 {
+		value /= 1024
+		unit++
+	}
+	return fmt.Sprintf("%.2f %s", value, units[unit])
 }
 
 func selectLXQuality(qualities []string, local bool, track music.Track) any {
