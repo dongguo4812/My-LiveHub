@@ -169,7 +169,6 @@ func (s *LXUserSourceSession) run(script string, requestClient *http.Client) {
 	defer close(s.done)
 	defer close(s.updates)
 	vm := goja.New()
-	vm.SetMaxCallStackSize(256)
 	s.mu.Lock()
 	s.vm = vm
 	s.mu.Unlock()
