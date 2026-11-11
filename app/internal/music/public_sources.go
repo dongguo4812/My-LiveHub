@@ -460,7 +460,7 @@ func(s *MiguSource)SearchPage(ctx context.Context,keyword string,page,limit int)
   var singers []map[string]json.RawMessage;_ = json.Unmarshal(item["singerList"],&singers);names:=[]string{};for _,a:=range singers{if n:=miguRawString(a["name"]);n!=""{names=append(names,n)}}
   album:=miguRawString(item["album"]);duration,_:=strconv.ParseInt(miguRawString(item["duration"]),10,64);cover:=firstNonEmpty(miguRawString(item["img3"]),miguRawString(item["img2"]),miguRawString(item["img1"]));if cover!=""&&!strings.Contains(cover,"http:")&&!strings.Contains(cover,"https:"){cover="http://d.musicapp.migu.cn"+cover}
   formats:=item["audioFormats"];if len(formats)==0{formats=json.RawMessage("[]")};artist:=strings.Join(names,"、")
-  tracks=append(tracks,Track{ID:id,SourceID:s.ID(),LXSourceKey:"mg",Title:title,Artist:artist,Album:album,DurationMS:duration*1000,CoverURL:cover,SourceData:map[string]string{"id":id,"songmid":id,"name":title,"singer":artist,"artist":artist,"album":album,"albumName":album,"albumId":miguRawString(item["albumId"]),"copyrightId":copyright,"duration":strconv.FormatInt(duration,10),"interval":formatLXInterval(duration),"img":cover,"lrcUrl":miguRawString(item["lrcUrl"]),"mrcUrl":miguRawString(item["mrcurl"]),"trcUrl":miguRawString(item["trcUrl"]),"audio_formats_json":string(formats)}})
+  tracks=append(tracks,Track{ID:id,SourceID:s.ID(),LXSourceKey:"mg",Title:title,Artist:artist,Album:album,DurationMS:duration*1000,CoverURL:cover,SourceData:map[string]string{"id":id,"songmid":id,"name":title,"singer":artist,"artist":artist,"album":album,"albumName":album,"albumId":miguRawString(item["albumId"]),"copyrightId":copyright,"duration":strconv.FormatInt(duration,10),"interval":formatMiguPlayTime(duration),"img":cover,"lrcUrl":miguRawString(item["lrcUrl"]),"mrcUrl":miguRawString(item["mrcurl"]),"trcUrl":miguRawString(item["trcUrl"]),"audio_formats_json":string(formats)}})
   if len(tracks)>=limit{break}
  };if len(tracks)>=limit{break}}
  total,_:=strconv.ParseInt(miguRawString(payload.SongResultData.TotalCount),10,64);total,max:=sourcePageCount(total,page,limit,len(tracks));return SourceSearchPage{Tracks:tracks,Total:total,MaxPage:max,PageSize:limit},nil
@@ -468,3 +468,8 @@ func(s *MiguSource)SearchPage(ctx context.Context,keyword string,page,limit int)
 func(*MiguSource)Resolve(context.Context,Track)(PlaybackResource,error){return PlaybackResource{},errors.New("Migu Music search is available; playback URL resolution requires a compatible LX musicUrl source")}
 var _ Source=(*MiguSource)(nil)
 var _ PagedSource=(*MiguSource)(nil)
+
+func formatMiguPlayTime(seconds int64) string {
+	if seconds <= 0 { return "" }
+	return fmt.Sprintf("%02d:%02d", seconds/60, seconds%60)
+}
