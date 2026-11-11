@@ -227,14 +227,14 @@ func TestLXQQMusicInfoMatchesLXMusicFlatContract(t *testing.T) {
 	}
 	types, ok := info["types"].([]any)
 	if !ok || len(types) != 3 || types[0].(map[string]any)["type"] != "128k" ||
-		types[0].(map[string]any)["size"] != "1.00M" ||
+		types[0].(map[string]any)["size"] != "1.00 MiB" ||
 		types[1].(map[string]any)["type"] != "320k" ||
-		types[1].(map[string]any)["size"] != "2.00M" ||
+		types[1].(map[string]any)["size"] != "2.00 MiB" ||
 		types[2].(map[string]any)["type"] != "flac24bit" {
 		t.Fatalf("unexpected QQ types: %#v", info["types"])
 	}
 	available, ok := info["_types"].(map[string]any)
-	if !ok || len(available) != 3 || available["320k"].(map[string]any)["size"] != "2.00M" {
+	if !ok || len(available) != 3 || available["320k"].(map[string]any)["size"] != "2.00 MiB" {
 		t.Fatalf("unexpected QQ _types: %#v", info["_types"])
 	}
 	if info["id"] != "song-mid" || info["mid"] != "song-mid" {
