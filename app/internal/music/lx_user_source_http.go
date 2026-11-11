@@ -9,7 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"mime/multipart"
+	"sort"
 	"strings"
 	"time"
 	"sync/atomic"
@@ -21,7 +21,7 @@ const (
 	// LX userApi preload.js defaults lx.request to 60 seconds and caps it at 60 seconds.
 	lxRequestTimeout = 60 * time.Second
 	lxRequestBodyLimit = 2 << 20
-	lxRequestRedirectLimit = 4
+	lxRequestRedirectLimit = 0
 )
 
 // installLXRequest exposes only the callback-based LX HTTP bridge. Requests are
@@ -110,36 +110,46 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 		return nil, "", errors.New("LX request HTTP method 不受支持")
 	}
 
+	headers, _ := options["headers"].(map[string]interface{})
+	contentType := ""
+	for key, value := range headers { if strings.EqualFold(strings.TrimSpace(key), "content-type") { contentType = strings.TrimSpace(fmt.Sprint(value)); break } }
+	data, hasData := options["body"]
+	formMode := false
+	if !jsTruthy(data) {
+		data, hasData = options["form"]
+		if jsTruthy(data) { formMode = true } else {
+			data, hasData = options["formData"]
+			if jsTruthy(data) { formMode = true }
+		}
+	}
 	requestBody := []byte(nil)
-	if value, ok := options["body"]; ok && value != nil {
-		switch body := value.(type) {
-		case string: requestBody = []byte(body)
-		case []byte: requestBody = body
-		case map[string]interface{}, []interface{}:
-			encoded, marshalErr := json.Marshal(body)
-			if marshalErr != nil { return nil, "", fmt.Errorf("LX request body JSON 编码失败：%w", marshalErr) }
-			requestBody = encoded
-		default: requestBody = []byte(fmt.Sprint(body))
-		}
-	}
-	if form, ok := options["form"].(map[string]interface{}); ok {
-		values := url.Values{}
-		for key, value := range form { values.Set(key, fmt.Sprint(value)) }
-		requestBody = []byte(values.Encode())
-	}
-	if formData, ok := options["formData"].(map[string]interface{}); ok {
-		var multipartBody bytes.Buffer
-		writer := multipart.NewWriter(&multipartBody)
-		for key, value := range formData {
-			if err := writer.WriteField(key, fmt.Sprint(value)); err != nil {
-				return nil, "", fmt.Errorf("LX request formData 字段 %q 无效：%w", key, err)
+	if hasData && jsTruthy(data) {
+		switch value := data.(type) {
+		case string:
+			requestBody = []byte(value)
+		case []byte:
+			requestBody = value
+		case map[string]interface{}, map[string]string, []interface{}:
+			jsonMode := !formMode && strings.EqualFold(strings.TrimSpace(contentType), "application/json")
+			if jsonMode {
+				requestBody, err = json.Marshal(value)
+				if err != nil { return nil, "", fmt.Errorf("LX request body JSON 编码失败：%w", err) }
+			} else {
+				encoded, encodeErr := needleQueryString(value, "")
+				if encodeErr != nil { return nil, "", fmt.Errorf("LX request body 表单编码失败：%w", encodeErr) }
+				if method == http.MethodGet {
+					parsed.RawQuery = encoded
+				} else {
+					requestBody = []byte(encoded)
+				}
 			}
+		case []any:
+			encoded, encodeErr := needleQueryString(value, "")
+			if encodeErr != nil { return nil, "", fmt.Errorf("LX request body 表单编码失败：%w", encodeErr) }
+			if method == http.MethodGet { parsed.RawQuery = encoded } else { requestBody = []byte(encoded) }
+		default:
+			requestBody = []byte(fmt.Sprint(value))
 		}
-		if err := writer.Close(); err != nil { return nil, "", fmt.Errorf("LX request formData 编码失败：%w", err) }
-		requestBody = multipartBody.Bytes()
-		options["__lx_content_type"] = writer.FormDataContentType()
-	} else if _, exists := options["formData"]; exists {
-		return nil, "", errors.New("LX request formData 必须是普通对象")
 	}
 	if len(requestBody) > lxRequestBodyLimit { return nil, "", errors.New("LX request 请求体超过 2 MB 限制") }
 
@@ -149,39 +159,39 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 		if number, ok := value.(float64); ok && number > 0 { timeout = time.Duration(number) * time.Millisecond }
 	}
 	if timeout > 60*time.Second { timeout = 60*time.Second }
-	redirectLimit := lxRequestRedirectLimit
-	if value, ok := options["follow_max"]; ok {
-		if number, ok := value.(int64); ok && number >= 0 && number < 10 { redirectLimit = int(number) }
-		if number, ok := value.(float64); ok && number >= 0 && number < 10 { redirectLimit = int(number) }
-	}
+	if timeout <= 0 { timeout = lxRequestTimeout }
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, method, parsed.String(), bytes.NewReader(requestBody))
 	if err != nil { return nil, "", err }
-	if headers, ok := options["headers"].(map[string]interface{}); ok {
-		for key, value := range headers {
-			name := http.CanonicalHeaderKey(strings.TrimSpace(key))
-			if name == "" || name == "Host" || name == "Content-Length" || name == "Connection" || strings.HasPrefix(strings.ToLower(name), "proxy-") { continue }
-			request.Header.Set(name, fmt.Sprint(value))
-		}
+	request.Header.Set("Accept", "*/*")
+	request.Header.Set("User-Agent", "Needle/3.2.0")
+	for key, value := range headers {
+		name := http.CanonicalHeaderKey(strings.TrimSpace(key))
+		if name == "" || name == "Host" || name == "Content-Length" || name == "Connection" || strings.HasPrefix(strings.ToLower(name), "proxy-") { continue }
+		request.Header.Set(name, fmt.Sprint(value))
 	}
-	if _, ok := request.Header["Content-Type"]; !ok && len(requestBody) > 0 {
-		if contentType, ok := options["__lx_content_type"].(string); ok {
-			request.Header.Set("Content-Type", contentType)
-		} else if _, form := options["form"].(map[string]interface{}); form {
-			request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if len(requestBody) > 0 {
+		if _, ok := request.Header["Content-Type"]; !ok {
+			if strings.EqualFold(strings.TrimSpace(contentType), "application/json") && !formMode {
+				request.Header.Set("Content-Type", "application/json; charset=utf-8")
+			} else {
+				request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			}
 		}
 	}
 
 	if client == nil {
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.Proxy = http.ProxyFromEnvironment
+		transport.DisableCompression = true // Needle 3.2.0 defaults compressed=false.
 		transport.DialContext = (&LXUserSourceStore{}).dialPublic
 		client = &http.Client{
 			Transport: transport,
 			Timeout: timeout,
 			CheckRedirect: func(next *http.Request, via []*http.Request) error {
-				if len(via) > redirectLimit { return errors.New("LX request 重定向次数过多") }
+				if len(via) > lxRequestRedirectLimit { return errors.New("LX request 重定向次数过多") }
+				if len(via) > 0 { return http.ErrUseLastResponse } // Needle defaults follow_max=0.
 				return validateLXSourceURL(next.URL)
 			},
 		}
@@ -189,40 +199,110 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 	}
 	resp, err := client.Do(request)
 	if err != nil {
-		// net/http wraps transport errors in url.Error, whose Error() string
-		// includes the full request URL (including signed query parameters).
-		// Keep the useful transport cause while exposing only a sanitized endpoint.
 		var urlErr *url.Error
 		if errors.As(err, &urlErr) && urlErr.Err != nil {
-			if endpoint := safeLXRequestEndpoint(rawURL); endpoint != "" {
-				return nil, "", fmt.Errorf("LX request 请求失败（%s）：%w", endpoint, urlErr.Err)
-			}
+			if endpoint := safeLXRequestEndpoint(rawURL); endpoint != "" { return nil, "", fmt.Errorf("LX request 请求失败（%s）：%w", endpoint, urlErr.Err) }
 			return nil, "", fmt.Errorf("LX request 请求失败：%w", urlErr.Err)
 		}
 		return nil, "", errors.New("LX request 请求失败")
 	}
 	defer resp.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(resp.Body, lxRequestBodyLimit+1))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, lxRequestBodyLimit+1))
 	if err != nil { return nil, "", fmt.Errorf("读取 LX request 响应失败：%w", err) }
-	if len(data) > lxRequestBodyLimit { return nil, "", errors.New("LX request 响应体超过 2 MB 限制") }
+	if len(raw) > lxRequestBodyLimit { return nil, "", errors.New("LX request 响应体超过 2 MB 限制") }
 	responseHeaders := make(map[string]string, len(resp.Header))
-	for key, values := range resp.Header { responseHeaders[key] = strings.Join(values, ", ") }
-	// LX Desktop's needle wrapper attempts JSON.parse on every response body,
-	// independent of Content-Type and leading whitespace. Match that behavior
-	// so source scripts receive the same response.body value as they do in LX.
-	var responseBody any = string(data)
+	for key, values := range resp.Header { responseHeaders[strings.ToLower(key)] = strings.Join(values, ", ") }
+	var responseBody any = string(raw)
 	var decoded any
-	if json.Unmarshal(data, &decoded) == nil { responseBody = decoded }
-	responseURL := parsed.String()
-	if resp.Request != nil && resp.Request.URL != nil { responseURL = resp.Request.URL.String() }
+	if json.Unmarshal(raw, &decoded) == nil { responseBody = decoded }
+	statusMessage := strings.TrimSpace(strings.TrimPrefix(resp.Status, fmt.Sprintf("%d", resp.StatusCode)))
 	response := map[string]any{
 		"statusCode": resp.StatusCode,
-		"status": resp.StatusCode,
+		"statusMessage": statusMessage,
 		"headers": responseHeaders,
-		"url": responseURL,
-		"statusMessage": resp.Status,
-		// LX Music scripts read response.body; JSON responses are decoded like LX Desktop.
+		"bytes": len(raw),
+		"raw": raw,
 		"body": responseBody,
 	}
-	return response, string(data), nil
+	return response, string(raw), nil
+}
+
+func jsTruthy(value any) bool {
+	if value == nil { return false }
+	switch v := value.(type) {
+	case bool: return v
+	case string: return v != ""
+	case int: return v != 0
+	case int64: return v != 0
+	case float64: return v != 0
+	default: return true
+	}
+}
+
+func needleQueryString(value any, prefix string) (string, error) {
+	switch v := value.(type) {
+	case map[string]interface{}:
+		parts := make([]string, 0, len(v))
+		keys := make([]string, 0, len(v))
+		for key := range v { keys = append(keys, key) }
+		sort.Strings(keys)
+		for _, key := range keys {
+			name := needleEncodeURIComponent(key)
+			if prefix != "" { name = prefix + "[" + name + "]" }
+			part, err := needleQueryString(v[key], name)
+			if err != nil { return "", err }
+			if part != "" { parts = append(parts, part) }
+		}
+		return strings.Join(parts, "&"), nil
+	case map[string]string:
+		parts := make([]string, 0, len(v))
+		keys := make([]string, 0, len(v))
+		for key := range v { keys = append(keys, key) }
+		sort.Strings(keys)
+		for _, key := range keys {
+			name := needleEncodeURIComponent(key)
+			if prefix != "" { name = prefix + "[" + name + "]" }
+			part, err := needleQueryString(v[key], name)
+			if err != nil { return "", err }
+			parts = append(parts, part)
+		}
+		return strings.Join(parts, "&"), nil
+	case []interface{}:
+		parts := make([]string, 0, len(v))
+		for _, item := range v {
+			part, err := needleQueryString(item, prefix+"[]")
+			if err != nil { return "", err }
+			if part != "" { parts = append(parts, part) }
+		}
+		return strings.Join(parts, "&"), nil
+	case []any:
+		parts := make([]string, 0, len(v))
+		for _, item := range v {
+			part, err := needleQueryString(item, prefix+"[]")
+			if err != nil { return "", err }
+			if part != "" { parts = append(parts, part) }
+		}
+		return strings.Join(parts, "&"), nil
+	case nil:
+		if prefix == "" { return "", errors.New("Cannot build a querystring out of: null") }
+		return prefix + "=", nil
+	case string:
+		if prefix == "" {
+			if strings.Contains(v, "=") { return v, nil }
+			return "", fmt.Errorf("Cannot build a querystring out of: %s", v)
+		}
+		return prefix + "=" + needleEncodeURIComponent(v), nil
+	default:
+		if prefix == "" { return "", fmt.Errorf("Cannot build a querystring out of: %v", value) }
+		return prefix + "=" + needleEncodeURIComponent(fmt.Sprint(value)), nil
+	}
+}
+
+func needleEncodeURIComponent(value string) string {
+	encoded := url.QueryEscape(value)
+	encoded = strings.ReplaceAll(encoded, "+", "%20")
+	for _, pair := range [][2]string{{"%21","!"},{"%27","'"},{"%28","("},{"%29",")"},{"%2A","*"}} {
+		encoded = strings.ReplaceAll(encoded, pair[0], pair[1])
+	}
+	return encoded
 }

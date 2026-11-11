@@ -114,15 +114,15 @@ func TestLXRequestSupportsFormDataAndReturnsCancelFunction(t *testing.T) {
 		if request.Method != http.MethodPost {
 			t.Errorf("request method = %q, want POST", request.Method)
 		}
-		if !strings.HasPrefix(request.Header.Get("Content-Type"), "multipart/form-data; boundary=") {
+		if request.Header.Get("Content-Type") != "application/x-www-form-urlencoded" {
 			t.Errorf("unexpected multipart content type: %q", request.Header.Get("Content-Type"))
 		}
 		body, err := io.ReadAll(request.Body)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(string(body), "name=\"keyword\"") || !strings.Contains(string(body), "稻香") {
-			t.Errorf("multipart body does not contain form field: %s", body)
+		if string(body) != "keyword=%E7%A8%BB%E9%A6%99" {
+			t.Errorf("formData body differs from Needle querystring encoding: %s", body)
 		}
 		return &http.Response{
 			StatusCode: http.StatusOK,
@@ -177,4 +177,42 @@ func TestLXRequestParsesJSONRegardlessOfContentTypeAndLeadingWhitespace(t *testi
 	body, ok := response["body"].(map[string]any)
 	if !ok { t.Fatalf("LX response body was not parsed as JSON: %#v", response["body"]) }
 	if body["url"] != "https://cdn.example.test/song.mp3" { t.Fatalf("unexpected parsed body: %#v", body) }
+}
+
+func TestLXRequestMatchesNeedleDefaultObjectEncoding(t *testing.T) {
+	for _, tc := range []struct{name, method, wantURL, wantBody, wantType string}{
+		{"get query", "GET", "https://music.example.test/search?keyword=%E7%A8%BB%E9%A6%99", "", ""},
+		{"post form", "POST", "https://music.example.test/search", "keyword=%E7%A8%BB%E9%A6%99", "application/x-www-form-urlencoded"},
+	} {
+		t.Run(tc.name,func(t *testing.T){
+			client:=&http.Client{Transport:lxRoundTripFunc(func(req *http.Request)(*http.Response,error){
+				if req.URL.String()!=tc.wantURL { t.Errorf("URL=%q want %q",req.URL.String(),tc.wantURL) }
+				body,_:=io.ReadAll(req.Body)
+				if string(body)!=tc.wantBody { t.Errorf("body=%q want %q",body,tc.wantBody) }
+				if got:=req.Header.Get("Content-Type");got!=tc.wantType { t.Errorf("content-type=%q want %q",got,tc.wantType) }
+				return &http.Response{StatusCode:200,Status:"200 OK",Header:make(http.Header),Body:io.NopCloser(strings.NewReader("ok")),Request:req},nil
+			})}
+			options:=map[string]any{"method":tc.method,"body":map[string]any{"keyword":"稻香"}}
+			if _,_,err:=performLXRequestWithClient("https://music.example.test/search",goja.New().ToValue(options),client);err!=nil { t.Fatal(err) }
+		})
+	}
+}
+
+func TestLXRequestUsesJSONOnlyWhenContentTypeRequestsIt(t *testing.T) {
+	client:=&http.Client{Transport:lxRoundTripFunc(func(req *http.Request)(*http.Response,error){
+		body,_:=io.ReadAll(req.Body)
+		if string(body)!=`{"keyword":"稻香"}` { t.Errorf("JSON body=%q",body) }
+		if got:=req.Header.Get("Content-Type");!strings.HasPrefix(got,"application/json") { t.Errorf("content-type=%q",got) }
+		return &http.Response{StatusCode:200,Status:"200 OK",Header:http.Header{"X-Test":[]string{"ok"}},Body:io.NopCloser(strings.NewReader(`{"ok":true}`)),Request:req},nil
+	})}
+	options:=map[string]any{"method":"POST","headers":map[string]any{"Content-Type":"application/json"},"body":map[string]any{"keyword":"稻香"}}
+	response,_,err:=performLXRequestWithClient("https://music.example.test/search",goja.New().ToValue(options),client)
+	if err!=nil { t.Fatal(err) }
+	if response["bytes"]!=int(11) { t.Errorf("bytes=%#v",response["bytes"]) }
+	if _,ok:=response["raw"].([]byte);!ok { t.Errorf("raw must preserve response bytes, got %T",response["raw"]) }
+	headers,ok:=response["headers"].(map[string]string)
+	if !ok||headers["x-test"]!="ok" { t.Errorf("headers must use lower-case keys: %#v",response["headers"]) }
+	if _,ok:=response["url"];ok { t.Error("LX preload response does not expose url") }
+	if _,ok:=response["status"];ok { t.Error("LX preload response does not expose status") }
+	if response["statusMessage"]!="OK" { t.Errorf("statusMessage=%#v",response["statusMessage"]) }
 }
