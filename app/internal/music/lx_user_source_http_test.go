@@ -163,12 +163,18 @@ func TestLXRequestSupportsFormDataAndReturnsCancelFunction(t *testing.T) {
 
 func TestLXRequestParsesJSONRegardlessOfContentTypeAndLeadingWhitespace(t *testing.T) {
 	client := &http.Client{Transport: lxRoundTripFunc(func(request *http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode:http.StatusOK, Status:"200 OK", Header:http.Header{"Content-Type":[]string{"text/plain"}}, Body:io.NopCloser(strings.NewReader("  {\\"url\\":\\"https://cdn.example.test/song.mp3\\"}\\n")), Request:request}, nil
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status: "200 OK",
+			Header: http.Header{"Content-Type": []string{"text/plain"}},
+			Body: io.NopCloser(strings.NewReader("  {\"url\":\"https://cdn.example.test/song.mp3\"}\n")),
+			Request: request,
+		}, nil
 	})}
-	vm:=goja.New()
-	response,_,err:=performLXRequestWithClient("https://music.example.test/resolve",vm.ToValue(map[string]any{}),client)
-	if err!=nil { t.Fatal(err) }
-	body,ok:=response["body"].(map[string]any)
-	if !ok { t.Fatalf("LX response body was not parsed as JSON: %#v",response["body"]) }
-	if body["url"]!="https://cdn.example.test/song.mp3" { t.Fatalf("unexpected parsed body: %#v",body) }
+	vm := goja.New()
+	response, _, err := performLXRequestWithClient("https://music.example.test/resolve", vm.ToValue(map[string]any{}), client)
+	if err != nil { t.Fatal(err) }
+	body, ok := response["body"].(map[string]any)
+	if !ok { t.Fatalf("LX response body was not parsed as JSON: %#v", response["body"]) }
+	if body["url"] != "https://cdn.example.test/song.mp3" { t.Fatalf("unexpected parsed body: %#v", body) }
 }

@@ -875,9 +875,8 @@ func buildLXOldMusicInfo(track music.Track, quality any) map[string]any {
 		source = strings.TrimSpace(track.SourceID)
 	}
 
-	// This is the exact flat object produced by LX Music's toOldMusicInfo().
-	// Do not forward provider search payloads or add convenience aliases:
-	// user scripts receive only fields that LX itself exposes.
+	// Build the legacy flat result produced by LX Music platform search adapters.
+	// buildLXMusicInfo converts it to the new MusicInfo shape before script calls.
 	info := map[string]any{
 		"name": track.Title,
 		"singer": track.Artist,
