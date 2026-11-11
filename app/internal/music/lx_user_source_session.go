@@ -82,6 +82,11 @@ func StartLXUserSourceSession(ctx context.Context, script string, requestClient 
 		_ = session.Close()
 		return nil, ctx.Err()
 	case <-session.done:
+		select {
+		case ready := <-session.ready:
+			if ready.err != nil { return nil, ready.err }
+		default:
+		}
 		return nil, errors.New("LX 音源运行实例已退出")
 	}
 }
