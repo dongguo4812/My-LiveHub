@@ -306,7 +306,7 @@ func (s *MusicService) Enqueue(track music.Track, requestedBy string) (music.Que
 	s.mu.RUnlock()
 	if !moduleEnabled { return music.QueueItem{}, errors.New("music module is disabled") }
 	if !enabled { return music.QueueItem{}, fmt.Errorf("music source %q is disabled", track.SourceID) }
-	source, ok := s.sources.Get(track.SourceID)
+	_, ok := s.sources.Get(track.SourceID)
 	if !ok { return music.QueueItem{}, fmt.Errorf("music source %q is not available", track.SourceID) }
 	// Queue insertion is independent from playback URL resolution. Keep search
 	// results in the queue even when the selected source needs an LX resolver;
