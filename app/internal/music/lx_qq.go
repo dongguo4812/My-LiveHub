@@ -75,14 +75,17 @@ func(s *LXQQMusicSource)SearchPage(ctx context.Context,keyword string,page,limit
   serviceRaw:=envelope["music.search.SearchCgiService"];if len(serviceRaw)==0{serviceRaw=envelope["req"]}
   var service struct{
    Code int `json:"code"`
-   Data struct{
-    Body struct{Song struct{List []struct{
-     ID int64 `json:"id"`;Mid string `json:"mid"`;Title string `json:"title"`;Interval int64 `json:"interval"`
-     Singer []struct{Name string `json:"name"`} `json:"singer"`
-     Album struct{Name string `json:"name"`;Mid string `json:"mid"`} `json:"album"`
-     File struct{MediaMid string `json:"media_mid"`;Size128 int64 `json:"size_128mp3"`;Size320 int64 `json:"size_320mp3"`;SizeFlac int64 `json:"size_flac"`;SizeHiRes int64 `json:"size_hires"`} `json:"file"`
-    } `json:"list"`} `json:"song"`;Meta struct{Sum int64 `json:"sum"`} `json:"meta"`
-   } `json:"data"`
+    Data struct{
+     Body struct{
+      Song struct{List []struct{
+       ID int64 `json:"id"`;Mid string `json:"mid"`;Title string `json:"title"`;Interval int64 `json:"interval"`
+       Singer []struct{Name string `json:"name"`} `json:"singer"`
+       Album struct{Name string `json:"name"`;Mid string `json:"mid"`} `json:"album"`
+       File struct{MediaMid string `json:"media_mid"`;Size128 int64 `json:"size_128mp3"`;Size320 int64 `json:"size_320mp3"`;SizeFlac int64 `json:"size_flac"`;SizeHiRes int64 `json:"size_hires"`} `json:"file"`
+      } `json:"list"`} `json:"song"`
+     } `json:"body"`
+     Meta struct{Sum int64 `json:"sum"`} `json:"meta"`
+    } `json:"data"`
   }
   if len(serviceRaw)==0||json.Unmarshal(serviceRaw,&service)!=nil||outer.Code!=0||service.Code!=0{lastErr=errors.New("QQ Music search response code is not successful");continue}
   tracks:=make([]Track,0,len(service.Data.Body.Song.List))
@@ -96,7 +99,7 @@ func(s *LXQQMusicSource)SearchPage(ctx context.Context,keyword string,page,limit
     "size_128mp3":strconv.FormatInt(it.File.Size128,10),"size_320mp3":strconv.FormatInt(it.File.Size320,10),"size_flac":strconv.FormatInt(it.File.SizeFlac,10),"size_hires":strconv.FormatInt(it.File.SizeHiRes,10),
    }})
   }
-  total,maxPage:=sourcePageCount(service.Data.Body.Meta.Sum,page,limit,len(tracks))
+  total,maxPage:=sourcePageCount(service.Data.Meta.Sum,page,limit,len(tracks))
   return SourceSearchPage{Tracks:tracks,Total:total,MaxPage:maxPage,PageSize:limit},nil
  }
  return SourceSearchPage{},fmt.Errorf("search QQ Music using LX desktop API: %w",lastErr)
