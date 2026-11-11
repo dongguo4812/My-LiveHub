@@ -93,8 +93,6 @@ func lxBufferBytes(value goja.Value) ([]byte, error) {
 	switch data := value.Export().(type) {
 	case []byte:
 		return append([]byte(nil), data...), nil
-	case []uint8:
-		return append([]byte(nil), data...), nil
 	case []interface{}:
 		result := make([]byte, len(data))
 		for i, item := range data { result[i] = byte(goja.ToValue(item).ToInteger()) }
