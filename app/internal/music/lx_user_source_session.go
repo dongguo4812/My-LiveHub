@@ -304,9 +304,7 @@ func (s *LXUserSourceSession) run(script string, requestClient *http.Client) {
 		s.ready <- lxSessionReady{err: fmt.Errorf("初始化 LX 音源运行环境失败：%w", err)}
 		return
 	}
-	executionTimeout := time.AfterFunc(30*time.Second, func() { vm.Interrupt("LX source initialization timeout") })
 	_, scriptErr := vm.RunString(script)
-	executionTimeout.Stop()
 	if scriptErr != nil {
 		s.ready <- lxSessionReady{err: fmt.Errorf("LX 音源脚本初始化失败：%s", scriptErr.Error())}
 		return
@@ -380,9 +378,7 @@ func (s *LXUserSourceSession) handleRequest(vm *goja.Runtime, lx *goja.Object, h
 		s.completeRequest(call.requestKey, lxSessionResponse{err: errors.New("LX request handler must be a function")})
 		return
 	}
-	executionTimeout := time.AfterFunc(30*time.Second, func() { vm.Interrupt("LX source request execution timeout") })
 	value, err := callable(lx, vm.ToValue(payload))
-	executionTimeout.Stop()
 	if err != nil {
 		s.completeRequest(call.requestKey, lxSessionResponse{err: err})
 		return
