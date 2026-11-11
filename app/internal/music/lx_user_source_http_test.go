@@ -38,7 +38,7 @@ func TestLXRequestCallbackReceivesResponseBody(t *testing.T) {
 		var callbackBody = "";
 		lx.request("https://music.example.test/resolve", {}, function (err, response) {
 			if (err) throw new Error(String(err));
-			callbackBody = response.body;
+			callbackBody = JSON.stringify(response.body);
 		});
 		callbackBody;
 	`)
