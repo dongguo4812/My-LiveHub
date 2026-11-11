@@ -185,6 +185,20 @@ func (s *LXUserSourceStore) Update(ctx context.Context, id string) (LXUserSource
 	return updated, nil
 }
 
+func (s *LXUserSourceStore) ReadScript(id string) (string, error) {
+	if s == nil { return "", errors.New("LX 音源存储不可用") }
+	if len(id) != 19 || !strings.HasPrefix(id, "lx_") { return "", errors.New("LX 音源 ID 无效") }
+	for _, char := range id[3:] {
+		if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f')) {
+			return "", errors.New("LX 音源 ID 无效")
+		}
+	}
+	data, err := os.ReadFile(filepath.Join(s.dir, id+".js"))
+	if err != nil { return "", fmt.Errorf("读取音源脚本失败：%w", err) }
+	if len(data) == 0 || len(data) > MaxLXUserSourceBytes { return "", errors.New("LX 音源脚本为空或超过 1 MB 限制") }
+	return string(data), nil
+}
+
 func (s *LXUserSourceStore) List() ([]LXUserSourceMetadata, error) {
 	if s == nil { return nil, errors.New("LX 音源存储不可用") }
 	entries, err := os.ReadDir(s.dir)
