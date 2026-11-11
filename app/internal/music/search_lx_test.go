@@ -1,6 +1,7 @@
 package music
 
 import (
+	"errors"
 	"context"
 	"encoding/json"
 	"net/http"
