@@ -432,8 +432,8 @@ func marshalLXUserAPIResult(source, action string, payload map[string]any, value
 	switch action {
 	case "musicUrl":
 		raw, ok := exported.(string)
-		if !ok || len(raw) > 2048 || !(strings.HasPrefix(raw, "http:") || strings.HasPrefix(raw, "https:")) {
-			return nil, errors.New("LX musicUrl response is invalid")
+		if !ok || lxJSStringLength(raw) || !(strings.HasPrefix(raw, "http:") || strings.HasPrefix(raw, "https:")) {
+			return nil, errors.New("failed")
 		}
 		info, _ := payload["info"].(map[string]any)
 		data := map[string]any{"url": raw}
@@ -441,8 +441,8 @@ func marshalLXUserAPIResult(source, action string, payload map[string]any, value
 		return json.Marshal(map[string]any{"source": source, "action": action, "data": data})
 	case "pic":
 		raw, ok := exported.(string)
-		if !ok || len(raw) > 2048 || !(strings.HasPrefix(raw, "http:") || strings.HasPrefix(raw, "https:")) {
-			return nil, errors.New("LX pic response is invalid")
+		if !ok || lxJSStringLength(raw) || !(strings.HasPrefix(raw, "http:") || strings.HasPrefix(raw, "https:")) {
+			return nil, errors.New("failed")
 		}
 		return json.Marshal(map[string]any{"source": source, "action": action, "data": raw})
 	case "lyric":
@@ -456,6 +456,6 @@ func marshalLXUserAPIResult(source, action string, payload map[string]any, value
 		if value, ok := info["lxlyric"].(string); ok && lxJSStringLength(value) < 8192 { data["lxlyric"] = value }
 		return json.Marshal(map[string]any{"source": source, "action": action, "data": data})
 	default:
-		return json.Marshal(map[string]any{"source": source, "action": action})
+		return nil, nil
 	}
 }
