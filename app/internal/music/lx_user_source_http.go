@@ -46,12 +46,14 @@ func installLXRequestAsync(vm *goja.Runtime, lx *goja.Object, client *http.Clien
 		id:=requestID.Add(1)
 		thisArg:=call.This
 		go func() {
-			response,_,err:=performLXRequestWithClientContext(ctx,rawURL,optionsMap,client)
+			response,raw,err:=performLXRequestWithClientContext(ctx,rawURL,optionsMap,client)
 			loop.enqueue(func() {
 				var errValue goja.Value=goja.Null()
 				var responseValue goja.Value=goja.Null()
 				var bodyValue goja.Value=goja.Null()
 				if err!=nil { errValue=vm.NewGoError(err) } else {
+					response["bytes"]=len(raw)
+					response["raw"]=newLXBuffer(vm,[]byte(raw))
 					responseValue=vm.ToValue(response)
 					bodyValue=vm.ToValue(response["body"])
 				}
