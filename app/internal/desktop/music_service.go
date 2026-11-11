@@ -326,7 +326,7 @@ func (s *MusicService) PlayNext() error { return s.playNext(context.Background()
 
 func (s *MusicService) playNext(parent context.Context) error {
 	if s == nil || s.engine == nil || s.queue == nil { return errors.New("music playback service is unavailable") }
-	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 240*time.Second)
 	defer cancel()
 	queueSnapshot := s.queue.Snapshot()
 	var item music.QueueItem
@@ -799,7 +799,7 @@ func (s *MusicService) ValidateLXUserSource(id string) (music.LXSourceRuntimeRes
 	if err != nil { return music.LXSourceRuntimeResult{}, err }
 	script, err := store.ReadScript(id)
 	if err != nil { return music.LXSourceRuntimeResult{}, err }
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
 	defer cancel()
 	return music.InspectLXUserSource(ctx, script)
 }

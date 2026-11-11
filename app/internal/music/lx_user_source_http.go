@@ -47,6 +47,7 @@ func installLXRequestAsync(vm *goja.Runtime, lx *goja.Object, client *http.Clien
 		id:=requestID.Add(1)
 		thisArg:=call.This
 		go func() {
+			defer cancel()
 			response,raw,err:=performLXRequestWithClientContext(ctx,rawURL,optionsMap,client)
 			loop.enqueue(func() {
 				if onResult != nil { onResult(id, rawURL, response, err) }
@@ -174,7 +175,7 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 
 	if client == nil {
 		transport := http.DefaultTransport.(*http.Transport).Clone()
-		transport.Proxy = nil
+		transport.Proxy = http.ProxyFromEnvironment
 		transport.DialContext = (&LXUserSourceStore{}).dialPublic
 		client = &http.Client{
 			Transport: transport,

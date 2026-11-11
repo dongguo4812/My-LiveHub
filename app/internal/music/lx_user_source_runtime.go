@@ -24,8 +24,8 @@ const (
 	lxWorkerArgument = LXSourceWorkerArgument
 	lxWorkerInputLimit = MaxLXUserSourceBytes + 4096
 	lxWorkerOutputLimit = 256 << 10
-	lxWorkerTimeout = 65 * time.Second
-	lxWorkerExecutionTimeout = 60 * time.Second
+	lxWorkerTimeout = 180 * time.Second
+	lxWorkerExecutionTimeout = 170 * time.Second
 )
 
 type LXDeclaredSource struct {
@@ -205,6 +205,7 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 	_ = eventNames.Set("inited", "inited")
 	_ = eventNames.Set("request", "request")
 	_ = eventNames.Set("updateAlert", "updateAlert")
+	updateAlertSent := false
 	lx := vm.NewObject()
 	_ = lx.Set("EVENT_NAMES", eventNames)
 	_ = lx.Set("env", "desktop")
@@ -245,6 +246,15 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 	_ = lx.Set("send", func(call goja.FunctionCall) goja.Value {
 		promise, resolve, reject := vm.NewPromise()
 		event := call.Argument(0).String()
+		if event == "updateAlert" {
+			if updateAlertSent {
+				_ = reject(vm.NewGoError(errors.New("The update alert can only be called once.")))
+				return vm.ToValue(promise)
+			}
+			updateAlertSent = true
+			_ = resolve(goja.Undefined())
+			return vm.ToValue(promise)
+		}
 		if event != "inited" {
 			_ = reject(vm.NewGoError(fmt.Errorf("The event is not supported: %s", event)))
 			return vm.ToValue(promise)
@@ -299,7 +309,7 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 		// LX source scripts may announce initialization asynchronously (for
 		// example from setTimeout or an HTTP callback). Keep the VM event loop
 		// alive until the real inited event arrives or initialization times out.
-		if pumpErr := loop.pumpUntil(func() bool { return len(initialized) > 0 }, 4*time.Second); pumpErr != nil {
+		if pumpErr := loop.pumpUntil(func() bool { return len(initialized) > 0 }, lxRequestTimeout+5*time.Second); pumpErr != nil {
 			response.Error = fmt.Sprintf("LX 音源未发送 inited 初始化事件：%s", pumpErr.Error())
 			return 1
 		}

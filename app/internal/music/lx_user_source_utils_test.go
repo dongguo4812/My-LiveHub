@@ -40,14 +40,15 @@ func TestLXRSAEncryptNoPadding(t *testing.T) {
 	der, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
 	if err != nil { t.Fatal(err) }
 	publicPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})
-	message := make([]byte, privateKey.Size())
-	message[len(message)-1] = 42
+	message := []byte{42}
+	paddedMessage := make([]byte, privateKey.Size())
+	paddedMessage[len(paddedMessage)-1] = 42
 
 	encrypted, err := lxRSAEncryptNoPadding(message, publicPEM)
 	if err != nil { t.Fatal(err) }
 	ciphertext := new(big.Int).SetBytes(encrypted)
 	decrypted := new(big.Int).Exp(ciphertext, privateKey.D, privateKey.N).FillBytes(make([]byte, privateKey.Size()))
-	if !bytes.Equal(decrypted, message) { t.Fatal("RSA_NO_PADDING round trip mismatch") }
+	if !bytes.Equal(decrypted, paddedMessage) { t.Fatal("RSA_NO_PADDING round trip mismatch") }
 }
 
 func TestLXZlibRoundTrip(t *testing.T) {

@@ -228,8 +228,12 @@ func lxRSAEncryptNoPadding(data, keyPEM []byte) ([]byte, error) {
 	publicKey, ok := parsed.(*rsa.PublicKey)
 	if !ok { return nil, errors.New("LX RSA key is not an RSA public key") }
 	size := publicKey.Size()
-	if len(data) != size { return nil, fmt.Errorf("LX RSA_NO_PADDING requires exactly %d input bytes, got %d", size, len(data)) }
-	message := new(big.Int).SetBytes(data)
+	if len(data) > size { return nil, fmt.Errorf("LX RSA_NO_PADDING input exceeds %d bytes: got %d", size, len(data)) }
+	// LX Music's preload pads short RSA_NO_PADDING inputs on the left with
+	// zero bytes before calling Node's publicEncrypt().
+	padded := make([]byte, size)
+	copy(padded[size-len(data):], data)
+	message := new(big.Int).SetBytes(padded)
 	if message.Cmp(publicKey.N) >= 0 { return nil, errors.New("LX RSA input is greater than or equal to the modulus") }
 	encrypted := new(big.Int).Exp(message, big.NewInt(int64(publicKey.E)), publicKey.N)
 	return encrypted.FillBytes(make([]byte, size)), nil
