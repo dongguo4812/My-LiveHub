@@ -170,7 +170,7 @@ lx.on(lx.EVENT_NAMES.request, function (request) { return request; });
 	if strings.Join(response.Result.Platforms, ",") != "tx,wy" {
 		t.Fatalf("unexpected platforms: %#v", response.Result.Platforms)
 	}
-	if len(response.Result.DeclaredSources) != 2 || response.Result.DeclaredSources[0].Key != "tx" || response.Result.DeclaredSources[1].Key != "wy" || response.Result.DeclaredSources[1].Qualitys[1] != "320k" {
+	if len(response.Result.DeclaredSources) != 2 || response.Result.DeclaredSources[0].Key != "tx" || response.Result.DeclaredSources[1].Key != "wy" || response.Result.DeclaredSources[0].Qualitys[1] != "320k" {
 		t.Fatalf("unexpected declared source details: %#v", response.Result.DeclaredSources)
 	}
 	if len(response.Result.Handlers) != 1 || response.Result.Handlers[0] != "request" {
