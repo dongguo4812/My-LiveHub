@@ -77,6 +77,20 @@ musicSdk[musicInfo.source]
 
 QQ SDK 再将歌曲对象和音质交给当前选择的 API 实现。用户 API 由 api-source.js 的 userApi.apis[source] 分发。播放 URL 解析不是搜索模块的职责。
 
+### 2.6 用户源运行时与 HTTP 桥接
+
+洛雪用户源通过独立的受限 BrowserWindow 执行。其 preload 暴露 `lx` API，`lx.on('request', handler)` 注册处理器，`lx.send('inited', ...)` 声明平台、动作和音质。播放时 preload 调用 handler，并将参数组织为 `{ source, action, info }`；`this` 指向 `lx`。`musicUrl` handler 必须返回 Promise，最终结果必须是 HTTP(S) URL 字符串。
+
+洛雪的 `lx.request(url, options, callback)` 使用 callback(err, response, body)，response 包含 `statusCode`、`statusMessage`、`headers`、`bytes`、`raw`（Buffer）和 `body`（可解析为 JSON 的响应会转换成对象）。options 支持 method、timeout、headers、body、form、formData；默认响应超时 60 秒，最大 60 秒，并返回取消函数。
+
+My-LiveHub 的 Goja 已模拟 request 事件、lx this 上下文、Promise、定时器、Buffer 辅助结构和 HTTP callback，基础方向正确。已确认的差异：
+- My-LiveHub HTTP 默认超时 10 秒、上限 30 秒；洛雪默认及最大值为 60 秒。
+- My-LiveHub 的 musicUrl 结果解析额外接受 `{url, headers}` 对象；洛雪 preload 只接受 URL 字符串，并由宿主按原始请求结果封装。
+- My-LiveHub response 还提供 `status`、`url` 等额外字段；需保持向后兼容，但不应将其误认为洛雪必需字段。
+- My-LiveHub 的隔离运行时是否覆盖所有音源用到的 Buffer/crypto/zlib/HTTP 细节，必须用实际脚本验证；不能只靠初始化握手通过来判断。
+
+这些差异应进入协议兼容测试。超时策略需保留 My-LiveHub 的资源保护能力，同时确保不会截断洛雪合法的 60 秒请求；不能无条件取消安全限制。
+
 ### 2.5 失败与换源
 
 洛雪首先尝试当前歌曲来源的解析；失败后调用 getOtherSource 搜索其他平台，使用 findMusic 的匹配结果逐个尝试可用 API 和歌曲支持的音质。失败平台会被记录，避免重复尝试。解析成功才把 URL 交给播放器。
