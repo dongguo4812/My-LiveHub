@@ -9,7 +9,6 @@ require (
 	golang.org/x/sys v0.48.0
 )
 require (
-	github.com/dop251/goja_nodejs v0.0.0-20211022123610-8dd9abb0616d // indirect
 	github.com/kr/pretty v0.3.0 // indirect
 	github.com/Masterminds/semver/v3 v3.2.1 // indirect
 	github.com/dlclark/regexp2 v1.11.4 // indirect
