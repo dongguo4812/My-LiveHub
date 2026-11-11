@@ -8,6 +8,36 @@ import (
  "net/url"
 )
 
+func TestLXUserSourceValidationPersistsAcrossStoreInstances(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "sources")
+	store, err := NewLXUserSourceStore(dir)
+	if err != nil { t.Fatal(err) }
+	script := "/*\n * @name Persistent Validation\n */\nlx.send(lx.EVENT_NAMES.inited, { sources: {} });"
+	metadata, err := store.ImportScript(script, "")
+	if err != nil { t.Fatal(err) }
+	result := LXSourceRuntimeResult{
+		Initialized: true,
+		Platforms: []string{"kw"},
+		DeclaredSources: []LXDeclaredSource{{Key: "kw", Type: "music", Actions: []string{"musicUrl"}}},
+		Handlers: []string{"request"},
+	}
+	if err := store.SetValidation(metadata.ID, result); err != nil { t.Fatal(err) }
+
+	restartedStore, err := NewLXUserSourceStore(dir)
+	if err != nil { t.Fatal(err) }
+	reloaded, err := restartedStore.Get(metadata.ID)
+	if err != nil { t.Fatal(err) }
+	if reloaded.Validation == nil || !reloaded.Validation.Initialized {
+		t.Fatalf("successful validation was not persisted: %#v", reloaded.Validation)
+	}
+	if reloaded.ValidatedAt == nil || reloaded.ValidatedAt.IsZero() {
+		t.Fatalf("validation timestamp was not persisted: %#v", reloaded.ValidatedAt)
+	}
+	if len(reloaded.Validation.Platforms) != 1 || reloaded.Validation.Platforms[0] != "kw" {
+		t.Fatalf("validation details were not persisted: %#v", reloaded.Validation)
+	}
+}
+
 func TestLXUserSourceStoreImportsListsAndDeletes(t *testing.T) {
  store, err := NewLXUserSourceStore(filepath.Join(t.TempDir(), "sources"))
  if err != nil { t.Fatal(err) }

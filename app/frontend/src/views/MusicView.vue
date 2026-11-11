@@ -137,6 +137,14 @@ async function loadConfig() {
 async function refreshLXSources() {
   try {
     lxSources.value = await MusicService.GetLXUserSources()
+    // Restore each source's persisted validation result into the view state.
+    // The backend returns this only for the exact script version that passed.
+    lxValidation.value = Object.fromEntries(
+      lxSources.value.flatMap(source => {
+        const persisted = (source as LXSource & { validation?: LXValidation | null }).validation
+        return persisted?.initialized ? [[source.id, persisted]] : []
+      }),
+    )
     activeLXSourceID.value = await MusicService.GetActiveLXUserSourceID()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)

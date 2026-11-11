@@ -194,6 +194,27 @@ func (s *LXUserSourceStore) Get(id string) (LXUserSourceMetadata, error) {
 	return metadata, nil
 }
 
+// SetValidation stores a successful initialization result alongside the exact
+// source version. A changed script must never inherit an old validation result.
+func (s *LXUserSourceStore) SetValidation(id string, result LXSourceRuntimeResult) error {
+	if !result.Initialized {
+		return errors.New("不能保存未通过初始化的 LX 音源验证结果")
+	}
+	metadata, err := s.Get(id)
+	if err != nil { return err }
+	script, err := s.ReadScript(id)
+	if err != nil { return err }
+	source, err := ParseLXUserSource(script)
+	if err != nil { return err }
+	if metadata.SHA256 != source.Metadata.SHA256 {
+		return errors.New("LX 音源脚本已变化，请重新验证")
+	}
+	now := time.Now().UTC()
+	metadata.Validation = &result
+	metadata.ValidatedAt = &now
+	return s.save(LXUserSource{Metadata: metadata, Script: script})
+}
+
 func (s *LXUserSourceStore) SetAllowShowUpdateAlert(id string, enabled bool) error {
 	metadata, err := s.Get(id)
 	if err != nil { return err }

@@ -36,6 +36,8 @@ type LXUserSourceMetadata struct {
 	SourceURL string `json:"source_url,omitempty"`
 	ImportedAt time.Time `json:"imported_at"`
 	AllowShowUpdateAlert bool `json:"allow_show_update_alert"`
+	Validation *LXSourceRuntimeResult `json:"validation,omitempty"`
+	ValidatedAt *time.Time `json:"validated_at,omitempty"`
 }
 
 type LXUserSource struct {

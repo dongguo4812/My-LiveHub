@@ -750,11 +750,23 @@ func (s *MusicService) UpdateLXUserSource(id string) (music.LXUserSourceMetadata
 func (s *MusicService) ValidateLXUserSource(id string) (music.LXSourceRuntimeResult, error) {
 	store, err := s.lxUserSourceStore()
 	if err != nil { return music.LXSourceRuntimeResult{}, err }
+	metadata, err := store.Get(id)
+	if err != nil { return music.LXSourceRuntimeResult{}, err }
+	// A successful validation is bound to the stored script version and is
+	// reused after app restarts. Updating/reimporting the script clears it.
+	if metadata.Validation != nil && metadata.ValidatedAt != nil && metadata.Validation.Initialized {
+		return *metadata.Validation, nil
+	}
 	script, err := store.ReadScript(id)
 	if err != nil { return music.LXSourceRuntimeResult{}, err }
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
-	return music.InspectLXUserSource(ctx, script)
+	result, err := music.InspectLXUserSource(ctx, script)
+	if err != nil { return music.LXSourceRuntimeResult{}, err }
+	if err := store.SetValidation(id, result); err != nil {
+		return music.LXSourceRuntimeResult{}, fmt.Errorf("音源验证通过，但保存验证状态失败：%w", err)
+	}
+	return result, nil
 }
 
 
