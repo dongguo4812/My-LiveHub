@@ -159,7 +159,7 @@ lx.on(lx.EVENT_NAMES.request, function (request) {
   return new Promise(function (resolve, reject) {
     lx.request("https://music.example.test/resolve", {}, function (err, response) {
       if (err) return reject(err);
-      resolve(JSON.parse(response.body).url);
+      resolve(response.body.url);
     });
   });
 });
