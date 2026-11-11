@@ -21,7 +21,8 @@ const (
 	lxWorkerArgument = LXSourceWorkerArgument
 	lxWorkerInputLimit = MaxLXUserSourceBytes + 4096
 	lxWorkerOutputLimit = 256 << 10
-	lxWorkerTimeout = 6 * time.Second
+	lxWorkerTimeout = 8 * time.Second
+	lxWorkerExecutionTimeout = 5 * time.Second
 )
 
 type LXSourceRuntimeResult struct {
@@ -117,7 +118,7 @@ func RunLXSourceWorker(input io.Reader, output io.Writer) int {
 
 	vm := goja.New()
 	vm.SetMaxCallStackSize(256)
-	timeout := time.AfterFunc(lxWorkerTimeout, func() {
+	timeout := time.AfterFunc(lxWorkerExecutionTimeout, func() {
 		vm.Interrupt("LX source execution timeout")
 	})
 	defer timeout.Stop()
