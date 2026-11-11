@@ -553,7 +553,7 @@ lx.send(lx.EVENT_NAMES.inited, {
 
 func TestFilterLXSourceDeclarationUsesJavaScriptIncludesSemantics(t *testing.T) {
 	raw := json.RawMessage(`{"sources":{
-		"wy":{"type":"music","actions":"prefix-musicUrl-suffix","qualitys":"320k-lossless"},
+		"wy":{"type":"music","actions":"prefix-musicUrl-suffix","qualitys":"prefix-320k-suffix"},
 		"local":{"type":"music","actions":["musicUrl","lyric","pic"]}
 	}}`)
 	_, platforms, declared, err := filterLXSourceDeclaration(raw)
