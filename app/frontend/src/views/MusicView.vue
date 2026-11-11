@@ -343,7 +343,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
       <template #header><strong>搜索歌曲</strong></template>
       <div class="search-row">
         <el-input v-model="query" placeholder="输入歌曲名或歌手，例如：稻香 周杰伦" clearable @keyup.enter="search" />
-        <el-button type="primary" :loading="searching" :disabled="enabledCount === 0" @click="search">搜索</el-button>
+        <el-button type="primary" :loading="searching" @click="search">搜索</el-button>
       </div>
       <el-alert v-if="searchErrorText" :title="searchErrorText" type="warning" :closable="false" show-icon />
       <div v-if="total > 0" class="search-summary">共 {{ total }} 条结果 · 第 {{ currentPage }} / {{ maxPage || 1 }} 页</div>
@@ -391,8 +391,6 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         <div class="setting-row"><div><strong>点歌指令前缀</strong><p>例如：点歌 稻香 周杰伦。</p></div><el-input v-model="config.command_prefix" maxlength="16" style="width:220px" /></div>
         <el-divider />
         <div class="setting-row"><div><strong>播放队列容量</strong><p>统一队列允许等待的歌曲数量。</p></div><el-input-number v-model="config.queue_capacity" :min="1" :max="1000" /></div>
-        <el-divider />
-        <div class="setting-row"><div><strong>每个音源搜索数量</strong><p>各音源单次搜索的候选数量上限。</p></div><el-input-number v-model="config.search_limit" :min="1" :max="50" /></div>
       </div>
       <div class="card-actions"><el-button type="primary" :loading="saving" :disabled="!config" @click="saveConfig">保存全部设置</el-button></div>
     </el-card>
