@@ -787,6 +787,12 @@ func buildLXMusicInfo(track music.Track, quality any) map[string]any {
 		info["albumId"] = albumMid
 		info["albumName"] = track.Album
 		info["img"] = track.CoverURL
+		// QQ search SourceData.interval is the provider's raw seconds value.
+		// LX's old musicInfo contract requires the formatted mm:ss string.
+		// Restore it after merging SourceData so "223" cannot leak through.
+		info["interval"] = formatLXInterval(seconds)
+		info["name"] = track.Title
+		info["singer"] = track.Artist
 		// Match LX Music QQ handleResult exactly: preserve real file-size
 		// metadata in both types and _types instead of fabricating null sizes.
 		if types, available := buildLXQQQualities(track.SourceData); len(types) > 0 {
