@@ -142,7 +142,7 @@ func TestRunLXSourceWorkerInitializesDeclaredPlatforms(t *testing.T) {
 	script := `/*
  * @name Runtime Test
  */
-if (lx.currentScriptInfo.name !== "Runtime Test" || lx.env !== "desktop" || typeof console.log !== "function") {
+if (lx.currentScriptInfo.name !== "Runtime Test" || lx.env !== "desktop" || typeof console.log !== "function" || window !== globalThis || self !== window) {
   throw new Error("LX runtime metadata globals are unavailable");
 }
 if (lx.utils.buffer.bufToString(lx.utils.buffer.from("source", "utf-8"), "base64") !== "c291cmNl" || typeof setTimeout !== "function") {
