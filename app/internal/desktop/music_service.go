@@ -191,8 +191,17 @@ func (s *MusicService) processSongRequest(ctx context.Context, event events.Even
 	if !enabled { return }
 	keyword, ok := parseSongRequest(event.Content, prefix)
 	if !ok { return }
-	if _, err := s.search(ctx, keyword); err != nil {
+	result, err := s.search(ctx, keyword)
+	if err != nil {
 		s.setLastError(fmt.Errorf("搜索弹幕点歌失败：%w", err))
+		return
+	}
+	if len(result.Tracks) == 0 {
+		s.setLastError(fmt.Errorf("观众 %s 点播的歌曲未找到：%s", event.UserName, keyword))
+		return
+	}
+	if _, err := s.Enqueue(result.Tracks[0], event.UserName); err != nil {
+		s.setLastError(fmt.Errorf("加入观众点播队列失败：%w", err))
 	}
 }
 

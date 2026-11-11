@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { Headset } from '@element-plus/icons-vue'
+import { Headset, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
 
 type MusicConfig = Awaited<ReturnType<typeof MusicService.GetConfig>>
@@ -84,6 +84,21 @@ function removeFavorite(track: Track) {
 async function playFavorite(track: Track) {
   await addToQueue(track)
   if (!playback.value?.track || playback.value.state === 'stopped' || playback.value.state === 'error') await playNext()
+}
+async function addHostPlaylistToQueue() {
+  if (!favorites.value.length) return
+  error.value = ''
+  try {
+    for (const track of favorites.value) {
+      await MusicService.Enqueue(track, '主播歌单')
+    }
+    success.value = `已将 ${favorites.value.length} 首主播歌单歌曲加入播放队列`
+    await refreshQueue()
+    if (!playback.value?.track || playback.value.state === 'stopped' || playback.value.state === 'error') await playNext()
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+    await refreshQueue()
+  }
 }
 async function loadConfig() {
   loading.value = true
@@ -479,7 +494,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
     <el-card v-if="activeTab === 'host-playlist'" shadow="never">
       <template #header><div class="card-heading"><strong>主播常驻歌单</strong><el-tag effect="plain">{{ favorites.length }} 首收藏</el-tag></div></template>
       <p class="section-description">这里保存你经常播放的歌曲，作为主播日常音乐歌单。收藏数据保存在本机，不会因切换页面或重启应用而丢失。</p>
-      <div class="card-actions"><el-button type="primary" :disabled="favorites.length === 0" @click="playFavorite(favorites[0])">播放歌单</el-button></div>
+      <div class="card-actions"><el-button type="primary" :disabled="favorites.length === 0" @click="addHostPlaylistToQueue">将歌单加入播放队列</el-button></div>
       <el-table v-if="favorites.length" :data="favorites" :row-key="trackRowKey" style="width:100%">
         <el-table-column type="index" label="#" width="55" />
         <el-table-column prop="title" label="歌曲" min-width="180" />
@@ -525,8 +540,8 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
       </div>
       <div class="mini-player-actions">
         <span>{{ playback.state === 'playing' ? '正在播放' : playback.state === 'paused' ? '已暂停' : '播放器' }}</span>
-        <el-button circle text :disabled="playback.state !== 'playing'" @click="pause"> <el-icon><Headset /></el-icon> </el-button>
-        <el-button circle text :disabled="playback.state !== 'paused'" @click="resume">继续</el-button>
+        <el-button circle text :disabled="playback.state !== 'playing'" @click="pause"> <el-icon><VideoPause /></el-icon> </el-button>
+        <el-button circle text :disabled="playback.state !== 'paused'" @click="resume"><el-icon><VideoPlay /></el-icon></el-button>
         <el-button circle text @click="nextTrack">下一首</el-button>
       </div>
     </div>
