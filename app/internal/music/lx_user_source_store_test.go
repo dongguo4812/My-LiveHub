@@ -14,7 +14,7 @@ func TestLXUserSourceStoreImportsListsAndDeletes(t *testing.T) {
  script := "/*\n * @name Store Test\n * @author Test Author\n * @version 1.0\n */\nlx.send(lx.EVENT_NAMES.inited, { sources: {} });\n"
 	metadata, err := store.ImportScript(script, "https://example.com/source.js")
  if err != nil { t.Fatal(err) }
- if metadata.Name != "Store Test" || metadata.SourceURL != "https://example.com/source.js" { t.Fatalf("unexpected imported metadata: %#v", metadata) }
+ if metadata.Name != "Store Test" || metadata.SourceURL != "https://example.com/source.js" || !metadata.AllowShowUpdateAlert { t.Fatalf("unexpected imported metadata: %#v", metadata) }
  listed, err := store.List()
  if err != nil { t.Fatal(err) }
  if len(listed) != 1 || listed[0].ID != metadata.ID { t.Fatalf("unexpected source list: %#v", listed) }
@@ -59,4 +59,18 @@ func TestLXUserSourceStoreRejectsDuplicateScriptLikeLX(t *testing.T) {
 	if _, err := store.ImportScript(script, ""); err == nil || !strings.Contains(err.Error(), "脚本内容与已有的源") {
 		t.Fatalf("duplicate LX source script was not rejected: %v", err)
 	}
+}
+
+func TestLXUserSourceStorePersistsActiveIDAndUpdateAlertPreference(t *testing.T) {
+	store, err := NewLXUserSourceStore(filepath.Join(t.TempDir(), "sources"))
+	if err != nil { t.Fatal(err) }
+	script := "/*\\n * @name State Test\\n */\\nlx.send(lx.EVENT_NAMES.inited, { sources: {} });"
+	metadata, err := store.ImportScript(script, "")
+	if err != nil { t.Fatal(err) }
+	if err := store.SetActiveID(metadata.ID); err != nil { t.Fatal(err) }
+	active, err := store.GetActiveID()
+	if err != nil || active != metadata.ID { t.Fatalf("active ID = %q, err=%v", active, err) }
+	if err := store.SetAllowShowUpdateAlert(metadata.ID, false); err != nil { t.Fatal(err) }
+	updated, err := store.Get(metadata.ID)
+	if err != nil || updated.AllowShowUpdateAlert { t.Fatalf("update alert setting = %v, err=%v", updated.AllowShowUpdateAlert, err) }
 }

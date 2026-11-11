@@ -57,23 +57,19 @@ func (s *LXUserSourceStore) importScript(script, sourceURL string, rejectDuplica
 	if s == nil { return LXUserSourceMetadata{}, errors.New("LX 音源存储不可用") }
 	source, err := ParseLXUserSource(script)
 	if err != nil { return LXUserSourceMetadata{}, err }
+	if rejectDuplicate {
+		name, duplicate, duplicateErr := s.findDuplicateScript(script)
+		if duplicateErr != nil { return LXUserSourceMetadata{}, duplicateErr }
+		if duplicate {
+			if name == "" { name = "已有音源" }
+			return LXUserSourceMetadata{}, fmt.Errorf("导入失败，脚本内容与已有的源「%s」相同", name)
+		}
+	}
 	if sourceURL != "" {
 		parsed, parseErr := url.Parse(strings.TrimSpace(sourceURL))
 		if parseErr != nil { return LXUserSourceMetadata{}, errors.New("音源来源 URL 无效") }
 		if validateErr := validateLXSourceURL(parsed); validateErr != nil { return LXUserSourceMetadata{}, validateErr }
 		source.Metadata.SourceURL = parsed.String()
-	}
-	if rejectDuplicate {
-		existing, readErr := os.ReadFile(filepath.Join(s.dir, source.Metadata.ID+".js"))
-		if readErr == nil && string(existing) == script {
-			name := "已有音源"
-			if metadataBytes, metadataErr := os.ReadFile(filepath.Join(s.dir, source.Metadata.ID+".json")); metadataErr == nil {
-				var metadata LXUserSourceMetadata
-				if json.Unmarshal(metadataBytes, &metadata) == nil && metadata.Name != "" { name = metadata.Name }
-			}
-			return LXUserSourceMetadata{}, fmt.Errorf("导入失败，脚本内容与已有的源「%s」相同", name)
-		}
-		if readErr != nil && !errors.Is(readErr, os.ErrNotExist) { return LXUserSourceMetadata{}, readErr }
 	}
 	if err := s.save(source); err != nil { return LXUserSourceMetadata{}, err }
 	return source.Metadata, nil
@@ -129,15 +125,15 @@ func writeLXAtomic(path string, data []byte) error {
 
 
 func (s *LXUserSourceStore) Update(ctx context.Context, id string) (LXUserSourceMetadata, error) {
-	if s == nil { return LXUserSourceMetadata{}, errors.New("LX 音源存储不可用") }
-	if len(id) != 19 || !strings.HasPrefix(id, "lx_") { return LXUserSourceMetadata{}, errors.New("LX 音源 ID 无效") }
-	data, err := os.ReadFile(filepath.Join(s.dir, id+".json"))
-	if err != nil { return LXUserSourceMetadata{}, fmt.Errorf("读取音源信息失败：%w", err) }
-	var current LXUserSourceMetadata
-	if err := json.Unmarshal(data, &current); err != nil { return LXUserSourceMetadata{}, fmt.Errorf("解析音源信息失败：%w", err) }
+	current, err := s.Get(id)
+	if err != nil { return LXUserSourceMetadata{}, err }
 	if strings.TrimSpace(current.SourceURL) == "" { return LXUserSourceMetadata{}, errors.New("该音源没有更新 URL，请重新导入本地脚本或使用 URL 导入") }
 	updated, err := s.importURL(ctx, current.SourceURL, false)
 	if err != nil { return LXUserSourceMetadata{}, err }
+	updated.AllowShowUpdateAlert = current.AllowShowUpdateAlert
+	updatedScript, err := s.ReadScript(updated.ID)
+	if err != nil { return LXUserSourceMetadata{}, err }
+	if err := s.save(LXUserSource{Metadata: updated, Script: updatedScript}); err != nil { return LXUserSourceMetadata{}, err }
 	if updated.ID != id {
 		if err := s.Delete(id); err != nil { return LXUserSourceMetadata{}, fmt.Errorf("新版本已保存，但旧版本清理失败：%w", err) }
 	}
@@ -146,16 +142,84 @@ func (s *LXUserSourceStore) Update(ctx context.Context, id string) (LXUserSource
 
 func (s *LXUserSourceStore) ReadScript(id string) (string, error) {
 	if s == nil { return "", errors.New("LX 音源存储不可用") }
-	if len(id) != 19 || !strings.HasPrefix(id, "lx_") { return "", errors.New("LX 音源 ID 无效") }
-	for _, char := range id[3:] {
-		if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f')) {
-			return "", errors.New("LX 音源 ID 无效")
-		}
-	}
+	if !validLXUserSourceID(id) { return "", errors.New("LX 音源 ID 无效") }
 	data, err := os.ReadFile(filepath.Join(s.dir, id+".js"))
 	if err != nil { return "", fmt.Errorf("读取音源脚本失败：%w", err) }
-	if len(data) == 0 || len(data) > MaxLXUserSourceBytes { return "", errors.New("LX 音源脚本为空或超过 9 MB 限制") }
+	if len(data) == 0 || lxUserSourceStringLength(string(data)) > MaxLXUserSourceBytes { return "", errors.New("LX 音源脚本为空或超过 9 MB 限制") }
 	return string(data), nil
+}
+
+func (s *LXUserSourceStore) findDuplicateScript(script string) (string, bool, error) {
+	entries, err := os.ReadDir(s.dir)
+	if errors.Is(err, os.ErrNotExist) { return "", false, nil }
+	if err != nil { return "", false, err }
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".js") { continue }
+		path := filepath.Join(s.dir, entry.Name())
+		data, readErr := os.ReadFile(path)
+		if readErr != nil { return "", false, readErr }
+		if string(data) != script { continue }
+		name := ""
+		if metadataBytes, metadataErr := os.ReadFile(strings.TrimSuffix(path, ".js") + ".json"); metadataErr == nil {
+			var metadata LXUserSourceMetadata
+			if json.Unmarshal(metadataBytes, &metadata) == nil { name = metadata.Name }
+		}
+		return name, true, nil
+	}
+	return "", false, nil
+}
+
+func validLXUserSourceID(id string) bool {
+	if strings.HasPrefix(id, "lx_") {
+		if len(id) != 19 { return false }
+		for _, char := range id[3:] {
+			if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f')) { return false }
+		}
+		return true
+	}
+	parts := strings.Split(id, "_")
+	if len(parts) != 4 || parts[0] != "user" || parts[1] != "api" || len(parts[2]) != 3 || len(parts[3]) < 10 { return false }
+	for _, part := range parts[2:] { for _, char := range part { if char < '0' || char > '9' { return false } } }
+	return true
+}
+
+func (s *LXUserSourceStore) Get(id string) (LXUserSourceMetadata, error) {
+	if s == nil { return LXUserSourceMetadata{}, errors.New("LX 音源存储不可用") }
+	if !validLXUserSourceID(id) { return LXUserSourceMetadata{}, errors.New("LX 音源 ID 无效") }
+	data, err := os.ReadFile(filepath.Join(s.dir, id+".json"))
+	if err != nil { return LXUserSourceMetadata{}, fmt.Errorf("读取音源信息失败：%w", err) }
+	var metadata LXUserSourceMetadata
+	if err := json.Unmarshal(data, &metadata); err != nil { return LXUserSourceMetadata{}, fmt.Errorf("解析音源信息失败：%w", err) }
+	if metadata.ID != id || metadata.Name == "" { return LXUserSourceMetadata{}, errors.New("LX 音源信息与 ID 不匹配") }
+	return metadata, nil
+}
+
+func (s *LXUserSourceStore) SetAllowShowUpdateAlert(id string, enabled bool) error {
+	metadata, err := s.Get(id)
+	if err != nil { return err }
+	metadata.AllowShowUpdateAlert = enabled
+	script, err := s.ReadScript(id)
+	if err != nil { return err }
+	return s.save(LXUserSource{Metadata: metadata, Script: script})
+}
+
+func (s *LXUserSourceStore) GetActiveID() (string, error) {
+	if s == nil { return "", errors.New("LX 音源存储不可用") }
+	data, err := os.ReadFile(filepath.Join(s.dir, "active.json"))
+	if errors.Is(err, os.ErrNotExist) { return "", nil }
+	if err != nil { return "", err }
+	var state struct { ID string `json:"id"` }
+	if err := json.Unmarshal(data, &state); err != nil { return "", err }
+	if state.ID != "" && !validLXUserSourceID(state.ID) { return "", errors.New("保存的 LX 当前音源 ID 无效") }
+	return state.ID, nil
+}
+
+func (s *LXUserSourceStore) SetActiveID(id string) error {
+	if s == nil { return errors.New("LX 音源存储不可用") }
+	if id != "" && !validLXUserSourceID(id) { return errors.New("LX 音源 ID 无效") }
+	data, err := json.Marshal(struct { ID string `json:"id"` }{ID:id})
+	if err != nil { return err }
+	return writeLXAtomic(filepath.Join(s.dir, "active.json"), append(data, '\\n'))
 }
 
 func (s *LXUserSourceStore) List() ([]LXUserSourceMetadata, error) {
@@ -172,16 +236,16 @@ func (s *LXUserSourceStore) List() ([]LXUserSourceMetadata, error) {
 		if json.Unmarshal(data, &metadata) != nil || metadata.ID == "" || metadata.Name == "" { continue }
 		result = append(result, metadata)
 	}
-	sort.Slice(result, func(i,j int) bool { return result[i].Name < result[j].Name })
+	sort.SliceStable(result, func(i,j int) bool {
+		if result[i].ImportedAt.Equal(result[j].ImportedAt) { return result[i].Name < result[j].Name }
+		return result[i].ImportedAt.Before(result[j].ImportedAt)
+	})
 	return result, nil
 }
 
 func (s *LXUserSourceStore) Delete(id string) error {
 	if s == nil { return errors.New("LX 音源存储不可用") }
-	if len(id) != 19 || !strings.HasPrefix(id, "lx_") { return errors.New("LX 音源 ID 无效") }
-	for _, char := range id[3:] {
-		if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f')) { return errors.New("LX 音源 ID 无效") }
-	}
+	if !validLXUserSourceID(id) { return errors.New("LX 音源 ID 无效") }
 	for _, ext := range []string{".js", ".json"} {
 		if err := os.Remove(filepath.Join(s.dir, id+ext)); err != nil && !errors.Is(err, os.ErrNotExist) { return err }
 	}

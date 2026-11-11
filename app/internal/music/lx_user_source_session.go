@@ -39,6 +39,9 @@ var lxUpdateURLPattern = regexp.MustCompile(`^https?://[^\s$.?#].[^\s]*$`)
 type LXUserSourceUpdate struct {
 	Log string `json:"log"`
 	UpdateURL string `json:"update_url,omitempty"`
+	SourceID string `json:"source_id,omitempty"`
+	Name string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 type lxSessionRequest struct {
@@ -289,10 +292,6 @@ func (s *LXUserSourceSession) run(script string, requestClient *http.Client) {
 			_ = reject(vm.NewGoError(fmt.Errorf("The event is not supported: %s", event)))
 			return vm.ToValue(promise)
 		}
-		if _, ok := goja.AssertFunction(call.Argument(1)); !ok {
-			_ = reject(vm.NewGoError(errors.New("LX request handler must be a function")))
-			return vm.ToValue(promise)
-		}
 		requestHandler = call.Argument(1)
 		_ = resolve(goja.Undefined())
 		return vm.ToValue(promise)
@@ -465,7 +464,7 @@ func marshalLXUserAPIResult(source, action string, payload map[string]any, value
 		if !ok { return nil, errors.New("failed") }
 		lyric, ok := info["lyric"].(string)
 		if !ok || lxJSStringLength(lyric) > 51200 { return nil, errors.New("failed") }
-		data := map[string]any{"lyric": lyric}
+		data := map[string]any{"lyric": lyric, "tlyric": nil, "rlyric": nil, "lxlyric": nil}
 		if value, ok := info["tlyric"].(string); ok && lxJSStringLength(value) < 5120 { data["tlyric"] = value }
 		if value, ok := info["rlyric"].(string); ok && lxJSStringLength(value) < 5120 { data["rlyric"] = value }
 		if value, ok := info["lxlyric"].(string); ok && lxJSStringLength(value) < 8192 { data["lxlyric"] = value }

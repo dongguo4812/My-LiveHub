@@ -13,6 +13,7 @@ type LXSource = Awaited<ReturnType<typeof MusicService.GetLXUserSources>>[number
 type LXValidation = Awaited<ReturnType<typeof MusicService.ValidateLXUserSource>>
 const lxSources = ref<LXSource[]>([])
 const lxValidation = ref<Record<string, LXValidation>>({})
+const activeLXSourceID = ref('')
 const validatingLXSourceID = ref('')
 const lxSourceURL = ref('')
 const importingLXSource = ref(false)
@@ -63,18 +64,7 @@ async function loadConfig() {
 async function refreshLXSources() {
   try {
     lxSources.value = await MusicService.GetLXUserSources()
-    // Validation state is page-local. Re-inspect imported scripts whenever the
-    // music page is opened so supported LX playback keys remain usable.
-    const entries = await Promise.all(lxSources.value.map(async source => {
-      try {
-        return [source.id, await MusicService.ValidateLXUserSource(source.id)] as const
-      } catch {
-        return null
-      }
-    }))
-    lxValidation.value = Object.fromEntries(entries.filter(
-      (entry): entry is readonly [string, LXValidation] => entry !== null,
-    ))
+    activeLXSourceID.value = await MusicService.GetActiveLXUserSourceID()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
   }
@@ -88,6 +78,7 @@ async function importLXSourceFile(event: Event) {
   error.value = ''
   success.value = ''
   try {
+    if (lxSources.value.length > 20) throw new Error('最多只能导入 21 个自定义音源')
     if (file.size > 9_000_000) throw new Error('音源脚本不能超过 9 MB')
     const script = await file.text()
     const metadata = await MusicService.ImportLXSource(script)
@@ -159,6 +150,55 @@ async function deleteLXSource(source: LXSource) {
   }
 }
 
+async function setActiveLXSource(source: LXSource) {
+  error.value = ''
+  try {
+    await MusicService.SetActiveLXUserSource(source.id)
+    activeLXSourceID.value = source.id
+    success.value = `已启用音源：${source.name}`
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  }
+}
+async function deactivateLXSource() {
+  error.value = ''
+  try {
+    await MusicService.SetActiveLXUserSource('')
+    activeLXSourceID.value = ''
+    success.value = '已停用自定义音源'
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  }
+}
+async function setLXSourceUpdateAlert(source: LXSource, enabled: boolean | string | number) {
+  try {
+    await MusicService.SetLXUserSourceAllowUpdateAlert(source.id, Boolean(enabled))
+    source.allow_show_update_alert = Boolean(enabled)
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+    await refreshLXSources()
+  }
+}
+let pollingLXUpdates = false
+async function pollLXSourceUpdates() {
+  if (pollingLXUpdates) return
+  pollingLXUpdates = true
+  try {
+    const updates = await MusicService.GetLXUserSourceUpdates()
+    for (const update of updates) {
+      const message = `${update.name || '洛雪音源'} 发布了更新提醒：\\n\\n${update.log}`
+      if (update.update_url && window.confirm(`${message}\\n\\n是否打开更新地址？\\n${update.update_url}`)) {
+        window.open(update.update_url, '_blank', 'noopener')
+      } else if (!update.update_url) {
+        window.alert(message)
+      }
+    }
+  } catch {
+    // Update notifications are best-effort and must not interrupt playback polling.
+  } finally {
+    pollingLXUpdates = false
+  }
+}
 async function refreshQueue() {
   try { queue.value = await MusicService.GetQueue() } catch { /* Keep the last known queue. */ }
 }
@@ -168,6 +208,7 @@ async function refreshPlayback() {
     if (playback.value.volume >= 0) volume.value = playback.value.volume
   } catch { /* The engine is not started until the first play request. */ }
   await refreshQueue()
+  await pollLXSourceUpdates()
 }
 async function saveConfig() {
   if (!config.value) return
@@ -327,13 +368,20 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
       <div v-if="lxSources.length" class="lx-source-list">
         <div v-for="source in lxSources" :key="source.id" class="lx-source-row">
           <div class="source-copy">
-            <strong>{{ source.name }} <el-tag size="small" :type="lxValidation[source.id] ? 'success' : 'warning'">{{ lxValidation[source.id] ? '基础初始化通过' : '尚未验证' }}</el-tag></strong>
+            <strong>{{ source.name }} <el-tag v-if="activeLXSourceID === source.id" size="small" type="success">当前使用</el-tag> <el-tag size="small" :type="lxValidation[source.id] ? 'success' : 'info'">{{ lxValidation[source.id] ? '基础初始化通过' : '尚未验证' }}</el-tag></strong>
             <span>{{ source.author || '未知作者' }} · {{ source.version || '未标注版本' }} · SHA256 {{ source.sha256.slice(0, 12) }}</span>
             <span v-if="lxValidation[source.id]">已声明来源：{{ lxValidation[source.id].declared_sources.map(item => (item.name || item.key) + '（' + item.key + '）').join('、') }} · 支持动作：{{ [...new Set(lxValidation[source.id].declared_sources.flatMap(item => item.actions || []))].join('、') || '无' }} · 音质：{{ [...new Set(lxValidation[source.id].declared_sources.flatMap(item => item.qualitys || []))].join('、') || '未声明' }}</span>
             <span v-if="lxValidation[source.id]">已注册事件：{{ lxValidation[source.id].handlers.join('、') || '无' }}；仅声明 musicUrl 的来源可参与实际播放解析</span>
             <span v-if="source.source_url">{{ source.source_url }}</span>
           </div>
-          <div class="lx-source-actions"><el-button link type="primary" :loading="validatingLXSourceID === source.id" :disabled="!!validatingLXSourceID || importingLXSource" @click="validateLXSource(source)">验证脚本</el-button><el-button v-if="source.source_url" link type="primary" :loading="importingLXSource" @click="updateLXSource(source)">检查更新</el-button><el-button link type="danger" @click="deleteLXSource(source)">删除</el-button></div>
+          <div class="lx-source-actions">
+            <el-button link type="primary" @click="setActiveLXSource(source)">{{ activeLXSourceID === source.id ? '重新加载' : '启用' }}</el-button>
+            <el-button v-if="activeLXSourceID === source.id" link @click="deactivateLXSource">停用</el-button>
+            <el-checkbox :model-value="source.allow_show_update_alert" @change="setLXSourceUpdateAlert(source, $event)">允许更新提醒</el-checkbox>
+            <el-button link type="primary" :loading="validatingLXSourceID === source.id" :disabled="!!validatingLXSourceID || importingLXSource" @click="validateLXSource(source)">验证脚本</el-button>
+            <el-button v-if="source.source_url" link type="primary" :loading="importingLXSource" @click="updateLXSource(source)">检查更新</el-button>
+            <el-button link type="danger" @click="deleteLXSource(source)">删除</el-button>
+          </div>
         </div>
       </div>
       <el-empty v-else description="尚未导入自定义音源" :image-size="64" />

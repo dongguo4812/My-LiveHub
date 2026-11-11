@@ -66,6 +66,8 @@ type MusicService struct {
 	lxSessionMu sync.Mutex
 	lxSession *music.LXUserSourceProcess
 	lxSessionID string
+	lxUpdateMu sync.Mutex
+	lxUpdates []music.LXUserSourceUpdate
 }
 
 func NewMusicService(manager *config.Manager, value config.MusicConfig, buffers ...*events.Buffer) *MusicService {
@@ -101,6 +103,11 @@ func (s *MusicService) start(ctx context.Context) error {
 	s.unsubscribe = s.buffer.Subscribe(s.handleEvent)
 	s.mu.Unlock()
 	go s.worker()
+	if store, err := s.lxUserSourceStore(); err == nil {
+		if activeID, activeErr := store.GetActiveID(); activeErr == nil && activeID != "" {
+			if err := s.SetActiveLXUserSource(activeID); err != nil { s.setLastError(err) }
+		} else if activeErr != nil { s.setLastError(activeErr) }
+	}
 	return nil
 }
 
@@ -443,29 +450,32 @@ func (s *MusicService) DeleteLXUserSource(id string) error {
 	store, err := s.lxUserSourceStore()
 	if err != nil { return err }
 	s.lxSessionMu.Lock()
-	if s.lxSessionID == id {
-		session := s.lxSession
-		s.lxSession, s.lxSessionID = nil, ""
-		if session != nil { _ = session.Close() }
-	}
+	active := s.lxSessionID == id
 	s.lxSessionMu.Unlock()
+	if active {
+		if err := s.SetActiveLXUserSource(""); err != nil { return err }
+	} else if current, err := store.GetActiveID(); err == nil && current == id {
+		if err := s.SetActiveLXUserSource(""); err != nil { return err }
+	}
 	return store.Delete(id)
 }
 
 func (s *MusicService) UpdateLXUserSource(id string) (music.LXUserSourceMetadata, error) {
 	store, err := s.lxUserSourceStore()
 	if err != nil { return music.LXUserSourceMetadata{}, err }
+	activeID, _ := store.GetActiveID()
+	wasActive := activeID == id
+	if wasActive { s.closeLXUserSourceSession() }
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	metadata, err := store.Update(ctx, id)
-	if err != nil { return music.LXUserSourceMetadata{}, err }
-	s.lxSessionMu.Lock()
-	if s.lxSessionID == id {
-		session := s.lxSession
-		s.lxSession, s.lxSessionID = nil, ""
-		if session != nil { _ = session.Close() }
+	if err != nil {
+		if wasActive { _ = s.SetActiveLXUserSource(id) }
+		return music.LXUserSourceMetadata{}, err
 	}
-	s.lxSessionMu.Unlock()
+	if wasActive {
+		if err := s.SetActiveLXUserSource(metadata.ID); err != nil { return metadata, fmt.Errorf("音源已更新，但重新启用失败：%w", err) }
+	}
 	return metadata, nil
 }
 
@@ -493,29 +503,71 @@ func (s *MusicService) closeLXUserSourceSession() {
 // ResolveLXUserSource dispatches a request to the currently selected LX source.
 // The same source is initialized only once and retains its JS global state;
 // switching to another source closes the previous runtime, matching LX setApi().
-// SetActiveLXUserSource mirrors LX userApi.setApi(): only one custom source
-// script is active at a time. Passing an empty ID closes the active source.
+// SetActiveLXUserSource mirrors LX userApi.setApi(): close the previous
+// runtime first, persist the selected ID, then initialize the new script.
 func (s *MusicService) SetActiveLXUserSource(id string) error {
 	if s == nil { return errors.New("音乐服务不可用") }
-	if strings.TrimSpace(id) == "" {
-		s.closeLXUserSourceSession()
-		return nil
-	}
-	s.lxSessionMu.Lock()
-	defer s.lxSessionMu.Unlock()
-	if s.lxSession != nil && s.lxSessionID == id && s.lxSession.IsRunning() { return nil }
+	id = strings.TrimSpace(id)
 	store, err := s.lxUserSourceStore()
 	if err != nil { return err }
-	script, err := store.ReadScript(id)
-	if err != nil { return err }
-	if s.lxSession != nil { _ = s.lxSession.Close() }
+	s.lxSessionMu.Lock()
+	previous := s.lxSession
 	s.lxSession, s.lxSessionID = nil, ""
+	if previous != nil { _ = previous.Close() }
+	if err := store.SetActiveID(id); err != nil { s.lxSessionMu.Unlock(); return err }
+	if id == "" { s.lxSessionMu.Unlock(); return nil }
+	script, err := store.ReadScript(id)
+	if err != nil { s.lxSessionMu.Unlock(); return err }
 	ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
 	defer cancel()
 	session, err := music.StartLXUserSourceProcess(ctx, script)
-	if err != nil { return err }
+	if err != nil { s.lxSessionMu.Unlock(); return err }
 	s.lxSession, s.lxSessionID = session, id
+	s.lxSessionMu.Unlock()
+	go s.watchLXUserSourceUpdates(id, session)
 	return nil
+}
+
+func (s *MusicService) GetActiveLXUserSourceID() (string, error) {
+	store, err := s.lxUserSourceStore()
+	if err != nil { return "", err }
+	return store.GetActiveID()
+}
+
+func (s *MusicService) SetLXUserSourceAllowUpdateAlert(id string, enabled bool) error {
+	store, err := s.lxUserSourceStore()
+	if err != nil { return err }
+	return store.SetAllowShowUpdateAlert(id, enabled)
+}
+
+func (s *MusicService) GetLXUserSourceUpdates() []music.LXUserSourceUpdate {
+	if s == nil { return []music.LXUserSourceUpdate{} }
+	s.lxUpdateMu.Lock()
+	updates := append([]music.LXUserSourceUpdate(nil), s.lxUpdates...)
+	s.lxUpdates = s.lxUpdates[:0]
+	s.lxUpdateMu.Unlock()
+	return updates
+}
+
+func (s *MusicService) watchLXUserSourceUpdates(id string, session *music.LXUserSourceProcess) {
+	for update := range session.Updates() {
+		s.lxSessionMu.Lock()
+		active := s.lxSession == session && s.lxSessionID == id
+		s.lxSessionMu.Unlock()
+		if !active { continue }
+		store, err := s.lxUserSourceStore()
+		if err != nil { continue }
+		metadata, err := store.Get(id)
+		if err != nil || !metadata.AllowShowUpdateAlert { continue }
+		update.SourceID, update.Name, update.Description = id, metadata.Name, metadata.Description
+		s.lxUpdateMu.Lock()
+		if len(s.lxUpdates) >= 20 {
+			copy(s.lxUpdates, s.lxUpdates[1:])
+			s.lxUpdates = s.lxUpdates[:len(s.lxUpdates)-1]
+		}
+		s.lxUpdates = append(s.lxUpdates, update)
+		s.lxUpdateMu.Unlock()
+	}
 }
 
 func (s *MusicService) ResolveLXUserSource(id string, payload json.RawMessage) (json.RawMessage, error) {

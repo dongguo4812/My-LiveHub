@@ -10,7 +10,7 @@ func TestParseLXUserSourceMetadata(t *testing.T) {
  source, err := ParseLXUserSource(script)
  if err != nil { t.Fatalf("ParseLXUserSource() error = %v", err) }
  if source.Metadata.Name != "Example Source" || source.Metadata.Author != "My Author" { t.Fatalf("unexpected metadata: %+v", source.Metadata) }
- if source.Metadata.SHA256 == "" || !strings.HasPrefix(source.Metadata.ID, "lx_") { t.Fatalf("source identity was not generated: %+v", source.Metadata) }
+ if source.Metadata.SHA256 == "" || !strings.HasPrefix(source.Metadata.ID, "user_api_") || !source.Metadata.AllowShowUpdateAlert { t.Fatalf("source identity or default update-alert preference was not generated: %+v", source.Metadata) }
  if source.Script != script { t.Fatal("source script was not preserved exactly") }
 }
 

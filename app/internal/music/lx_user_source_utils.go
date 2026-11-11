@@ -110,17 +110,17 @@ func newLXBuffer(vm *goja.Runtime, data []byte) *goja.Object {
 	_ = buffer.Set("toString", func(call goja.FunctionCall) goja.Value {
 		encoding := "utf8"
 		if !goja.IsUndefined(call.Argument(0)) { encoding = call.Argument(0).String() }
-		start, end := int64(0), int64(len(data))
-		if !goja.IsUndefined(call.Argument(1)) { start = int64(call.Argument(1).ToInteger()) }
-		if !goja.IsUndefined(call.Argument(2)) { end = int64(call.Argument(2).ToInteger()) }
-		start, end = normalizeLXBufferRange(start, end, len(data))
+		start64, end64 := int64(0), int64(len(data))
+		if !goja.IsUndefined(call.Argument(1)) { start64 = int64(call.Argument(1).ToInteger()) }
+		if !goja.IsUndefined(call.Argument(2)) { end64 = int64(call.Argument(2).ToInteger()) }
+		start, end := normalizeLXBufferRange(start64, end64, len(data))
 		return vm.ToValue(decodeLXBufferString(data[start:end], encoding))
 	})
 	makeSlice := func(call goja.FunctionCall) goja.Value {
-		start, end := int64(0), int64(len(data))
-		if !goja.IsUndefined(call.Argument(0)) { start = int64(call.Argument(0).ToInteger()) }
-		if !goja.IsUndefined(call.Argument(1)) { end = int64(call.Argument(1).ToInteger()) }
-		start, end = normalizeLXBufferRange(start, end, len(data))
+		start64, end64 := int64(0), int64(len(data))
+		if !goja.IsUndefined(call.Argument(0)) { start64 = int64(call.Argument(0).ToInteger()) }
+		if !goja.IsUndefined(call.Argument(1)) { end64 = int64(call.Argument(1).ToInteger()) }
+		start, end := normalizeLXBufferRange(start64, end64, len(data))
 		return vm.ToValue(newLXBuffer(vm, data[start:end]))
 	}
 	_ = buffer.Set("slice", makeSlice)
