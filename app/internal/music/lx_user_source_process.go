@@ -218,7 +218,7 @@ func (p *LXUserSourceProcess) Close() error {
 // persistent custom-source runtime. One JS VM serves multiple requestKey calls.
 func RunLXUserSourceSessionWorker(input io.Reader, output io.Writer) int {
 	scanner := bufio.NewScanner(input)
-	scanner.Buffer(make([]byte, 64*1024), MaxLXUserSourceBytes+64*1024)
+	scanner.Buffer(make([]byte, 64*1024), MaxLXUserSourceBytes*6 + 64*1024)
 	if !scanner.Scan() { return 1 }
 	var initMessage lxSessionWorkerInput
 	if err := json.Unmarshal(scanner.Bytes(), &initMessage); err != nil || initMessage.Operation != "init" {
