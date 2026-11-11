@@ -387,23 +387,8 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 				return
 			}
 			if time.Since(startedAt) >= 20*time.Second {
-				if currentItem := s.queue.Snapshot().Current; currentItem != nil {
-					fallbackCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-					resource, candidate, fallbackErr := s.resolveAlternate(fallbackCtx, currentItem.Track)
-					if fallbackErr == nil {
-						currentItem.Track = candidate
-						if setErr := s.queue.SetCurrent(*currentItem); setErr == nil {
-							if loadErr := s.engine.Load(fallbackCtx, resource, candidate); loadErr == nil {
-								cancel()
-							s.startPlaybackWatcher()
-								return
-							}
-						}
-					}
-					cancel()
-				}
 				if ctx.Err() != nil { return }
-				s.setLastError(errors.New("音源未能开始播放；已尝试其他音源，当前歌曲仍保留，可重试或切歌"))
+				s.setLastError(errors.New("播放器未能开始播放；洛雪 SDK 播放解析尚未接入"))
 				return
 			}
 		}
