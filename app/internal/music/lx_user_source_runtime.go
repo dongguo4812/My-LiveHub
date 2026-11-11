@@ -34,10 +34,13 @@ type LXSourceRuntimeResult struct {
 
 type lxWorkerRequest struct {
 	Script string `json:"script"`
+	Operation string `json:"operation,omitempty"`
+	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
 type lxWorkerResponse struct {
 	Result LXSourceRuntimeResult `json:"result,omitempty"`
+	Value json.RawMessage `json:"value,omitempty"`
 	Error  string                `json:"error,omitempty"`
 }
 
@@ -127,7 +130,7 @@ func RunLXSourceWorker(input io.Reader, output io.Writer) int {
 	defer timeout.Stop()
 
 	var initialized json.RawMessage
-	handlers := make(map[string]bool)
+	handlers := make(map[string]goja.Value)
 	eventNames := vm.NewObject()
 	_ = eventNames.Set("inited", "inited")
 	_ = eventNames.Set("request", "request")
@@ -145,7 +148,7 @@ func RunLXSourceWorker(input io.Reader, output io.Writer) int {
 	_ = lx.Set("on", func(call goja.FunctionCall) goja.Value {
 		event := call.Argument(0).String()
 		if _, ok := goja.AssertFunction(call.Argument(1)); ok && event != "" {
-			handlers[event] = true
+			handlers[event] = call.Argument(1)
 		}
 		return goja.Undefined()
 	})
@@ -187,5 +190,60 @@ func RunLXSourceWorker(input io.Reader, output io.Writer) int {
 		Sources: append(json.RawMessage(nil), initialized...),
 		Handlers: handlerNames,
 	}
+	if request.Operation == "resolve" {
+		handler, ok := handlers["request"]
+		if !ok { response.Error = "LX 音源没有注册 request 处理器"; return 1 }
+		if len(request.Payload) == 0 { response.Error = "LX 音源请求数据为空"; return 1 }
+		var payload any
+		if err := json.Unmarshal(request.Payload, &payload); err != nil { response.Error = "LX 音源请求数据格式无效"; return 1 }
+		callable, ok := goja.AssertFunction(handler)
+		if !ok { response.Error = "LX 音源 request 处理器不可调用"; return 1 }
+		value, callErr := callable(goja.Undefined(), vm.ToValue(payload))
+		if callErr != nil { response.Error = fmt.Sprintf("LX 音源 request 处理失败：%s", callErr.Error()); return 1 }
+		if promise, ok := value.Export().(*goja.Promise); ok {
+			switch promise.State() {
+			case goja.PromiseStateFulfilled: value = promise.Result()
+			case goja.PromiseStateRejected: response.Error = fmt.Sprintf("LX 音源 request Promise 被拒绝：%s", promise.Result().String()); return 1
+			default: response.Error = "LX 音源 request Promise 尚未完成；异步网络请求桥接尚未接入"; return 1
+			}
+		}
+		encoded, marshalErr := json.Marshal(value.Export())
+		if marshalErr != nil { response.Error = fmt.Sprintf("序列化 LX 音源解析结果失败：%s", marshalErr.Error()); return 1 }
+		response.Value = encoded
+	} else if request.Operation != "" && request.Operation != "inspect" {
+		response.Error = "不支持的 LX 音源运行操作"
+		return 1
+	}
 	return 0
+}
+
+
+// ResolveLXUserSource invokes the request handler in a separate worker process.
+// Synchronous results and already-settled Promises are supported. Promise
+// results waiting on lx.request are not supported until the HTTP bridge lands.
+func ResolveLXUserSource(parent context.Context, script string, payload json.RawMessage) (json.RawMessage, error) {
+	if parent == nil { parent = context.Background() }
+	if strings.TrimSpace(script) == "" || len(script) > MaxLXUserSourceBytes { return nil, errors.New("LX 音源脚本为空或超过 1 MB 限制") }
+	if len(payload) == 0 || len(payload) > 64<<10 { return nil, errors.New("LX 音源请求数据为空或超过 64 KB 限制") }
+	ctx, cancel := context.WithTimeout(parent, lxWorkerTimeout)
+	defer cancel()
+	executable, err := os.Executable()
+	if err != nil { return nil, fmt.Errorf("定位音源运行进程失败：%w", err) }
+	request, err := json.Marshal(lxWorkerRequest{Script: script, Operation: "resolve", Payload: payload})
+	if err != nil { return nil, err }
+	command := exec.CommandContext(ctx, executable, lxWorkerArgument)
+	command.Stderr = io.Discard
+	command.Stdin = bytes.NewReader(request)
+	output, runErr := command.Output()
+	if ctx.Err() != nil { return nil, fmt.Errorf("LX 音源执行超时（%s）", lxWorkerTimeout) }
+	if len(output) > lxWorkerOutputLimit { return nil, errors.New("LX 音源运行结果超过大小限制") }
+	var response lxWorkerResponse
+	if err := json.Unmarshal(output, &response); err != nil {
+		if runErr != nil { return nil, fmt.Errorf("LX 音源隔离进程执行失败：%w", runErr) }
+		return nil, fmt.Errorf("读取 LX 音源运行结果失败：%w", err)
+	}
+	if response.Error != "" { return nil, errors.New(response.Error) }
+	if runErr != nil { return nil, fmt.Errorf("LX 音源隔离进程执行失败：%w", runErr) }
+	if len(response.Value) == 0 { return nil, errors.New("LX 音源没有返回解析结果") }
+	return response.Value, nil
 }
