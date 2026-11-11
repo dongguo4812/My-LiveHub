@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dop251/goja"
@@ -22,14 +23,17 @@ type LXUserSourceSession struct {
 	done chan struct{}
 	ready chan lxSessionReady
 	closeOnce sync.Once
+	requestCounter atomic.Uint64
+	pendingMu sync.Mutex
+	pending map[string]chan lxSessionResponse
 	mu sync.RWMutex
 	vm *goja.Runtime
 	result LXSourceRuntimeResult
 }
 
 type lxSessionRequest struct {
+	requestKey string
 	payload json.RawMessage
-	result chan lxSessionResponse
 }
 
 type lxSessionResponse struct {
@@ -52,6 +56,7 @@ func StartLXUserSourceSession(ctx context.Context, script string, requestClient 
 		closeCh: make(chan struct{}),
 		done: make(chan struct{}),
 		ready: make(chan lxSessionReady, 1),
+		pending: make(map[string]chan lxSessionResponse),
 	}
 	go session.run(script, requestClient)
 	select {
@@ -85,24 +90,45 @@ func (s *LXUserSourceSession) Request(ctx context.Context, payload json.RawMessa
 	if len(payload) == 0 || len(payload) > 64<<10 {
 		return nil, errors.New("LX 音源请求数据为空或超过 64 KB 限制")
 	}
-	call := lxSessionRequest{payload: append(json.RawMessage(nil), payload...), result: make(chan lxSessionResponse, 1)}
+	requestKey := fmt.Sprintf("lx_request_%d", s.requestCounter.Add(1))
+	resultChannel := make(chan lxSessionResponse, 1)
+	s.pendingMu.Lock()
+	s.pending[requestKey] = resultChannel
+	s.pendingMu.Unlock()
+	call := lxSessionRequest{requestKey: requestKey, payload: append(json.RawMessage(nil), payload...)}
 	select {
 	case <-s.done:
+		s.cancelPending(requestKey)
 		return nil, errors.New("LX 音源运行实例已关闭")
 	case <-ctx.Done():
+		s.cancelPending(requestKey)
 		return nil, ctx.Err()
 	case s.requests <- call:
 	}
 	select {
-	case result := <-call.result:
+	case result := <-resultChannel:
 		return result.value, result.err
 	case <-s.done:
+		s.cancelPending(requestKey)
 		return nil, errors.New("LX 音源运行实例已关闭")
 	case <-ctx.Done():
-		// 洛雪宿主超时后会移除 requestKey 对应的等待项；脚本本身继续运行，
-		// 迟到的结果会被丢弃。这里用缓冲结果通道实现相同行为。
+		s.cancelPending(requestKey)
 		return nil, ctx.Err()
 	}
+}
+
+func (s *LXUserSourceSession) cancelPending(requestKey string) {
+	s.pendingMu.Lock()
+	delete(s.pending, requestKey)
+	s.pendingMu.Unlock()
+}
+
+func (s *LXUserSourceSession) completeRequest(requestKey string, result lxSessionResponse) {
+	s.pendingMu.Lock()
+	channel := s.pending[requestKey]
+	delete(s.pending, requestKey)
+	s.pendingMu.Unlock()
+	if channel != nil { channel <- result }
 }
 
 func (s *LXUserSourceSession) Close() error {
@@ -299,7 +325,7 @@ func (s *LXUserSourceSession) pumpUntil(loop *lxRuntimeEventLoop, vm *goja.Runti
 func (s *LXUserSourceSession) handleRequest(vm *goja.Runtime, lx *goja.Object, handler goja.Value, call lxSessionRequest) {
 	var payload map[string]any
 	if err := json.Unmarshal(call.payload, &payload); err != nil {
-		call.result <- lxSessionResponse{err: errors.New("LX 音源请求数据格式无效")}
+		s.completeRequest(call.requestKey, lxSessionResponse{err: errors.New("LX 音源请求数据格式无效")})
 		return
 	}
 	source, _ := payload["source"].(string)
@@ -308,34 +334,34 @@ func (s *LXUserSourceSession) handleRequest(vm *goja.Runtime, lx *goja.Object, h
 	// the declaration again; declaration filtering is used by source discovery.
 
 	if handler == nil || goja.IsUndefined(handler) || goja.IsNull(handler) {
-		call.result <- lxSessionResponse{err: errors.New("Request event is not defined")}
+		s.completeRequest(call.requestKey, lxSessionResponse{err: errors.New("Request event is not defined")})
 		return
 	}
 	callable, ok := goja.AssertFunction(handler)
 	if !ok {
-		call.result <- lxSessionResponse{err: errors.New("LX request handler must be a function")}
+		s.completeRequest(call.requestKey, lxSessionResponse{err: errors.New("LX request handler must be a function")})
 		return
 	}
 	executionTimeout := time.AfterFunc(30*time.Second, func() { vm.Interrupt("LX source request execution timeout") })
 	value, err := callable(lx, vm.ToValue(payload))
 	executionTimeout.Stop()
 	if err != nil {
-		call.result <- lxSessionResponse{err: err}
+		s.completeRequest(call.requestKey, lxSessionResponse{err: err})
 		return
 	}
 	if goja.IsUndefined(value) || goja.IsNull(value) {
-		call.result <- lxSessionResponse{err: errors.New("LX request handler must return a Promise")}
+		s.completeRequest(call.requestKey, lxSessionResponse{err: errors.New("LX request handler must return a Promise")})
 		return
 	}
 	promiseObject := value.ToObject(vm)
 	then, ok := goja.AssertFunction(promiseObject.Get("then"))
 	if !ok {
-		call.result <- lxSessionResponse{err: errors.New("LX request handler must return a Promise")}
+		s.completeRequest(call.requestKey, lxSessionResponse{err: errors.New("LX request handler must return a Promise")})
 		return
 	}
 	var once sync.Once
 	finish := func(result lxSessionResponse) {
-		once.Do(func() { call.result <- result })
+		once.Do(func() { s.completeRequest(call.requestKey, result) })
 	}
 	onFulfilled := vm.ToValue(func(callArgs goja.FunctionCall) goja.Value {
 		encoded, err := marshalLXUserAPIResult(source, action, payload, callArgs.Argument(0))
