@@ -703,7 +703,7 @@ func (s *MusicService) resolveLXTrack(ctx context.Context, track music.Track) (m
 	// in the playback service; custom search adapters can set their own key.
 	sourceKey := strings.TrimSpace(track.LXSourceKey)
 	if sourceKey == "" { sourceKey = strings.TrimSpace(track.SourceID) }
-	musicInfo := buildLXMusicInfo(track)
+	musicInfo := buildLXMusicInfo(track, quality)
 	musicInfo["source"] = sourceKey
 	var failures []error
 	for _, source := range sources {
@@ -750,8 +750,11 @@ func containsString(values []string, target string) bool {
 	return false
 }
 
-func buildLXMusicInfo(track music.Track) map[string]any {
+func buildLXMusicInfo(track music.Track, quality any) map[string]any {
 	seconds := track.DurationMS / 1000
+	// LX's toOldMusicInfo contract is a flat object at the script boundary.
+	// Keep provider metadata at the top level, while preserving generic aliases
+	// as additive compatibility fields.
 	info := map[string]any{
 		"id": track.ID, "mid": track.ID, "songmid": track.ID,
 		"hash": track.ID, "rid": track.ID, "MUSICRID": track.ID,
@@ -763,17 +766,37 @@ func buildLXMusicInfo(track music.Track) map[string]any {
 	for key, value := range track.SourceData {
 		if strings.TrimSpace(key) != "" { info[key] = value }
 	}
+	// Restore canonical generic IDs after merging provider-specific aliases.
+	info["id"], info["mid"], info["songmid"] = track.ID, track.ID, track.ID
 	if strings.TrimSpace(track.LXSourceKey) == "tx" {
+		songMid := strings.TrimSpace(track.ID)
+		mediaMid := strings.TrimSpace(track.SourceData["media_mid"])
+		if mediaMid == "" { mediaMid = songMid }
+		albumMid := strings.TrimSpace(track.SourceData["albummid"])
+		// LX-compatible QQ sources use albumMid as the flat albumId too.
+		// QQ's numeric album id is retained separately as the additive
+		// lower-case albumid field from SourceData.
+		var numericSongID any
+		if id, err := strconv.ParseInt(strings.TrimSpace(track.SourceData["id"]), 10, 64); err == nil {
+			numericSongID = id
+		}
 		info["source"] = "tx"
-		info["songmid"] = track.ID
-		info["songId"] = strings.TrimSpace(track.SourceData["id"])
-		info["strMediaMid"] = strings.TrimSpace(track.SourceData["media_mid"])
-		info["albumMid"] = strings.TrimSpace(track.SourceData["albummid"])
-		info["albumId"] = strings.TrimSpace(track.SourceData["albumid"])
+		info["songmid"] = songMid
+		info["songId"] = numericSongID
+		info["strMediaMid"] = mediaMid
+		info["albumMid"] = albumMid
+		info["albumId"] = albumMid
 		info["albumName"] = track.Album
 		info["img"] = track.CoverURL
-		types, available := buildLXQQQualities(track.SourceData)
-		info["types"], info["_types"] = types, available
+		if qualityName, ok := quality.(string); ok && strings.TrimSpace(qualityName) != "" {
+			// The selected quality is the one requested from the LX source.
+			// Do not make scripts infer it from QQ's optional file-size fields.
+			info["types"] = []any{map[string]any{"type": qualityName, "size": nil}}
+			info["_types"] = map[string]any{qualityName: map[string]any{"size": nil}}
+		} else {
+			info["types"] = []any{}
+			info["_types"] = map[string]any{}
+		}
 	}
 	return info
 }
