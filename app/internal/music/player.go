@@ -38,6 +38,20 @@ type Source interface {
 	Resolve(context.Context, Track) (PlaybackResource, error)
 }
 
+type SourceSearchPage struct {
+	Tracks []Track
+	Total int64
+	MaxPage int
+	PageSize int
+}
+
+// PagedSource mirrors the per-source pagination contract used by LX Music.
+// Search remains available for older adapters while paged adapters implement
+// this optional interface.
+type PagedSource interface {
+	SearchPage(context.Context, string, int, int) (SourceSearchPage, error)
+}
+
 type SourceSnapshot struct {
 	ID           string             `json:"id"`
 	Name         string             `json:"name"`
@@ -223,4 +237,162 @@ func normalizeSearchKeyword(keyword string) (string, error) {
 		return "", errors.New("search keyword is required")
 	}
 	return keyword, nil
+}
+
+type aggregatedSourcePage struct {
+	id string
+	page SourceSearchPage
+	err error
+}
+
+// SearchPage requests the same page from every enabled source concurrently.
+// The aggregate total and page count intentionally use the maximum reported
+// by an individual source, matching LX Music's "all" search behavior rather
+// than adding totals from different catalogs.
+func (r *SourceRegistry) SearchPage(ctx context.Context, keyword string, enabled map[string]bool, limit, page int) ([]Track, map[string]string, int64, int, error) {
+	if r == nil {
+		return nil, nil, 0, 0, errors.New("music source registry is unavailable")
+	}
+	keyword, err := normalizeSearchKeyword(keyword)
+	if err != nil {
+		return nil, nil, 0, 0, err
+	}
+	limit = normalizeSearchLimit(limit)
+	if page < 1 {
+		page = 1
+	}
+
+	r.mu.RLock()
+	selected := make([]Source, 0, len(r.sources))
+	for id, source := range r.sources {
+		if enabled[id] && source.Capabilities().Search {
+			selected = append(selected, source)
+		}
+	}
+	r.mu.RUnlock()
+	sort.Slice(selected, func(i, j int) bool { return selected[i].ID() < selected[j].ID() })
+	if len(selected) == 0 {
+		return nil, nil, 0, 0, errors.New("no enabled and available music sources")
+	}
+
+	results := make(chan aggregatedSourcePage, len(selected))
+	var wg sync.WaitGroup
+	for _, source := range selected {
+		source := source
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			result := aggregatedSourcePage{id: source.ID(), page: SourceSearchPage{PageSize: limit, MaxPage: 1}}
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					result.err = fmt.Errorf("music source panic: %v", recovered)
+				}
+				results <- result
+			}()
+			if paged, ok := source.(PagedSource); ok {
+				result.page, result.err = paged.SearchPage(ctx, keyword, page, limit)
+				return
+			}
+			if page > 1 {
+				return
+			}
+			result.page.Tracks, result.err = source.Search(ctx, keyword, limit)
+			result.page.Total = int64(len(result.page.Tracks))
+			result.page.MaxPage = 1
+			result.page.PageSize = limit
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	byID := make(map[string]aggregatedSourcePage, len(selected))
+	for result := range results {
+		byID[result.id] = result
+	}
+	tracks := make([]Track, 0, len(selected)*limit)
+	failures := make(map[string]string)
+	var total int64
+	maxPage := 1
+	for _, source := range selected {
+		result := byID[source.ID()]
+		if result.err != nil {
+			failures[result.id] = result.err.Error()
+			continue
+		}
+		if result.page.Total > total {
+			total = result.page.Total
+		}
+		if result.page.MaxPage > maxPage {
+			maxPage = result.page.MaxPage
+		}
+		for _, track := range result.page.Tracks {
+			if track.SourceID == "" {
+				track.SourceID = result.id
+			}
+			if track.SourceID != result.id {
+				failures[result.id] = "source returned a track owned by another source"
+				continue
+			}
+			if err := validateTrack(track); err != nil {
+				failures[result.id] = err.Error()
+				continue
+			}
+			tracks = append(tracks, track)
+		}
+	}
+	tracks = rankAndDeduplicateTracks(tracks, keyword)
+	return tracks, failures, total, maxPage, nil
+}
+
+func rankAndDeduplicateTracks(tracks []Track, keyword string) []Track {
+	normalize := func(value string) string {
+		value = strings.ToLower(strings.TrimSpace(value))
+		var b strings.Builder
+		for _, r := range value {
+			if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r >= 0x4e00 && r <= 0x9fff {
+				b.WriteRune(r)
+			}
+		}
+		return b.String()
+	}
+	query := normalize(keyword)
+	type ranked struct {
+		track Track
+		score int
+		index int
+	}
+	items := make([]ranked, 0, len(tracks))
+	seen := make(map[string]struct{}, len(tracks))
+	for index, track := range tracks {
+		title := normalize(track.Title)
+		artist := normalize(track.Artist)
+		key := title + "|" + artist
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		target := title + artist
+		score := 0
+		if query != "" && target == query {
+			score = 1000
+		} else if query != "" && strings.Contains(target, query) {
+			score = 800
+		} else if query != "" && strings.Contains(query, title) {
+			score = 600
+		} else if query != "" && strings.Contains(target, strings.ReplaceAll(query, " ", "")) {
+			score = 500
+		}
+		items = append(items, ranked{track: track, score: score, index: index})
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].score != items[j].score {
+			return items[i].score > items[j].score
+		}
+		return items[i].index < items[j].index
+	})
+	result := make([]Track, 0, len(items))
+	for _, item := range items {
+		result = append(result, item.track)
+	}
+	return result
 }
