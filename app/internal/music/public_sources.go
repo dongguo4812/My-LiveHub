@@ -48,6 +48,15 @@ func requestSourceJSON(ctx context.Context, client *http.Client, endpoint string
 	return nil
 }
 
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func sourcePageCount(total int64, page, limit, returned int) (int64, int) {
 	if total == 0 && returned > 0 {
 		total = int64((page-1)*limit + returned)
@@ -113,15 +122,20 @@ func (s *QQMusicSource) SearchPage(ctx context.Context, keyword string, page, li
 			Song struct {
 				Total int64 `json:"totalnum"`
 				List []struct {
-					ID       int64  `json:"id"`
-					Mid      string `json:"mid"`
-					Title    string `json:"title"`
-					Name     string `json:"name"`
-					Interval int64  `json:"interval"`
-					Singers  []struct {
+					ID        int64  `json:"id"`
+					SongID    int64  `json:"songid"`
+					Mid       string `json:"mid"`
+					SongMid   string `json:"songmid"`
+					Title     string `json:"title"`
+					Name      string `json:"name"`
+					SongName  string `json:"songname"`
+					Interval  int64  `json:"interval"`
+					Singers   []struct {
 						Name string `json:"name"`
 					} `json:"singer"`
-					Album struct {
+					AlbumName string `json:"albumname"`
+					AlbumMid  string `json:"albummid"`
+					Album     struct {
 						Name string `json:"name"`
 						Mid  string `json:"mid"`
 					} `json:"album"`
@@ -141,13 +155,30 @@ func (s *QQMusicSource) SearchPage(ctx context.Context, keyword string, page, li
 	}
 	tracks := make([]Track, 0, len(payload.Data.Song.List))
 	for _, item := range payload.Data.Song.List {
-		id := strings.TrimSpace(item.Mid)
+		id := strings.TrimSpace(item.SongMid)
+		if id == "" {
+			id = strings.TrimSpace(item.Mid)
+		}
+		if id == "" && item.SongID > 0 {
+			id = strconv.FormatInt(item.SongID, 10)
+		}
 		if id == "" && item.ID > 0 {
 			id = strconv.FormatInt(item.ID, 10)
 		}
-		title := strings.TrimSpace(item.Title)
+		title := strings.TrimSpace(item.SongName)
+		if title == "" {
+			title = strings.TrimSpace(item.Title)
+		}
 		if title == "" {
 			title = strings.TrimSpace(item.Name)
+		}
+		albumName := strings.TrimSpace(item.AlbumName)
+		if albumName == "" {
+			albumName = strings.TrimSpace(item.Album.Name)
+		}
+		albumMid := strings.TrimSpace(item.AlbumMid)
+		if albumMid == "" {
+			albumMid = strings.TrimSpace(item.Album.Mid)
 		}
 		if id == "" || title == "" {
 			continue
@@ -159,16 +190,18 @@ func (s *QQMusicSource) SearchPage(ctx context.Context, keyword string, page, li
 			}
 		}
 		cover := ""
-		if item.Album.Mid != "" {
-			cover = "https://y.gtimg.cn/music/photo_new/T002R500x500M000" + item.Album.Mid + ".jpg"
+		if albumMid != "" {
+			cover = "https://y.gtimg.cn/music/photo_new/T002R500x500M000" + albumMid + ".jpg"
 		}
 		tracks = append(tracks, Track{
 			ID: id, SourceID: s.ID(), LXSourceKey: "tx", Title: title, Artist: strings.Join(artists, " / "),
-			Album: strings.TrimSpace(item.Album.Name), DurationMS: item.Interval * 1000, CoverURL: cover,
+			Album: albumName, DurationMS: item.Interval * 1000, CoverURL: cover,
 			SourceData: map[string]string{
-				"id": strconv.FormatInt(item.ID, 10), "mid": item.Mid, "songmid": item.Mid,
-				"name": title, "title": title, "singer": strings.Join(artists, " / "),
-				"artist": strings.Join(artists, " / "), "album": strings.TrimSpace(item.Album.Name),
+				"id": strconv.FormatInt(item.ID, 10), "songid": strconv.FormatInt(item.SongID, 10),
+				"mid": firstNonEmpty(item.Mid, item.SongMid), "songmid": firstNonEmpty(item.SongMid, item.Mid),
+				"name": title, "title": title, "songname": title, "singer": strings.Join(artists, " / "),
+				"artist": strings.Join(artists, " / "), "album": albumName, "albumname": albumName,
+				"albummid": albumMid,
 				"interval": strconv.FormatInt(item.Interval, 10), "duration": strconv.FormatInt(item.Interval, 10),
 			},
 		})
