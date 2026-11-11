@@ -503,7 +503,7 @@ func (s *MusicService) SetActiveLXUserSource(id string) error {
 	}
 	s.lxSessionMu.Lock()
 	defer s.lxSessionMu.Unlock()
-	if s.lxSession != nil && s.lxSessionID == id { return nil }
+	if s.lxSession != nil && s.lxSessionID == id && s.lxSession.IsRunning() { return nil }
 	store, err := s.lxUserSourceStore()
 	if err != nil { return err }
 	script, err := store.ReadScript(id)
@@ -521,7 +521,7 @@ func (s *MusicService) SetActiveLXUserSource(id string) error {
 func (s *MusicService) ResolveLXUserSource(id string, payload json.RawMessage) (json.RawMessage, error) {
 	if s == nil { return nil, errors.New("音乐服务不可用") }
 	s.lxSessionMu.Lock()
-	active := s.lxSession != nil && s.lxSessionID == id
+	active := s.lxSession != nil && s.lxSessionID == id && s.lxSession.IsRunning()
 	s.lxSessionMu.Unlock()
 	if !active {
 		if err := s.SetActiveLXUserSource(id); err != nil { return nil, err }
