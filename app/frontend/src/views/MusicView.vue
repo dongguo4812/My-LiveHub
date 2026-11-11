@@ -174,6 +174,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         <p class="eyebrow">MUSIC PLAYER</p>
         <h2>音乐播放器</h2>
         <p class="description">一个 My-LiveHub 播放器，多个可同时启用的音乐音源。搜索结果标注来源，实际播放统一交给 My-LiveHub 的 mpv 播放引擎。</p>
+        <el-alert v-if="config && !config.enabled" title="音乐模块当前已关闭：无法加入歌曲队列或播放。请在下方「点歌设置」中启用音乐模块并保存全部设置。" type="warning" :closable="false" show-icon style="margin-top:12px" />
       </div>
       <el-tag type="info" effect="plain">首期开发中</el-tag>
     </header>
@@ -254,7 +255,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
     <el-card shadow="never">
       <template #header><strong>点歌设置</strong></template>
       <div v-if="config" class="setting-list">
-        <div class="setting-row"><div><strong>启用音乐模块</strong><p>关闭后不接受弹幕点歌。</p></div><el-switch v-model="config.enabled" /></div>
+        <div class="setting-row"><div><strong>启用音乐模块</strong><p>关闭后无法加入歌曲队列或播放歌曲，也不会处理弹幕点歌；MV 视频播放不受影响。</p></div><el-switch v-model="config.enabled" /></div>
         <el-divider />
         <div class="setting-row"><div><strong>允许弹幕点歌</strong><p>收到点歌指令后搜索已启用的音源并加入统一队列。</p></div><el-switch v-model="config.command_enabled" /></div>
         <el-divider />
