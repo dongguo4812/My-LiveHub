@@ -199,6 +199,7 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 
 	var initialized json.RawMessage
 	handlers := make(map[string]goja.Value)
+	lastRequestSummary := ""
 	eventNames := vm.NewObject()
 	_ = eventNames.Set("inited", "inited")
 	_ = eventNames.Set("request", "request")
@@ -275,7 +276,19 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 		_ = resolve(goja.Undefined())
 		return vm.ToValue(promise)
 	})
-	if err := installLXRequestAsync(vm, lx, requestClient, loop); err != nil {
+	if err := installLXRequestAsync(vm, lx, requestClient, loop, func(response map[string]any, requestErr error) {
+		if requestErr != nil {
+			lastRequestSummary = "HTTP request failed"
+			return
+		}
+		status, _ := response["statusCode"].(int)
+		lastRequestSummary = fmt.Sprintf("HTTP %d", status)
+		if body, ok := response["body"].(map[string]interface{}); ok {
+			if code, exists := body["code"]; exists {
+				lastRequestSummary += fmt.Sprintf(", API code %v", code)
+			}
+		}
+	}); err != nil {
 		response.Error = "初始化 LX request 请求桥接失败"
 		return 1
 	}
@@ -356,6 +369,8 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 		if err := json.Unmarshal(request.Payload, &payload); err != nil { response.Error = "LX 音源请求数据格式无效"; return 1 }
 		callable, ok := goja.AssertFunction(handler)
 		if !ok { response.Error = "LX 音源 request 处理器不可调用"; return 1 }
+		// Clear initialization-request diagnostics so a rejected musicUrl reports its own request.
+		lastRequestSummary = ""
 		//洛雪 calls the request handler with the lx API object as its this context.
 		value, callErr := callable(lx, vm.ToValue(payload))
 		if callErr != nil { response.Error = fmt.Sprintf("LX 音源 request 处理失败：%s", callErr.Error()); return 1 }
@@ -365,7 +380,12 @@ func runLXSourceWorker(input io.Reader, output io.Writer, requestClient *http.Cl
 			}
 			switch promise.State() {
 			case goja.PromiseStateFulfilled: value=promise.Result()
-			case goja.PromiseStateRejected: response.Error=fmt.Sprintf("LX 音源 request Promise 被拒绝：%s",promise.Result().String()); return 1
+			case goja.PromiseStateRejected:
+				response.Error = fmt.Sprintf("LX 音源 request Promise 被拒绝：%s", promise.Result().String())
+				if lastRequestSummary != "" {
+					response.Error += fmt.Sprintf("（%s；未记录请求 URL 或请求头）", lastRequestSummary)
+				}
+				return 1
 			}
 		}
 		encoded, marshalErr := json.Marshal(value.Export())

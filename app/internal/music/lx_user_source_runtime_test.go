@@ -372,4 +372,10 @@ lx.send(lx.EVENT_NAMES.inited, {
 	if err == nil || !strings.Contains(err.Error(), "no matching track") {
 		t.Fatalf("Flower API rejection was not propagated: %v", err)
 	}
+	if !strings.Contains(err.Error(), "HTTP 200, API code 1") {
+		t.Fatalf("Flower rejection did not include safe response diagnostics: %v", err)
+	}
+	if strings.Contains(err.Error(), tag) || strings.Contains(err.Error(), endpoint) {
+		t.Fatalf("Flower diagnostics leaked request details: %v", err)
+	}
 }

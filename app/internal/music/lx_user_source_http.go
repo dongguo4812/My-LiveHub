@@ -31,7 +31,7 @@ func installLXRequest(vm *goja.Runtime, lx *goja.Object) error {
 
 // installLXRequestWithClient keeps the production transport policy centralized
 // while allowing deterministic HTTP bridge tests to inject a mock client.
-func installLXRequestAsync(vm *goja.Runtime, lx *goja.Object, client *http.Client, loop *lxRuntimeEventLoop) error {
+func installLXRequestAsync(vm *goja.Runtime, lx *goja.Object, client *http.Client, loop *lxRuntimeEventLoop, onResult func(map[string]any, error)) error {
 	var requestID atomic.Int64
 	return lx.Set("request", func(call goja.FunctionCall) goja.Value {
 		rawURL:=strings.TrimSpace(call.Argument(0).String())
@@ -48,6 +48,7 @@ func installLXRequestAsync(vm *goja.Runtime, lx *goja.Object, client *http.Clien
 		go func() {
 			response,raw,err:=performLXRequestWithClientContext(ctx,rawURL,optionsMap,client)
 			loop.enqueue(func() {
+				if onResult != nil { onResult(response, err) }
 				var errValue goja.Value=goja.Null()
 				var responseValue goja.Value=goja.Null()
 				var bodyValue goja.Value=goja.Null()
