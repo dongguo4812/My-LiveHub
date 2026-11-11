@@ -93,6 +93,14 @@ func NewMusicServiceWithDependencies(manager *config.Manager, value config.Music
 func (s *MusicService) start(ctx context.Context) error {
 	if s == nil || ctx == nil { return errors.New("music service and startup context are required") }
 	if s.buffer == nil { return errors.New("music event buffer is required") }
+	// The mpv engine owns a separate process and IPC pipe. Starting the music
+	// service without starting that lifecycle leaves Load() with no IPC pipe,
+	// which is reported as ErrPlaybackEngineUnavailable on the first track.
+	if lifecycle, ok := s.engine.(music.PlaybackEngineLifecycle); ok {
+		if err := lifecycle.Start(ctx); err != nil {
+			return fmt.Errorf("启动 mpv 播放引擎失败：%w", err)
+		}
+	}
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()
 	s.mu.Lock()
