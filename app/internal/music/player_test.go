@@ -53,3 +53,62 @@ func TestSearchRejectsEmptyEnabledSourceSet(t *testing.T) {
 		t.Fatal("expected no-enabled-source error")
 	}
 }
+
+type pagedTestSource struct {
+	*testSource
+	pageData SourceSearchPage
+}
+
+func (s *pagedTestSource) SearchPage(context.Context, string, int, int) (SourceSearchPage, error) {
+	return s.pageData, s.err
+}
+
+func TestSourceRegistryAggregatesSamePageAndDeduplicates(t *testing.T) {
+	registry := NewSourceRegistry()
+	first := &pagedTestSource{
+		testSource: &testSource{id:"netease", name:"网易云音乐"},
+		pageData: SourceSearchPage{
+			Tracks: []Track{
+				{ID:"n1", SourceID:"netease", Title:"找自己", Artist:"陶喆"},
+				{ID:"n2", SourceID:"netease", Title:"其他歌曲", Artist:"其他歌手"},
+			},
+			Total: 35, MaxPage: 2, PageSize: 20,
+		},
+	}
+	second := &pagedTestSource{
+		testSource: &testSource{id:"qq_music", name:"QQ 音乐"},
+		pageData: SourceSearchPage{
+			Tracks: []Track{
+				{ID:"q1", SourceID:"qq_music", Title:"找自己", Artist:"陶喆"},
+				{ID:"q2", SourceID:"qq_music", Title:"找自己 (Live)", Artist:"陶喆"},
+			},
+			Total: 78, MaxPage: 4, PageSize: 20,
+		},
+	}
+	if err := registry.Register(first); err != nil { t.Fatal(err) }
+	if err := registry.Register(second); err != nil { t.Fatal(err) }
+
+	tracks, failures, total, maxPage, err := registry.SearchPage(
+		context.Background(), "找自己 陶喆",
+		map[string]bool{"netease":true, "qq_music":true}, 20, 2,
+	)
+	if err != nil { t.Fatal(err) }
+	if len(failures) != 0 { t.Fatalf("unexpected source errors: %#v", failures) }
+	if total != 78 || maxPage != 4 { t.Fatalf("unexpected aggregate pagination: total=%d maxPage=%d", total, maxPage) }
+	if len(tracks) != 3 { t.Fatalf("expected duplicate track to be removed, got %#v", tracks) }
+	if tracks[0].Title != "找自己" { t.Fatalf("expected best keyword match first, got %#v", tracks) }
+}
+
+func TestSourceRegistryPagedSearchKeepsOtherSourcesWhenOneFails(t *testing.T) {
+	registry := NewSourceRegistry()
+	good := &pagedTestSource{
+		testSource: &testSource{id:"netease", name:"网易云音乐"},
+		pageData: SourceSearchPage{Tracks: []Track{{ID:"n1", SourceID:"netease", Title:"稻香"}}, Total: 1, MaxPage: 1, PageSize: 20},
+	}
+	bad := &pagedTestSource{testSource:&testSource{id:"qq_music", name:"QQ 音乐", err:errors.New("offline")}}
+	if err := registry.Register(good); err != nil { t.Fatal(err) }
+	if err := registry.Register(bad); err != nil { t.Fatal(err) }
+	tracks, failures, _, _, err := registry.SearchPage(context.Background(), "稻香", map[string]bool{"netease":true, "qq_music":true}, 20, 1)
+	if err != nil { t.Fatal(err) }
+	if len(tracks) != 1 || failures["qq_music"] == "" { t.Fatalf("partial result was not preserved: tracks=%#v failures=%#v", tracks, failures) }
+}
