@@ -237,29 +237,30 @@ func filterLXSourceDeclaration(raw json.RawMessage) (json.RawMessage, []string, 
 		source := input.Sources[key]
 		allowedActions, supported := lxSupportedSourceActions[key]
 		if !supported || source.Type != "music" { continue }
-		if len(source.Actions) == 0 || string(source.Actions) == "null" ||
-			len(source.Qualitys) == 0 || string(source.Qualitys) == "null" {
-			return nil, nil, nil, fmt.Errorf("LX 音源来源 %q 缺少 actions 或 qualitys 数组", key)
-		}
-		var declaredActions, declaredQualitys any
-		if err := json.Unmarshal(source.Actions, &declaredActions); err != nil {
-			return nil, nil, nil, fmt.Errorf("LX 音源来源 %q 的 actions 格式无效", key)
-		}
-		if err := json.Unmarshal(source.Qualitys, &declaredQualitys); err != nil {
-			return nil, nil, nil, fmt.Errorf("LX 音源来源 %q 的 qualitys 格式无效", key)
-		}
-		actions := make([]string, 0, len(allowedActions))
-		for _, action := range allowedActions {
-			included, includeErr := lxDeclarationIncludes(declaredActions, action)
-			if includeErr != nil { return nil, nil, nil, fmt.Errorf("LX 音源来源 %q 的 actions.includes 调用失败", key) }
-			if included { actions = append(actions, action) }
-		}
 		allowedQualitys := lxSupportedSourceQualitys[key]
+		actions := make([]string, 0, len(allowedActions))
+		if len(allowedActions) > 0 {
+			var declaredActions any
+			if err := json.Unmarshal(source.Actions, &declaredActions); err != nil {
+				return nil, nil, nil, fmt.Errorf("LX 音源来源 %q 的 actions 格式无效", key)
+			}
+			for _, action := range allowedActions {
+				included, includeErr := lxDeclarationIncludes(declaredActions, action)
+				if includeErr != nil { return nil, nil, nil, fmt.Errorf("LX 音源来源 %q 的 actions.includes 调用失败", key) }
+				if included { actions = append(actions, action) }
+			}
+		}
 		qualitys := make([]string, 0, len(allowedQualitys))
-		for _, quality := range allowedQualitys {
-			included, includeErr := lxDeclarationIncludes(declaredQualitys, quality)
-			if includeErr != nil { return nil, nil, nil, fmt.Errorf("LX 音源来源 %q 的 qualitys.includes 调用失败", key) }
-			if included { qualitys = append(qualitys, quality) }
+		if len(allowedQualitys) > 0 {
+			var declaredQualitys any
+			if err := json.Unmarshal(source.Qualitys, &declaredQualitys); err != nil {
+				return nil, nil, nil, fmt.Errorf("LX 音源来源 %q 的 qualitys 格式无效", key)
+			}
+			for _, quality := range allowedQualitys {
+				included, includeErr := lxDeclarationIncludes(declaredQualitys, quality)
+				if includeErr != nil { return nil, nil, nil, fmt.Errorf("LX 音源来源 %q 的 qualitys.includes 调用失败", key) }
+				if included { qualitys = append(qualitys, quality) }
+			}
 		}
 		filtered.Sources[key] = struct {
 			Type string `json:"type"`
