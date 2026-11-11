@@ -95,6 +95,19 @@ func performLXRequestWithClient(rawURL string, optionsValue goja.Value, client *
 	return performLXRequestWithClientContext(context.Background(),rawURL,options,client)
 }
 
+func newLXNeedleTransport(responseTimeout time.Duration) *http.Transport {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = http.ProxyFromEnvironment
+	transport.DialContext = (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext
+	transport.TLSHandshakeTimeout = 10 * time.Second
+	transport.ResponseHeaderTimeout = responseTimeout
+	transport.DisableCompression = true // Needle defaults compressed=false and does not send Accept-Encoding.
+	transport.MaxIdleConns = 16
+	transport.MaxIdleConnsPerHost = 4
+	transport.IdleConnTimeout = 30 * time.Second
+	return transport
+}
+
 func performLXRequestWithClientContext(parent context.Context, rawURL string, options map[string]any, client *http.Client) (map[string]any, string, error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil { return nil, "", errors.New("LX request URL 无效") }
@@ -196,15 +209,7 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 	}
 
 	if client == nil {
-		transport := http.DefaultTransport.(*http.Transport).Clone()
-		transport.Proxy = http.ProxyFromEnvironment
-		transport.DialContext = (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext
-		transport.TLSHandshakeTimeout = 10 * time.Second
-		transport.ResponseHeaderTimeout = timeout
-		transport.DisableCompression = true // Needle defaults compressed=false and does not send Accept-Encoding.
-		transport.MaxIdleConns = 16
-		transport.MaxIdleConnsPerHost = 4
-		transport.IdleConnTimeout = 30 * time.Second
+		transport := newLXNeedleTransport(timeout)
 		client = &http.Client{
 			Transport: transport,
 			CheckRedirect: func(next *http.Request, via []*http.Request) error {
