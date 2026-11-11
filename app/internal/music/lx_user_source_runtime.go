@@ -241,7 +241,7 @@ func lxDeclarationIncludes(value any, target string) (bool, error) {
 func filterLXSourceDeclaration(raw json.RawMessage) (json.RawMessage, []string, []LXDeclaredSource, error) {
 	var input struct {
 		Sources map[string]struct {
-			Type string `json:"type"`
+			Type any `json:"type"`
 			Actions json.RawMessage `json:"actions"`
 			Qualitys json.RawMessage `json:"qualitys"`
 		} `json:"sources"`
