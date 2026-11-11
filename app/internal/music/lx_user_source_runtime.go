@@ -66,6 +66,7 @@ type lxRuntimeEventLoop struct {
 	mu sync.Mutex
 	timers map[int]*time.Timer
 	nextID int
+	asyncErr error
 }
 
 func newLXRuntimeEventLoop(vm *goja.Runtime) *lxRuntimeEventLoop {
@@ -78,12 +79,49 @@ func (loop *lxRuntimeEventLoop) enqueue(task func()) {
 	case <-loop.ctx.Done():
 	}
 }
-func (loop *lxRuntimeEventLoop) setTimer(callback goja.Value, delay time.Duration, repeat bool) int {
-	fn, ok := goja.AssertFunction(callback); if !ok { return 0 }
-	loop.mu.Lock(); loop.nextID++; id:=loop.nextID
+func (loop *lxRuntimeEventLoop) recordAsyncError(err error) {
+	if err == nil { return }
+	loop.mu.Lock()
+	if loop.asyncErr == nil { loop.asyncErr = err }
+	loop.mu.Unlock()
+}
+
+func (loop *lxRuntimeEventLoop) takeAsyncError() error {
+	loop.mu.Lock()
+	defer loop.mu.Unlock()
+	err := loop.asyncErr
+	loop.asyncErr = nil
+	return err
+}
+
+func (loop *lxRuntimeEventLoop) setTimer(callback goja.Value, delay time.Duration, repeat bool, args ...goja.Value) int {
+	fn, ok := goja.AssertFunction(callback)
+	if !ok { return 0 }
+	callbackArgs := append([]goja.Value(nil), args...)
+	loop.mu.Lock()
+	loop.nextID++
+	id := loop.nextID
 	var timer *time.Timer
-	var fire func(); fire=func() { loop.enqueue(func(){ if _,err:=fn(goja.Undefined()); err!=nil { loop.vm.Interrupt(err) } }); if repeat { loop.mu.Lock(); if _,exists:=loop.timers[id]; exists { loop.timers[id]=time.AfterFunc(delay,fire) }; loop.mu.Unlock() } else { loop.clearTimer(id) } }
-	timer=time.AfterFunc(delay,fire); loop.timers[id]=timer; loop.mu.Unlock()
+	var fire func()
+	fire = func() {
+		loop.enqueue(func() {
+			if _, err := fn(loop.vm.GlobalObject(), callbackArgs...); err != nil {
+				// Browser timer callback exceptions are ordinary script errors. Do
+				// not leave the whole Goja runtime interrupted after one callback.
+				loop.recordAsyncError(err)
+			}
+		})
+		if repeat {
+			loop.mu.Lock()
+			if _, exists := loop.timers[id]; exists { loop.timers[id] = time.AfterFunc(delay, fire) }
+			loop.mu.Unlock()
+		} else {
+			loop.clearTimer(id)
+		}
+	}
+	timer = time.AfterFunc(delay, fire)
+	loop.timers[id] = timer
+	loop.mu.Unlock()
 	return id
 }
 func (loop *lxRuntimeEventLoop) clearTimer(id int) {
@@ -98,16 +136,28 @@ func (loop *lxRuntimeEventLoop) stop() {
 	})
 }
 func (loop *lxRuntimeEventLoop) pumpUntil(done func() bool, timeout time.Duration) error {
-	deadline:=time.NewTimer(timeout); defer deadline.Stop()
-	for !done() {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	for {
+		if done() {
+			loop.takeAsyncError()
+			return nil
+		}
 		select {
-		case task:=<-loop.tasks:
-			if task!=nil { task() }
-			if _,err:=loop.vm.RunString("void 0"); err!=nil { return err }
-		case <-deadline.C: return errors.New("LX 音源异步操作超时")
+		case task := <-loop.tasks:
+			if task != nil { task() }
+			if _, err := loop.vm.RunString("void 0"); err != nil { return err }
+			if done() {
+				loop.takeAsyncError()
+				return nil
+			}
+			if err := loop.takeAsyncError(); err != nil { return err }
+		case <-deadline.C:
+			return errors.New("LX 音源异步操作超时")
+		case <-loop.ctx.Done():
+			return errors.New("LX 音源运行实例已关闭")
 		}
 	}
-	return nil
 }
 
 // InspectLXUserSource runs an LX source in a short-lived copy of the desktop
@@ -366,13 +416,15 @@ func runLXSourceWorkerWithTimeout(input io.Reader, output io.Writer, requestClie
 	_ = vm.Set("setTimeout", func(call goja.FunctionCall) goja.Value {
 		delay:=time.Duration(call.Argument(1).ToInteger())*time.Millisecond
 		if delay<0 { delay=0 }; if delay>lxWorkerTimeout { delay=lxWorkerTimeout }
-		return vm.ToValue(loop.setTimer(call.Argument(0),delay,false))
+		args := append([]goja.Value(nil), call.Arguments[2:]...)
+		return vm.ToValue(loop.setTimer(call.Argument(0),delay,false,args...))
 	})
 	_ = vm.Set("clearTimeout", func(call goja.FunctionCall) goja.Value { loop.clearTimer(int(call.Argument(0).ToInteger())); return goja.Undefined() })
 	_ = vm.Set("setInterval", func(call goja.FunctionCall) goja.Value {
 		delay:=time.Duration(call.Argument(1).ToInteger())*time.Millisecond
 		if delay<1 { delay=time.Millisecond }; if delay>lxWorkerTimeout { delay=lxWorkerTimeout }
-		return vm.ToValue(loop.setTimer(call.Argument(0),delay,true))
+		args := append([]goja.Value(nil), call.Arguments[2:]...)
+		return vm.ToValue(loop.setTimer(call.Argument(0),delay,true,args...))
 	})
 	_ = vm.Set("clearInterval", func(call goja.FunctionCall) goja.Value { loop.clearTimer(int(call.Argument(0).ToInteger())); return goja.Undefined() })
 	if err := installLXSourceUtilities(vm, lx); err != nil {

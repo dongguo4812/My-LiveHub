@@ -162,3 +162,62 @@ lx.send(lx.EVENT_NAMES.inited, {
 		t.Fatalf("late cancelled Promise was not isolated from the next request: %q", result.Data.URL)
 	}
 }
+
+
+func TestLXUserSourceSessionTimerCallbacksUseWindowAndForwardArguments(t *testing.T) {
+	script := `lx.on(lx.EVENT_NAMES.request, function () {
+  return new Promise(function (resolve, reject) {
+    setTimeout(function (first, second) {
+      if (this !== window) return reject(new Error("timer this is not window"));
+      resolve("https://cdn.example.test/" + first + "-" + second + ".mp3");
+    }, 1, "alpha", "beta");
+  });
+});
+lx.send(lx.EVENT_NAMES.inited, {
+  sources: { wy: { type: "music", actions: ["musicUrl"], qualitys: ["320k"] } }
+});`
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	session, err := StartLXUserSourceSession(ctx, script, nil)
+	if err != nil { t.Fatal(err) }
+	defer session.Close()
+
+	payload := json.RawMessage(`{"source":"wy","action":"musicUrl","info":{"type":"320k"}}`)
+	value, err := session.Request(ctx, payload)
+	if err != nil { t.Fatal(err) }
+	var result struct {
+		Data struct { URL string `json:"url"` } `json:"data"`
+	}
+	if err := json.Unmarshal(value, &result); err != nil { t.Fatal(err) }
+	if result.Data.URL != "https://cdn.example.test/alpha-beta.mp3" {
+		t.Fatalf("timer callback arguments/context mismatch: %q", result.Data.URL)
+	}
+}
+
+func TestLXUserSourceSessionTimerExceptionDoesNotPoisonLaterRequests(t *testing.T) {
+	script := `setTimeout(function () { throw new Error("expected timer callback failure"); }, 1);
+let count = 0;
+lx.on(lx.EVENT_NAMES.request, function () {
+  return Promise.resolve("https://cdn.example.test/" + (++count) + ".mp3");
+});
+lx.send(lx.EVENT_NAMES.inited, {
+  sources: { wy: { type: "music", actions: ["musicUrl"], qualitys: ["320k"] } }
+});`
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	session, err := StartLXUserSourceSession(ctx, script, nil)
+	if err != nil { t.Fatal(err) }
+	defer session.Close()
+
+	time.Sleep(20 * time.Millisecond)
+	payload := json.RawMessage(`{"source":"wy","action":"musicUrl","info":{"type":"320k"}}`)
+	value, err := session.Request(ctx, payload)
+	if err != nil { t.Fatal(err) }
+	var result struct {
+		Data struct { URL string `json:"url"` } `json:"data"`
+	}
+	if err := json.Unmarshal(value, &result); err != nil { t.Fatal(err) }
+	if result.Data.URL != "https://cdn.example.test/1.mp3" {
+		t.Fatalf("timer exception poisoned the session: %q", result.Data.URL)
+	}
+}

@@ -57,7 +57,7 @@ func installLXRequestAsync(vm *goja.Runtime, lx *goja.Object, client *http.Clien
 					responseValue=vm.ToValue(response)
 					bodyValue=vm.ToValue(response["body"])
 				}
-				if _,callbackErr:=callback(thisArg,errValue,responseValue,bodyValue); callbackErr!=nil { vm.Interrupt(callbackErr) }
+				if _,callbackErr:=callback(thisArg,errValue,responseValue,bodyValue); callbackErr!=nil { loop.recordAsyncError(callbackErr) }
 			})
 		}()
 		return vm.ToValue(func(goja.FunctionCall) goja.Value { cancel(); return goja.Undefined() })

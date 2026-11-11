@@ -214,7 +214,8 @@ func (s *LXUserSourceSession) run(script string, requestClient *http.Client) {
 		delay := time.Duration(call.Argument(1).ToInteger()) * time.Millisecond
 		if delay < 0 { delay = 0 }
 		if delay > lxWorkerTimeout { delay = lxWorkerTimeout }
-		return vm.ToValue(loop.setTimer(call.Argument(0), delay, false))
+		args := append([]goja.Value(nil), call.Arguments[2:]...)
+		return vm.ToValue(loop.setTimer(call.Argument(0), delay, false, args...))
 	})
 	_ = vm.Set("clearTimeout", func(call goja.FunctionCall) goja.Value {
 		loop.clearTimer(int(call.Argument(0).ToInteger()))
@@ -224,7 +225,8 @@ func (s *LXUserSourceSession) run(script string, requestClient *http.Client) {
 		delay := time.Duration(call.Argument(1).ToInteger()) * time.Millisecond
 		if delay < time.Millisecond { delay = time.Millisecond }
 		if delay > lxWorkerTimeout { delay = lxWorkerTimeout }
-		return vm.ToValue(loop.setTimer(call.Argument(0), delay, true))
+		args := append([]goja.Value(nil), call.Arguments[2:]...)
+		return vm.ToValue(loop.setTimer(call.Argument(0), delay, true, args...))
 	})
 	_ = vm.Set("clearInterval", func(call goja.FunctionCall) goja.Value {
 		loop.clearTimer(int(call.Argument(0).ToInteger()))
@@ -340,6 +342,9 @@ func (s *LXUserSourceSession) run(script string, requestClient *http.Client) {
 		case task := <-loop.tasks:
 			if task != nil { task() }
 			_, _ = vm.RunString("void 0")
+			// Once initialization has completed, an uncaught timer/HTTP
+			// callback error must not poison later requests in this session.
+			loop.takeAsyncError()
 		}
 	}
 }
@@ -347,18 +352,26 @@ func (s *LXUserSourceSession) run(script string, requestClient *http.Client) {
 func (s *LXUserSourceSession) pumpUntil(loop *lxRuntimeEventLoop, vm *goja.Runtime, done func() bool, timeout time.Duration) error {
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
-	for !done() {
+	for {
+		if done() {
+			loop.takeAsyncError()
+			return nil
+		}
 		select {
 		case <-s.closeCh:
 			return errors.New("LX 音源运行实例已关闭")
 		case task := <-loop.tasks:
 			if task != nil { task() }
 			if _, err := vm.RunString("void 0"); err != nil { return err }
+			if done() {
+				loop.takeAsyncError()
+				return nil
+			}
+			if err := loop.takeAsyncError(); err != nil { return err }
 		case <-deadline.C:
 			return errors.New("LX 音源异步操作超时")
 		}
 	}
-	return nil
 }
 
 func (s *LXUserSourceSession) handleRequest(vm *goja.Runtime, lx *goja.Object, handler goja.Value, call lxSessionRequest) {
