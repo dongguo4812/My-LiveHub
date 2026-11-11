@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -129,7 +130,7 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 				encoded, encodeErr := needleQueryString(value, "")
 				if encodeErr != nil { return nil, "", fmt.Errorf("LX request body 表单编码失败：%w", encodeErr) }
 				if method == http.MethodGet {
-					if parsed.RawQuery == "" { parsed.RawQuery = encoded } else { parsed.RawQuery += "&" + encoded }
+					parsed.RawQuery = encoded
 				} else {
 					requestBody = []byte(encoded)
 				}
@@ -146,7 +147,7 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 	}
 	if timeout > 60*time.Second { timeout = 60*time.Second }
 	if timeout <= 0 { timeout = lxRequestTimeout }
-	ctx, cancel := context.WithTimeout(parent, timeout)
+	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, method, parsed.String(), bytes.NewReader(requestBody))
 	if err != nil { return nil, "", err }
@@ -179,12 +180,17 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 	if client == nil {
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.Proxy = http.ProxyFromEnvironment
-		transport.DisableCompression = true // Needle 3.2.0 defaults compressed=false.
+		transport.DialContext = (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext
+		transport.TLSHandshakeTimeout = 10 * time.Second
+		transport.ResponseHeaderTimeout = timeout
+		transport.DisableCompression = true // Needle defaults compressed=false and does not send Accept-Encoding.
+		transport.MaxIdleConns = 16
+		transport.MaxIdleConnsPerHost = 4
+		transport.IdleConnTimeout = 30 * time.Second
 		client = &http.Client{
 			Transport: transport,
-			Timeout: timeout,
 			CheckRedirect: func(next *http.Request, via []*http.Request) error {
-				if lxRequestRedirectLimit == 0 { return http.ErrUseLastResponse } // Needle defaults follow_max=0 and returns the 3xx response.
+				if lxRequestRedirectLimit == 0 { return http.ErrUseLastResponse }
 				if len(via) > lxRequestRedirectLimit { return errors.New("LX request 重定向次数过多") }
 				return validateLXSourceURL(next.URL)
 			},
