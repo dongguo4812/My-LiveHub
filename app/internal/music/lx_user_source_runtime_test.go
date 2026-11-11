@@ -166,10 +166,10 @@ lx.on(lx.EVENT_NAMES.request, function (request) { return request; });
 	if err := json.Unmarshal(output.Bytes(), &response); err != nil { t.Fatal(err) }
 	if response.Error != "" { t.Fatal(response.Error) }
 	if !response.Result.Initialized { t.Fatal("source was not initialized") }
-	if strings.Join(response.Result.Platforms, ",") != "tx,wy" {
+	if strings.Join(response.Result.Platforms, ",") != "wy,tx" {
 		t.Fatalf("unexpected platforms: %#v", response.Result.Platforms)
 	}
-	if len(response.Result.DeclaredSources) != 2 || response.Result.DeclaredSources[0].Key != "tx" || response.Result.DeclaredSources[0].Qualitys[1] != "320k" {
+	if len(response.Result.DeclaredSources) != 2 || response.Result.DeclaredSources[0].Key != "wy" || response.Result.DeclaredSources[1].Key != "tx" || response.Result.DeclaredSources[1].Qualitys[1] != "320k" {
 		t.Fatalf("unexpected declared source details: %#v", response.Result.DeclaredSources)
 	}
 	if len(response.Result.Handlers) != 1 || response.Result.Handlers[0] != "request" {
