@@ -58,7 +58,7 @@ func TestKuwoSourceSearchPage(t *testing.T) {
 		if r.URL.Query().Get("pn") != "1" || r.URL.Query().Get("rn") != "10" {
 			t.Errorf("unexpected Kuwo pagination query: %s", r.URL.RawQuery)
 		}
-		_, _ = w.Write([]byte(`{"TOTAL":"21","abslist":[{"MUSICRID":"MUSIC_456","SONGNAME":"找自己","ARTIST":"陶喆","DURATION":"304","ALBUMID":"album","ALBUM":"I'm OK"}]}`))
+		_, _ = w.Write([]byte(`{"TOTAL":"21","abslist":[{"MUSICRID":"MUSIC_456","SONGNAME":"找自己","ARTIST":"陶喆","DURATION":"304","ALBUMID":"album","ALBUM":"I'm OK","N_MINFO":"level:standard,bitrate:128,format:mp3,size:4.2;level:high,bitrate:320,format:mp3,size:8.6;level:sq,bitrate:2000,format:flac,size:25.4"}]}`))
 	}))
 	defer server.Close()
 	source := NewKuwoSource(server.Client(), server.URL)
@@ -70,7 +70,8 @@ func TestKuwoSourceSearchPage(t *testing.T) {
 	if result.Tracks[0].ID != "456" || result.Tracks[0].Artist != "陶喆" || result.Tracks[0].DurationMS != 304000 {
 		t.Fatalf("unexpected Kuwo track: %#v", result.Tracks[0])
 	}
-	if result.Tracks[0].LXSourceKey != "kw" || result.Tracks[0].SourceData["MUSICRID"] != "MUSIC_456" {
+	if result.Tracks[0].LXSourceKey != "kw" || result.Tracks[0].SourceData["MUSICRID"] != "MUSIC_456" ||
+		result.Tracks[0].SourceData["N_MINFO"] == "" || result.Tracks[0].SourceData["albumId"] != "album" {
 		t.Fatalf("Kuwo LX metadata was not preserved: %#v", result.Tracks[0])
 	}
 }
