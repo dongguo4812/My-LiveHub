@@ -79,7 +79,7 @@ func(s *LXQQMusicSource)SearchPage(ctx context.Context,keyword string,page,limit
      Body struct{
       Song struct{List []struct{
        ID int64 `json:"id"`;Mid string `json:"mid"`;Title string `json:"title"`;Interval int64 `json:"interval"`
-       Singer []struct{Name string `json:"name"`} `json:"singer"`
+       Singer []struct{Name string `json:"name"`; Mid string `json:"mid"`} `json:"singer"`
        Album struct{ID int64 `json:"id"`;Name string `json:"name"`;Mid string `json:"mid"`} `json:"album"`
        File struct{MediaMid string `json:"media_mid"`;Size128 int64 `json:"size_128mp3"`;Size320 int64 `json:"size_320mp3"`;SizeFlac int64 `json:"size_flac"`;SizeHiRes int64 `json:"size_hires"`} `json:"file"`
       } `json:"list"`} `json:"song"`
@@ -90,11 +90,11 @@ func(s *LXQQMusicSource)SearchPage(ctx context.Context,keyword string,page,limit
   if len(serviceRaw)==0||json.Unmarshal(serviceRaw,&service)!=nil||outer.Code!=0||service.Code!=0{lastErr=errors.New("QQ Music search response code is not successful");continue}
   tracks:=make([]Track,0,len(service.Data.Body.Song.List))
   for _,it:=range service.Data.Body.Song.List{
-   id,title:=strings.TrimSpace(it.Mid),strings.TrimSpace(it.Title);if id==""||title==""{continue}
+   id,title,mediaMid:=strings.TrimSpace(it.Mid),strings.TrimSpace(it.Title),strings.TrimSpace(it.File.MediaMid);if id==""||title==""||mediaMid==""{continue}
    artists:=make([]string,0,len(it.Singer));for _,a:=range it.Singer{if strings.TrimSpace(a.Name)!=""{artists=append(artists,strings.TrimSpace(a.Name))}}
-   cover:="";if it.Album.Mid!=""{cover="https://y.gtimg.cn/music/photo_new/T002R500x500M000"+it.Album.Mid+".jpg"}
-   tracks=append(tracks,Track{ID:id,SourceID:s.ID(),LXSourceKey:"tx",Title:title,Artist:strings.Join(artists," / "),Album:it.Album.Name,DurationMS:it.Interval*1000,CoverURL:cover,SourceData:map[string]string{
-    "id":strconv.FormatInt(it.ID,10),"mid":id,"songmid":id,"name":title,"title":title,"songname":title,"singer":strings.Join(artists," / "),"artist":strings.Join(artists," / "),
+   cover:="";if it.Album.Mid!=""&&it.Album.Mid!="空"{cover="https://y.gtimg.cn/music/photo_new/T002R500x500M000"+it.Album.Mid+".jpg"}else if len(it.Singer)>0&&strings.TrimSpace(it.Singer[0].Mid)!=""{cover="https://y.gtimg.cn/music/photo_new/T001R500x500M000"+it.Singer[0].Mid+".jpg"}
+   tracks=append(tracks,Track{ID:id,SourceID:s.ID(),LXSourceKey:"tx",Title:title,Artist:strings.Join(artists,"、"),Album:it.Album.Name,DurationMS:it.Interval*1000,CoverURL:cover,SourceData:map[string]string{
+    "id":strconv.FormatInt(it.ID,10),"mid":id,"songmid":id,"name":title,"title":title,"songname":title,"singer":strings.Join(artists,"、"),"artist":strings.Join(artists,"、"),
     "album":it.Album.Name,"albumname":it.Album.Name,"albumid":strconv.FormatInt(it.Album.ID,10),"albummid":it.Album.Mid,"media_mid":it.File.MediaMid,"interval":strconv.FormatInt(it.Interval,10),
     "size_128mp3":strconv.FormatInt(it.File.Size128,10),"size_320mp3":strconv.FormatInt(it.File.Size320,10),"size_flac":strconv.FormatInt(it.File.SizeFlac,10),"size_hires":strconv.FormatInt(it.File.SizeHiRes,10),
    }})
