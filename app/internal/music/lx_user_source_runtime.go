@@ -180,8 +180,8 @@ func filterLXSourceDeclaration(raw json.RawMessage) (json.RawMessage, []string, 
 	var input struct {
 		Sources map[string]struct {
 			Type string `json:"type"`
-			Actions []string `json:"actions"`
-			Qualitys []string `json:"qualitys"`
+			Actions json.RawMessage `json:"actions"`
+			Qualitys json.RawMessage `json:"qualitys"`
 		} `json:"sources"`
 	}
 	if err := json.Unmarshal(raw, &input); err != nil {
@@ -211,14 +211,25 @@ func filterLXSourceDeclaration(raw json.RawMessage) (json.RawMessage, []string, 
 		source := input.Sources[key]
 		allowedActions, supported := lxSupportedSourceActions[key]
 		if !supported || source.Type != "music" { continue }
-		actions := make([]string, 0, len(source.Actions))
+		if len(source.Actions) == 0 || string(source.Actions) == "null" ||
+			len(source.Qualitys) == 0 || string(source.Qualitys) == "null" {
+			return nil, nil, nil, fmt.Errorf("LX 音源来源 %q 缺少 actions 或 qualitys 数组", key)
+		}
+		var declaredActions, declaredQualitys []string
+		if err := json.Unmarshal(source.Actions, &declaredActions); err != nil {
+			return nil, nil, nil, fmt.Errorf("LX 音源来源 %q 的 actions 格式无效", key)
+		}
+		if err := json.Unmarshal(source.Qualitys, &declaredQualitys); err != nil {
+			return nil, nil, nil, fmt.Errorf("LX 音源来源 %q 的 qualitys 格式无效", key)
+		}
+		actions := make([]string, 0, len(declaredActions))
 		for _, action := range allowedActions {
-			if containsLXValue(source.Actions, action) { actions = append(actions, action) }
+			if containsLXValue(declaredActions, action) { actions = append(actions, action) }
 		}
 		allowedQualitys := lxSupportedSourceQualitys[key]
-		qualitys := make([]string, 0, len(source.Qualitys))
+		qualitys := make([]string, 0, len(declaredQualitys))
 		for _, quality := range allowedQualitys {
-			if containsLXValue(source.Qualitys, quality) { qualitys = append(qualitys, quality) }
+			if containsLXValue(declaredQualitys, quality) { qualitys = append(qualitys, quality) }
 		}
 		filtered.Sources[key] = struct {
 			Type string `json:"type"`
