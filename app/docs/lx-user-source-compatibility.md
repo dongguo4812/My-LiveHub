@@ -1,40 +1,59 @@
-# 洛雪音乐自定义音源兼容
+# 洛雪音乐自定义音源：第一阶段基础兼容
 
-## 已核对的 LX 脚本协议
+## 目标与范围
 
-LX 自定义源不是只包含播放 URL 的 JSON 配置。脚本通过 lx 运行时对象完成初始化和请求：
+本阶段以洛雪音乐桌面版的自定义源协议和运行方式为行为参考，先提供可导入、可初始化、可持续运行、可接收宿主请求的基础运行环境，让搜索和播放业务可以继续接入。这里的“基础兼容”不是完整 Chromium，也不表示所有洛雪脚本都已验证通过；细节差异和少见 API 放到后续兼容优化阶段。
 
-- 文件头注释提供 @name、@description、@author、@homepage、@version；字段长度与 LX 桌面端一致。
-- 脚本执行后调用 `lx.send(lx.EVENT_NAMES.inited, { sources })` 声明支持的平台、动作和音质。
-- 通过 `lx.on(lx.EVENT_NAMES.request, handler)` 注册请求处理器；handler 返回 Promise。
-- 播放解析请求的数据形状为 `{ source, action: 'musicUrl', info: { type, musicInfo } }`，返回值必须是长度不超过 2048 的 HTTP(S) URL。
-- `lx.request(url, options, callback)` 是异步 HTTP 请求接口，options 包含 method、timeout、headers、body、form、formData；回调参数为 error、response、body。超时最大 60 秒。
-- `lyric` 和 `pic` 是可选动作。LX 官方来源键为 kw、kg、tx、wy、mg、local；一个脚本可以声明多个来源，My-LiveHub 按脚本实际声明动态匹配，不将每个脚本绑定到固定平台列表。现有内置搜索适配器负责各自平台与 LX 来源键的兼容映射。
-- 部分脚本还依赖 lx.utils.crypto、lx.utils.buffer、lx.utils.zlib；兼容层必须明确实现这些能力，不能只模拟 send/on。
+## 已实现的基础能力
 
-## 当前已实现
+### 导入与管理
 
-- 本地 .js 脚本导入与文件头元数据识别。
-- HTTP(S) URL 下载导入，限制脚本大小、请求超时和重定向次数。
-- URL 导入拒绝本机/内网地址，并在实际拨号时校验 DNS 解析结果，防止简单的内网地址访问。
-- 本地保存脚本、元数据和 SHA-256 指纹；支持列出和删除。
-- 源脚本导入后不会自动执行，需用户主动点击“验证脚本”；验证结果会列出脚本声明的来源键、动作和音质。
-- 已接入独立子进程初始化 worker：子进程使用 Goja 执行脚本，未注入 Node.js 的 process、require、文件系统或应用对象；设置 5 秒执行中断与调用栈深度限制。
-- 已实现 LX 初始化握手，并在隔离 worker 中实际调用 request 事件处理器；支持同步返回值和已完成/已拒绝的 Promise。
-- 已提供受控的 lx.request 回调接口：仅允许 HTTP(S) 公网地址，限制请求方法、重定向、5 秒请求超时和 2 MB 请求/响应体；请求回调在 worker 内同步完成，以支持常见的 Promise 包装回调模式。
-- 音乐播放链路按脚本的 `inited.sources` 声明动态匹配来源键和 `musicUrl` 动作，再按脚本声明的音质构造标准请求 `{source: 来源键, action: "musicUrl", info: {type: 音质, musicInfo}}`；不再使用错误的 `source: "user_api"` 或把平台键塞入 `info.type`。
-- 当前 LX 兼容仍是受限子集：formData、crypto、Buffer、zlib 尚未实现；依赖这些能力的脚本仍会失败。网络桥接是同步回调执行，不等同于浏览器事件循环；复杂的异步定时器/多阶段回调脚本尚未支持。
+- 导入本地 JavaScript 脚本和 HTTP(S) URL 脚本。
+- 读取文件头 `@name`、`@description`、`@author`、`@homepage`、`@version` 元数据，并按洛雪的字段长度规则截断。
+- 检测相同脚本内容的重复导入。
+- 本地持久化脚本、元数据、SHA-256 指纹、来源 URL、更新时间提醒设置。
+- 支持列表、删除、URL 更新、设置活动源和停用活动源。
+- 激活新音源时先读取并启动新运行实例，启动成功后才切换活动 ID 和关闭旧实例；失败时保留旧音源。
 
-## 安全实现要求与剩余工作
+### JavaScript 运行环境
 
-LX 官方桌面端把源脚本放在独立 BrowserWindow 中运行，Node integration 关闭，并通过 preload 提供受控请求、加密、Buffer 和压缩能力。该运行环境与 Wails/Go 不同，不能直接把脚本放进主进程执行。
+- 使用 Goja 执行 JavaScript，并通过独立、长期运行的子进程隔离每个活动音源。
+- 不向脚本暴露 Node.js 的 `process`、`require`、文件系统、子进程或 My-LiveHub 应用对象。
+- 提供 `lx.env`、`lx.version`、`lx.currentScriptInfo`、`lx.EVENT_NAMES`、`console`、`window`、`self` 等基础运行时对象。
+- 支持 `lx.send(lx.EVENT_NAMES.inited, ...)` 初始化握手和 `lx.on(lx.EVENT_NAMES.request, handler)` 请求事件。
+- 一个活动源复用同一个 JavaScript VM，保留全局变量和闭包状态；切换、停用或应用关闭时释放进程。
+- 支持同步结果、Promise、微任务队列、`setTimeout`、`setInterval` 及清理函数。
+- 提供 `atob`、`btoa`、`queueMicrotask` 等常用浏览器基础函数。当前不提供完整 DOM、Chromium 页面环境或通用 `fetch`。
 
-My-LiveHub 的 worker 已完成第一阶段，但要支持实际播放仍需：
-- 不暴露 process、require、文件系统、子进程、应用对象或任意 Go 对象。
-- HTTP 请求经受控桥接，限制协议、目标地址、响应体、超时和并发；禁止访问本机/内网地址。
-- 当前 5 秒执行中断、调用栈和脚本大小限制已实现；操作系统级内存/CPU 资源配额尚未实现，不能把子进程隔离描述为完整沙箱。后续需补充 Windows Job Object 等系统级限制并验证强制终止。
-- 扩展 lx.request 的 formData 及完整异步事件循环语义，并按真实音源脚本补齐 crypto、buffer、zlib 的必要子集。
-- 每次解析校验返回值为长度受限的 HTTP(S) URL；最终由 mpv 负责实际解码播放。
-- 用户导入的脚本默认标记为第三方未验证来源。
+### LX 工具与 HTTP
 
-**重要：当前已经打通 request handler、受限 lx.request、musicUrl 结果校验与 mpv 调用链路，但尚未完成真实第三方音源脚本的兼容性验证，也未在用户 Windows 环境验证免登录歌曲播放。部分脚本依赖 formData、crypto、Buffer、zlib 或完整异步事件循环，仍可能无法运行。导入和初始化验证成功不代表每首歌都能播放。**
+- `lx.request(url, options, callback)` 通过宿主 HTTP 桥接执行，支持常用 method、headers、body、form、formData、JSON 和回调取消。
+- 默认请求响应头等待超时为 60 秒，连接和 TLS 握手超时为 10 秒；不自动跟随 HTTP 重定向，以匹配当前洛雪/Needle 请求行为。
+- 请求体和响应体各限制为 2 MB；宿主请求事件数据限制为 64 KB；脚本大小限制为 9 MB。
+- HTTP(S) 地址校验保留洛雪桌面端允许访问局域网服务的行为。导入和请求都不应被误描述为“仅允许公网地址”。
+- `lx.utils.buffer` 提供常见 Buffer 创建、编码转换、切片、比较和查找能力。
+- `lx.utils.crypto` 提供 MD5、随机字节、AES 常见模式和 RSA 无填充加密。
+- `lx.utils.zlib` 提供 Promise 形式的 inflate/deflate。
+- 支持 `musicUrl`、`lyric`、`pic` 等宿主动作的基础结果结构和 URL/文本长度校验。
+
+## 本阶段验收范围
+
+1. 本地脚本和 URL 脚本可以导入、列出、更新和删除。
+2. 脚本能够完成初始化握手，宿主能读取声明的平台、动作和音质。
+3. 活动源在多个请求之间保持同一 JS 运行状态。
+4. 宿主请求能够按 requestKey 关联响应；超时、取消、脚本异常和进程退出不会把响应交给错误请求。
+5. 常用 HTTP、Buffer、crypto、zlib、Promise 和定时器功能有自动化测试覆盖。
+6. 激活失败不会丢失原来正常工作的活动源；停用、删除和应用关闭会释放运行实例。
+
+## 暂不属于第一阶段的工作
+
+- 完整 Chromium DOM、完整 Web API、完整 Node Buffer 和所有 Node 加密算法兼容。
+- 所有冷门 HTTP 选项、重定向、代理和浏览器网络行为的逐项一致。
+- 操作系统级 CPU/内存配额。独立子进程是隔离边界，但不能称为完整安全沙箱。
+- 真实第三方音源脚本的广泛兼容性认证，以及 Windows 用户环境下的逐源播放验收。
+- 搜索 SDK、多平台搜索、音质选择和 mpv 播放业务链路；这些是下一阶段工作。
+- 响度标准化；按项目约定放在最后实现。
+
+## 仍需后续验证
+
+自动化测试通过只能证明当前测试覆盖的行为。正式宣布与洛雪完全一致之前，仍需用多份真实洛雪音源进行导入、初始化、连续请求、超时取消、歌词/封面和播放解析验证，并逐项补齐真实脚本暴露的差异。

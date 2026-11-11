@@ -328,3 +328,30 @@ func TestLXRequestAsyncCancelAbortsTransportAndCallsCallback(t *testing.T) {
 		t.Fatal("cancel function did not abort the underlying HTTP request")
 	}
 }
+
+func TestLXRequestRejectsOversizedRequestAndResponseBodies(t *testing.T) {
+	t.Run("request", func(t *testing.T) {
+		client := &http.Client{Transport: lxRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+			t.Fatal("oversized request must be rejected before transport")
+			return nil, nil
+		})}
+		options := map[string]any{"method": "POST", "body": strings.Repeat("x", lxRequestBodyLimit+1)}
+		if _, _, err := performLXRequestWithClient("https://music.example.test/upload", goja.New().ToValue(options), client); err == nil || !strings.Contains(err.Error(), "2 MB") {
+			t.Fatalf("oversized request error = %v, want 2 MB limit", err)
+		}
+	})
+	t.Run("response", func(t *testing.T) {
+		client := &http.Client{Transport: lxRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status: "200 OK",
+				Header: make(http.Header),
+				Body: io.NopCloser(strings.NewReader(strings.Repeat("x", lxRequestBodyLimit+1))),
+				Request: request,
+			}, nil
+		})}
+		if _, _, err := performLXRequestWithClient("https://music.example.test/large", goja.New().ToValue(map[string]any{}), client); err == nil || !strings.Contains(err.Error(), "2 MB") {
+			t.Fatalf("oversized response error = %v, want 2 MB limit", err)
+		}
+	})
+}

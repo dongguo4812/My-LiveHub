@@ -14,7 +14,10 @@ import (
 	"time"
 )
 
-const LXSourceSessionWorkerArgument = "--lx-source-session"
+const (
+	LXSourceSessionWorkerArgument = "--lx-source-session"
+	maxLXSourceRequestPayloadBytes = 64 << 10
+)
 
 type lxSessionWorkerInput struct {
 	Operation string `json:"operation"`
@@ -130,6 +133,9 @@ func (p *LXUserSourceProcess) Request(ctx context.Context, payload json.RawMessa
 	if ctx == nil { ctx = context.Background() }
 	if len(payload) == 0 {
 		return nil, errors.New("LX 音源请求数据为空")
+	}
+	if len(payload) > maxLXSourceRequestPayloadBytes {
+		return nil, errors.New("LX 音源请求数据超过 64 KB 限制")
 	}
 	// Do not enqueue work that the caller has already cancelled.
 	if ctx.Err() != nil {

@@ -182,3 +182,19 @@ func TestLXUserSourceProcessSendsCancelAndReportsRequestTimeout(t *testing.T) {
 		t.Fatalf("deadline result error = %v, want Request timeout", err)
 	}
 }
+
+func TestLXUserSourceProcessRejectsOversizedRequestPayload(t *testing.T) {
+	writer := &lxTestWriteCloser{}
+	process := &LXUserSourceProcess{
+		stdin: writer,
+		pending: make(map[string]chan lxSessionResponse),
+		done: make(chan struct{}),
+	}
+	payload := json.RawMessage(`{"data":"` + strings.Repeat("x", maxLXSourceRequestPayloadBytes) + `"}`)
+	if _, err := process.Request(context.Background(), payload); err == nil || !strings.Contains(err.Error(), "64 KB") {
+		t.Fatalf("oversized request error = %v, want 64 KB limit", err)
+	}
+	if writer.writes != 0 {
+		t.Fatalf("oversized request wrote %d protocol messages, want none", writer.writes)
+	}
+}
