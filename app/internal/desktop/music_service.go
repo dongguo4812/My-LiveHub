@@ -308,9 +308,9 @@ func (s *MusicService) Enqueue(track music.Track, requestedBy string) (music.Que
 	if !enabled { return music.QueueItem{}, fmt.Errorf("music source %q is disabled", track.SourceID) }
 	source, ok := s.sources.Get(track.SourceID)
 	if !ok { return music.QueueItem{}, fmt.Errorf("music source %q is not available", track.SourceID) }
-	if !source.Capabilities().Resolve && !s.hasLXUserSources() {
-		return music.QueueItem{}, fmt.Errorf("%s 已支持搜索；请先导入并验证一个洛雪自定义音源脚本以启用播放解析", source.Name())
-	}
+	// Queue insertion is independent from playback URL resolution. Keep search
+	// results in the queue even when the selected source needs an LX resolver;
+	// PlayNext reports resolution errors and preserves the current item.
 	return s.queue.Enqueue(track, requestedBy)
 }
 
