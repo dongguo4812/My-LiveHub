@@ -109,6 +109,8 @@ func newLXNeedleTransport(responseTimeout time.Duration) *http.Transport {
 }
 
 func performLXRequestWithClientContext(parent context.Context, rawURL string, options map[string]any, client *http.Client) (map[string]any, string, error) {
+	if parent == nil { parent = context.Background() }
+	if !strings.Contains(rawURL, "http") { rawURL = "http://" + strings.TrimPrefix(rawURL, "//") }
 	parsed, err := url.Parse(rawURL)
 	if err != nil { return nil, "", errors.New("LX request URL 无效") }
 	if err := validateLXSourceURL(parsed); err != nil { return nil, "", err }
@@ -117,7 +119,7 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 	if method == "" || method == "<NIL>" { method = http.MethodGet }
 	headers := lxObjectMap(options["headers"])
 	contentType := ""
-	for key, value := range headers { if strings.EqualFold(strings.TrimSpace(key), "content-type") { contentType = strings.TrimSpace(fmt.Sprint(value)); break } }
+	for key, value := range headers { if strings.EqualFold(strings.TrimSpace(key), "content-type") { contentType = fmt.Sprint(value); break } }
 	data, hasData := options["body"]
 	formMode := false
 	if !jsTruthy(data) {
@@ -130,7 +132,7 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 	requestBody := []byte(nil)
 	sendBody := false
 	if hasData && jsTruthy(data) {
-		jsonMode := !formMode && (jsTruthy(options["json"]) || (options["json"] != false && strings.EqualFold(strings.TrimSpace(contentType), "application/json")))
+		jsonMode := !formMode && (jsTruthy(options["json"]) || (options["json"] != false && contentType == "application/json"))
 		switch value := data.(type) {
 		case []byte:
 			requestBody = value
