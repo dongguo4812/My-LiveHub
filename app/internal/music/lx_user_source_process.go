@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const lxSourceSessionWorkerArgument = "--lx-source-session"
+const LXSourceSessionWorkerArgument = "--lx-source-session"
 
 type lxSessionWorkerInput struct {
 	Operation string `json:"operation"`
