@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
+	"unicode/utf16"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -29,6 +31,12 @@ type LXUserSourceSession struct {
 	mu sync.RWMutex
 	vm *goja.Runtime
 	result LXSourceRuntimeResult
+	updates chan LXUserSourceUpdate
+}
+
+type LXUserSourceUpdate struct {
+	Log string `json:"log"`
+	UpdateURL string `json:"update_url,omitempty"`
 }
 
 type lxSessionRequest struct {
@@ -57,6 +65,7 @@ func StartLXUserSourceSession(ctx context.Context, script string, requestClient 
 		done: make(chan struct{}),
 		ready: make(chan lxSessionReady, 1),
 		pending: make(map[string]chan lxSessionResponse),
+		updates: make(chan LXUserSourceUpdate, 4),
 	}
 	go session.run(script, requestClient)
 	select {
@@ -75,6 +84,11 @@ func StartLXUserSourceSession(ctx context.Context, script string, requestClient 
 	case <-session.done:
 		return nil, errors.New("LX 音源运行实例已退出")
 	}
+}
+
+func (s *LXUserSourceSession) Updates() <-chan LXUserSourceUpdate {
+	if s == nil { return nil }
+	return s.updates
 }
 
 func (s *LXUserSourceSession) Snapshot() LXSourceRuntimeResult {
@@ -233,10 +247,28 @@ func (s *LXUserSourceSession) run(script string, requestClient *http.Client) {
 			}
 			updateAlertSent = true
 			data, ok := call.Argument(1).Export().(map[string]interface{})
-			if !ok || strings.TrimSpace(fmt.Sprint(data["log"])) == "" || data["log"] == nil {
+			if !ok {
+				_ = reject(vm.NewGoError(errors.New("parameter format error.")))
+				return vm.ToValue(promise)
+			}
+			logText, ok := data["log"].(string)
+			if !ok || logText == "" {
 				_ = reject(vm.NewGoError(errors.New("log is required.")))
 				return vm.ToValue(promise)
 			}
+			if len(utf16.Encode([]rune(logText))) > 1024 {
+				units := utf16.Encode([]rune(logText))
+				logText = string(utf16.Decode(units[:1024])) + "..."
+			}
+			update := LXUserSourceUpdate{Log: logText}
+			if rawURL, ok := data["updateUrl"].(string); ok && len(rawURL) <= 1024 {
+				if parsed, parseErr := url.ParseRequestURI(rawURL); parseErr == nil &&
+					(parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != "" &&
+					!strings.ContainsAny(rawURL, " \\t\\r\\n") {
+					update.UpdateURL = rawURL
+				}
+			}
+			select { case s.updates <- update: default: }
 			_ = resolve(goja.Undefined())
 		default:
 			_ = reject(vm.NewGoError(fmt.Errorf("The event is not supported: %s", event)))
