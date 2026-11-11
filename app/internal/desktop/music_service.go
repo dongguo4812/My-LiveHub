@@ -556,6 +556,26 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 			}
 			if snapshot.State == music.PlaybackError {
 				message := strings.TrimSpace(snapshot.Error)
+				if currentItem := s.queue.Snapshot().Current; currentItem != nil {
+					fallbackCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+					resource, candidate, fallbackErr := s.resolveAlternate(fallbackCtx, currentItem.Track)
+					if fallbackErr == nil {
+						currentItem.Track = candidate
+						if setErr := s.queue.SetCurrent(*currentItem); setErr == nil {
+							if loadErr := s.engine.Load(fallbackCtx, resource, candidate); loadErr == nil {
+								cancel()
+							s.startPlaybackWatcher()
+								return
+							} else {
+								fallbackErr = loadErr
+							}
+						} else {
+							fallbackErr = setErr
+						}
+					}
+					cancel()
+					if fallbackErr != nil { message = strings.TrimSpace(message + "；其他音源重试失败：" + fallbackErr.Error()) }
+				}
 				if message == "" { message = "mpv 加载音频失败；请检查音源返回的播放地址及网络访问" }
 				s.setLastError(errors.New(message))
 				return
