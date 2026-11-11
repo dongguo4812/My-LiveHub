@@ -329,7 +329,8 @@ func (s *KugouSource) SearchPage(ctx context.Context, keyword string, page, limi
 			"SQFileHash": item.SQFileHash, "SQFileSize": strconv.FormatInt(item.SQFileSize, 10),
 			"ResFileHash": item.ResFileHash, "ResFileSize": strconv.FormatInt(item.ResFileSize, 10),
 			"name": title, "songname": title, "title": title, "singer": artist, "artist": artist,
-			"album": album, "albumName": album, "duration": strconv.FormatInt(item.Duration, 10), "interval": strconv.FormatInt(item.Duration, 10),
+			"album": album, "albumName": album, "lxSinger": strings.Join(artists, "、"),
+			"duration": strconv.FormatInt(item.Duration, 10), "interval": strconv.FormatInt(item.Duration, 10),
 		}
 		tracks = append(tracks, Track{ID:id, SourceID:s.ID(), LXSourceKey:"kg", Title:title, Artist:artist, Album:album, DurationMS:item.Duration*1000, SourceData:data})
 	}
