@@ -67,8 +67,8 @@ func performLXRequestWithClient(rawURL string, optionsValue goja.Value, client *
 	}
 	method := strings.ToUpper(strings.TrimSpace(fmt.Sprint(options["method"])))
 	if method == "" || method == "<NIL>" { method = http.MethodGet }
-	if method != http.MethodGet && method != http.MethodPost && method != http.MethodPut && method != http.MethodDelete {
-		return nil, "", errors.New("LX request 仅支持 GET、POST、PUT、DELETE")
+	if method != http.MethodGet && method != http.MethodHead && method != http.MethodPost && method != http.MethodPut && method != http.MethodPatch && method != http.MethodDelete && method != http.MethodOptions {
+		return nil, "", errors.New("LX request HTTP method 不受支持")
 	}
 
 	requestBody := []byte(nil)
