@@ -42,6 +42,27 @@ type lxQQComm struct {
 type lxQQParam struct { Group int `json:"grp"`; Limit int `json:"num_per_page"`; Page int `json:"page_num"`; Query string `json:"query"`; RemotePlace string `json:"remoteplace"`; SearchType int `json:"search_type"`; SearchID string `json:"searchid"` }
 type lxQQServiceRequest struct { Module string `json:"module"`; Method string `json:"method"`; Param lxQQParam `json:"param"` }
 type lxQQRequest struct { Comm lxQQComm `json:"comm"`; Service lxQQServiceRequest `json:"music.search.SearchCgiService"` }
+type lxQQSong struct {
+ ID int64 `json:"id"`
+ Mid string `json:"mid"`
+ Title string `json:"title"`
+ Interval int64 `json:"interval"`
+ Singer []struct { Name string `json:"name"`; Mid string `json:"mid"` } `json:"singer"`
+ Album struct { ID int64 `json:"id"`; Name string `json:"name"`; Mid string `json:"mid"` } `json:"album"`
+ File struct { MediaMid string `json:"media_mid"`; Size128 int64 `json:"size_128mp3"`; Size320 int64 `json:"size_320mp3"`; SizeFlac int64 `json:"size_flac"`; SizeHiRes int64 `json:"size_hires"` } `json:"file"`
+}
+type lxQQSearchService struct {
+ Code json.RawMessage `json:"code"`
+ Data struct {
+  Body struct { Song struct { List []lxQQSong `json:"list"` } `json:"song"` } `json:"body"`
+  Meta struct { Sum int64 `json:"sum"` } `json:"meta"`
+ } `json:"data"`
+}
+type lxQQSearchEnvelope struct {
+ Code json.RawMessage `json:"code"`
+ Service lxQQSearchService `json:"music.search.SearchCgiService"`
+ Req lxQQSearchService `json:"req"`
+}
 
 type LXQQMusicSource struct { client *http.Client; baseURL string }
 func NewLXQQMusicSource(client *http.Client,baseURL string)*LXQQMusicSource {
@@ -72,27 +93,13 @@ func(s *LXQQMusicSource)SearchPage(ctx context.Context,keyword string,page,limit
   resp,e:=s.client.Do(req);if e!=nil{lastErr=e;continue}
   raw,e:=io.ReadAll(io.LimitReader(resp.Body,8<<20));resp.Body.Close();if e!=nil{lastErr=e;continue}
   if resp.StatusCode<200||resp.StatusCode>=300{lastErr=fmt.Errorf("QQ Music HTTP %d",resp.StatusCode);continue}
-  var envelope map[string]json.RawMessage;if e=json.Unmarshal(raw,&envelope);e!=nil{lastErr=e;continue}
-  outerCode:=envelope["code"]
-  serviceRaw:=envelope["music.search.SearchCgiService"];if len(serviceRaw)==0{serviceRaw=envelope["req"]}
-  var service struct{
-   Code json.RawMessage `json:"code"`
-   Data struct{
-    Body struct{
-     Song struct{List []struct{
-      ID int64 `json:"id"`;Mid string `json:"mid"`;Title string `json:"title"`;Interval int64 `json:"interval"`
-      Singer []struct{Name string `json:"name"`; Mid string `json:"mid"`} `json:"singer"`
-      Album struct{ID int64 `json:"id"`;Name string `json:"name"`;Mid string `json:"mid"`} `json:"album"`
-      File struct{MediaMid string `json:"media_mid"`;Size128 int64 `json:"size_128mp3"`;Size320 int64 `json:"size_320mp3"`;SizeFlac int64 `json:"size_flac"`;SizeHiRes int64 `json:"size_hires"`} `json:"file"`
-     } `json:"list"`} `json:"song"`
-    } `json:"body"`
-    Meta struct{Sum int64 `json:"sum"`} `json:"meta"`
-   } `json:"data"`
-  }
-  if len(serviceRaw)==0 {lastErr=fmt.Errorf("QQ Music response missing service envelope (body.code=%s)",lxQQCodeLabel(outerCode));continue}
-  if e=json.Unmarshal(serviceRaw,&service);e!=nil{lastErr=fmt.Errorf("decode QQ Music service response: %w",e);continue}
-  if !lxQQCodeOK(outerCode)||!lxQQCodeOK(service.Code){
-   lastErr=fmt.Errorf("QQ Music search response code is not successful (body.code=%s, service.code=%s)",lxQQCodeLabel(outerCode),lxQQCodeLabel(service.Code))
+  var envelope lxQQSearchEnvelope
+  if e=json.Unmarshal(raw,&envelope);e!=nil{lastErr=fmt.Errorf("decode QQ Music response: %w",e);continue}
+  service:=envelope.Service
+  if len(service.Code)==0 { service=envelope.Req }
+  if len(service.Code)==0 {lastErr=fmt.Errorf("QQ Music response missing service envelope (body.code=%s)",lxQQCodeLabel(envelope.Code));continue}
+  if !lxQQCodeOK(envelope.Code)||!lxQQCodeOK(service.Code){
+   lastErr=fmt.Errorf("QQ Music search response code is not successful (body.code=%s, service.code=%s)",lxQQCodeLabel(envelope.Code),lxQQCodeLabel(service.Code))
    continue
   }
   tracks:=make([]Track,0,len(service.Data.Body.Song.List))
@@ -109,7 +116,52 @@ func(s *LXQQMusicSource)SearchPage(ctx context.Context,keyword string,page,limit
   total,maxPage:=sourcePageCount(service.Data.Meta.Sum,page,limit,len(tracks))
   return SourceSearchPage{Tracks:tracks,Total:total,MaxPage:maxPage,PageSize:limit},nil
  }
+ // QQ sometimes rejects the signed desktop CGI request with service.code=2001.
+ // LX's request remains the primary path; retry once through QQ's public musicu
+ // search CGI, which accepts the same module/method/params without desktop signing.
+ if lastErr!=nil && strings.Contains(lastErr.Error(),"service.code=2001") {
+  fallback, fallbackErr := s.searchMusicUFallback(ctx, keyword, page, limit)
+  if fallbackErr==nil { return fallback,nil }
+  lastErr=errors.Join(lastErr,fmt.Errorf("QQ musicu fallback: %w",fallbackErr))
+ }
  return SourceSearchPage{},fmt.Errorf("search QQ Music using LX desktop API after 6 attempts: %w",lastErr)
+}
+func(s *LXQQMusicSource)searchMusicUFallback(ctx context.Context,keyword string,page,limit int)(SourceSearchPage,error){
+ endpoint:=strings.TrimSpace(s.baseURL)
+ if endpoint==lxQQSearchURL { endpoint="https://u.y.qq.com/cgi-bin/musicu.fcg" }
+ body:=map[string]any{"music.search.SearchCgiService":map[string]any{
+  "module":"music.search.SearchCgiService","method":"DoSearchForQQMusicDesktop",
+  "param":map[string]any{"search_type":0,"query":keyword,"page_num":page,"num_per_page":limit},
+ }}
+ encoded,err:=json.Marshal(body);if err!=nil{return SourceSearchPage{},err}
+ req,err:=http.NewRequestWithContext(ctx,http.MethodPost,endpoint,strings.NewReader(string(encoded)));if err!=nil{return SourceSearchPage{},err}
+ req.Header.Set("Content-Type","application/json")
+ req.Header.Set("Referer","https://y.qq.com/")
+ req.Header.Set("Origin","https://y.qq.com")
+ req.Header.Set("User-Agent","Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+ resp,err:=s.client.Do(req);if err!=nil{return SourceSearchPage{},err}
+ raw,err:=io.ReadAll(io.LimitReader(resp.Body,8<<20));resp.Body.Close();if err!=nil{return SourceSearchPage{},err}
+ if resp.StatusCode<200||resp.StatusCode>=300{return SourceSearchPage{},fmt.Errorf("HTTP %d",resp.StatusCode)}
+ var envelope lxQQSearchEnvelope
+ if err=json.Unmarshal(raw,&envelope);err!=nil{return SourceSearchPage{},err}
+ service:=envelope.Service;if len(service.Code)==0{service=envelope.Req}
+ if len(service.Code)==0{return SourceSearchPage{},errors.New("missing QQ musicu service response")}
+ if len(envelope.Code)>0&&!lxQQCodeOK(envelope.Code){return SourceSearchPage{},fmt.Errorf("body.code=%s",lxQQCodeLabel(envelope.Code))}
+ if !lxQQCodeOK(service.Code){return SourceSearchPage{},fmt.Errorf("service.code=%s",lxQQCodeLabel(service.Code))}
+ tracks:=make([]Track,0,len(service.Data.Body.Song.List))
+ for _,it:=range service.Data.Body.Song.List{
+  id,title,mediaMid:=strings.TrimSpace(it.Mid),strings.TrimSpace(it.Title),strings.TrimSpace(it.File.MediaMid)
+  if id==""||title==""||mediaMid==""{continue}
+  artists:=make([]string,0,len(it.Singer));for _,a:=range it.Singer{if strings.TrimSpace(a.Name)!=""{artists=append(artists,strings.TrimSpace(a.Name))}}
+  cover:="";if it.Album.Mid!=""&&it.Album.Mid!="空"{cover="https://y.gtimg.cn/music/photo_new/T002R500x500M000"+it.Album.Mid+".jpg"}else if len(it.Singer)>0&&strings.TrimSpace(it.Singer[0].Mid)!=""{cover="https://y.gtimg.cn/music/photo_new/T001R500x500M000"+it.Singer[0].Mid+".jpg"}
+  tracks=append(tracks,Track{ID:id,SourceID:s.ID(),LXSourceKey:"tx",Title:title,Artist:strings.Join(artists,"、"),Album:it.Album.Name,DurationMS:it.Interval*1000,CoverURL:cover,SourceData:map[string]string{
+   "id":strconv.FormatInt(it.ID,10),"mid":id,"songmid":id,"name":title,"title":title,"songname":title,"singer":strings.Join(artists,"、"),"artist":strings.Join(artists,"、"),
+   "album":it.Album.Name,"albumname":it.Album.Name,"albumid":strconv.FormatInt(it.Album.ID,10),"albummid":it.Album.Mid,"media_mid":it.File.MediaMid,"interval":strconv.FormatInt(it.Interval,10),
+   "size_128mp3":strconv.FormatInt(it.File.Size128,10),"size_320mp3":strconv.FormatInt(it.File.Size320,10),"size_flac":strconv.FormatInt(it.File.SizeFlac,10),"size_hires":strconv.FormatInt(it.File.SizeHiRes,10),
+  }})
+ }
+ total,maxPage:=sourcePageCount(service.Data.Meta.Sum,page,limit,len(tracks))
+ return SourceSearchPage{Tracks:tracks,Total:total,MaxPage:maxPage,PageSize:limit},nil
 }
 func(*LXQQMusicSource)Resolve(context.Context,Track)(PlaybackResource,error){return PlaybackResource{},errors.New("QQ Music search is available; playback URL resolution requires a compatible LX musicUrl source")}
 func lxQQCodeLabel(raw json.RawMessage) string {
