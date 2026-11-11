@@ -3,6 +3,8 @@ package music
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 )
@@ -136,5 +138,58 @@ func TestValidateLXPlaybackURLRejectsPrivateTargets(t *testing.T) {
 		"javascript:alert(1)",
 	} {
 		if err := ValidateLXPlaybackURL(raw); err == nil { t.Fatalf("expected URL to be rejected: %s", raw) }
+	}
+}
+
+
+func TestRunLXSourceWorkerResolvesMusicURLThroughHTTPCallback(t *testing.T) {
+	client := &http.Client{Transport: lxRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status: "200 OK",
+			Header: make(http.Header),
+			Body: io.NopCloser(strings.NewReader(`{"url":"https://cdn.example.test/track.mp3"}`)),
+			Request: request,
+		}, nil
+	})}
+	script := `/*
+ * @name HTTP Resolver Test
+ */
+lx.on(lx.EVENT_NAMES.request, function (request) {
+  return new Promise(function (resolve, reject) {
+    lx.request("https://music.example.test/resolve", {}, function (err, response) {
+      if (err) return reject(err);
+      resolve(JSON.parse(response.body).url);
+    });
+  });
+});
+lx.send(lx.EVENT_NAMES.inited, {
+  sources: {
+    wy: { name: "NetEase", type: "music", actions: ["musicUrl"], qualitys: ["320k"] }
+  }
+});
+`
+	payload := json.RawMessage(`{"source":"wy","action":"musicUrl","info":{"type":"320k","musicInfo":{"id":"150617","name":"找自己","artist":"陶喆"}}}`)
+	input, err := json.Marshal(lxWorkerRequest{Script: script, Operation: "resolve", Payload: payload})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if code := runLXSourceWorker(bytes.NewReader(input), &output, client); code != 0 {
+		t.Fatalf("worker returned %d: %s", code, output.String())
+	}
+	var response lxWorkerResponse
+	if err := json.Unmarshal(output.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Error != "" {
+		t.Fatal(response.Error)
+	}
+	var resolved string
+	if err := json.Unmarshal(response.Value, &resolved); err != nil {
+		t.Fatal(err)
+	}
+	if resolved != "https://cdn.example.test/track.mp3" {
+		t.Fatalf("resolved URL = %q", resolved)
 	}
 }
