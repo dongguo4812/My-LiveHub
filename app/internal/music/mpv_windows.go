@@ -276,6 +276,9 @@ func (e *MpvEngine) Load(ctx context.Context, resource PlaybackResource, track T
 	} else {
 		_, _ = e.commandIPC(ctx, "set_property", "http-header-fields", []string{})
 	}
+	e.mu.Lock()
+	e.stderrTail = ""
+	e.mu.Unlock()
 	if _, err := e.commandIPC(ctx, "loadfile", resource.URL, "replace"); err != nil { return err }
 	copy := track
 	e.mu.Lock()
