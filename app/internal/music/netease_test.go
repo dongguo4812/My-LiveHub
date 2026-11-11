@@ -9,11 +9,11 @@ import (
 
 func TestNetEaseSourceSearch(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/search/get/web" { t.Errorf("unexpected path %s", r.URL.Path) }
-		if r.URL.Query().Get("s") != "稻香" || r.URL.Query().Get("limit") != "5" { t.Errorf("unexpected query: %s", r.URL.RawQuery) }
-		if r.Header.Get("Referer") == "" { t.Fatal("expected platform referer") }
+		if r.URL.Path != "/eapi/batch" { t.Errorf("unexpected path %s", r.URL.Path) }
+		if r.Method != http.MethodPost || r.Header.Get("Referer") == "" || r.Header.Get("Origin") == "" { t.Errorf("unexpected NetEase request headers/method: %s", r.Method) }
+		if err := r.ParseForm(); err != nil || r.Form.Get("params") == "" { t.Fatal("expected encrypted EAPI params form field") }
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"code":200,"result":{"songs":[{"id":123,"name":"稻香","duration":223000,"artists":[{"name":"周杰伦"}],"album":{"name":"魔杰座","picUrl":"https://img.invalid/cover.jpg"}}]}}`))
+		_, _ = w.Write([]byte(`{"code":200,"data":{"totalCount":25,"resources":[{"baseInfo":{"simpleSongData":{"id":123,"name":"稻香","dt":223000,"ar":[{"name":"周杰伦"}],"al":{"id":456,"name":"魔杰座","picUrl":"https://img.invalid/cover.jpg"},"privilege":{"maxbr":999000,"maxBrLevel":"hires"},"l":{"size":3000000},"h":{"size":7000000},"sq":{"size":12000000},"hr":{"size":24000000}}}}]}}`))
 	}))
 	defer server.Close()
 	source := NewNetEaseSource(server.Client(), server.URL)
@@ -21,7 +21,8 @@ func TestNetEaseSourceSearch(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	if len(tracks) != 1 { t.Fatalf("expected one track, got %d", len(tracks)) }
 	got := tracks[0]
-	if got.ID != "123" || got.SourceID != "netease" || got.Title != "稻香" || got.Artist != "周杰伦" || got.DurationMS != 223000 {
+	if got.ID != "123" || got.SourceID != "netease" || got.LXSourceKey != "wy" || got.Title != "稻香" || got.Artist != "周杰伦" || got.DurationMS != 223000 ||
+		got.SourceData["albumId"] != "456" || got.SourceData["wy_privilege"] == "" {
 		t.Fatalf("unexpected track: %#v", got)
 	}
 	resource, err := source.Resolve(context.Background(), got)
@@ -38,14 +39,10 @@ func TestNetEaseSourceRejectsForeignTrack(t *testing.T) {
 
 func TestNetEaseSourceSearchPageUsesOffsetAndReturnsPageCount(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.URL.Query().Get("offset"); got != "10" {
-			t.Errorf("expected offset 10 for page 3, got %q", got)
-		}
-		if got := r.URL.Query().Get("limit"); got != "5" {
-			t.Errorf("expected page size 5, got %q", got)
-		}
+		if r.URL.Path != "/eapi/batch" { t.Errorf("unexpected path %s", r.URL.Path) }
+		if err := r.ParseForm(); err != nil || r.Form.Get("params") == "" { t.Fatal("expected EAPI params") }
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"code":200,"result":{"songCount":21,"songs":[{"id":321,"name":"第三页歌曲","duration":180000,"artists":[{"name":"歌手"}],"album":{"name":"专辑"}}]}}`))
+		_, _ = w.Write([]byte(`{"code":200,"data":{"totalCount":21,"resources":[{"baseInfo":{"simpleSongData":{"id":321,"name":"第三页歌曲","dt":180000,"ar":[{"name":"歌手"}],"al":{"id":12,"name":"专辑"},"privilege":{"maxbr":320000,"maxBrLevel":"standard"},"l":{"size":1000},"h":{"size":3000}}}}]}}`))
 	}))
 	defer server.Close()
 
