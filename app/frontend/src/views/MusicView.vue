@@ -9,7 +9,7 @@ type QueueSnapshot = Awaited<ReturnType<typeof MusicService.GetQueue>>
 type PlaybackSnapshot = Awaited<ReturnType<typeof MusicService.GetPlaybackStatus>>
 
 const config = ref<MusicConfig | null>(null)
-const availableSourceIDs = ref<string[]>([])
+const sourceCapabilities = ref<Record<string, { search: boolean; resolve: boolean }>>({})
 const queue = ref<QueueSnapshot | null>(null)
 const playback = ref<PlaybackSnapshot | null>(null)
 const results = ref<Track[]>([])
@@ -36,7 +36,7 @@ const sourceNames: Record<string, string> = {
 }
 const sources = computed(() => Object.entries(config.value?.sources ?? {}).map(([id, enabled]) => ({
   id, name: sourceNames[id] ?? id, enabled,
-  status: availableSourceIDs.value.includes(id) ? '适配器已接入' : '适配器尚未接入',
+  status: !sourceCapabilities.value[id] ? '适配器尚未接入' : sourceCapabilities.value[id].resolve ? '搜索与播放解析均已接入' : '已接入搜索，播放解析待完成',
 })))
 const enabledCount = computed(() => sources.value.filter(source => source.enabled).length)
 const canSave = computed(() => enabledCount.value > 0)
@@ -60,7 +60,7 @@ async function loadConfig() {
   error.value = ''
   try {
     config.value = await MusicService.GetConfig()
-    availableSourceIDs.value = (await MusicService.GetSources()).map(source => source.id)
+    sourceCapabilities.value = Object.fromEntries((await MusicService.GetSources()).map(source => [source.id, source.capabilities]))
     await refreshQueue()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
@@ -128,6 +128,10 @@ function search() {
 }
 async function addToQueue(track: Track) {
   error.value = ''
+  if (!sourceCapabilities.value[track.source_id]?.resolve) {
+    error.value = `${sourceName(track.source_id)}已接入搜索，但播放资源解析尚未实现`
+    return
+  }
   try {
     await MusicService.Enqueue(track, '')
     success.value = `已加入队列：${track.title}`
@@ -251,7 +255,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         <el-table-column prop="album" label="专辑" min-width="140" />
         <el-table-column label="音源" width="130"><template #default="scope">{{ sourceName(scope.row.source_id) }}</template></el-table-column>
         <el-table-column label="时长" width="90"><template #default="scope">{{ formatDuration(scope.row.duration_ms) }}</template></el-table-column>
-        <el-table-column label="操作" width="110" fixed="right"><template #default="scope"><el-button link type="primary" @click="addToQueue(scope.row)">加入队列</el-button></template></el-table-column>
+        <el-table-column label="操作" width="110" fixed="right"><template #default="scope"><el-button link type="primary" :disabled="!sourceCapabilities[scope.row.source_id]?.resolve" @click="addToQueue(scope.row)">加入队列</el-button></template></el-table-column>
       </el-table>
       <div v-if="maxPage > 1" class="search-pagination">
         <el-pagination
