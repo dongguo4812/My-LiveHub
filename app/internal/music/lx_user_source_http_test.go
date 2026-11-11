@@ -45,33 +45,19 @@ func TestLXRequestCallbackReceivesResponseBody(t *testing.T) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Status: "200 OK",
-			Header: make(http.Header),
-		return &http.Response{StatusCode:http.StatusOK, Status:"200 OK", Header:http.Header{"Content-Type":[]string{"text/plain"}}, Body:io.NopCloser(strings.NewReader("  {\"url\":\"https://cdn.example.test/song.mp3\"}\n")), Request:request}, nil
+			Header: http.Header{"Content-Type": []string{"text/plain"}},
+			Body: io.NopCloser(strings.NewReader("  {\"url\":\"https://cdn.example.test/song.mp3\"}\n")),
 			Request: request,
 		}, nil
 	})}
-
 	vm := goja.New()
 	lx := vm.NewObject()
-	if err := installLXRequestWithClient(vm, lx, client); err != nil {
-		t.Fatal(err)
-	}
-	if err := vm.Set("lx", lx); err != nil {
-		t.Fatal(err)
-	}
-	value, err := vm.RunString(`
-		var callbackBody = "";
-		lx.request("https://music.example.test/resolve", {}, function (err, response) {
-			if (err) throw new Error(String(err));
-			callbackBody = JSON.stringify(response.body);
-		});
-		callbackBody;
-	`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := value.String(), "{\"url\":\"https://cdn.example.test/song.mp3\"}"; got != want {
-		t.Fatalf("LX request callback body = %q, want %q", got, want)
+	if err := installLXRequestWithClient(vm, lx, client); err != nil { t.Fatal(err) }
+	if err := vm.Set("lx", lx); err != nil { t.Fatal(err) }
+	value, err := vm.RunString("var callbackBody=''; lx.request('https://music.example.test/resolve', {}, function(err,response){ if(err) throw new Error(String(err)); callbackBody=JSON.stringify(response.body); }); callbackBody;")
+	if err != nil { t.Fatal(err) }
+	if got,want:=value.String(),"{\"url\":\"https://cdn.example.test/song.mp3\"}"; got!=want {
+		t.Fatalf("LX request callback body = %q, want %q",got,want)
 	}
 }
 

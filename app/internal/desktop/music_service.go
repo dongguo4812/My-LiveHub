@@ -868,7 +868,7 @@ func containsString(values []string, target string) bool {
 	return false
 }
 
-func buildLXMusicInfo(track music.Track, quality any) map[string]any {
+func buildLXOldMusicInfo(track music.Track, quality any) map[string]any {
 	seconds := track.DurationMS / 1000
 	source := strings.TrimSpace(track.LXSourceKey)
 	if source == "" {
@@ -967,6 +967,53 @@ func buildLXMusicInfo(track music.Track, quality any) map[string]any {
 		}
 	}
 	return info
+}
+
+// buildLXMusicInfo mirrors LX Music's toNewMusicInfo() conversion. User
+// source scripts receive the new MusicInfo shape, not the legacy search result.
+func buildLXMusicInfo(track music.Track, quality any) map[string]any {
+	old := buildLXOldMusicInfo(track, quality)
+	source, _ := old["source"].(string)
+	songID := old["songmid"]
+	meta := map[string]any{"songId": songID, "albumName": old["albumName"], "picUrl": old["img"]}
+	result := map[string]any{
+		"id": fmt.Sprintf("%s_%v", source, songID), "name": old["name"],
+		"singer": old["singer"], "source": source, "interval": old["interval"], "meta": meta,
+	}
+	if source != "local" {
+		meta["qualitys"], meta["_qualitys"] = old["types"], old["_types"]
+		if value, exists := old["albumId"]; exists { meta["albumId"] = value }
+		switch source {
+		case "kg":
+			if value, exists := old["hash"]; exists {
+				meta["hash"] = value
+				result["id"] = fmt.Sprintf("%v_%v", songID, value)
+			}
+			if value, exists := old["albumAudioId"]; exists { meta["albumAudioId"] = value }
+		case "tx":
+			if value, exists := old["strMediaMid"]; exists { meta["strMediaMid"] = value }
+			if value, exists := old["songId"]; exists { meta["id"] = value }
+			if value, exists := old["albumMid"]; exists { meta["albumMid"] = value }
+		case "mg":
+			for _, key := range []string{"copyrightId", "lrcUrl", "mrcUrl", "trcUrl"} {
+				if value, exists := old[key]; exists { meta[key] = value }
+			}
+		}
+		if available, ok := meta["_qualitys"].(map[string]any); ok {
+			if value, exists := available["flac32bit"]; exists {
+				if _, has24Bit := available["flac24bit"]; !has24Bit {
+					available["flac24bit"] = value
+					delete(available, "flac32bit")
+					if qualities, ok := meta["qualitys"].([]any); ok {
+						for _, item := range qualities {
+							if entry, ok := item.(map[string]any); ok && entry["type"] == "flac32bit" { entry["type"] = "flac24bit" }
+						}
+					}
+				}
+			}
+		}
+	}
+	return result
 }
 
 func formatLXInterval(seconds int64) string {
