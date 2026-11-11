@@ -71,7 +71,7 @@ func (loop *lxRuntimeEventLoop) setTimer(callback goja.Value, delay time.Duratio
 	fn, ok := goja.AssertFunction(callback); if !ok { return 0 }
 	loop.mu.Lock(); loop.nextID++; id:=loop.nextID
 	var timer *time.Timer
-	fire:=func() { loop.enqueue(func(){ if _,err:=fn(goja.Undefined()); err!=nil { loop.vm.Interrupt(err) } }); if repeat { loop.mu.Lock(); if _,exists:=loop.timers[id]; exists { loop.timers[id]=time.AfterFunc(delay,fire) }; loop.mu.Unlock() } else { loop.clearTimer(id) } }
+	var fire func(); fire=func() { loop.enqueue(func(){ if _,err:=fn(goja.Undefined()); err!=nil { loop.vm.Interrupt(err) } }); if repeat { loop.mu.Lock(); if _,exists:=loop.timers[id]; exists { loop.timers[id]=time.AfterFunc(delay,fire) }; loop.mu.Unlock() } else { loop.clearTimer(id) } }
 	timer=time.AfterFunc(delay,fire); loop.timers[id]=timer; loop.mu.Unlock()
 	return id
 }
