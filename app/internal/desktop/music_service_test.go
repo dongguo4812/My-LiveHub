@@ -281,3 +281,9 @@ func TestLXMiguMusicInfoMatchesLXFields(t *testing.T){
  if info["source"]!="mg"||info["songmid"]!="mg-song-id"||info["copyrightId"]!="mg-copy-id"||info["albumId"]!="album-9"||info["albumName"]!="I'm OK"||info["interval"]!="05:04"||info["img"]!=tr.CoverURL||info["lrcUrl"]!="https://lyrics.example/lrc"{t.Fatalf("Migu musicInfo mismatch: %#v",info)}
  types,ok:=info["types"].([]any);if !ok||len(types)!=3||types[0].(map[string]any)["type"]!="128k"||types[1].(map[string]any)["type"]!="320k"||types[2].(map[string]any)["type"]!="flac24bit"{t.Fatalf("unexpected Migu qualities: %#v",info["types"])}
 }
+
+func TestLXMiguQualitySelectionUsesPerTrackAvailability(t *testing.T) {
+	track:=music.Track{LXSourceKey:"mg",SourceData:map[string]string{"audio_formats_json":`[{"formatType":"PQ","asize":1000},{"formatType":"ZQ24","asize":2000}]`}}
+	if got:=selectLXQuality([]string{"320k","flac24bit","128k"},false,track);got!="flac24bit"{t.Fatalf("expected best available Migu quality flac24bit, got %#v",got)}
+	if got:=selectLXQuality([]string{"320k"},false,track);got!=nil{t.Fatalf("must not request unavailable Migu quality, got %#v",got)}
+}

@@ -875,6 +875,15 @@ func selectLXQuality(qualities []string, local bool, track music.Track) any {
 		}
 		return nil
 	}
+	if track.LXSourceKey == "mg" {
+		_, available := buildLXMiguQualities(track.SourceData["audio_formats_json"])
+		if len(available) == 0 { return nil }
+		for _, preferred := range []string{"320k", "flac24bit", "flac", "128k"} {
+			if _, exists := available[preferred]; !exists { continue }
+			if containsString(qualities, preferred) { return preferred }
+		}
+		return nil
+	}
 	for _, preferred := range []string{"320k", "flac", "flac24bit", "128k"} {
 		if containsString(qualities, preferred) { return preferred }
 	}
