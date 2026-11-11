@@ -20,7 +20,6 @@ import (
 const (
 	// LX userApi preload.js defaults lx.request to 60 seconds and caps it at 60 seconds.
 	lxRequestTimeout = 60 * time.Second
-	lxRequestBodyLimit = 2 << 20
 	lxRequestRedirectLimit = 0
 )
 
@@ -147,7 +146,6 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 			requestBody = []byte(fmt.Sprint(value))
 		}
 	}
-	if len(requestBody) > lxRequestBodyLimit { return nil, "", errors.New("LX request 请求体超过 2 MB 限制") }
 
 	timeout := lxRequestTimeout
 	if value, ok := options["timeout"]; ok {
@@ -202,9 +200,8 @@ func performLXRequestWithClientContext(parent context.Context, rawURL string, op
 		return nil, "", errors.New("LX request 请求失败")
 	}
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, lxRequestBodyLimit+1))
+	raw, err := io.ReadAll(resp.Body)
 	if err != nil { return nil, "", fmt.Errorf("读取 LX request 响应失败：%w", err) }
-	if len(raw) > lxRequestBodyLimit { return nil, "", errors.New("LX request 响应体超过 2 MB 限制") }
 	responseHeaders := make(map[string]string, len(resp.Header))
 	for key, values := range resp.Header { responseHeaders[strings.ToLower(key)] = strings.Join(values, ", ") }
 	var responseBody any = string(raw)
