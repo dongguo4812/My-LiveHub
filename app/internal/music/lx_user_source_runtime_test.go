@@ -295,3 +295,80 @@ func TestValidateLXSourceRuntimeResultAllowsNonPlaybackSourcesWithoutRequest(t *
 		t.Fatalf("non-playback source should not require a request handler: %v", err)
 	}
 }
+
+
+// Flower's musicUrl action uses a GET URL keyed by the LX musicInfo identifier,
+// a script-generated hex JSON tag, and response.body.code/msg/data.
+func TestRunLXSourceWorkerMatchesFlowerMusicURLRequestContract(t *testing.T) {
+	const endpoint = "http://97.64.37.235/flower/v1/url/tx/0039MnYb0qxYhV/128k"
+	const tag = "5b0a2022303033394d6e5962307178596856222c0a20223132386b220a5d"
+	script := `lx.on(lx.EVENT_NAMES.request, async function () {
+  const response = await new Promise(function (resolve, reject) {
+    lx.request("`+endpoint+`", {
+      method: "GET",
+      headers: {
+        "User-Agent": "lx-music/desktop",
+        "ver": "2.0.0",
+        "source-ver": "1",
+        "tag": "`+tag+`"
+      }
+    }, function (err, response) {
+      if (err) return reject(err);
+      if (response.body.code !== 0) return reject(new Error(response.body.msg));
+      resolve(response);
+    });
+  });
+  return response.body.data;
+});
+lx.send(lx.EVENT_NAMES.inited, {
+  sources: {
+    tx: { name: "QQ Music", type: "music", actions: ["musicUrl"], qualitys: ["128k"] }
+  }
+});`
+	payload := json.RawMessage(`{"source":"tx","action":"musicUrl","info":{"type":"128k","musicInfo":{"source":"tx","songmid":"0039MnYb0qxYhV","name":"稻香","singer":"周杰伦"}}}`)
+
+	run := func(body string) (string, *http.Request, error) {
+		var captured *http.Request
+		client := &http.Client{Transport: lxRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+			captured = request.Clone(request.Context())
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status: "200 OK",
+				Header: http.Header{"Content-Type": []string{"application/json"}},
+				Body: io.NopCloser(strings.NewReader(body)),
+				Request: request,
+			}, nil
+		})}
+		input, err := json.Marshal(lxWorkerRequest{Script: script, Operation: "resolve", Payload: payload})
+		if err != nil { return "", nil, err }
+		var output bytes.Buffer
+		if code := runLXSourceWorker(bytes.NewReader(input), &output, client); code != 0 {
+			var response lxWorkerResponse
+			if decodeErr := json.Unmarshal(output.Bytes(), &response); decodeErr != nil { return "", captured, decodeErr }
+			return "", captured, errors.New(response.Error)
+		}
+		var response lxWorkerResponse
+		if err := json.Unmarshal(output.Bytes(), &response); err != nil { return "", captured, err }
+		var resolved string
+		if err := json.Unmarshal(response.Value, &resolved); err != nil { return "", captured, err }
+		return resolved, captured, nil
+	}
+
+	resolved, request, err := run(`{"code":0,"msg":"","data":"https://cdn.example.test/稻香.mp3"}`)
+	if err != nil { t.Fatal(err) }
+	if resolved != "https://cdn.example.test/稻香.mp3" { t.Fatalf("resolved URL = %q", resolved) }
+	if request == nil || request.Method != http.MethodGet || request.URL.String() != endpoint {
+		t.Fatalf("Flower request mismatch: %#v", request)
+	}
+	if request.Header.Get("User-Agent") != "lx-music/desktop" ||
+		request.Header.Get("ver") != "2.0.0" ||
+		request.Header.Get("source-ver") != "1" ||
+		request.Header.Get("tag") != tag {
+		t.Fatalf("Flower request headers were not preserved: %#v", request.Header)
+	}
+
+	_, _, err = run(`{"code":1,"msg":"no matching track","data":null}`)
+	if err == nil || !strings.Contains(err.Error(), "no matching track") {
+		t.Fatalf("Flower API rejection was not propagated: %v", err)
+	}
+}
