@@ -36,7 +36,7 @@ func TestKugouSourceSearchPage(t *testing.T) {
 		if r.URL.Query().Get("page") != "2" || r.URL.Query().Get("pagesize") != "10" {
 			t.Errorf("unexpected Kugou pagination query: %s", r.URL.RawQuery)
 		}
-		_, _ = w.Write([]byte(`{"error_code":0,"data":{"total":21,"lists":[{"Audioid":123,"FileHash":"hash","SongName":"找自己","AlbumName":"I'm OK","Duration":304,"Singers":[{"name":"陶喆"}]}]}}`))
+		_, _ = w.Write([]byte(`{"error_code":0,"data":{"total":21,"lists":[{"Audioid":123,"MixSongID":456,"FileHash":"hash","FileSize":1048576,"HQFileHash":"hq-hash","HQFileSize":2097152,"SQFileHash":"sq-hash","SQFileSize":4194304,"ResFileHash":"res-hash","ResFileSize":8388608,"AlbumID":"album-9","OriSongName":"找自己","Suffix":"Live","AlbumName":"I'm OK","Duration":304,"Singers":[{"name":"陶喆"}],"Grp":[{"Audioid":124,"MixSongID":457,"FileHash":"child-hash","FileSize":512,"HQFileHash":"child-hq","HQFileSize":1024,"SQFileHash":"","SQFileSize":0,"ResFileHash":"","ResFileSize":0,"AlbumID":"album-10","OriSongName":"找自己","Suffix":"现场","AlbumName":"I'm OK","Duration":305,"Singers":[{"name":"陶喆"}]}]}]}}`))
 	}))
 	defer server.Close()
 	source := NewKugouSource(server.Client(), server.URL)
@@ -48,8 +48,15 @@ func TestKugouSourceSearchPage(t *testing.T) {
 	if result.Tracks[0].ID != "123" || result.Tracks[0].Artist != "陶喆" || result.Tracks[0].DurationMS != 304000 {
 		t.Fatalf("unexpected Kugou track: %#v", result.Tracks[0])
 	}
-	if result.Tracks[0].LXSourceKey != "kg" || result.Tracks[0].SourceData["FileHash"] != "hash" {
-		t.Fatalf("Kugou LX metadata was not preserved: %#v", result.Tracks[0])
+	if len(result.Tracks) != 2 { t.Fatalf("expected main and Grp child tracks, got %#v", result.Tracks) }
+	got := result.Tracks[0]
+	if got.LXSourceKey != "kg" || got.SourceData["FileHash"] != "hash" || got.SourceData["MixSongID"] != "456" ||
+		got.SourceData["HQFileHash"] != "hq-hash" || got.SourceData["SQFileSize"] != "4194304" || got.SourceData["ResFileHash"] != "res-hash" ||
+		got.SourceData["AlbumID"] != "album-9" || got.Title != "找自己 Live" {
+		t.Fatalf("Kugou LX metadata was not preserved: %#v", got)
+	}
+	if result.Tracks[1].ID != "124" || result.Tracks[1].SourceData["FileHash"] != "child-hash" {
+		t.Fatalf("Kugou Grp child was not expanded: %#v", result.Tracks[1])
 	}
 }
 
