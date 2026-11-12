@@ -70,9 +70,16 @@ func NewSceneService(manager *config.Manager, events *eventstream.Buffer, assets
 	mux.HandleFunc("/api/events", service.handleEvents)
 	mux.HandleFunc("/api/events/recent", service.handleRecentEvents)
 	mux.Handle("/", assets)
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return nil, fmt.Errorf("start browser source listener: %w", err)
+	var listener net.Listener
+	var listenErr error
+	for port := 18765; port <= 18775; port++ {
+		listener, listenErr = net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		if listenErr == nil {
+			break
+		}
+	}
+	if listener == nil {
+		return nil, fmt.Errorf("start browser source listener on ports 18765-18775: %w", listenErr)
 	}
 	service.listener = listener
 	service.baseURL = "http://" + listener.Addr().String()
