@@ -64,6 +64,7 @@ let samples: Float32Array<ArrayBuffer> | null = null
 let activeModelURL = ''
 let activeMoc2MouthParameter = ''
 let activeMoc2TransformBase: { model: LegacyModel; scaleX: number; scaleY: number; centerX: number; centerY: number } | null = null
+let settingsSaveQueue: Promise<void> = Promise.resolve()
 let legacyScriptPromise: Promise<void> | null = null
 let runtimeMessageHandler: ((event: MessageEvent) => void) | null = null
 
@@ -302,12 +303,43 @@ async function enumerateDevices() {
 
 async function save(patch: Partial<Live2DConfig>) {
   if (!settings.value) return
-  const next = { ...settings.value, ...patch }
-  try {
-    settings.value = await updateLive2DSettings(next)
+
+  // Serialize writes and merge each patch with the latest persisted config.
+  // This prevents rapid slider changes from overwriting one another.
+  const operation = settingsSaveQueue.then(async () => {
+    const latest = await getLive2DSettings()
+    const next = { ...latest, ...patch }
+    await updateLive2DSettings(next)
+
+    // Read back from the backend so the UI never treats an unsaved draft as persisted.
+    const persisted = await getLive2DSettings()
+    for (const [key, expected] of Object.entries(patch)) {
+      const actual = persisted[key as keyof Live2DConfig]
+      if (typeof expected === 'number' && typeof actual === 'number') {
+        if (Math.abs(actual - expected) > 0.000001) {
+          throw new Error(`设置项 ${key} 未能持久化（提交值：${expected}，读取值：${actual}）`)
+        }
+      } else if (actual !== expected) {
+        throw new Error(`设置项 ${key} 未能持久化`)
+      }
+    }
+
+    settings.value = persisted
     applyModelTransform()
-    ElMessage.success('Live2D 设置已保存')
+    ElMessage.success('Live2D 设置已保存并验证')
+  })
+
+  settingsSaveQueue = operation.then(() => undefined, () => undefined)
+  try {
+    await operation
   } catch (error) {
+    // Restore the persisted values after a failed write instead of leaving a misleading preview value.
+    try {
+      settings.value = await getLive2DSettings()
+      applyModelTransform()
+    } catch {
+      // Keep the original save error as the user-facing diagnostic.
+    }
     ElMessage.error('保存 Live2D 设置失败：' + String(error))
   }
 }
