@@ -300,7 +300,7 @@ func (s *VideoRequestService) GetQueue() VideoRequestQueue {
 	if s.current!=nil { copy:=*s.current; result.Current=&copy }
 	return result
 }
-func (s *VideoRequestService) GetLastError() string { s.mu.RLock(); defer s.mu.RUnlock(); return s.lastError }
+func (s *VideoRequestService) TakeLastError() string { s.mu.Lock(); defer s.mu.Unlock(); value:=s.lastError; s.lastError=""; return value }
 func (s *VideoRequestService) setError(value string) { s.mu.Lock(); s.lastError=value; s.mu.Unlock() }
 
 func (s *VideoRequestService) Pause() error { return s.video.Pause() }
