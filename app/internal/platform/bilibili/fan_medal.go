@@ -25,6 +25,23 @@ type FanMedalChecker struct {
 	cache map[string]medalCacheEntry
 }
 
+type medalWallItem struct {
+	MedalInfo struct {
+		TargetID int64 `json:"target_id"`
+		Level int `json:"level"`
+	} `json:"medal_info"`
+}
+
+func findFanMedalLevel(items []medalWallItem, ownerUID int64) int {
+	level := 0
+	for _, item := range items {
+		if item.MedalInfo.TargetID == ownerUID && item.MedalInfo.Level > level {
+			level = item.MedalInfo.Level
+		}
+	}
+	return level
+}
+
 type medalCacheEntry struct {
 	level int
 	expires time.Time
@@ -89,24 +106,14 @@ func (c *FanMedalChecker) Check(parent context.Context, userUID, minLevel int) (
 		Code int `json:"code"`
 		Message string `json:"message"`
 		Data struct {
-			List []struct {
-				MedalInfo struct {
-					TargetID int64 `json:"target_id"`
-					Level int `json:"level"`
-				} `json:"medal_info"`
-			} `json:"list"`
+			List []medalWallItem `json:"list"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&payload); err != nil {
 		return false, 0, fmt.Errorf("解析粉丝勋章响应失败：%w", err)
 	}
 	if payload.Code != 0 { return false, 0, fmt.Errorf("粉丝勋章接口错误 %d：%s", payload.Code, safeMessage(payload.Message)) }
-	level := 0
-	for _, item := range payload.Data.List {
-		if item.MedalInfo.TargetID == ownerUID && item.MedalInfo.Level > level {
-			level = item.MedalInfo.Level
-		}
-	}
+	level := findFanMedalLevel(payload.Data.List, ownerUID)
 	ttl := 2 * time.Minute
 	if level > 0 { ttl = 5 * time.Minute }
 	c.cache[key] = medalCacheEntry{level: level, expires: time.Now().Add(ttl)}
