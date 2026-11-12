@@ -473,6 +473,14 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         <el-button @click="nextTrack">下一首</el-button>
         <el-button @click="stop">停止</el-button>
       </div>
+      <div class="playback-order-row">
+        <span>播放顺序</span>
+        <el-select v-model="hostPlayMode" style="width:150px" @change="changeHostPlayMode">
+          <el-option label="列表循环" value="list" />
+          <el-option label="单曲循环" value="single" />
+          <el-option label="随机播放" value="shuffle" />
+        </el-select>
+      </div>
       <div class="volume-row"><span>音量</span><el-slider v-model="volume" :min="0" :max="100" @change="setVolume" /></div>
       <p class="hint">首次播放前需要在 Windows 中安装 mpv，并确保 mpv.exe 已加入 PATH。</p>
     </el-card>
@@ -555,11 +563,6 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
       <template #header><div class="card-heading"><strong>主播常驻歌单</strong><el-tag effect="plain">{{ favorites.length }} 首收藏</el-tag></div></template>
       <p class="section-description">这里保存你经常播放的歌曲，作为直播期间的默认背景音乐。观众点播会暂时打断当前歌曲，点播队列结束后自动恢复原歌曲和进度。</p>
       <div class="card-actions">
-        <el-select v-model="hostPlayMode" style="width:150px" @change="changeHostPlayMode">
-          <el-option label="列表循环" value="list" />
-          <el-option label="单曲循环" value="single" />
-          <el-option label="随机播放" value="shuffle" />
-        </el-select>
         <el-button type="primary" :disabled="favorites.length === 0" @click="addHostPlaylistToQueue">播放</el-button>
       </div>
       <el-table v-if="favorites.length" :data="favorites" :row-key="trackRowKey" style="width:100%">
