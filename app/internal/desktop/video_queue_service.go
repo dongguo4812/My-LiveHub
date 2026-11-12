@@ -73,6 +73,14 @@ func (s *VideoQueueService) setFanMedalChecker(checker interface { Check(context
 	s.mu.Unlock()
 }
 
+// NewVideoQueueServiceWithFanMedalChecker wires the checker without exposing it as a Wails method.
+func NewVideoQueueServiceWithFanMedalChecker(manager *config.Manager, settings config.BilibiliConfig, resolver bilibiliVideoInfoResolver, webview *BilibiliWebViewService, eventBuffer *eventstream.Buffer, checker interface { Check(context.Context, int, int) (bool, int, error) }) (*VideoQueueService, error) {
+\tservice, err := NewVideoQueueService(manager, settings, resolver, webview, eventBuffer)
+\tif err != nil { return nil, err }
+\tservice.fanMedalChecker = checker
+\treturn service, nil
+}
+
 func (s *VideoQueueService) GetSnapshot() VideoQueueSnapshot {
 	if s == nil { return VideoQueueSnapshot{Items:[]VideoQueueItem{}} }
 	s.mu.Lock()
