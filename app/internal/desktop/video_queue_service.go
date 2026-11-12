@@ -104,6 +104,9 @@ func (s *VideoQueueService) UpdateSettings(next config.BilibiliConfig) (config.B
 	if err != nil {
 		return config.BilibiliConfig{}, err
 	}
+	// Room ID is managed by the Bilibili platform settings page. Preserve
+	// the latest value when saving video request rules from this page.
+	next.RoomID = latest.RoomID
 	// Window geometry is managed by the WebView window itself, not the
 	// settings form. Preserve it when the user saves video request rules.
 	next.VideoWindowX = latest.VideoWindowX
