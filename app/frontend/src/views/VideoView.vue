@@ -1,12 +1,19 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Events } from '@wailsio/runtime'
-import * as VideoService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/videoservice.js'
-import * as BilibiliVideoService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/bilibilivideoservice.js'
-import * as BilibiliWebViewService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/bilibiliwebviewservice.js'
+import * as QueueService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/videoqueueservice.js'
+import * as WebViewService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/bilibiliwebviewservice.js'
 
-type PlaybackSnapshot = Awaited<ReturnType<typeof VideoService.GetPlaybackStatus>>
-interface BilibiliWebViewPlaybackState {
+interface QueueItem {
+  id: number
+  bvid: string
+  title: string
+  duration_seconds: number
+  requester: string
+  user_id: number
+  added_at: number
+}
+interface PlaybackState {
   is_open: boolean
   title: string
   position_ms: number
@@ -15,262 +22,216 @@ interface BilibiliWebViewPlaybackState {
   is_paused: boolean
   is_ended: boolean
 }
+interface QueueSnapshot {
+  enabled: boolean
+  current?: QueueItem
+  items: QueueItem[]
+  queue_count: number
+  playback: PlaybackState
+}
+interface VideoSettings {
+  room_id: number
+  video_requests_enabled: boolean
+  video_request_cooldown_seconds: number
+  video_queue_limit: number
+  video_max_duration_seconds: number
+  video_require_fan_medal: boolean
+  video_queue_display_limit: number
+}
+const snapshot = ref<QueueSnapshot>({
+  enabled: true, items: [], queue_count: 0,
+  playback: { is_open: false, title: '', position_ms: 0, duration_ms: 0, is_playing: false, is_paused: false, is_ended: false },
+})
+const settings = ref<VideoSettings>({
+  room_id: 0, video_requests_enabled: true, video_request_cooldown_seconds: 60,
+  video_queue_limit: 30, video_max_duration_seconds: 300, video_require_fan_medal: false, video_queue_display_limit: 10,
+})
+const activeTab = ref<'queue'|'settings'>('queue')
 const bvid = ref('')
-const url = ref('')
-const title = ref('')
-const playback = ref<PlaybackSnapshot | null>(null)
-const volume = ref(80)
-const seekValue = ref(0)
-const isSeeking = ref(false)
 const busy = ref(false)
-const browserBusy = ref(false)
-const browserOpen = ref(false)
-const bilibiliPlayback = ref<BilibiliWebViewPlaybackState>({
-  is_open: false, title: '', position_ms: 0, duration_ms: 0,
-  is_playing: false, is_paused: false, is_ended: false,
-})
+const saving = ref(false)
 const error = ref('')
-let unsubscribeBilibiliState: (() => void) | undefined
+const success = ref('')
 let timer: ReturnType<typeof setInterval> | undefined
-
-const progress = computed(() => {
-  if (!playback.value || playback.value.duration_ms <= 0) return 0
-  return Math.min(100, Math.max(0, playback.value.position_ms / playback.value.duration_ms * 100))
-})
-const isPlaying = computed(() => playback.value?.state === 'playing')
-const isPaused = computed(() => playback.value?.state === 'paused')
-const bilibiliProgress = computed(() => {
-  const duration = bilibiliPlayback.value.duration_ms
-  if (duration <= 0) return 0
-  return Math.min(100, Math.max(0, bilibiliPlayback.value.position_ms / duration * 100))
-})
-const bilibiliStatusText = computed(() => {
-  if (!bilibiliPlayback.value.is_open) return '未打开'
-  if (bilibiliPlayback.value.is_ended) return '已结束'
-  if (bilibiliPlayback.value.is_playing) return '正在播放'
-  if (bilibiliPlayback.value.is_paused) return '已暂停'
+let unsubscribe: (() => void) | undefined
+const visibleItems = computed(() => snapshot.value.items.slice(0, settings.value.video_queue_display_limit))
+const statusText = computed(() => {
+  if (!snapshot.value.playback.is_open) return snapshot.value.current ? '正在打开' : '未播放'
+  if (snapshot.value.playback.is_ended) return '已结束'
+  if (snapshot.value.playback.is_playing) return '正在播放'
+  if (snapshot.value.playback.is_paused) return '已暂停'
   return '等待视频加载'
 })
-const actualResolution = computed(() => {
-  const width = playback.value?.video_width ?? 0
-  const height = playback.value?.video_height ?? 0
-  return width > 0 && height > 0 ? `${width} × ${height}` : '等待视频解码'
+const progress = computed(() => {
+  const p = snapshot.value.playback
+  return p.duration_ms > 0 ? Math.min(100, Math.max(0, p.position_ms / p.duration_ms * 100)) : 0
 })
-function formatTime(ms?: number) {
-  if (!ms || ms < 0) return '00:00'
-  const seconds = Math.floor(ms / 1000)
-  return `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`
+function formatTime(seconds: number) {
+  const value = Math.max(0, Math.floor(seconds || 0))
+  return `${Math.floor(value / 60).toString().padStart(2, '0')}:${(value % 60).toString().padStart(2, '0')}`
 }
+function formatMS(ms: number) { return formatTime(Math.floor((ms || 0) / 1000)) }
 async function refresh() {
-  try {
-    playback.value = await VideoService.GetPlaybackStatus()
-    if (playback.value.volume >= 0) volume.value = playback.value.volume
-    // Do not let the polling loop overwrite the user's in-progress seek.
-    if (!isSeeking.value) seekValue.value = progress.value * 10
-  } catch { /* The video process may not have been started yet. */ }
-  try {
-    bilibiliPlayback.value = await BilibiliWebViewService.GetPlaybackState()
-    browserOpen.value = bilibiliPlayback.value.is_open
-  } catch { /* The browser window may not have been initialised yet. */ }
+  try { snapshot.value = await QueueService.GetSnapshot() as QueueSnapshot } catch {}
 }
-async function playBilibili() {
+async function loadSettings() {
+  try { settings.value = await QueueService.GetSettings() as VideoSettings } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  }
+}
+async function addVideo() {
   if (!bvid.value.trim()) { error.value = '请输入 B 站 BV 号'; return }
-  busy.value = true
-  error.value = ''
+  busy.value = true; error.value = ''; success.value = ''
   try {
-    await BilibiliVideoService.PlayBilibiliVideo(bvid.value.trim())
+    await QueueService.AddVideo(bvid.value.trim(), '主播', 0)
+    bvid.value = ''
+    success.value = '视频已加入点播队列'
     await refresh()
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
-  } finally { busy.value = false }
-}
-async function openBilibiliWebView() {
-  if (!bvid.value.trim()) { error.value = '请输入 B 站 BV 号'; return }
-  browserBusy.value = true
-  error.value = ''
-  try {
-    await BilibiliWebViewService.OpenVideo(bvid.value.trim())
-    browserOpen.value = true
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
-  } finally { browserBusy.value = false }
-}
-async function enterBilibiliWebFullscreen() {
-  try { await BilibiliWebViewService.EnterWebFullscreen() }
-  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
-}
-async function replayBilibiliFromStart() {
-  try { await BilibiliWebViewService.ReplayFromStart() }
-  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
-}
-async function closeBilibiliWebView() {
-  try {
-    await BilibiliWebViewService.CloseWindow()
-    browserOpen.value = false
   } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+  finally { busy.value = false }
 }
-async function play() {
-  if (!url.value.trim()) { error.value = '请输入视频直链地址'; return }
-  busy.value = true
-  error.value = ''
+async function skipCurrent() {
+  try { await QueueService.SkipCurrent(); await refresh() }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+}
+async function removeItem(id: number) {
+  try { await QueueService.RemoveQueued(id); await refresh() }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+}
+async function clearQueue() {
+  try { await QueueService.ClearQueue(); await refresh(); success.value = '待播队列已清空' }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+}
+async function toggleEnabled(value: boolean) {
+  settings.value.video_requests_enabled = value
+  await saveSettings()
+}
+async function saveSettings() {
+  saving.value = true; error.value = ''; success.value = ''
   try {
-    await VideoService.Play(url.value.trim(), title.value.trim())
+    settings.value = await QueueService.UpdateSettings(settings.value) as VideoSettings
+    success.value = '视频点播规则已保存'
     await refresh()
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
-  } finally { busy.value = false }
+  } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+  finally { saving.value = false }
 }
-async function pause() { try { await VideoService.Pause(); await refresh() } catch (reason) { error.value = String(reason) } }
-async function resume() { try { await VideoService.Resume(); await refresh() } catch (reason) { error.value = String(reason) } }
-async function stop() {
-  try {
-    await VideoService.Stop()
-    isSeeking.value = false
-    await refresh()
-  } catch (reason) { error.value = String(reason) }
+async function fullscreen() {
+  try { await WebViewService.EnterWebFullscreen() }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
 }
-function updateSeekValue(value: number | number[]) {
-  const next = Array.isArray(value) ? value[0] : value
-  isSeeking.value = true
-  seekValue.value = next
+async function replay() {
+  try { await WebViewService.ReplayFromStart() }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
 }
-async function seek(value: number | number[]) {
-  const next = Array.isArray(value) ? value[0] : value
-  if (!playback.value || playback.value.duration_ms <= 0) {
-    isSeeking.value = false
-    return
-  }
-  seekValue.value = next
-  try {
-    await VideoService.Seek(Math.round(playback.value.duration_ms * next / 1000))
-  } catch (reason) {
-    error.value = String(reason)
-  } finally {
-    isSeeking.value = false
-    await refresh()
-  }
-}
-async function setVolume(value: number | number[]) {
-  const next = Array.isArray(value) ? value[0] : value
-  try { await VideoService.SetVolume(next); volume.value = next }
-  catch (reason) { error.value = String(reason) }
+async function closePlayer() {
+  try { await WebViewService.CloseWindow(); await refresh() }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
 }
 onMounted(() => {
-  unsubscribeBilibiliState = Events.On('bilibili-player-state', (event) => {
-    bilibiliPlayback.value = event.data as BilibiliWebViewPlaybackState
-    browserOpen.value = bilibiliPlayback.value.is_open
-  })
-  void refresh()
-  timer = setInterval(() => void refresh(), 700)
+  unsubscribe = Events.On('bilibili-player-state', () => void refresh())
+  void refresh(); void loadSettings()
+  timer = setInterval(() => void refresh(), 1000)
 })
-onUnmounted(() => {
-  unsubscribeBilibiliState?.()
-  if (timer) clearInterval(timer)
-})
+onUnmounted(() => { unsubscribe?.(); if (timer) clearInterval(timer) })
 </script>
 
 <template>
   <section class="video-page">
     <header class="page-heading">
       <div>
-        <p class="eyebrow">VIDEO OUTPUT</p>
-        <h2>MV 播放器</h2>
-        <p class="description">使用独立 mpv 视频进程输出纯画面窗口，可在 OBS 中通过窗口采集捕捉。</p>
+        <p class="eyebrow">BILIBILI VIDEO REQUEST</p>
+        <h2>视频点播</h2>
+        <p class="description">使用 B 站原生网页播放器，观众通过直播间弹幕提交 BV 号。</p>
       </div>
-      <el-tag :type="isPlaying ? 'success' : isPaused ? 'warning' : 'info'">
-        {{ isPlaying ? '正在播放' : isPaused ? '已暂停' : '未播放' }}
-      </el-tag>
+      <div class="heading-actions">
+        <el-tag :type="snapshot.playback.is_playing ? 'success' : snapshot.current ? 'warning' : 'info'">
+          {{ statusText }}
+        </el-tag>
+        <el-button :type="activeTab === 'queue' ? 'primary' : 'default'" @click="activeTab = 'queue'">点播队列</el-button>
+        <el-button :type="activeTab === 'settings' ? 'primary' : 'default'" @click="activeTab = 'settings'">设置</el-button>
+      </div>
     </header>
 
     <el-alert v-if="error" :title="error" type="error" :closable="true" show-icon @close="error = ''" />
+    <el-alert v-if="success" :title="success" type="success" :closable="true" show-icon @close="success = ''" />
 
-    <el-card shadow="never">
-      <template #header><strong>播放 MV</strong></template>
-      <el-form label-position="top">
-        <el-form-item label="B 站 BV 号">
-          <el-input v-model="bvid" placeholder="例如 BV1xx411c7mD" clearable />
-        </el-form-item>
-        <div class="actions bilibili-actions">
-          <el-button type="primary" :loading="busy" @click="playBilibili">解析并用 mpv 播放 B 站视频</el-button>
-        </div>
-        <el-form-item label="视频直链地址">
-          <el-input v-model="url" placeholder="https://.../video.mp4 或 file:///..." clearable />
-        </el-form-item>
-        <el-form-item label="窗口标题（可选）">
-          <el-input v-model="title" placeholder="默认显示 MV" maxlength="120" />
-        </el-form-item>
-      </el-form>
-      <div class="actions">
-        <el-button type="primary" :loading="busy" @click="play">播放并打开纯视频窗口</el-button>
-        <el-button :disabled="!isPlaying && !isPaused" @click="pause">暂停</el-button>
-        <el-button :disabled="!isPaused" @click="resume">继续</el-button>
-        <el-button type="danger" plain @click="stop">停止并关闭窗口</el-button>
-      </div>
-      <p class="hint">MV 开始时会自动暂停正在播放的音乐；MV 结束或停止后，仅恢复此前正在播放的音乐。</p>
-    </el-card>
-
-    <el-card shadow="never">
-      <template #header><strong>B 站网页播放器（WebView2）</strong></template>
-      <div class="actions">
-        <el-button type="primary" :loading="browserBusy" @click="openBilibiliWebView">打开 B 站网页播放器</el-button>
-        <el-button :disabled="!browserOpen" @click="enterBilibiliWebFullscreen">B 站网页全屏</el-button>
-        <el-button :disabled="!browserOpen" @click="replayBilibiliFromStart">从头播放</el-button>
-        <el-button type="danger" plain :disabled="!browserOpen" @click="closeBilibiliWebView">关闭网页播放器</el-button>
-      </div>
-      <div class="bilibili-webview-state">
-        <div class="bilibili-webview-state-heading">
-          <div class="bilibili-webview-title">
-            <span>网页视频</span>
-            <strong>{{ bilibiliPlayback.title || '等待 B 站视频信息' }}</strong>
+    <template v-if="activeTab === 'queue'">
+      <el-card shadow="never">
+        <template #header>
+          <div class="card-heading"><strong>当前播放</strong><el-tag :type="snapshot.current ? 'success' : 'info'">{{ snapshot.current ? '播放中' : '空闲' }}</el-tag></div>
+        </template>
+        <template v-if="snapshot.current">
+          <div class="current-title">{{ snapshot.current.title || snapshot.current.bvid }}</div>
+          <div class="current-meta">
+            <span>{{ snapshot.current.bvid }}</span><span>点播人：{{ snapshot.current.requester }}</span><span>{{ formatTime(snapshot.current.duration_seconds) }}</span>
           </div>
-          <el-tag :type="bilibiliPlayback.is_playing ? 'success' : bilibiliPlayback.is_paused ? 'warning' : 'info'">
-            {{ bilibiliStatusText }}
-          </el-tag>
-        </div>
-        <div class="time-row">
-          <span>{{ formatTime(bilibiliPlayback.position_ms) }}</span>
-          <span>{{ formatTime(bilibiliPlayback.duration_ms) }}</span>
-        </div>
-        <el-progress :percentage="bilibiliProgress" :show-text="false" :stroke-width="8" />
-      </div>
-      <p class="hint">此模式直接打开 B 站原生视频页面。请在新窗口内扫码登录；WebView2 会在本机保留站点登录状态，与 mpv 模式使用的 B 站 Cookie 相互独立。网页全屏按钮会定位并点击 B 站播放器自己的网页全屏控件；从头播放会将网页视频 currentTime 设为 0。</p>
-    </el-card>
+          <div class="time-row"><span>{{ formatMS(snapshot.playback.position_ms) }}</span><span>{{ formatMS(snapshot.playback.duration_ms) }}</span></div>
+          <el-progress :percentage="progress" :show-text="false" :stroke-width="8" />
+          <div class="actions player-actions">
+            <el-button type="primary" @click="fullscreen">B站网页全屏</el-button>
+            <el-button @click="replay">从头播放</el-button>
+            <el-button @click="skipCurrent">跳过当前</el-button>
+            <el-button type="danger" plain @click="closePlayer">结束点播</el-button>
+          </div>
+        </template>
+        <el-empty v-else description="当前没有正在播放的视频" :image-size="72" />
+      </el-card>
 
-    <el-card shadow="never">
-      <template #header><strong>当前视频信息</strong></template>
-      <div class="video-info-grid">
-        <div class="video-info-item">
-          <span>实际解码分辨率</span>
-          <strong>{{ actualResolution }}</strong>
+      <el-card shadow="never">
+        <template #header>
+          <div class="card-heading"><strong>待播队列</strong><div class="queue-actions"><el-tag>{{ snapshot.queue_count }} / {{ settings.video_queue_limit }}</el-tag><el-button size="small" type="danger" plain :disabled="snapshot.queue_count === 0" @click="clearQueue">清空队列</el-button></div></div>
+        </template>
+        <div class="manual-add">
+          <el-input v-model="bvid" placeholder="输入 BV 号，主播手动加入队列" clearable @keyup.enter="addVideo" />
+          <el-button type="primary" :loading="busy" @click="addVideo">加入队列</el-button>
         </div>
-        <div class="video-info-item">
-          <span>视频编码</span>
-          <strong>{{ playback?.video_codec || '读取中' }}</strong>
-        </div>
-        <div class="video-info-item">
-          <span>音频编码</span>
-          <strong>{{ playback?.audio_codec || '读取中' }}</strong>
-        </div>
-      </div>
-      <p class="hint">分辨率来自 mpv 当前解码后的视频参数，不是 B 站接口请求的画质等级；视频尚未开始解码时会显示等待状态。</p>
-    </el-card>
+        <el-table v-if="visibleItems.length" :data="visibleItems" row-key="id" style="width:100%">
+          <el-table-column type="index" label="#" width="56" />
+          <el-table-column label="视频" min-width="220">
+            <template #default="{row}"><div class="video-name">{{ row.title }}</div><div class="video-sub">{{ row.bvid }}</div></template>
+          </el-table-column>
+          <el-table-column prop="requester" label="点播人" width="120" />
+          <el-table-column label="时长" width="90"><template #default="{row}">{{ formatTime(row.duration_seconds) }}</template></el-table-column>
+          <el-table-column label="操作" width="90" align="right"><template #default="{row}"><el-button link type="danger" @click="removeItem(row.id)">删除</el-button></template></el-table-column>
+        </el-table>
+        <el-empty v-else description="队列暂无待播视频" :image-size="72" />
+        <p v-if="snapshot.queue_count > visibleItems.length" class="hint">还有 {{ snapshot.queue_count - visibleItems.length }} 条视频未显示，可在设置中调整展示数量。</p>
+      </el-card>
+    </template>
 
-    <el-card shadow="never">
-      <template #header><strong>播放控制</strong></template>
-      <div class="time-row"><span>{{ formatTime(playback?.position_ms) }}</span><span>{{ formatTime(playback?.duration_ms) }}</span></div>
-      <el-slider
-        :model-value="seekValue"
-        :max="1000"
-        :disabled="!playback || playback.duration_ms <= 0"
-        @input="updateSeekValue"
-        @change="seek"
-      />
-      <div class="volume-row"><span>MV 音量</span><el-slider v-model="volume" :min="0" :max="100" @change="setVolume" /></div>
-      <p class="hint">视频窗口标题固定为 My-LiveHub MV，窗口本身不显示标题栏、菜单、OSD 或播放控制条。</p>
-    </el-card>
+    <template v-else>
+      <el-card shadow="never">
+        <template #header><strong>视频点播规则</strong></template>
+        <el-form label-position="top" class="settings-form">
+          <el-form-item label="允许观众点播">
+            <el-switch v-model="settings.video_requests_enabled" active-text="开启" inactive-text="关闭" />
+          </el-form-item>
+          <el-form-item label="普通观众点播冷却时间（秒）">
+            <el-input-number v-model="settings.video_request_cooldown_seconds" :min="0" :max="3600" />
+            <div class="field-hint">0 表示不限制；主播和房管不受冷却限制。</div>
+          </el-form-item>
+          <el-form-item label="待播队列上限">
+            <el-input-number v-model="settings.video_queue_limit" :min="1" :max="1000" />
+          </el-form-item>
+          <el-form-item label="普通观众单个视频最长时长（秒）">
+            <el-input-number v-model="settings.video_max_duration_seconds" :min="1" :max="3600" />
+            <div class="field-hint">主播和房管不受时长限制。</div>
+          </el-form-item>
+          <el-form-item label="粉丝勋章要求">
+            <el-switch v-model="settings.video_require_fan_medal" active-text="要求佩戴粉丝勋章" inactive-text="不要求" />
+          </el-form-item>
+          <el-form-item label="队列页面显示数量">
+            <el-input-number v-model="settings.video_queue_display_limit" :min="1" :max="100" />
+          </el-form-item>
+        </el-form>
+        <div class="actions"><el-button type="primary" :loading="saving" @click="saveSettings">保存设置</el-button></div>
+        <p class="hint">弹幕指令：发送「点播 BV号」加入队列；主播或房管发送「下一个」跳过当前视频，发送「清空视频队列」清空待播列表。</p>
+      </el-card>
+    </template>
   </section>
 </template>
 
 <style scoped>
-.video-page{display:flex;flex-direction:column;gap:20px}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.hint{color:var(--el-text-color-secondary);font-size:13px}.actions{display:flex;flex-wrap:wrap;gap:9px}.bilibili-actions{margin:0 0 14px}.hint{margin:14px 0 0}.time-row{display:flex;justify-content:space-between;color:var(--el-text-color-secondary);font-size:12px;font-variant-numeric:tabular-nums}.volume-row{display:grid;grid-template-columns:90px 1fr;align-items:center;gap:12px;margin-top:18px}.volume-row span{font-size:13px;color:var(--el-text-color-secondary)}.video-info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px}.video-info-item{display:flex;flex-direction:column;gap:7px}.video-info-item span{font-size:12px;color:var(--el-text-color-secondary)}.video-info-item strong{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}.bilibili-webview-state{display:flex;flex-direction:column;gap:10px;margin-top:18px;padding:14px;border:1px solid var(--el-border-color-lighter);border-radius:8px}.bilibili-webview-state-heading{display:flex;align-items:center;justify-content:space-between;gap:14px}.bilibili-webview-title{display:flex;flex-direction:column;gap:5px;min-width:0}.bilibili-webview-title span{font-size:12px;color:var(--el-text-color-secondary)}.bilibili-webview-title strong{font-size:14px;font-weight:600;overflow-wrap:anywhere}
+.video-page{display:flex;flex-direction:column;gap:18px}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:18px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.hint,.field-hint{color:var(--el-text-color-secondary);font-size:13px}.heading-actions,.actions,.card-heading,.queue-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.card-heading{justify-content:space-between}.current-title{font-size:18px;font-weight:650;margin-bottom:9px}.current-meta{display:flex;gap:16px;flex-wrap:wrap;color:var(--el-text-color-secondary);font-size:12px;margin-bottom:16px}.time-row{display:flex;justify-content:space-between;color:var(--el-text-color-secondary);font-size:12px;font-variant-numeric:tabular-nums;margin:14px 0 8px}.player-actions{margin-top:16px}.manual-add{display:flex;gap:10px;margin-bottom:14px}.manual-add .el-input{max-width:460px}.video-name{font-weight:600}.video-sub{font-size:12px;color:var(--el-text-color-secondary);margin-top:4px}.hint{margin:12px 0 0}.settings-form{max-width:560px}.field-hint{margin-top:4px}.settings-form :deep(.el-input-number){width:180px}
+@media(max-width:760px){.page-heading{flex-direction:column}.manual-add{flex-direction:column}.manual-add .el-input{max-width:none}}
 </style>
