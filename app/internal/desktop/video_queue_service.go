@@ -100,16 +100,20 @@ func (s *VideoQueueService) UpdateSettings(next config.BilibiliConfig) (config.B
 }
 
 func (s *VideoQueueService) AddVideo(bvid, requester string, userID int) error {
+	return s.addVideo(bvid, requester, userID, userID == 0)
+}
+
+func (s *VideoQueueService) addVideo(bvid, requester string, userID int, privileged bool) error {
 	if s == nil { return errors.New("视频点播队列不可用") }
 	bvid = strings.TrimSpace(bvid)
 	if !bilibiliBVPattern.MatchString(bvid) { return errors.New("请输入有效的 B 站 BV 号") }
 	s.mu.Lock()
 	if s.closed { s.mu.Unlock(); return errors.New("视频点播模块已关闭") }
-	if !s.settings.VideoRequestsEnabled { s.mu.Unlock(); return errors.New("视频点播当前已关闭") }
+	if !privileged && !s.settings.VideoRequestsEnabled { s.mu.Unlock(); return errors.New("视频点播当前已关闭") }
 	if s.current != nil && s.current.BVID == bvid { s.mu.Unlock(); return errors.New("该视频正在播放") }
 	for _, item := range s.queue { if item.BVID == bvid { s.mu.Unlock(); return errors.New("该视频已经在待播队列中") } }
 	if s.pending[bvid] { s.mu.Unlock(); return errors.New("该视频正在校验，请稍后") }
-	if len(s.queue) >= s.settings.VideoQueueLimit { s.mu.Unlock(); return fmt.Errorf("视频队列已满（最多 %d 条）", s.settings.VideoQueueLimit) }
+	if len(s.queue)+len(s.pending) >= s.settings.VideoQueueLimit { s.mu.Unlock(); return fmt.Errorf("视频队列已满（最多 %d 条）", s.settings.VideoQueueLimit) }
 	s.pending[bvid] = true
 	s.mu.Unlock()
 
@@ -120,7 +124,7 @@ func (s *VideoQueueService) AddVideo(bvid, requester string, userID int) error {
 	if s.closed { s.mu.Unlock(); return errors.New("视频点播模块已关闭") }
 	if s.current != nil && s.current.BVID == bvid { s.mu.Unlock(); return errors.New("该视频正在播放") }
 	for _, item := range s.queue { if item.BVID == bvid { s.mu.Unlock(); return errors.New("该视频已经在待播队列中") } }
-	if duration > s.settings.VideoMaxDurationSeconds {
+	if !privileged && duration > s.settings.VideoMaxDurationSeconds {
 		maxDuration := s.settings.VideoMaxDurationSeconds
 		s.mu.Unlock()
 		return fmt.Errorf("视频时长 %s，超过限制 %s", formatVideoDuration(duration), formatVideoDuration(maxDuration))
@@ -240,7 +244,7 @@ func (s *VideoQueueService) handleEvent(event eventstream.Event) {
 		s.lastRequest[event.UserID] = time.Now()
 	}
 	s.mu.Unlock()
-	go func() { _ = s.AddVideo(match, event.UserName, event.UserID) }()
+	go func() { _ = s.addVideo(match, event.UserName, event.UserID, event.IsModerator || event.IsRoomOwner) }()
 }
 
 func (s *VideoQueueService) Close() {
