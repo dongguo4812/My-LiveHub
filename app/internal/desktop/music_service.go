@@ -200,7 +200,7 @@ func (s *MusicService) worker() {
 	}
 }
 
-func (s *MusicService) SetFanMedalChecker(checker interface { Check(context.Context, int, int) (bool, int, error) }) {
+func (s *MusicService) setFanMedalChecker(checker interface { Check(context.Context, int, int) (bool, int, error) }) {
 	if s == nil { return }
 	s.mu.Lock()
 	s.fanMedalChecker = checker
