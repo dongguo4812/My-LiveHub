@@ -45,3 +45,25 @@ func TestLXBackupTrackPreservesNumericTopLevelIDs(t *testing.T) {
 		t.Fatalf("songmid = %q, want %q", got, "123456")
 	}
 }
+
+func TestLXBackupTrackNormalizesMetaSongIDForLyrics(t *testing.T) {
+	var song map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(`{
+		"id": 123456,
+		"source": "wy",
+		"name": "测试歌曲",
+		"meta": {"songId": 987654, "album_id": 789}
+	}`), &song); err != nil {
+		t.Fatal(err)
+	}
+	track, ok := lxBackupTrack(song)
+	if !ok {
+		t.Fatal("expected backup song to be imported")
+	}
+	if got := track.SourceData["songId"]; got != "987654" {
+		t.Fatalf("songId = %q, want %q", got, "987654")
+	}
+	if got := track.SourceData["songmid"]; got != "987654" {
+		t.Fatalf("normalized songmid = %q, want %q", got, "987654")
+	}
+}
