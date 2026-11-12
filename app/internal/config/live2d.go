@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -14,9 +15,12 @@ type Live2DConfig struct {
 	MicrophoneDeviceID string `json:"microphone_device_id"`
 	MicrophoneSensitivity float64 `json:"microphone_sensitivity"`
 	MicrophoneSmoothing float64 `json:"microphone_smoothing"`
-	ModelScale float64 `json:"model_scale"`
-	ModelOffsetX float64 `json:"model_offset_x"`
-	ModelOffsetY float64 `json:"model_offset_y"`
+	ModelScaleMOC2 float64 `json:"model_scale_moc2"`
+	ModelOffsetXMOC2 float64 `json:"model_offset_x_moc2"`
+	ModelOffsetYMOC2 float64 `json:"model_offset_y_moc2"`
+	ModelScaleMOC3 float64 `json:"model_scale_moc3"`
+	ModelOffsetXMOC3 float64 `json:"model_offset_x_moc3"`
+	ModelOffsetYMOC3 float64 `json:"model_offset_y_moc3"`
 }
 
 func DefaultLive2DConfig() Live2DConfig {
@@ -25,11 +29,54 @@ func DefaultLive2DConfig() Live2DConfig {
 		RuntimeVersion: "moc3",
 		MicrophoneSensitivity: 1.8,
 		MicrophoneSmoothing: 0.65,
-		ModelScale: 0.65,
+		ModelScaleMOC2: 0.65,
+		ModelScaleMOC3: 0.65,
 	}
 }
 
-// UnmarshalJSON migrates the former shared transform values into the active runtime\n// when reading an existing live2d.json. New configurations keep independent values.\nfunc (c *Live2DConfig) UnmarshalJSON(data []byte) error {\n\ttype plain Live2DConfig\n\tdefaults := plain(DefaultLive2DConfig())\n\tif err := json.Unmarshal(data, &defaults); err != nil { return err }\n\t*c = Live2DConfig(defaults)\n\n\tvar fields map[string]json.RawMessage\n\tif err := json.Unmarshal(data, &fields); err != nil { return err }\n\tnewTransformPresent := false\n\tfor _, key := range []string{"model_scale_moc2", "model_offset_x_moc2", "model_offset_y_moc2", "model_scale_moc3", "model_offset_x_moc3", "model_offset_y_moc3"} {\n\t\tif _, ok := fields[key]; ok { newTransformPresent = true; break }\n\t}\n\tif newTransformPresent { return nil }\n\n\tvar legacy struct {\n\t\tScale *float64 `json:"model_scale"`\n\t\tOffsetX *float64 `json:"model_offset_x"`\n\t\tOffsetY *float64 `json:"model_offset_y"`\n\t}\n\tif err := json.Unmarshal(data, &legacy); err != nil { return err }\n\tif legacy.Scale == nil && legacy.OffsetX == nil && legacy.OffsetY == nil { return nil }\n\tscale, x, y := c.ModelScaleMOC3, 0.0, 0.0\n\tif legacy.Scale != nil { scale = *legacy.Scale }\n\tif legacy.OffsetX != nil { x = *legacy.OffsetX }\n\tif legacy.OffsetY != nil { y = *legacy.OffsetY }\n\tif c.RuntimeVersion == "moc2" {\n\t\tc.ModelScaleMOC2, c.ModelOffsetXMOC2, c.ModelOffsetYMOC2 = scale, x, y\n\t} else {\n\t\tc.ModelScaleMOC3, c.ModelOffsetXMOC3, c.ModelOffsetYMOC3 = scale, x, y\n\t}\n\treturn nil\n}\n\nfunc (c Live2DConfig) Validate() error {
+// UnmarshalJSON migrates legacy shared transform values into the active runtime.
+func (c *Live2DConfig) UnmarshalJSON(data []byte) error {
+	type plain Live2DConfig
+	defaults := plain(DefaultLive2DConfig())
+	if err := json.Unmarshal(data, &defaults); err != nil {
+		return err
+	}
+	*c = Live2DConfig(defaults)
+
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	for _, key := range []string{"model_scale_moc2", "model_offset_x_moc2", "model_offset_y_moc2", "model_scale_moc3", "model_offset_x_moc3", "model_offset_y_moc3"} {
+		if _, exists := fields[key]; exists {
+			return nil
+		}
+	}
+
+	var legacy struct {
+		Scale   *float64 `json:"model_scale"`
+		OffsetX *float64 `json:"model_offset_x"`
+		OffsetY *float64 `json:"model_offset_y"`
+	}
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return err
+	}
+	if legacy.Scale == nil && legacy.OffsetX == nil && legacy.OffsetY == nil {
+		return nil
+	}
+	scale, x, y := c.ModelScaleMOC3, 0.0, 0.0
+	if legacy.Scale != nil { scale = *legacy.Scale }
+	if legacy.OffsetX != nil { x = *legacy.OffsetX }
+	if legacy.OffsetY != nil { y = *legacy.OffsetY }
+	if c.RuntimeVersion == "moc2" {
+		c.ModelScaleMOC2, c.ModelOffsetXMOC2, c.ModelOffsetYMOC2 = scale, x, y
+	} else {
+		c.ModelScaleMOC3, c.ModelOffsetXMOC3, c.ModelOffsetYMOC3 = scale, x, y
+	}
+	return nil
+}
+
+func (c Live2DConfig) Validate() error {
 	if c.RuntimeVersion != "moc2" && c.RuntimeVersion != "moc3" {
 		return fmt.Errorf("Live2D 运行时版本必须为 moc2 或 moc3")
 	}
