@@ -10,6 +10,11 @@ type BilibiliConfig struct {
 	VideoMaxDurationSeconds int `json:"video_max_duration_seconds"`
 	VideoRequireFanMedal bool `json:"video_require_fan_medal"`
 	VideoQueueDisplayLimit int `json:"video_queue_display_limit"`
+	VideoWindowX int `json:"video_window_x"`
+	VideoWindowY int `json:"video_window_y"`
+	VideoWindowWidth int `json:"video_window_width"`
+	VideoWindowHeight int `json:"video_window_height"`
+	VideoWindowBoundsSaved bool `json:"video_window_bounds_saved"`
 }
 
 func DefaultBilibiliConfig() BilibiliConfig {
