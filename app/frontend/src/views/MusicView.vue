@@ -1130,6 +1130,8 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         <div class="setting-row"><div><strong>切歌命令</strong><p>发送完整命令即可切换下一首，例如：切歌。</p></div><el-input v-model="config.skip_command" maxlength="16" style="width:220px" /></div>
         <el-divider />
         <div class="setting-row"><div><strong>播放队列容量</strong><p>统一队列允许等待的歌曲数量。</p></div><el-input-number v-model="config.queue_capacity" :min="1" :max="1000" /></div>
+        <el-divider />
+        <div class="setting-row"><div><strong>响度标准化</strong><p>使用 EBU R128 动态响度标准化，统一不同歌曲的整体响度并限制峰值；目标 -16 LUFS，真峰值不高于 -1.5 dBTP。</p></div><el-switch v-model="config.loudness_normalization" /></div>
       </div>
       <div class="card-actions"><el-button type="primary" :loading="saving" :disabled="!config" @click="saveConfig">保存全部设置</el-button></div>
     </el-card>
