@@ -1,10 +1,20 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { Events } from '@wailsio/runtime'
 import * as VideoService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/videoservice.js'
 import * as BilibiliVideoService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/bilibilivideoservice.js'
 import * as BilibiliWebViewService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/bilibiliwebviewservice.js'
 
 type PlaybackSnapshot = Awaited<ReturnType<typeof VideoService.GetPlaybackStatus>>
+interface BilibiliWebViewPlaybackState {
+  is_open: boolean
+  title: string
+  position_ms: number
+  duration_ms: number
+  is_playing: boolean
+  is_paused: boolean
+  is_ended: boolean
+}
 const bvid = ref('')
 const url = ref('')
 const title = ref('')
@@ -15,7 +25,12 @@ const isSeeking = ref(false)
 const busy = ref(false)
 const browserBusy = ref(false)
 const browserOpen = ref(false)
+const bilibiliPlayback = ref<BilibiliWebViewPlaybackState>({
+  is_open: false, title: '', position_ms: 0, duration_ms: 0,
+  is_playing: false, is_paused: false, is_ended: false,
+})
 const error = ref('')
+let unsubscribeBilibiliState: (() => void) | undefined
 let timer: ReturnType<typeof setInterval> | undefined
 
 const progress = computed(() => {
@@ -24,6 +39,18 @@ const progress = computed(() => {
 })
 const isPlaying = computed(() => playback.value?.state === 'playing')
 const isPaused = computed(() => playback.value?.state === 'paused')
+const bilibiliProgress = computed(() => {
+  const duration = bilibiliPlayback.value.duration_ms
+  if (duration <= 0) return 0
+  return Math.min(100, Math.max(0, bilibiliPlayback.value.position_ms / duration * 100))
+})
+const bilibiliStatusText = computed(() => {
+  if (!bilibiliPlayback.value.is_open) return '未打开'
+  if (bilibiliPlayback.value.is_ended) return '已结束'
+  if (bilibiliPlayback.value.is_playing) return '正在播放'
+  if (bilibiliPlayback.value.is_paused) return '已暂停'
+  return '等待视频加载'
+})
 const actualResolution = computed(() => {
   const width = playback.value?.video_width ?? 0
   const height = playback.value?.video_height ?? 0
@@ -42,7 +69,8 @@ async function refresh() {
     if (!isSeeking.value) seekValue.value = progress.value * 10
   } catch { /* The video process may not have been started yet. */ }
   try {
-    browserOpen.value = (await BilibiliWebViewService.GetWindowState()).is_open
+    bilibiliPlayback.value = await BilibiliWebViewService.GetPlaybackState()
+    browserOpen.value = bilibiliPlayback.value.is_open
   } catch { /* The browser window may not have been initialised yet. */ }
 }
 async function playBilibili() {
@@ -128,10 +156,17 @@ async function setVolume(value: number | number[]) {
   catch (reason) { error.value = String(reason) }
 }
 onMounted(() => {
+  unsubscribeBilibiliState = Events.On('bilibili-player-state', (event) => {
+    bilibiliPlayback.value = event.data as BilibiliWebViewPlaybackState
+    browserOpen.value = bilibiliPlayback.value.is_open
+  })
   void refresh()
   timer = setInterval(() => void refresh(), 700)
 })
-onUnmounted(() => { if (timer) clearInterval(timer) })
+onUnmounted(() => {
+  unsubscribeBilibiliState?.()
+  if (timer) clearInterval(timer)
+})
 </script>
 
 <template>
@@ -182,6 +217,22 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
         <el-button :disabled="!browserOpen" @click="replayBilibiliFromStart">从头播放</el-button>
         <el-button type="danger" plain :disabled="!browserOpen" @click="closeBilibiliWebView">关闭网页播放器</el-button>
       </div>
+      <div class="bilibili-webview-state">
+        <div class="bilibili-webview-state-heading">
+          <div class="bilibili-webview-title">
+            <span>网页视频</span>
+            <strong>{{ bilibiliPlayback.title || '等待 B 站视频信息' }}</strong>
+          </div>
+          <el-tag :type="bilibiliPlayback.is_playing ? 'success' : bilibiliPlayback.is_paused ? 'warning' : 'info'">
+            {{ bilibiliStatusText }}
+          </el-tag>
+        </div>
+        <div class="time-row">
+          <span>{{ formatTime(bilibiliPlayback.position_ms) }}</span>
+          <span>{{ formatTime(bilibiliPlayback.duration_ms) }}</span>
+        </div>
+        <el-progress :percentage="bilibiliProgress" :show-text="false" :stroke-width="8" />
+      </div>
       <p class="hint">此模式直接打开 B 站原生视频页面。请在新窗口内扫码登录；WebView2 会在本机保留站点登录状态，与 mpv 模式使用的 B 站 Cookie 相互独立。网页全屏按钮会定位并点击 B 站播放器自己的网页全屏控件；从头播放会将网页视频 currentTime 设为 0。</p>
     </el-card>
 
@@ -221,5 +272,5 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 </template>
 
 <style scoped>
-.video-page{display:flex;flex-direction:column;gap:20px}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.hint{color:var(--el-text-color-secondary);font-size:13px}.actions{display:flex;flex-wrap:wrap;gap:9px}.bilibili-actions{margin:0 0 14px}.hint{margin:14px 0 0}.time-row{display:flex;justify-content:space-between;color:var(--el-text-color-secondary);font-size:12px;font-variant-numeric:tabular-nums}.volume-row{display:grid;grid-template-columns:90px 1fr;align-items:center;gap:12px;margin-top:18px}.volume-row span{font-size:13px;color:var(--el-text-color-secondary)}.video-info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px}.video-info-item{display:flex;flex-direction:column;gap:7px}.video-info-item span{font-size:12px;color:var(--el-text-color-secondary)}.video-info-item strong{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+.video-page{display:flex;flex-direction:column;gap:20px}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.hint{color:var(--el-text-color-secondary);font-size:13px}.actions{display:flex;flex-wrap:wrap;gap:9px}.bilibili-actions{margin:0 0 14px}.hint{margin:14px 0 0}.time-row{display:flex;justify-content:space-between;color:var(--el-text-color-secondary);font-size:12px;font-variant-numeric:tabular-nums}.volume-row{display:grid;grid-template-columns:90px 1fr;align-items:center;gap:12px;margin-top:18px}.volume-row span{font-size:13px;color:var(--el-text-color-secondary)}.video-info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px}.video-info-item{display:flex;flex-direction:column;gap:7px}.video-info-item span{font-size:12px;color:var(--el-text-color-secondary)}.video-info-item strong{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}.bilibili-webview-state{display:flex;flex-direction:column;gap:10px;margin-top:18px;padding:14px;border:1px solid var(--el-border-color-lighter);border-radius:8px}.bilibili-webview-state-heading{display:flex;align-items:center;justify-content:space-between;gap:14px}.bilibili-webview-title{display:flex;flex-direction:column;gap:5px;min-width:0}.bilibili-webview-title span{font-size:12px;color:var(--el-text-color-secondary)}.bilibili-webview-title strong{font-size:14px;font-weight:600;overflow-wrap:anywhere}
 </style>
