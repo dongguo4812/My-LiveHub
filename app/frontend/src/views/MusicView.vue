@@ -46,15 +46,21 @@ const error = ref('')
 const success = ref('')
 let statusTimer: ReturnType<typeof setInterval> | undefined
 
+const seeking = ref(false)
+const seekPreview = ref(0)
 const progress = computed(() => {
+  if (seeking.value) return seekPreview.value
   if (!playback.value || playback.value.duration_ms <= 0) return 0
   return Math.min(100, Math.max(0, playback.value.position_ms / playback.value.duration_ms * 100))
 })
 const searchErrorText = computed(() => Object.values(searchErrors.value).join('；'))
 function formatDuration(value?: number) {
-  if (!value || value < 0) return '--:--'
-  const seconds = Math.floor(value / 1000)
-  return `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`
+  if (value == null || !Number.isFinite(Number(value)) || Number(value) < 0) return '--:--'
+  // Playback snapshots expose milliseconds. Fractional values are treated as
+  // seconds as a defensive fallback for providers that return decimal clocks.
+  const numeric = Number(value)
+  const seconds = Math.floor(numeric % 1 === 0 ? numeric / 1000 : numeric)
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 }
 function sourceName(id?: string) {
   const names: Record<string, string> = { kw: '酷我音乐', kg: '酷狗音乐', tx: 'QQ 音乐', wy: '网易云音乐', mg: '咪咕音乐' }
@@ -455,10 +461,26 @@ async function setVolume(value: number | number[]) {
   const next = Array.isArray(value) ? value[0] : value
   try { await MusicService.SetVolume(next); volume.value = next } catch (reason) { error.value = String(reason) }
 }
-async function seekTo(value: number | number[]) {
-  if (!playback.value || playback.value.duration_ms <= 0) return
+function previewSeek(value: number | number[]) {
   const percent = Array.isArray(value) ? value[0] : value
-  try { await MusicService.Seek(Math.round(playback.value.duration_ms * percent / 100)); await refreshPlayback() } catch (reason) { error.value = String(reason) }
+  seekPreview.value = Math.min(100, Math.max(0, Number(percent) || 0))
+  seeking.value = true
+}
+async function seekTo(value: number | number[]) {
+  if (!playback.value || playback.value.duration_ms <= 0) {
+    seeking.value = false
+    return
+  }
+  const percent = Math.min(100, Math.max(0, Number(Array.isArray(value) ? value[0] : value) || 0))
+  const targetMS = Math.round(playback.value.duration_ms * percent / 100)
+  try {
+    await MusicService.Seek(targetMS)
+    await refreshPlayback()
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  } finally {
+    seeking.value = false
+  }
 }
 
 onMounted(() => {
@@ -508,7 +530,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
           <el-tag v-else-if="queue?.current" type="warning" size="small">观众点播</el-tag>
         </div>
       </div>
-      <el-slider :model-value="progress" :disabled="!playback?.track || !playback.duration_ms" @change="seekTo" />
+      <el-slider :model-value="progress" :min="0" :max="100" :step="0.1" :disabled="!playback?.track || !playback.duration_ms" @input="previewSeek" @change="seekTo" />
       <div class="time-row"><span>{{ formatDuration(playback?.position_ms) }}</span><span>{{ formatDuration(playback?.duration_ms) }}</span></div>
       <div class="player-controls">
         <el-button type="primary" @click="addHostPlaylistToQueue">播放</el-button>
