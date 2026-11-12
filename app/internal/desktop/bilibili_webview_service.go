@@ -41,6 +41,7 @@ type BilibiliWebViewService struct {
 	runtimeReady  bool
 	pendingVideoURL string
 	playbackState BilibiliWebViewPlaybackState
+	playbackStateHandler func(BilibiliWebViewPlaybackState)
 }
 
 func NewBilibiliWebViewService(musicService musicPlaybackController) *BilibiliWebViewService {
@@ -148,6 +149,13 @@ func (s *BilibiliWebViewService) OpenVideo(bvid string) error {
 	return nil
 }
 
+func (s *BilibiliWebViewService) SetPlaybackStateHandler(handler func(BilibiliWebViewPlaybackState)) {
+	if s == nil { return }
+	s.mu.Lock()
+	s.playbackStateHandler = handler
+	s.mu.Unlock()
+}
+
 func (s *BilibiliWebViewService) EnterWebFullscreen() error {
 	window := s.currentWindow()
 	if window == nil {
@@ -247,8 +255,10 @@ func HandleBilibiliWebViewRawMessage(s *BilibiliWebViewService, windowName, mess
 	}
 	state.IsOpen = true
 	s.playbackState = state
+	handler := s.playbackStateHandler
 	s.mu.Unlock()
 	s.emitPlaybackState(state)
+	if handler != nil { handler(state) }
 }
 
 func isTrustedBilibiliOrigin(origin, topOrigin string) bool {
