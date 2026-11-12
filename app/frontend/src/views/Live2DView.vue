@@ -15,8 +15,6 @@ type LegacyModel = {
     tr: Float32Array
     getScaleX: () => number
     getScaleY: () => number
-    getTranslateX: () => number
-    getTranslateY: () => number
     scale: (x: number, y: number) => void
     centerX: (x: number) => void
     centerY: (y: number) => void
@@ -148,8 +146,8 @@ function applyModelTransform() {
       model,
       scaleX,
       scaleY,
-      centerX: matrix.getTranslateX() + matrix.width * scaleX / 2,
-      centerY: matrix.getTranslateY() + matrix.height * scaleY / 2,
+      centerX: matrix.tr[12] + matrix.width * scaleX / 2,
+      centerY: matrix.tr[13] + matrix.height * scaleY / 2,
     }
   }
   const base = activeMoc2TransformBase
