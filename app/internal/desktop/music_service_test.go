@@ -75,7 +75,7 @@ func TestMoveHostTrackBetweenPlaylists(t *testing.T) {
 				{ID: "two", SourceID: "tx", Title: "第二首"},
 				{ID: "three", SourceID: "tx", Title: "第三首"},
 			}},
-			{ID: "b", Name: "B", Tracks: []music.Track{{ID: "existing", SourceID: "tx", Title: "已有歌曲"}}},
+			{ID: "b", Name: "B", Tracks: []music.Track{{ID: "two", SourceID: "tx", Title: "第二首"}}},
 		},
 	}
 	if err := moveHostTrackBetweenPlaylists(st, "a", "b", "tx", "one"); err != nil { t.Fatal(err) }

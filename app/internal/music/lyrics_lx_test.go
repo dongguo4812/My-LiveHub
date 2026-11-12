@@ -65,3 +65,17 @@ func TestGetKugouMusicLyricsUsesLXSearchAndDownloadFlow(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	if !strings.Contains(got,"[00:01.00]第一句") || !strings.Contains(got,"[00:02.50]第二句") { t.Fatalf("unexpected LRC result: %s",got) }
 }
+
+func TestParseLXPlainLyricRemovesWordTiming(t *testing.T) {
+	got := parseLXPlainLyric("[00:01.000]<0,200>春<200,300>风")
+	if !strings.Contains(got, "[00:01.000]春风") { t.Fatalf("unexpected Kuwo lyric: %q", got) }
+}
+func TestParseMiguLyricConvertsMillisecondTimestamps(t *testing.T) {
+	got := parseMiguLyric("[1000,2000](1000,500)春风(1500,500)十里")
+	if !strings.Contains(got, "[00:01.000]春风十里") { t.Fatalf("unexpected Migu lyric: %q", got) }
+}
+func TestDecryptMiguLyricLeavesPlainShortPayload(t *testing.T) {
+	got, err := decryptMiguLyric("plain")
+	if err != nil { t.Fatal(err) }
+	if got != "plain" { t.Fatalf("got %q", got) }
+}
