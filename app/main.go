@@ -212,6 +212,7 @@ func main() {
 	desktop.AttachMusicLyricsWindowApplication(musicLyricsWindowService, app)
 	desktop.AttachBilibiliWebViewApplication(bilibiliWebViewService, app)
 	app.OnShutdown(func() {
+		live2dService.Shutdown()
 		danmakuDisplayService.CloseWindowForShutdown()
 		musicLyricsWindowService.CloseWindowForShutdown()
 		videoQueueService.Close()
