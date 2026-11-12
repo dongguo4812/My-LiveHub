@@ -23,6 +23,10 @@ type PlaybackSnapshot struct {
 	DurationMS int64 `json:"duration_ms"`
 	Volume int `json:"volume"`
 	Error string `json:"error,omitempty"`
+	VideoWidth int `json:"video_width,omitempty"`
+	VideoHeight int `json:"video_height,omitempty"`
+	VideoCodec string `json:"video_codec,omitempty"`
+	AudioCodec string `json:"audio_codec,omitempty"`
 }
 
 // PlaybackEngineAudioProcessing exposes optional audio processing controls
