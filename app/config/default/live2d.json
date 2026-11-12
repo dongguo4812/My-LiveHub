@@ -1,0 +1,10 @@
+{
+  "enabled": true,
+  "runtime_version": "moc3",
+  "default_model_moc2": "",
+  "default_model_moc3": "",
+  "microphone_enabled": false,
+  "microphone_device_id": "",
+  "microphone_sensitivity": 1.8,
+  "microphone_smoothing": 0.65
+}
