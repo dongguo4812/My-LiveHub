@@ -166,7 +166,11 @@ func (c *LXSearchClient) SearchSources(ctx context.Context, keyword string, page
 		return result, errs, nil
 	}
 	result.Tracks = deduplicateLXTracks(result.Tracks)
-	result.Tracks = sortLXTracksByRelevance(result.Tracks, keyword)
+	// Keep the selected provider's native ranking when only one source is
+	// queried. Relevance sorting is reserved for cross-provider aggregation.
+	if len(providers) > 1 {
+		result.Tracks = sortLXTracksByRelevance(result.Tracks, keyword)
+	}
 	if page > 1 && (result.Total == 0 || len(result.Tracks) == 0) { result.Total = int64(result.PageSize * page) }
 	return result, errs, nil
 }

@@ -182,3 +182,18 @@ func TestEAPIEncryptProducesHexCiphertext(t *testing.T) {
 	if _,err:=json.Marshal(a);err!=nil{t.Fatal(err)}
 	if strings.ToUpper(a)!=a { t.Fatal("EAPI ciphertext must be uppercase hex") }
 }
+
+func TestLXSearchSingleProviderPreservesNativeOrder(t *testing.T) {
+	client := &LXSearchClient{providers: []SearchProvider{
+		stubSearchProvider{id:"tx", result:SearchPage{Tracks:[]Track{
+			{ID:"tx:1",SourceID:"tx",Title:"稻香",Artist:"于潼"},
+			{ID:"tx:2",SourceID:"tx",Title:"稻香",Artist:"周杰伦"},
+		},Total:2,Page:1,PageSize:30,MaxPage:1}},
+	}}
+	result, errs, err := client.SearchSources(context.Background(), "稻香", 1, []string{"tx"})
+	if err != nil { t.Fatal(err) }
+	if len(errs) != 0 { t.Fatalf("unexpected provider errors: %#v", errs) }
+	if len(result.Tracks) != 2 || result.Tracks[0].Artist != "于潼" || result.Tracks[1].Artist != "周杰伦" {
+		t.Fatalf("single-provider search must preserve provider-native order, got %#v", result.Tracks)
+	}
+}
