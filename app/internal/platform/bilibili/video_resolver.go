@@ -44,7 +44,7 @@ type VideoResolver struct {
 	playURL string
 }
 
-func NewVideoResolver(auth *AuthManager, client *http.Client) (*VideoResolver, error) {
+func NewVideoResolver(auth VideoCredentialProvider, client *http.Client) (*VideoResolver, error) {
 	if auth == nil { return nil, errors.New("B 站登录管理器不能为空") }
 	if client == nil { client = &http.Client{Timeout: 20 * time.Second} }
 	return &VideoResolver{auth:auth, client:client, now:time.Now, viewURL:videoViewURL, navURL:videoNavURL, playURL:videoPlayURL}, nil
@@ -90,7 +90,7 @@ func (r *VideoResolver) Resolve(ctx context.Context, rawBVID string) (VideoPlayb
 	// Ask for the interleaved MP4/DURL stream so mpv does not need separate
 	// video and audio URLs or an external muxer.
 	params := url.Values{
-		"bvid":{bvid}, "cid":{strconv.FormatInt(cid,10)}, "qn":{"80"},
+		"bvid":{bvid}, "cid":{strconv.FormatInt(cid,10)}, "qn":{"16"},
 		"fnval":{"1"}, "fnver":{"0"}, "fourk":{"1"}, "platform":{"html5"},
 	}
 	signed := signVideoWBI(params, imgKey, subKey, r.now())
