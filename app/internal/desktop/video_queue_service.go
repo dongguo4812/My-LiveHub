@@ -66,7 +66,7 @@ func NewVideoQueueService(manager *config.Manager, settings config.BilibiliConfi
 	return s, nil
 }
 
-func (s *VideoQueueService) SetFanMedalChecker(checker interface { Check(context.Context, int, int) (bool, int, error) }) {
+func (s *VideoQueueService) setFanMedalChecker(checker interface { Check(context.Context, int, int) (bool, int, error) }) {
 	if s == nil { return }
 	s.mu.Lock()
 	s.fanMedalChecker = checker
