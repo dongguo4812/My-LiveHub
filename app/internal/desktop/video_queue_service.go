@@ -49,6 +49,7 @@ type VideoQueueService struct {
 	pending map[string]bool
 	nextID uint64
 	closed bool
+	fanMedalChecker interface { Check(context.Context, int, int) (bool, int, error) }
 }
 
 var videoRequestBVPattern = regexp.MustCompile(`(?i)BV[0-9A-Za-z]{10}`)
@@ -62,6 +63,13 @@ func NewVideoQueueService(manager *config.Manager, settings config.BilibiliConfi
 	s.unsubscribe = eventBuffer.Subscribe(s.handleEvent)
 	webview.setPlaybackStateHandler(s.handlePlaybackState)
 	return s, nil
+}
+
+func (s *VideoQueueService) SetFanMedalChecker(checker interface { Check(context.Context, int, int) (bool, int, error) }) {
+	if s == nil { return }
+	s.mu.Lock()
+	s.fanMedalChecker = checker
+	s.mu.Unlock()
 }
 
 func (s *VideoQueueService) GetSnapshot() VideoQueueSnapshot {
@@ -244,12 +252,26 @@ func (s *VideoQueueService) handleEvent(event eventstream.Event) {
 	if !strings.HasPrefix(text, "点播") { return }
 	match := videoRequestBVPattern.FindString(text)
 	if match == "" { return }
+	go s.processVideoRequest(event, match)
+}
+
+func (s *VideoQueueService) processVideoRequest(event eventstream.Event, bvid string) {
+	privileged := event.IsModerator || event.IsRoomOwner
 	s.mu.Lock()
-	if !event.IsModerator && !event.IsRoomOwner {
-		if s.settings.VideoRequireFanMedal && event.FanMedalLevel <= 0 {
-			s.mu.Unlock()
-			return
-		}
+	requireMedal := s.settings.VideoRequireFanMedal
+	minLevel := s.settings.VideoFanMedalLevel
+	checker := s.fanMedalChecker
+	s.mu.Unlock()
+	if !privileged && requireMedal {
+		if minLevel < 1 { minLevel = 1 }
+		if checker == nil { return }
+		ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
+		allowed, _, err := checker.Check(ctx, event.UserID, minLevel)
+		cancel()
+		if err != nil || !allowed { return }
+	}
+	s.mu.Lock()
+	if !privileged {
 		cooldown := time.Duration(s.settings.VideoRequestCooldownSeconds) * time.Second
 		if previous, ok := s.lastRequest[event.UserID]; ok && cooldown > 0 && time.Since(previous) < cooldown {
 			s.mu.Unlock()
@@ -258,7 +280,7 @@ func (s *VideoQueueService) handleEvent(event eventstream.Event) {
 		s.lastRequest[event.UserID] = time.Now()
 	}
 	s.mu.Unlock()
-	go func() { _ = s.addVideo(match, event.UserName, event.UserID, event.IsModerator || event.IsRoomOwner) }()
+	_ = s.addVideo(bvid, event.UserName, event.UserID, privileged)
 }
 
 func (s *VideoQueueService) Close() {
