@@ -27,6 +27,7 @@ const lxSearchSourceOptions = ref<Record<string, LXSearchSourceOption[]>>({})
 // Serialize writes per LX source and ignore stale read-backs from earlier UI changes.
 const lxSearchSourceSaveQueues = new Map<string, Promise<void>>()
 const lxSearchSourceRevisions = new Map<string, number>()
+let lxSourcesRefreshRevision = 0
 const activeLXSourceID = ref('')
 const validatingLXSourceID = ref('')
 const lxSourceURL = ref('')
@@ -282,24 +283,51 @@ async function loadConfig() {
   }
 }
 async function refreshLXSources() {
+  const refreshRevision = ++lxSourcesRefreshRevision
   try {
-    lxSources.value = await MusicService.GetLXUserSources()
-    const optionEntries = await Promise.all(lxSources.value.map(async source => [source.id, await MusicService.GetLXSearchSourceOptions(source.id)] as const))
-    lxSearchSourceOptions.value = Object.fromEntries(optionEntries)
+    const sources = await MusicService.GetLXUserSources()
+    if (refreshRevision !== lxSourcesRefreshRevision) return
+
+    // Take a per-source snapshot before reading persisted options. A refresh
+    // must never replace optimistic checkbox state while a save is in flight,
+    // nor may an older response overwrite a newer user interaction.
+    const optionEntries = await Promise.all(sources.map(async source => {
+      const revision = lxSearchSourceRevisions.get(source.id) ?? 0
+      const saveInProgress = lxSearchSourceSaveQueues.has(source.id)
+      const options = await MusicService.GetLXSearchSourceOptions(source.id)
+      return { id: source.id, options, revision, saveInProgress }
+    }))
+    if (refreshRevision !== lxSourcesRefreshRevision) return
+
+    lxSources.value = sources
+    const nextOptions: Record<string, LXSearchSourceOption[]> = {}
+    for (const entry of optionEntries) {
+      const revisionUnchanged = (lxSearchSourceRevisions.get(entry.id) ?? 0) === entry.revision
+      const current = lxSearchSourceOptions.value[entry.id]
+      nextOptions[entry.id] = !entry.saveInProgress && revisionUnchanged
+        ? entry.options
+        : (current ?? entry.options)
+    }
+    lxSearchSourceOptions.value = nextOptions
+
     // Restore each source's persisted validation result into the view state.
     // The backend returns this only for the exact script version that passed.
     lxValidation.value = Object.fromEntries(
-      lxSources.value.flatMap(source => {
+      sources.flatMap(source => {
         const persisted = (source as LXSource & { validation?: LXValidation | null }).validation
         return persisted?.initialized ? [[source.id, persisted]] : []
       }),
     )
-    activeLXSourceID.value = await MusicService.GetActiveLXUserSourceID()
+    const activeSourceID = await MusicService.GetActiveLXUserSourceID()
+    if (refreshRevision !== lxSourcesRefreshRevision) return
+    activeLXSourceID.value = activeSourceID
     if (selectedSource.value !== 'all' && !searchableSources.value.some(source => source.id === selectedSource.value)) {
       selectedSource.value = 'all'
     }
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
+    if (refreshRevision === lxSourcesRefreshRevision) {
+      error.value = reason instanceof Error ? reason.message : String(reason)
+    }
   }
 }
 function chooseLXSourceFile() { sourceFileInput.value?.click() }
