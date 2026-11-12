@@ -87,9 +87,9 @@ func NewMusicService(manager *config.Manager, value config.MusicConfig, buffers 
 
 // NewMusicServiceWithFanMedalChecker wires the medal checker as an internal dependency.
 func NewMusicServiceWithFanMedalChecker(manager *config.Manager, value config.MusicConfig, checker interface { Check(context.Context, int, int) (bool, int, error) }, buffers ...*events.Buffer) *MusicService {
-\tservice := NewMusicService(manager, value, buffers...)
-\tservice.fanMedalChecker = checker
-\treturn service
+	service := NewMusicService(manager, value, buffers...)
+	service.fanMedalChecker = checker
+	return service
 }
 
 func NewMusicServiceWithDependencies(manager *config.Manager, value config.MusicConfig, sources *music.SourceRegistry, engine music.PlaybackEngine, buffers ...*events.Buffer) *MusicService {
