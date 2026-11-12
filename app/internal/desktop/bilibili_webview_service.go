@@ -516,7 +516,7 @@ func (s *BilibiliWebViewService) emitPlaybackState(state BilibiliWebViewPlayback
 const bilibiliPageReadyHandshakeScript = `(() => {
   try {
     const host = (location.hostname || '').toLowerCase();
-    const match = location.pathname.match(/\\/(BV[0-9A-Za-z]{10})(?:\\/|$)/);
+    const match = location.pathname.match(/\/(BV[0-9A-Za-z]{10})(?:\/|$)/);
     if (host === 'www.bilibili.com' && match) {
       window.chrome?.webview?.postMessage(JSON.stringify({
         type: 'bilibili-page-ready',
