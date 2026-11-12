@@ -34,7 +34,7 @@ func (s *BilibiliVideoService) PlayBilibiliVideo(bvid string) error {
 	if strings.TrimSpace(playback.ResourceURL)=="" {return errors.New("B 站没有返回视频播放地址")}
 	title:=strings.TrimSpace(playback.Title)
 	if title=="" {title=bvid}
-	return s.video.PlayResource(music.PlaybackResource{URL:playback.ResourceURL,Headers:playback.Headers},title)
+	return s.video.PlayResourceWithSubtitle(music.PlaybackResource{URL:playback.ResourceURL,Headers:playback.Headers},title,playback.DanmakuASS)
 }
 
 func (s *BilibiliVideoService) StopBilibiliVideo() error {
