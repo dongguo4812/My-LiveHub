@@ -2,8 +2,6 @@ package desktop
 
 import (
 	"testing"
-
-	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 func TestParseBilibiliPlayerState(t *testing.T) {
