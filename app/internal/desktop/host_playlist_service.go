@@ -327,6 +327,16 @@ func lxBackupTrack(song map[string]json.RawMessage)(music.Track,bool){
 	for k,v:=range song{if value:=lxBackupScalarString(v);value!=""{track.SourceData[k]=value}}
 	var meta map[string]json.RawMessage;_ = json.Unmarshal(song["meta"],&meta)
 	for k,v:=range meta{if value:=lxBackupScalarString(v);value!=""{track.SourceData[k]=value}}
+	// LX backup formats are not consistent: NetEase identifiers may be stored
+	// as meta.songId, while the lyric adapter expects SourceData["songmid"].
+	// Normalize the provider-native identifier at import time so the persisted
+	// Track is immediately usable by the same lyric path as search results.
+	if track.SourceData["songmid"]=="" {
+		for _,key:=range []string{"songId","song_id","id"} {
+			if value:=strings.TrimSpace(track.SourceData[key]);value!="" { track.SourceData["songmid"]=value;break }
+		}
+	}
+	if track.SourceData["songmid"]=="" { track.SourceData["songmid"]=track.ID }
 	_ = json.Unmarshal(meta["picUrl"],&track.CoverURL)
 	if d:=read("duration_ms");d!=""{track.DurationMS,_=strconv.ParseInt(d,10,64)} else if interval:=read("interval");interval!=""{track.DurationMS=parseLXInterval(interval)}
 	var qualities []map[string]json.RawMessage
