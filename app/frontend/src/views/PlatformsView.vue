@@ -24,7 +24,7 @@ const liveStatusLabels: Record<string, string> = { live: '直播中', offline: '
 const liveStatusTypes: Record<string, 'info'|'success'> = { live: 'success', offline: 'info', loop: 'info', unknown: 'info' }
 let pollTimer: ReturnType<typeof setInterval> | undefined
 let eventTimer: ReturnType<typeof setInterval> | undefined
-const bilibiliConnected = computed(() => platforms.value.some(item => item.platform_id === 'bilibili' && item.status !== 'disconnected'))
+const bilibiliConnected = computed(() => platforms.value.some(item => item.platform_id === 'bilibili' && ['connecting', 'connected', 'disconnecting'].includes(item.status)))
 const bilibiliDanmakuEvents = computed(() => platformEvents.value.filter(event => event.platform_id === 'bilibili' && event.type === 'danmaku'))
 
 async function submitBrowserCookie() {
@@ -76,7 +76,7 @@ onUnmounted(() => {
         <div class="cookie-login"><el-input v-model="browserCookie" type="password" show-password autocomplete="off" placeholder="粘贴浏览器中 bilibili.com 的 Cookie 请求头（包含 SESSDATA）" /><div class="cookie-actions"><span>仅提取登录验证所需字段；验证成功后使用 Windows DPAPI 加密保存。</span><el-button type="primary" :loading="bilibiliCookieBusy" :disabled="!browserCookie.trim()" @click="submitBrowserCookie">使用 Cookie 登录</el-button></div></div>
       </div>
       <el-divider />
-      <div class="room-settings"><div><div class="room-label-row"><strong>直播间房间号</strong><span v-if="bilibiliConnected" class="hint">断开直播间连接后才能修改房间号或退出账号。</span></div><p>填写直播间 URL 中的房间号，设置保存在本地配置。</p></div><div class="room-controls"><el-input-number v-model="roomID" :min="1" :max="2147483647" :disabled="bilibiliConnected" controls-position="right" /><el-button type="primary" :loading="bilibiliSettingsBusy" :disabled="bilibiliConnected || roomID === bilibiliSettings.room_id" @click="saveRoomID">保存房间号</el-button></div></div>
+      <div class="room-settings"><div><div class="room-label-row"><strong>直播间房间号</strong><span v-if="bilibiliConnected" class="hint">直播间连接中或已连接时，不能修改房间号或退出账号。</span></div><p>填写直播间 URL 中的房间号，设置保存在本地配置。</p></div><div class="room-controls"><el-input-number v-model="roomID" :min="1" :max="2147483647" :disabled="bilibiliConnected" controls-position="right" /><el-button type="primary" :loading="bilibiliSettingsBusy" :disabled="bilibiliConnected || roomID === bilibiliSettings.room_id" @click="saveRoomID">保存房间号</el-button></div></div>
     </el-card>
     <el-card shadow="never" class="planned-platform-card">
       <template #header><div class="card-heading"><div class="card-title"><svg class="douyin-logo" viewBox="0 0 48 48" role="img" aria-label="抖音"><path class="douyin-cyan" d="M29 7v22.5a8 8 0 1 1-7-7.95V14.5c4.2 4.2 8.5 6.3 13 6.5V13c-2.7-.5-4.8-2.5-6-6Z" /><path class="douyin-red" d="M32 7v22.5a8 8 0 1 1-7-7.95V14.5c4.2 4.2 8.5 6.3 13 6.5V13c-2.7-.5-4.8-2.5-6-6Z" /><path class="douyin-main" d="M30.5 7v22.5a8 8 0 1 1-7-7.95V14.5c4.2 4.2 8.5 6.3 13 6.5V13c-2.7-.5-4.8-2.5-6-6Z" /></svg><span>抖音账号</span></div><el-tag type="info" effect="plain">暂未接入</el-tag></div></template>
