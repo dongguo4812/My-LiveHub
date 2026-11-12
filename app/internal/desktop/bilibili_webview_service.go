@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/music"
+	"github.com/dongguo4812/My-LiveHub/app/internal/config"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
@@ -42,6 +43,7 @@ type BilibiliWebViewPlaybackState struct {
 type BilibiliWebViewService struct {
 	mu            sync.RWMutex
 	app           *application.App
+	configManager *config.Manager
 	window        *application.WebviewWindow
 	music         musicPlaybackController
 	resumeMusic   bool
@@ -51,8 +53,12 @@ type BilibiliWebViewService struct {
 	playbackStateHandler func(BilibiliWebViewPlaybackState)
 }
 
-func NewBilibiliWebViewService(musicService musicPlaybackController) *BilibiliWebViewService {
-	return &BilibiliWebViewService{music: musicService}
+func NewBilibiliWebViewService(musicService musicPlaybackController, managers ...*config.Manager) *BilibiliWebViewService {
+	service := &BilibiliWebViewService{music: musicService}
+	if len(managers) > 0 {
+		service.configManager = managers[0]
+	}
+	return service
 }
 
 func AttachBilibiliWebViewApplication(s *BilibiliWebViewService, app *application.App) {
@@ -109,16 +115,22 @@ func (s *BilibiliWebViewService) OpenVideo(bvid string) error {
 	// this hidden window on the local app origin first, then navigate to
 	// Bilibili; the runtime-ready state remains available for later ExecJS
 	// calls, while the remote page itself never receives Wails bindings.
+	width, height, x, y, hasSavedBounds := s.loadWindowBounds()
 	window := s.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:      "bilibili-webview-player",
 		Title:     "Bilibili 视频播放器",
-		Width:     1280,
-		Height:    800,
+		Width:     width,
+		Height:    height,
 		MinWidth:  800,
 		MinHeight: 560,
 		Hidden:    true,
 		URL:       "/",
 	})
+	if hasSavedBounds {
+		window.SetPosition(x, y)
+	} else {
+		window.Center()
+	}
 	s.window = window
 	s.pendingVideoURL = videoURL
 	s.playbackState = BilibiliWebViewPlaybackState{IsOpen: true}
@@ -159,7 +171,6 @@ func (s *BilibiliWebViewService) OpenVideo(bvid string) error {
 	window.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 		s.handleWindowClosing(window)
 	})
-	window.Center()
 	return nil
 }
 
@@ -231,7 +242,45 @@ func (s *BilibiliWebViewService) CloseWindowForShutdown() {
 	s.CloseWindow()
 }
 
+
+func (s *BilibiliWebViewService) loadWindowBounds() (width, height, x, y int, saved bool) {
+	width, height = 1280, 800
+	if s == nil || s.configManager == nil {
+		return
+	}
+	value, err := config.LoadTyped[config.BilibiliConfig](s.configManager, "bilibili.json", func(value config.BilibiliConfig) error { return value.Validate() })
+	if err != nil || !value.VideoWindowBoundsSaved {
+		return
+	}
+	if value.VideoWindowWidth < 800 || value.VideoWindowWidth > 7680 ||
+		value.VideoWindowHeight < 560 || value.VideoWindowHeight > 4320 {
+		return
+	}
+	return value.VideoWindowWidth, value.VideoWindowHeight, value.VideoWindowX, value.VideoWindowY, true
+}
+
+func (s *BilibiliWebViewService) saveWindowBounds(x, y, width, height int) {
+	if s == nil || s.configManager == nil || width < 800 || height < 560 {
+		return
+	}
+	value, err := config.LoadTyped[config.BilibiliConfig](s.configManager, "bilibili.json", func(value config.BilibiliConfig) error { return value.Validate() })
+	if err != nil {
+		return
+	}
+	value.VideoWindowX = x
+	value.VideoWindowY = y
+	value.VideoWindowWidth = width
+	value.VideoWindowHeight = height
+	value.VideoWindowBoundsSaved = true
+	_ = config.SaveTyped(s.configManager, "bilibili.json", value, func(value config.BilibiliConfig) error { return value.Validate() })
+}
+
 func (s *BilibiliWebViewService) handleWindowClosing(window *application.WebviewWindow) {
+	if window != nil && !window.IsMaximised() && !window.IsFullscreen() {
+		x, y := window.Position()
+		width, height := window.Size()
+		s.saveWindowBounds(x, y, width, height)
+	}
 	s.mu.Lock()
 	if s.window != window {
 		s.mu.Unlock()
