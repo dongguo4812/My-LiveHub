@@ -251,6 +251,7 @@ async function loadSelectedModel() {
       target.height = Math.max(1, target.clientHeight * window.devicePixelRatio)
       live2dWindow().loadlive2d?.(target.id, model.model_url)
       await waitForLegacyModel(model.model_url)
+      applyModelTransform()
       runtimeStatus.value = 'MOC2 模型已加载并开始渲染'
     } else {
       if (!runtimeFrame.value) throw new Error('MOC3 展示框架尚未创建')
