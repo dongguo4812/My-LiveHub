@@ -55,9 +55,9 @@ async function loadScene() {
 onMounted(() => {
   void loadScene()
   source = new EventSource('/api/events')
-  source.addEventListener('message', handleEvent as EventListener)
   source.onmessage = handleEvent
   source.onerror = () => { error.value = '直播事件连接中断，正在自动重连…' }
+  source.onopen = () => { error.value = '' }
   clockTimer = setInterval(() => { now.value = new Date() }, 500)
 })
 onUnmounted(() => {
