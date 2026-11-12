@@ -160,12 +160,14 @@ func (s *MusicService) stop(ctx context.Context) error {
 func (s *MusicService) handleEvent(event events.Event) {
 	if event.Type != "danmaku" { return }
 	s.mu.RLock()
-	enabled := s.value.Enabled && s.value.CommandEnabled && s.started
+	enabled := s.value.Enabled && (s.value.CommandEnabled || s.value.SkipCommandEnabled) && s.started
 	requests := s.requests
 	prefix := s.value.CommandPrefix
+	skipEnabled := s.value.SkipCommandEnabled
+	skipCommand := strings.TrimSpace(s.value.SkipCommand)
 	s.mu.RUnlock()
 	if !enabled || requests == nil { return }
-	if _, ok := parseSongRequest(event.Content, prefix); !ok { return }
+	if _, ok := parseSongRequest(event.Content, prefix); !ok && !(skipEnabled && isSkipCommand(event.Content, skipCommand)) { return }
 	select {
 	case requests <- event:
 	default:
@@ -190,10 +192,19 @@ func (s *MusicService) worker() {
 
 func (s *MusicService) processSongRequest(ctx context.Context, event events.Event) {
 	s.mu.RLock()
-	enabled := s.value.Enabled && s.value.CommandEnabled && s.started
+	enabled := s.value.Enabled && s.started
+	commandEnabled := s.value.CommandEnabled
 	prefix := s.value.CommandPrefix
+	skipEnabled := s.value.SkipCommandEnabled
+	skipCommand := strings.TrimSpace(s.value.SkipCommand)
 	s.mu.RUnlock()
 	if !enabled { return }
+	if skipEnabled && isSkipCommand(event.Content, skipCommand) {
+		if !canSkipMusic(event) { return }
+		if err := s.Next(); err != nil { s.setLastError(fmt.Errorf("执行弹幕切歌失败：%w", err)) }
+		return
+	}
+	if !commandEnabled { return }
 	keyword, ok := parseSongRequest(event.Content, prefix)
 	if !ok { return }
 	result, err := s.search(ctx, keyword)
@@ -209,6 +220,9 @@ func (s *MusicService) processSongRequest(ctx context.Context, event events.Even
 		s.setLastError(fmt.Errorf("加入观众点播队列失败：%w", err))
 	}
 }
+
+func isSkipCommand(content, command string) bool { return command != "" && strings.TrimSpace(content) == command }
+func canSkipMusic(event events.Event) bool { return event.IsRoomOwner || event.IsModerator }
 
 func parseSongRequest(content, prefix string) (string, bool) {
 	content = strings.TrimSpace(content)

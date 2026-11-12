@@ -445,6 +445,30 @@ func fetchRoomLiveStatus(ctx context.Context, httpClient *http.Client, endpoint 
 	}
 }
 
+func fetchRoomOwnerUID(ctx context.Context, httpClient *http.Client, endpoint string, roomID int) (int, error) {
+	if roomID <= 0 { return 0, errors.New("invalid Bilibili room ID") }
+	requestURL, err := url.Parse(endpoint)
+	if err != nil { return 0, err }
+	query := requestURL.Query()
+	query.Set("id", strconv.Itoa(roomID))
+	requestURL.RawQuery = query.Encode()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL.String(), nil)
+	if err != nil { return 0, err }
+	if httpClient == nil { httpClient = &http.Client{Timeout: 3 * time.Second} }
+	response, err := httpClient.Do(request)
+	if err != nil { return 0, err }
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 { return 0, fmt.Errorf("Bilibili room owner API returned HTTP %d", response.StatusCode) }
+	var payload struct {
+		Code int `json:"code"`
+		Data struct { UID int `json:"uid"` } `json:"data"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&payload); err != nil { return 0, err }
+	if payload.Code != 0 { return 0, fmt.Errorf("Bilibili room owner API error %d", payload.Code) }
+	if payload.Data.UID <= 0 { return 0, errors.New("Bilibili room owner UID is missing") }
+	return payload.Data.UID, nil
+}
+
 func (a *Adapter) refreshInitialLiveStatus(ctx context.Context, roomID int, expectedRevision uint64) {
 	status, err := fetchRoomLiveStatus(ctx, nil, "https://api.live.bilibili.com/room/v1/Room/room_init", roomID)
 	if err != nil { return }
@@ -494,6 +518,10 @@ func (a *Adapter) Connect(ctx context.Context) error {
 
 	credentials, err := a.auth.LoadCredentials(ctx)
 	if err != nil { return err }
+	ownerCtx, ownerCancel := context.WithTimeout(ctx, 3*time.Second)
+	roomOwnerUID, ownerErr := fetchRoomOwnerUID(ownerCtx, nil, "https://api.live.bilibili.com/room/v1/Room/room_init", roomID)
+	ownerCancel()
+	if ownerErr != nil { roomOwnerUID = 0 }
 	stream := a.newStream(roomID)
 	stream.SetCookie(credentials.Cookie)
 	stream.OnRawEvent(func(cmd string, raw []byte) {
@@ -544,7 +572,7 @@ func (a *Adapter) Connect(ctx context.Context) error {
 			PlatformID: "bilibili", Source: "live", Type: "danmaku", RoomID: roomID,
 			UserID: d.Sender.Uid, UserName: d.Sender.Uname, Avatar: d.Sender.Face,
 			Content: d.Content, Emoticons: emoticons, Timestamp: timestamp, Color: d.Color,
-			IsModerator: d.Sender.Admin, UserLevel: int(d.Sender.UserLevel), GuardLevel: d.Sender.GuardLevel,
+			IsModerator: d.Sender.Admin, IsRoomOwner: roomOwnerUID > 0 && d.Sender.Uid == roomOwnerUID, UserLevel: int(d.Sender.UserLevel), GuardLevel: d.Sender.GuardLevel,
 			FanMedalName: medalName(d.Sender.Medal), FanMedalLevel: medalLevel(d.Sender.Medal), FanMedalColor: medalColor(d.Sender.Medal),
 		})
 	})

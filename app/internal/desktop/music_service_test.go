@@ -1,5 +1,6 @@
 package desktop
 import ("context"; "errors"; "testing"; "github.com/dongguo4812/My-LiveHub/app/internal/config"
+ "github.com/dongguo4812/My-LiveHub/app/internal/events"
  "github.com/dongguo4812/My-LiveHub/app/internal/music")
 func TestParseSongRequest(t *testing.T){
  tests:=[]struct{content,prefix,want string;ok bool}{{"点歌 稻香","点歌","稻香",true},{"点歌稻香","点歌","",false},{"点歌   稻香 ","点歌","稻香",true},{"闲聊点歌 稻香","点歌","",false},{"点歌","点歌","",false}}
@@ -97,4 +98,15 @@ func TestMovingCurrentlyPlayingHostTrackKeepsCursor(t *testing.T) {
 	if err := moveHostTrackBetweenPlaylists(st,"a","b","tx","two"); err != nil { t.Fatal(err) }
 	if st.index != 0 { t.Fatalf("moving current track must position cursor before the next queued track, got %d",st.index) }
 	if st.playlists[1].Tracks[0].ID != "two" { t.Fatal("current track was not moved to destination") }
+}
+
+func TestSkipCommandMatchingIsExact(t *testing.T) {
+	if !isSkipCommand(" 切歌 ", "切歌") { t.Fatal("trimmed exact command should match") }
+	if isSkipCommand("切歌吧", "切歌") { t.Fatal("command must not match ordinary messages") }
+	if isSkipCommand("切歌", "") { t.Fatal("empty command must not match") }
+}
+func TestOnlyRoomOwnerAndModeratorsCanSkip(t *testing.T) {
+	if !canSkipMusic(events.Event{UserID: 100, IsRoomOwner: true}) { t.Fatal("room owner must be allowed") }
+	if !canSkipMusic(events.Event{UserID: 200, IsModerator: true}) { t.Fatal("moderator must be allowed") }
+	if canSkipMusic(events.Event{UserID: 300}) { t.Fatal("ordinary viewer must not be allowed") }
 }
