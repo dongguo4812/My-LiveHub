@@ -105,6 +105,7 @@ func (s *VideoQueueService) AddVideo(bvid, requester string, userID int) error {
 func (s *VideoQueueService) addVideo(bvid, requester string, userID int, privileged bool) error {
 	if s == nil { return errors.New("视频点播队列不可用") }
 	bvid = strings.TrimSpace(bvid)
+	if len(bvid) == 12 { bvid = "BV" + bvid[2:] }
 	if !bilibiliBVPattern.MatchString(bvid) { return errors.New("请输入有效的 B 站 BV 号") }
 	s.mu.Lock()
 	if s.closed { s.mu.Unlock(); return errors.New("视频点播模块已关闭") }
