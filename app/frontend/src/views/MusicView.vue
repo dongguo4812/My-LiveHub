@@ -231,6 +231,17 @@ async function removeFavorite(track: Track) {
     await loadFavorites()
   } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
 }
+async function moveTrackToPlaylist(track: Track, targetPlaylistID: string) {
+  if (!targetPlaylistID || targetPlaylistID === activeHostPlaylistID.value) return
+  const target = hostPlaylists.value.find(item => item.id === targetPlaylistID)
+  if (!target) return
+  try {
+    await (MusicService as any).MoveHostTrackBetweenPlaylists(activeHostPlaylistID.value, targetPlaylistID, track.source_id, track.id)
+    await refreshHostPlaylists(activeHostPlaylistID.value)
+    await loadFavorites()
+    success.value = `已将「${track.title}」移动到「${target.name}」`
+  } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+}
 async function playFavorite(track: Track) {
   const index = favorites.value.findIndex(item => trackRowKey(item) === trackRowKey(track))
   if (index < 0) return
@@ -811,7 +822,12 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         <el-table-column prop="artist" label="歌手" min-width="140" />
         <el-table-column prop="album" label="专辑" min-width="140" />
         <el-table-column label="音源" width="130"><template #default="scope">{{ sourceName(scope.row.source_id) }}</template></el-table-column>
-        <el-table-column label="操作" width="220" fixed="right"><template #default="scope"><el-button link type="primary" @click="playFavorite(scope.row)">播放</el-button><el-button link :disabled="scope.$index === 0" @click="moveFavorite(scope.$index, -1)">上移</el-button><el-button link :disabled="scope.$index === favorites.length - 1" @click="moveFavorite(scope.$index, 1)">下移</el-button><el-button link type="danger" @click="removeFavorite(scope.row)">移除</el-button></template></el-table-column>
+        <el-table-column label="操作" width="220" fixed="right"><template #default="scope"><el-button link type="primary" @click="playFavorite(scope.row)">播放</el-button><el-button link :disabled="scope.$index === 0" @click="moveFavorite(scope.$index, -1)">上移</el-button><el-button link :disabled="scope.$index === favorites.length - 1" @click="moveFavorite(scope.$index, 1)">下移</el-button><el-dropdown :disabled="hostPlaylists.length <= 1" @command="(targetID: string) => moveTrackToPlaylist(scope.row, targetID)">
+            <el-button link type="primary" :disabled="hostPlaylists.length <= 1">移动到</el-button>
+            <template #dropdown><el-dropdown-menu>
+              <el-dropdown-item v-for="item in hostPlaylists.filter(item => item.id !== activeHostPlaylistID)" :key="item.id" :command="item.id">{{ item.name }}</el-dropdown-item>
+            </el-dropdown-menu></template>
+          </el-dropdown><el-button link type="danger" @click="removeFavorite(scope.row)">移除</el-button></template></el-table-column>
       </el-table>
       <el-empty v-else description="这个歌单还没有歌曲。可以从搜索结果收藏歌曲，或导入洛雪歌单。" :image-size="76" />
     </el-card>

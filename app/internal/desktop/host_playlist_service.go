@@ -94,6 +94,24 @@ func(s *MusicService)saveHostPlaylistLocked(st *hostPlaylistState)error{
 	if err=os.Rename(tmp,path);err!=nil{_ = os.Remove(tmp);return err}
 	return nil
 }
+
+func moveHostTrackBetweenPlaylists(st *hostPlaylistState, fromID, toID, sourceID, trackID string) error {
+	if fromID == "" || toID == "" || fromID == toID { return errors.New("请选择两个不同的歌单") }
+	fromIndex, toIndex := findHostPlaylist(st, fromID), findHostPlaylist(st, toID)
+	if fromIndex < 0 || toIndex < 0 { return errors.New("找不到源歌单或目标歌单") }
+	from, to := &st.playlists[fromIndex], &st.playlists[toIndex]
+	sourceIndex := -1
+	var moving music.Track
+	for i, track := range from.Tracks { if track.SourceID == sourceID && track.ID == trackID { sourceIndex, moving = i, track; break } }
+	if sourceIndex < 0 { return errors.New("源歌单中不存在这首歌曲") }
+	for _, track := range to.Tracks { if track.SourceID == moving.SourceID && track.ID == moving.ID { return errors.New("目标歌单已经有这首歌曲") } }
+	if fromID == st.activeID && sourceIndex < st.index { st.index-- }
+	from.Tracks = append(from.Tracks[:sourceIndex], from.Tracks[sourceIndex+1:]...)
+	if fromID == st.activeID && st.index >= len(from.Tracks) { st.index = len(from.Tracks)-1 }
+	to.Tracks = append(to.Tracks, moving)
+	return nil
+}
+
 func validHostPlayMode(mode string)bool{return mode=="list"||mode=="single"||mode=="shuffle"}
 func findHostPlaylist(st *hostPlaylistState,id string)int{for i,p:=range st.playlists{if p.ID==id{return i}};return -1}
 func activeHostPlaylist(st *hostPlaylistState)*HostPlaylistSnapshot{i:=findHostPlaylist(st,st.activeID);if i<0{return nil};return &st.playlists[i]}
@@ -169,6 +187,17 @@ func(s *MusicService)RemoveHostTrackFromPlaylist(id,sourceID,trackID string)erro
 	for j,t:=range tracks{if t.SourceID==sourceID&&t.ID==trackID{st.playlists[i].Tracks=append(tracks[:j],tracks[j+1:]...);if id==st.activeID&&st.index>=len(st.playlists[i].Tracks){st.index=len(st.playlists[i].Tracks)-1};return s.saveHostPlaylistLocked(st)}}
 	return errors.New("歌单中不存在这首歌曲")
 }
+
+func (s *MusicService) MoveHostTrackBetweenPlaylists(fromID, toID, sourceID, trackID string) error {
+	if s == nil { return errors.New("音乐服务不可用") }
+	st := hostStateFor(s)
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if err := s.loadHostPlaylistLocked(st); err != nil { return err }
+	if err := moveHostTrackBetweenPlaylists(st, fromID, toID, sourceID, trackID); err != nil { return err }
+	return s.saveHostPlaylistLocked(st)
+}
+
 func(s *MusicService)MoveHostTrack(from,to int)error{return s.MoveHostTrackInPlaylist("",from,to)}
 func(s *MusicService)MoveHostTrackInPlaylist(id string,from,to int)error{
 	st:=hostStateFor(s);st.mu.Lock();defer st.mu.Unlock()

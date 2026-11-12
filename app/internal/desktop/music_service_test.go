@@ -62,3 +62,39 @@ func TestLoadAndStartPlaybackDoesNotResumeWhenLoadFails(t *testing.T) {
 		t.Fatalf("resume must not run after load failure, got %#v", engine.calls)
 	}
 }
+
+
+func TestMoveHostTrackBetweenPlaylists(t *testing.T) {
+	st := &hostPlaylistState{
+		loaded: true,
+		activeID: "a",
+		index: 1,
+		playlists: []HostPlaylistSnapshot{
+			{ID: "a", Name: "A", Tracks: []music.Track{
+				{ID: "one", SourceID: "tx", Title: "第一首"},
+				{ID: "two", SourceID: "tx", Title: "第二首"},
+				{ID: "three", SourceID: "tx", Title: "第三首"},
+			}},
+			{ID: "b", Name: "B", Tracks: []music.Track{{ID: "existing", SourceID: "tx", Title: "已有歌曲"}}},
+		},
+	}
+	if err := moveHostTrackBetweenPlaylists(st, "a", "b", "tx", "one"); err != nil { t.Fatal(err) }
+	if len(st.playlists[0].Tracks) != 2 || st.playlists[0].Tracks[0].ID != "two" { t.Fatalf("source playlist not updated: %#v", st.playlists[0].Tracks) }
+	if st.index != 0 { t.Fatalf("playback cursor should shift with removal before current track, got %d", st.index) }
+	if got := st.playlists[1].Tracks[1]; got.ID != "one" || got.Title != "第一首" { t.Fatalf("track metadata was not preserved: %#v", got) }
+	if err := moveHostTrackBetweenPlaylists(st, "a", "b", "tx", "two"); err == nil { t.Fatal("expected duplicate destination track error") }
+	if err := moveHostTrackBetweenPlaylists(st, "a", "missing", "tx", "two"); err == nil { t.Fatal("expected missing playlist error") }
+}
+
+func TestMovingCurrentlyPlayingHostTrackKeepsCursor(t *testing.T) {
+	st := &hostPlaylistState{
+		loaded: true, activeID: "a", index: 1,
+		playlists: []HostPlaylistSnapshot{
+			{ID: "a", Tracks: []music.Track{{ID:"one",SourceID:"tx"},{ID:"two",SourceID:"tx"},{ID:"three",SourceID:"tx"}}},
+			{ID: "b", Tracks: []music.Track{}},
+		},
+	}
+	if err := moveHostTrackBetweenPlaylists(st,"a","b","tx","two"); err != nil { t.Fatal(err) }
+	if st.index != 1 { t.Fatalf("moving current track must keep its playback cursor, got %d",st.index) }
+	if st.playlists[1].Tracks[0].ID != "two" { t.Fatal("current track was not moved to destination") }
+}
