@@ -38,3 +38,33 @@ func TestLive2DListModelsIgnoresFoldersWithoutManifest(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	if len(models) != 0 { t.Fatalf("expected incomplete folder to be ignored, got %#v", models) }
 }
+
+func TestReadLive2DManifestMetadata(t *testing.T) {
+	root := t.TempDir()
+	manifest := filepath.Join(root, "model3.json")
+	content := `{
+		"FileReferences": {
+			"Expressions": [{"Name":"F01","File":"expressions/F01.exp3.json"}],
+			"Motions": {"Idle":[{"File":"motions/idle.motion3.json"},{"File":"motions/idle2.motion3.json"}],"TapBody":[{"File":"motions/tap.motion3.json"}]},
+			"Physics":"physics/physics3.json",
+			"Pose":"pose/pose3.json"
+		},
+		"HitAreas":[{"Name":"Head","Id":"HitAreaHead"},{"Name":"Body","Id":"HitAreaBody"}]
+	}`
+	if err := os.WriteFile(manifest, []byte(content), 0o600); err != nil { t.Fatal(err) }
+	metadata := readLive2DManifest(manifest, "moc3")
+	if len(metadata.Expressions) != 1 || metadata.Expressions[0] != "F01" { t.Fatalf("unexpected expressions: %#v", metadata.Expressions) }
+	if len(metadata.MotionGroups) != 2 || metadata.MotionGroups[0].Count == 0 { t.Fatalf("unexpected motion groups: %#v", metadata.MotionGroups) }
+	if !metadata.HasPhysics || !metadata.HasPose || len(metadata.HitAreas) != 2 { t.Fatalf("capabilities were not detected: %#v", metadata) }
+}
+
+func TestReadLive2DManifestMetadataSupportsMOC2LowercaseKeys(t *testing.T) {
+	root := t.TempDir()
+	manifest := filepath.Join(root, "model.model.json")
+	content := `{"expressions":[{"name":"smile","file":"smile.exp.json"}],"motions":{"idle":[{"file":"idle.mtn"}]},"physics":"physics.json"}`
+	if err := os.WriteFile(manifest, []byte(content), 0o600); err != nil { t.Fatal(err) }
+	metadata := readLive2DManifest(manifest, "moc2")
+	if len(metadata.Expressions) != 1 || metadata.Expressions[0] != "smile" { t.Fatalf("unexpected MOC2 expressions: %#v", metadata.Expressions) }
+	if len(metadata.MotionGroups) != 1 || metadata.MotionGroups[0].Name != "idle" { t.Fatalf("unexpected MOC2 motions: %#v", metadata.MotionGroups) }
+	if !metadata.HasPhysics { t.Fatal("expected MOC2 physics capability") }
+}
