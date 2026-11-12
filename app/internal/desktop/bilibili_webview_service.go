@@ -156,9 +156,9 @@ func (s *BilibiliWebViewService) OpenVideo(bvid string) error {
 			return
 		}
 		go func() {
+			// Keep the native window hidden while the local bootstrap page is
+			// replaced. It must not be shown until Bilibili has finished loading.
 			window.SetURL(targetURL)
-			window.Show()
-			window.Focus()
 		}()
 	})
 	window.OnWindowEvent(events.Windows.WebViewNavigationCompleted, func(_ *application.WindowEvent) {
@@ -166,10 +166,15 @@ func (s *BilibiliWebViewService) OpenVideo(bvid string) error {
 		isCurrent := s.window == window && s.runtimeReady
 		s.mu.RUnlock()
 		if isCurrent {
-			// Every Bilibili navigation (including the next item in the queue)
-			// automatically installs playback telemetry, enters Bilibili's own
-			// web-fullscreen mode, and seeks the new video to its beginning.
+			// NavigationCompleted is reached for the Bilibili URL after the
+			// hidden local bootstrap. Only now reveal the window, avoiding a
+			// one-frame flash of My-LiveHub's overview page.
 			go func() {
+				window.Show()
+				window.Focus()
+				// Every Bilibili navigation (including the next item in the queue)
+				// automatically installs playback telemetry, enters Bilibili's own
+				// web-fullscreen mode, and seeks the new video to its beginning.
 				window.ExecJS(bilibiliPlaybackMonitorScript)
 				window.ExecJS(bilibiliWebFullscreenScript)
 				window.ExecJS(bilibiliReplayFromStartScript)
