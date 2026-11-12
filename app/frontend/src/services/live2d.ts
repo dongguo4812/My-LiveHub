@@ -9,6 +9,9 @@ export interface Live2DConfig {
   microphone_device_id: string
   microphone_sensitivity: number
   microphone_smoothing: number
+  model_scale: number
+  model_offset_x: number
+  model_offset_y: number
 }
 
 export interface Live2DModel {
@@ -20,6 +23,11 @@ export interface Live2DModel {
   model_url: string
   runtime_available: boolean
   capability_status: string
+  expressions: string[]
+  motion_groups: { name: string; count: number }[]
+  has_physics: boolean
+  has_pose: boolean
+  hit_areas: string[]
 }
 
 export const getLive2DSettings = () => Live2DService.GetSettings() as Promise<Live2DConfig>
