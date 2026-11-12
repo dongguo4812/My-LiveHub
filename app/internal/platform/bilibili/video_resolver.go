@@ -33,16 +33,21 @@ type VideoPlayback struct {
 	Quality int
 }
 
+type VideoCredentialProvider interface { LoadCredentials(context.Context) (Credentials, error) }
+
 type VideoResolver struct {
-	auth *AuthManager
+	auth VideoCredentialProvider
 	client *http.Client
 	now func() time.Time
+	viewURL string
+	navURL string
+	playURL string
 }
 
 func NewVideoResolver(auth *AuthManager, client *http.Client) (*VideoResolver, error) {
 	if auth == nil { return nil, errors.New("B 站登录管理器不能为空") }
 	if client == nil { client = &http.Client{Timeout: 20 * time.Second} }
-	return &VideoResolver{auth:auth, client:client, now:time.Now}, nil
+	return &VideoResolver{auth:auth, client:client, now:time.Now, viewURL:videoViewURL, navURL:videoNavURL, playURL:videoPlayURL}, nil
 }
 
 func (r *VideoResolver) Resolve(ctx context.Context, rawBVID string) (VideoPlayback, error) {
@@ -52,7 +57,7 @@ func (r *VideoResolver) Resolve(ctx context.Context, rawBVID string) (VideoPlayb
 	if err != nil { return VideoPlayback{}, err }
 
 	detailQuery := url.Values{"bvid":{bvid}}
-	detailBody, err := r.get(ctx, videoViewURL, detailQuery, credentials.Cookie)
+	detailBody, err := r.get(ctx, r.viewURL, detailQuery, credentials.Cookie)
 	if err != nil { return VideoPlayback{}, fmt.Errorf("获取 B 站视频信息失败：%w", err) }
 	var detail struct {
 		Code int `json:"code"`
@@ -70,7 +75,7 @@ func (r *VideoResolver) Resolve(ctx context.Context, rawBVID string) (VideoPlayb
 	if cid == 0 && len(detail.Data.Pages) > 0 { cid = detail.Data.Pages[0].CID }
 	if cid <= 0 { return VideoPlayback{}, errors.New("B 站视频没有可播放的 CID") }
 
-	navBody, err := r.get(ctx, videoNavURL, nil, credentials.Cookie)
+	navBody, err := r.get(ctx, r.navURL, nil, credentials.Cookie)
 	if err != nil { return VideoPlayback{}, fmt.Errorf("获取 B 站播放签名密钥失败：%w", err) }
 	var nav struct {
 		Code int `json:"code"`
@@ -89,7 +94,7 @@ func (r *VideoResolver) Resolve(ctx context.Context, rawBVID string) (VideoPlayb
 		"fnval":{"1"}, "fnver":{"0"}, "fourk":{"1"}, "platform":{"html5"},
 	}
 	signed := signVideoWBI(params, imgKey, subKey, r.now())
-	playBody, err := r.get(ctx, videoPlayURL, signed, credentials.Cookie)
+	playBody, err := r.get(ctx, r.playURL, signed, credentials.Cookie)
 	if err != nil { return VideoPlayback{}, fmt.Errorf("获取 B 站 MP4 播放地址失败：%w", err) }
 	var play struct {
 		Code int `json:"code"`
