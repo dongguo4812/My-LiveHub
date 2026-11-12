@@ -87,10 +87,12 @@ func (r *VideoResolver) Resolve(ctx context.Context, rawBVID string) (VideoPlayb
 	imgKey, subKey := wbiKey(nav.Data.WBI.ImgURL), wbiKey(nav.Data.WBI.SubURL)
 	if len(imgKey) < 32 || len(subKey) < 32 { return VideoPlayback{}, errors.New("B 站没有返回有效的 WBI 密钥") }
 
-	// Ask for the interleaved MP4/DURL stream so mpv does not need separate
-	// video and audio URLs or an external muxer.
+	// qn=127 asks Bilibili for the highest quality available to this account.
+	// The API may downgrade it according to the video's encodings and account
+	// permissions; Data.Quality below records the quality actually returned.
+	// Keep the interleaved MP4/DURL request so mpv needs no external muxer.
 	params := url.Values{
-		"bvid":{bvid}, "cid":{strconv.FormatInt(cid,10)}, "qn":{"16"},
+		"bvid":{bvid}, "cid":{strconv.FormatInt(cid,10)}, "qn":{"127"},
 		"fnval":{"1"}, "fnver":{"0"}, "fourk":{"1"}, "platform":{"html5"},
 	}
 	signed := signVideoWBI(params, imgKey, subKey, r.now())
