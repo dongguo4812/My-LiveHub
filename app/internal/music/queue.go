@@ -133,6 +133,23 @@ func (q *Queue) SetCurrent(item QueueItem) error {
 	return nil
 }
 
+// SetCurrentTrack replaces the current track without adding it to the pending queue.
+func (q *Queue) SetCurrentTrack(track Track, requestedBy string) (QueueItem, error) {
+	if q == nil { return QueueItem{}, errors.New("music queue is unavailable") }
+	if err := validateTrack(track); err != nil { return QueueItem{}, err }
+	item := QueueItem{
+		ID: fmt.Sprintf("music-%d", q.nextID.Add(1)),
+		Track: track,
+		RequestedBy: strings.TrimSpace(requestedBy),
+		AddedAt: time.Now().UTC(),
+	}
+	q.mu.Lock()
+	copy := cloneQueueItem(item)
+	q.current = &copy
+	q.mu.Unlock()
+	return cloneQueueItem(item), nil
+}
+
 func (q *Queue) FinishCurrent() {
 	if q == nil {
 		return

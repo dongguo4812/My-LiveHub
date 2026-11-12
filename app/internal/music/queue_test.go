@@ -87,3 +87,22 @@ func TestQueueResizePreservesItemsAndRejectsTooSmallCapacity(t *testing.T) {
 	if got := queue.Snapshot().Capacity; got != 2 { t.Fatalf("capacity = %d, want 2", got) }
 	if err := queue.Resize(MaxQueueCapacity + 1); err == nil { t.Fatal("expected out-of-range capacity to fail") }
 }
+
+
+func TestQueueSetCurrentTrackDoesNotEnqueuePendingAudienceRequests(t *testing.T) {
+	queue := NewQueue(4)
+	first, _ := queue.Enqueue(testTrack("viewer-one"), "观众甲")
+	second, _ := queue.Enqueue(testTrack("viewer-two"), "观众乙")
+	item, err := queue.SetCurrentTrack(testTrack("play-now"), "__my_livehub_search_play__")
+	if err != nil { t.Fatalf("SetCurrentTrack() error = %v", err) }
+	snapshot := queue.Snapshot()
+	if snapshot.Current == nil || snapshot.Current.ID != item.ID || snapshot.Current.Track.ID != "play-now" {
+		t.Fatalf("immediate track was not set as current: %#v", snapshot.Current)
+	}
+	if snapshot.Current.RequestedBy != "__my_livehub_search_play__" {
+		t.Fatalf("immediate playback marker = %q", snapshot.Current.RequestedBy)
+	}
+	if len(snapshot.Items) != 2 || snapshot.Items[0].ID != first.ID || snapshot.Items[1].ID != second.ID {
+		t.Fatalf("immediate playback changed pending audience queue: %#v", snapshot.Items)
+	}
+}

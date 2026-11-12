@@ -24,6 +24,7 @@ import (
 )
 
 const musicRequestQueueCapacity = 100
+const searchPlayMarker = "__my_livehub_search_play__"
 
 type MusicSearchResponse struct {
 	Tracks []music.Track `json:"tracks"`
@@ -439,6 +440,55 @@ func (s *MusicService) Enqueue(track music.Track, requestedBy string) (music.Que
 		}
 	}
 	return item, nil
+}
+
+// PlayTrackNow starts a search result immediately without inserting it into
+// the pending audience-request queue. Pending audience requests keep their order.
+func (s *MusicService) PlayTrackNow(track music.Track) error {
+	if s == nil || s.queue == nil || s.engine == nil { return errors.New("music playback service is unavailable") }
+	s.mu.RLock()
+	enabled := s.value.Enabled
+	s.mu.RUnlock()
+	if !enabled { return errors.New("music module is disabled") }
+
+	state := hostStateFor(s)
+	state.mu.Lock()
+	current := s.queue.Snapshot().Current
+	preemptHost := current != nil && current.RequestedBy == hostQueueMarker
+	if preemptHost {
+		snapshot, err := s.engine.Snapshot(context.Background())
+		if err != nil { state.mu.Unlock(); return fmt.Errorf("保存主播歌曲播放进度失败：%w", err) }
+		state.resumeItem = current
+		state.resumePosition = snapshot.PositionMS
+		state.resumeWasPaused = snapshot.State == music.PlaybackPaused
+		state.resumePending = true
+		if err := s.engine.Pause(context.Background()); err != nil {
+			state.resumePending = false
+			state.resumeItem = nil
+			state.resumeWasPaused = false
+			state.mu.Unlock()
+			return fmt.Errorf("暂停主播歌曲失败：%w", err)
+		}
+	}
+	state.mu.Unlock()
+
+	if current != nil { s.pushHistory(*current) }
+	s.cancelPlaybackWatcher()
+	if _, err := s.queue.SetCurrentTrack(track, searchPlayMarker); err != nil {
+		if preemptHost { _ = s.resumeHostPlaylist() }
+		return err
+	}
+	if err := s.PlayNext(); err != nil {
+		s.queue.FinishCurrent()
+		if preemptHost {
+			_ = s.resumeHostPlaylist()
+		} else if current != nil {
+			_ = s.queue.SetCurrent(*current)
+			if restoreErr := s.PlayNext(); restoreErr != nil { s.setLastError(restoreErr) }
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *MusicService) GetQueue() music.QueueSnapshot {

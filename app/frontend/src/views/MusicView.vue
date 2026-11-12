@@ -562,6 +562,18 @@ async function addToQueue(track: Track) {
     error.value = reason instanceof Error ? reason.message : String(reason)
   }
 }
+async function playSearchTrackNow(track: Track) {
+  error.value = ''
+  try {
+    const selectedQuality = qualitySelections.value[trackRowKey(track)] ?? ''
+    const immediateTrack = Object.assign({}, track, { selected_quality: selectedQuality })
+    await MusicService.PlayTrackNow(immediateTrack)
+    await Promise.all([refreshPlayback(), refreshQueue()])
+    success.value = `正在播放：${track.title}（未加入观众点播队列）`
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  }
+}
 async function playNext() {
   error.value = ''
   try {
@@ -774,7 +786,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         <el-table-column label="可用音质" min-width="150"><template #default="scope">{{ qualityNames(scope.row) }}</template></el-table-column>
         <el-table-column label="播放音质" min-width="135"><template #default="scope"><el-select v-model="qualitySelections[trackRowKey(scope.row)]" size="small" clearable placeholder="自动"><el-option v-for="quality in (scope.row.qualities ?? [])" :key="quality.type" :label="quality.type" :value="quality.type" /></el-select></template></el-table-column>
         <el-table-column label="时长" width="90"><template #default="scope">{{ formatDuration(scope.row.duration_ms) }}</template></el-table-column>
-        <el-table-column label="操作" width="170" fixed="right"><template #default="scope"><el-button link :type="isFavorite(scope.row) ? 'danger' : 'primary'" @click="toggleFavorite(scope.row)">{{ isFavorite(scope.row) ? '取消收藏' : '收藏' }}</el-button><el-button link type="primary" @click="addToQueue(scope.row)">加入队列</el-button></template></el-table-column>
+        <el-table-column label="操作" width="230" fixed="right"><template #default="scope"><el-button link type="success" @click="playSearchTrackNow(scope.row)">播放</el-button><el-button link :type="isFavorite(scope.row) ? 'danger' : 'primary'" @click="toggleFavorite(scope.row)">{{ isFavorite(scope.row) ? '取消收藏' : '收藏' }}</el-button><el-button link type="primary" @click="addToQueue(scope.row)">加入队列</el-button></template></el-table-column>
       </el-table>
       <div v-if="maxPage > 1" class="search-pagination">
         <el-pagination
