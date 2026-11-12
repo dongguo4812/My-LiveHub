@@ -21,6 +21,11 @@ const progress = computed(() => {
 })
 const isPlaying = computed(() => playback.value?.state === 'playing')
 const isPaused = computed(() => playback.value?.state === 'paused')
+const actualResolution = computed(() => {
+  const width = playback.value?.video_width ?? 0
+  const height = playback.value?.video_height ?? 0
+  return width > 0 && height > 0 ? `${width} × ${height}` : '等待视频解码'
+})
 function formatTime(ms?: number) {
   if (!ms || ms < 0) return '00:00'
   const seconds = Math.floor(ms / 1000)
@@ -139,6 +144,25 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
     </el-card>
 
     <el-card shadow="never">
+      <template #header><strong>当前视频信息</strong></template>
+      <div class="video-info-grid">
+        <div class="video-info-item">
+          <span>实际解码分辨率</span>
+          <strong>{{ actualResolution }}</strong>
+        </div>
+        <div class="video-info-item">
+          <span>视频编码</span>
+          <strong>{{ playback?.video_codec || '读取中' }}</strong>
+        </div>
+        <div class="video-info-item">
+          <span>音频编码</span>
+          <strong>{{ playback?.audio_codec || '读取中' }}</strong>
+        </div>
+      </div>
+      <p class="hint">分辨率来自 mpv 当前解码后的视频参数，不是 B 站接口请求的画质等级；视频尚未开始解码时会显示等待状态。</p>
+    </el-card>
+
+    <el-card shadow="never">
       <template #header><strong>播放控制</strong></template>
       <div class="time-row"><span>{{ formatTime(playback?.position_ms) }}</span><span>{{ formatTime(playback?.duration_ms) }}</span></div>
       <el-slider
@@ -155,5 +179,5 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 </template>
 
 <style scoped>
-.video-page{display:flex;flex-direction:column;gap:20px}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.hint{color:var(--el-text-color-secondary);font-size:13px}.actions{display:flex;flex-wrap:wrap;gap:9px}.bilibili-actions{margin:0 0 14px}.hint{margin:14px 0 0}.time-row{display:flex;justify-content:space-between;color:var(--el-text-color-secondary);font-size:12px;font-variant-numeric:tabular-nums}.volume-row{display:grid;grid-template-columns:90px 1fr;align-items:center;gap:12px;margin-top:18px}.volume-row span{font-size:13px;color:var(--el-text-color-secondary)}
+.video-page{display:flex;flex-direction:column;gap:20px}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.hint{color:var(--el-text-color-secondary);font-size:13px}.actions{display:flex;flex-wrap:wrap;gap:9px}.bilibili-actions{margin:0 0 14px}.hint{margin:14px 0 0}.time-row{display:flex;justify-content:space-between;color:var(--el-text-color-secondary);font-size:12px;font-variant-numeric:tabular-nums}.volume-row{display:grid;grid-template-columns:90px 1fr;align-items:center;gap:12px;margin-top:18px}.volume-row span{font-size:13px;color:var(--el-text-color-secondary)}.video-info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px}.video-info-item{display:flex;flex-direction:column;gap:7px}.video-info-item span{font-size:12px;color:var(--el-text-color-secondary)}.video-info-item strong{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
 </style>
