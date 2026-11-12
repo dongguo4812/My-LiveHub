@@ -68,8 +68,24 @@ func parseLXPlainLyric(value string)string{
 
 // NetEase: LX uses the EAPI AES-128-ECB signature and requests YRC/LRC,
 // translation and romanization in one response.
+func neteaseLyricSongID(track Track) string {
+ for _, key := range []string{"songmid", "songId", "song_id", "id"} {
+  if value := strings.TrimSpace(track.SourceData[key]); value != "" {
+   return value
+  }
+ }
+ // LX playlist IDs use the provider prefix (for example wy_1500569811).
+ // Keep this fallback at the provider adapter boundary as well as import time:
+ // it protects lyrics when metadata was dropped by an intermediate snapshot.
+ id := strings.TrimSpace(track.ID)
+ if len(id) > 3 && strings.EqualFold(id[:3], "wy_") {
+  return strings.TrimSpace(id[3:])
+ }
+ return ""
+}
+
 func GetNeteaseMusicLyrics(ctx context.Context,client *http.Client,track Track)(string,error){
- id:=strings.TrimSpace(track.SourceData["songmid"]);if id==""{return "",errors.New("网易云歌词请求缺少 songmid")}
+ id:=neteaseLyricSongID(track);if id==""{return "",errors.New("网易云歌词请求缺少 songmid")}
  path:="/api/song/lyric/v1";payload:=map[string]any{"id":id,"cp":false,"tv":0,"lv":0,"rv":0,"kv":0,"yv":0,"ytv":0,"yrv":0}
  plain,err:=json.Marshal(payload);if err!=nil{return "",err}
  sum:=md5.Sum([]byte("nobody"+path+"use"+string(plain)+"md5forencrypt"))
