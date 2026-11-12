@@ -634,7 +634,8 @@ func (s *MusicService) GetLyrics(track music.Track) (string, error) {
 	// unavailable or different in metadata returned by LX source providers.
 	query := url.Values{}
 	query.Set("track_name", strings.TrimSpace(track.Title))
-	// Do not constrain the remote search by artist metadata: LX providers may return aliases or multiple artists.\n\t// The candidate scorer below prefers an exact artist match without hiding otherwise valid lyrics.
+	// Do not constrain the remote search by artist metadata: LX providers may return aliases or multiple artists.
+	// The candidate scorer below prefers an exact artist match without hiding otherwise valid lyrics.
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://lrclib.net/api/search?"+query.Encode(), nil)
 	if err != nil { return "", err }
 	req.Header.Set("User-Agent", "My-LiveHub/1.0")
