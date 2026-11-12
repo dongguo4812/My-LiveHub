@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const CurrentMusicConfigVersion = 8
+const CurrentMusicConfigVersion = 9
 
 type LXUserSourceProxyConfig struct {
 	Enabled bool `json:"enabled"`
@@ -36,6 +36,8 @@ type MusicConfig struct {
 	Volume int `json:"volume"`
 	LoudnessNormalization bool `json:"loudness_normalization"`
 	LXUserSourceProxy LXUserSourceProxyConfig `json:"lx_user_source_proxy"`
+	RequireFanMedal bool `json:"require_fan_medal"`
+	FanMedalLevel int `json:"fan_medal_level"`
 }
 
 func DefaultMusicConfig() MusicConfig {
@@ -48,6 +50,7 @@ func DefaultMusicConfig() MusicConfig {
 		SkipCommand: "切歌",
 		QueueCapacity: 100,
 		Volume: 80,
+		FanMedalLevel: 1,
 	}
 }
 
@@ -69,6 +72,8 @@ func MigrateMusicConfig(c MusicConfig) (MusicConfig, bool) {
 		n.QueueCapacity = c.QueueCapacity
 	}
 	n.LXUserSourceProxy = c.LXUserSourceProxy
+	n.RequireFanMedal = c.RequireFanMedal
+	if c.FanMedalLevel >= 1 && c.FanMedalLevel <= 100 { n.FanMedalLevel = c.FanMedalLevel }
 	n.LoudnessNormalization = c.LoudnessNormalization
 	if c.Volume > 0 && c.Volume <= 100 { n.Volume = c.Volume }
 	return n, true
@@ -87,6 +92,7 @@ func (c MusicConfig) Validate() error {
 	if c.SkipCommandEnabled && strings.TrimSpace(c.SkipCommand) == "" { return fmt.Errorf("music skip command is required") }
 	if len([]rune(c.SkipCommand)) > 16 { return fmt.Errorf("music skip command is too long") }
 	if c.Volume < 0 || c.Volume > 100 { return fmt.Errorf("music volume must be between 0 and 100") }
+	if c.FanMedalLevel < 1 || c.FanMedalLevel > 100 { return fmt.Errorf("音乐点播粉丝勋章等级必须在 1 到 100 之间") }
 	if c.QueueCapacity < 1 || c.QueueCapacity > 1000 {
 		return fmt.Errorf("music queue capacity must be between 1 and 1000")
 	}
@@ -117,6 +123,8 @@ func LoadMusicConfig(m *Manager) (MusicConfig, error) {
 			"volume": true,
 			"loudness_normalization": true,
 			"lx_user_source_proxy": true,
+			"require_fan_medal": true,
+			"fan_medal_level": true,
 		}
 		cleaned := make(map[string]any, len(local))
 		changed := false
