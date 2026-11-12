@@ -72,6 +72,12 @@ async function load() {
   } catch (error) { ElMessage.error(error instanceof Error ? error.message : String(error)) }
   finally { loading.value = false }
 }
+async function selectScene() {
+  selectedLayerID.value = ''
+  await refreshURL()
+  await nextTick()
+  refreshScale()
+}
 async function save() {
   if (!scene.value) return
   loading.value = true
@@ -133,7 +139,7 @@ onMounted(() => { void load(); window.addEventListener('resize', refreshScale) }
     </header>
     <div class="scene-toolbar">
       <div class="scene-tabs">
-        <el-select v-model="activeSceneID" style="width:190px" @change="selectedLayerID=''; refreshURL(); $nextTick(refreshScale)">
+        <el-select v-model="activeSceneID" style="width:190px" @change="selectScene">
           <el-option v-for="item in scenes" :key="item.id" :label="item.name" :value="item.id" />
         </el-select>
         <el-input v-if="scene" v-model="scene.name" size="default" style="width:150px" placeholder="场景名称" />
