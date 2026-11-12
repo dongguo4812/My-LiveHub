@@ -14,6 +14,7 @@ func NewMpvVideoEngine(string) *MpvEngine { return &MpvEngine{} }
 func (*MpvEngine) Validate() error { return errors.New("mpv IPC engine is currently supported on Windows only") }
 func (*MpvEngine) Start(context.Context) error { return errors.New("mpv IPC engine is currently supported on Windows only") }
 func (*MpvEngine) Load(context.Context, PlaybackResource, Track) error { return ErrPlaybackEngineUnavailable }
+func (*MpvEngine) AddSubtitle(context.Context, string) error { return ErrPlaybackEngineUnavailable }
 func (*MpvEngine) Pause(context.Context) error { return ErrPlaybackEngineUnavailable }
 func (*MpvEngine) Resume(context.Context) error { return ErrPlaybackEngineUnavailable }
 func (*MpvEngine) Seek(context.Context, int64) error { return ErrPlaybackEngineUnavailable }
