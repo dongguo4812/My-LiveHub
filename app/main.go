@@ -91,6 +91,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("load Bilibili configuration: %v", err)
 	}
+	fanMedalChecker := bilibili.NewFanMedalChecker(bilibiliAuth, bilibiliConfig.RoomID)
 	musicConfig, err := config.LoadMusicConfig(configManager)
 	if err != nil {
 		log.Fatalf("load music configuration: %v", err)
@@ -104,12 +105,14 @@ func main() {
 	eventBus := eventstream.NewBus()
 	bilibiliEvents := eventstream.NewBuffer(eventBus)
 	musicService := desktop.NewMusicService(configManager, musicConfig, bilibiliEvents)
+	musicService.SetFanMedalChecker(fanMedalChecker)
 	musicLyricsWindowService := desktop.NewMusicLyricsWindowService(musicService)
 	bilibiliVideoResolver, err := bilibili.NewVideoResolver(bilibiliAuth, nil)
 	if err != nil { log.Fatalf("initialize Bilibili video resolver: %v", err) }
 	bilibiliWebViewService := desktop.NewBilibiliWebViewService(musicService, configManager)
 	videoQueueService, err := desktop.NewVideoQueueService(configManager, bilibiliConfig, bilibiliVideoResolver, bilibiliWebViewService, bilibiliEvents)
 	if err != nil { log.Fatalf("initialize Bilibili video queue service: %v", err) }
+	videoQueueService.SetFanMedalChecker(fanMedalChecker)
 	cacheDir := ""
 	if environment == config.EnvironmentDevelopment {
 		if workingDir, getwdErr := os.Getwd(); getwdErr == nil {
