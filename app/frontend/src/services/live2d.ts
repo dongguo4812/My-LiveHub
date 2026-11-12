@@ -17,6 +17,7 @@ export interface Live2DModel {
   format: 'moc2' | 'moc3'
   directory: string
   entry_file: string
+  model_url: string
   runtime_available: boolean
   capability_status: string
 }
