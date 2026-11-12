@@ -57,6 +57,8 @@ type VideoRequestService struct {
 	requests chan events.Event
 	done chan struct{}
 	manualStop bool
+	playbackStarted bool
+	generation uint64
 	lastError string
 }
 
@@ -87,6 +89,8 @@ func (s *VideoRequestService) Stop(ctx context.Context) error {
 	if s == nil { return nil }
 	s.mu.Lock()
 	cancel, unsubscribe, done := s.cancel, s.unsubscribe, s.done
+	s.generation++
+	s.playbackStarted = false
 	s.cancel, s.unsubscribe = nil, nil
 	s.mu.Unlock()
 	if unsubscribe != nil { unsubscribe() }
@@ -195,19 +199,29 @@ func (s *VideoRequestService) PlayNext() error {
 	s.queue=append([]VideoRequestItem(nil),s.queue[1:]...)
 	s.current=&item
 	s.manualStop=false
+	s.playbackStarted=false
+	s.generation++
+	generation:=s.generation
 	s.mu.Unlock()
 	ctx,cancel:=context.WithTimeout(context.Background(),25*time.Second)
 	defer cancel()
 	stream,err:=s.client.Resolve(ctx,item.BVID,item.Page)
-	if err!=nil { s.mu.Lock(); if s.current!=nil && s.current.ID==item.ID { s.current=nil }; s.queue=append([]VideoRequestItem{item},s.queue...); s.mu.Unlock(); return err }
+	if err!=nil { s.mu.Lock(); if s.generation==generation && s.current!=nil && s.current.ID==item.ID { s.current=nil; s.queue=append([]VideoRequestItem{item},s.queue...) }; s.mu.Unlock(); return err }
 	referer:=fmt.Sprintf("https://www.bilibili.com/video/%s/?p=%d",item.BVID,item.Page)
-	if err:=s.video.PlayWithHeaders(stream.URL,item.Title+" - "+item.PartTitle,map[string]string{
+	s.mu.Lock()
+	if s.generation!=generation || s.current==nil || s.current.ID!=item.ID { s.mu.Unlock(); return errors.New("视频请求已取消") }
+	err=s.video.PlayWithHeaders(stream.URL,item.Title+" - "+item.PartTitle,map[string]string{
 		"Referer":referer,
 		"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/132.0.0.0 Safari/537.36",
-	});err!=nil {
-		s.mu.Lock(); if s.current!=nil && s.current.ID==item.ID { s.current=nil }; s.queue=append([]VideoRequestItem{item},s.queue...); s.mu.Unlock()
+	})
+	if err!=nil {
+		s.current=nil
+		s.queue=append([]VideoRequestItem{item},s.queue...)
+		s.mu.Unlock()
 		return err
 	}
+	s.playbackStarted=true
+	s.mu.Unlock()
 	return nil
 }
 
@@ -215,6 +229,8 @@ func (s *VideoRequestService) Next() error {
 	s.mu.Lock()
 	s.manualStop=true
 	s.current=nil
+	s.playbackStarted=false
+	s.generation++
 	s.mu.Unlock()
 	if err:=s.video.Stop();err!=nil{return err}
 	s.mu.Lock()
@@ -231,6 +247,8 @@ func (s *VideoRequestService) PlayNow(bvid string,page int,requestedBy string) e
 	if s.current!=nil { s.queue=append([]VideoRequestItem{*s.current},s.queue...) }
 	s.current=nil
 	s.manualStop=true
+	s.playbackStarted=false
+	s.generation++
 	s.mu.Unlock()
 	if err:=s.video.Stop();err!=nil{return err}
 	return s.playItem(item)
@@ -253,14 +271,19 @@ func (s *VideoRequestService) prepareItem(bvid string,page int,requestedBy strin
 }
 
 func (s *VideoRequestService) playItem(item VideoRequestItem) error {
-	s.mu.Lock(); s.current=&item; s.manualStop=false; s.mu.Unlock()
+	s.mu.Lock(); s.current=&item; s.manualStop=false; s.playbackStarted=false; s.generation++; generation:=s.generation; s.mu.Unlock()
 	ctx,cancel:=context.WithTimeout(context.Background(),25*time.Second); defer cancel()
 	stream,err:=s.client.Resolve(ctx,item.BVID,item.Page)
-	if err!=nil { s.mu.Lock(); s.current=nil; s.mu.Unlock(); return err }
-	return s.video.PlayWithHeaders(stream.URL,item.Title+" - "+item.PartTitle,map[string]string{
+	if err!=nil { s.mu.Lock(); if s.generation==generation { s.current=nil }; s.mu.Unlock(); return err }
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.generation!=generation || s.current==nil || s.current.ID!=item.ID { return errors.New("视频请求已取消") }
+	err=s.video.PlayWithHeaders(stream.URL,item.Title+" - "+item.PartTitle,map[string]string{
 		"Referer":fmt.Sprintf("https://www.bilibili.com/video/%s/?p=%d",item.BVID,item.Page),
 		"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/132.0.0.0 Safari/537.36",
 	})
+	if err==nil { s.playbackStarted=true } else { s.current=nil }
+	return err
 }
 
 func (s *VideoRequestService) Remove(id string) bool {
@@ -281,7 +304,7 @@ func (s *VideoRequestService) setError(value string) { s.mu.Lock(); s.lastError=
 func (s *VideoRequestService) Pause() error { return s.video.Pause() }
 func (s *VideoRequestService) Resume() error { return s.video.Resume() }
 func (s *VideoRequestService) StopPlayback() error {
-	s.mu.Lock(); s.current=nil; s.manualStop=true; s.mu.Unlock()
+	s.mu.Lock(); s.current=nil; s.manualStop=true; s.playbackStarted=false; s.generation++; s.mu.Unlock()
 	return s.video.Stop()
 }
 func (s *VideoRequestService) Seek(positionMS int64) error { return s.video.Seek(positionMS) }
@@ -294,12 +317,12 @@ func (s *VideoRequestService) watchPlayback(ctx context.Context) {
 		select {
 		case <-ctx.Done(): return
 		case <-ticker.C:
-			s.mu.RLock(); current:=s.current; manual:=s.manualStop; s.mu.RUnlock()
-			if current==nil || manual { continue }
+			s.mu.RLock(); current:=s.current; manual:=s.manualStop; started:=s.playbackStarted; s.mu.RUnlock()
+			if current==nil || manual || !started { continue }
 			snapshot,err:=s.video.GetPlaybackStatus()
 			if err!=nil || (snapshot.State!=music.PlaybackStopped && snapshot.State!=music.PlaybackIdle && snapshot.State!=music.PlaybackError) { continue }
 			s.mu.Lock()
-			if s.current!=nil && s.current.ID==current.ID { s.current=nil }
+			if s.current!=nil && s.current.ID==current.ID { s.current=nil; s.playbackStarted=false }
 			hasNext:=len(s.queue)>0
 			s.mu.Unlock()
 			if hasNext { if err:=s.PlayNext(); err!=nil { s.setError(err.Error()) } }
