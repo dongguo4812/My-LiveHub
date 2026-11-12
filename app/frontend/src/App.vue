@@ -41,7 +41,7 @@ function navigate(path: string) { router.push(path) }
 
 onMounted(async () => {
   await router.isReady()
-  if (route.meta.standalone) return
+  if (route.path.startsWith('/scene/')) return
   initializeVoiceAudio()
   voiceAudioInitialized = true
   void refreshCoreStatus()
