@@ -8,7 +8,8 @@ import router from './router'
 import {loadAppearance} from './services/appearance'
 import './styles.css'
 const app=createApp(App)
-app.use(router).use(ElementPlus).mount('#app')
+app.use(router).use(ElementPlus)
 void router.isReady().then(() => {
   if (!router.currentRoute.value.path.startsWith('/scene/')) void loadAppearance()
+  app.mount('#app')
 })
