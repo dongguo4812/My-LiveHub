@@ -372,11 +372,20 @@ async function validateLXSource(source: LXSource) {
   validatingLXSourceID.value = source.id
   error.value = ''
   success.value = ''
+  // Validation performs multiple asynchronous backend calls. Keep the search
+  // selection revision from before validation so its read-back cannot replace
+  // checkbox changes made while the script is initializing.
+  const searchRevision = lxSearchSourceRevisions.get(source.id) ?? 0
+  const saveInProgress = lxSearchSourceSaveQueues.has(source.id)
   try {
     const result = await MusicService.ValidateLXUserSource(source.id)
     lxValidation.value = { ...lxValidation.value, [source.id]: result }
     const options = await MusicService.GetLXSearchSourceOptions(source.id)
-    lxSearchSourceOptions.value = { ...lxSearchSourceOptions.value, [source.id]: options }
+    const revisionUnchanged = (lxSearchSourceRevisions.get(source.id) ?? 0) === searchRevision
+    const noSaveInProgress = !saveInProgress && !lxSearchSourceSaveQueues.has(source.id)
+    if (revisionUnchanged && noSaveInProgress) {
+      lxSearchSourceOptions.value = { ...lxSearchSourceOptions.value, [source.id]: options }
+    }
     success.value = `音源初始化通过：${source.name}；已声明来源：${result.platforms.join('、')}。实际搜索与播放解析待洛雪 SDK 接管。`
   } catch (reason) {
     delete lxValidation.value[source.id]
