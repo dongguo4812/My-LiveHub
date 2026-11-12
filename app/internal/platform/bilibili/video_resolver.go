@@ -133,9 +133,9 @@ func (r *VideoResolver) Resolve(ctx context.Context, rawBVID string) (VideoPlayb
 func (r *VideoResolver) GetVideoInfo(ctx context.Context, rawBVID string) (string, int, error) {
 	bvid := strings.TrimSpace(rawBVID)
 	if !validVideoBVID(bvid) { return "", 0, errors.New("请输入有效的 B 站 BV 号") }
-	credentials, err := r.auth.LoadCredentials(ctx)
-	if err != nil { return "", 0, err }
-	body, err := r.get(ctx, r.viewURL, url.Values{"bvid": {bvid}}, credentials.Cookie)
+	cookie := ""
+	if credentials, credentialErr := r.auth.LoadCredentials(ctx); credentialErr == nil { cookie = credentials.Cookie }
+	body, err := r.get(ctx, r.viewURL, url.Values{"bvid": {bvid}}, cookie)
 	if err != nil { return "", 0, fmt.Errorf("获取 B 站视频信息失败：%w", err) }
 	var payload struct { Code int `json:"code"`; Message string `json:"message"`; Data struct { Title string `json:"title"`; Duration int `json:"duration"` } `json:"data"` }
 	if err := json.Unmarshal(body, &payload); err != nil { return "", 0, fmt.Errorf("解析 B 站视频信息失败：%w", err) }
