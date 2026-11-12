@@ -95,6 +95,6 @@ func TestMovingCurrentlyPlayingHostTrackKeepsCursor(t *testing.T) {
 		},
 	}
 	if err := moveHostTrackBetweenPlaylists(st,"a","b","tx","two"); err != nil { t.Fatal(err) }
-	if st.index != 1 { t.Fatalf("moving current track must keep its playback cursor, got %d",st.index) }
+	if st.index != 0 { t.Fatalf("moving current track must position cursor before the next queued track, got %d",st.index) }
 	if st.playlists[1].Tracks[0].ID != "two" { t.Fatal("current track was not moved to destination") }
 }
