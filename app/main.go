@@ -179,6 +179,7 @@ func main() {
 	assetHandler := application.AssetFileServerFS(assets)
 	imageCache, cacheErr := imagecache.NewWithPolicies(filepath.Join(cacheDir, "media-images"), assetHandler, map[string]imagecache.URLPolicy{"bilibili":imagecache.BilibiliURLPolicy})
 	if cacheErr != nil { log.Printf("initialize local media image cache: %v", cacheErr) } else { assetHandler = imageCache; platformService.SetMediaImageCache(imageCache); imageCache.RefreshStats() }
+	assetHandler = desktop.WrapLive2DAssetHandler(live2dService, assetHandler)
 	danmakuDisplayService := desktop.NewDanmakuDisplayService(configManager, danmakuDisplayConfig, danmakuWindowConfig, bilibiliEvents, imageCache)
 	app := application.New(application.Options{
 		Name:        "My-LiveHub",
@@ -212,7 +213,6 @@ func main() {
 	desktop.AttachMusicLyricsWindowApplication(musicLyricsWindowService, app)
 	desktop.AttachBilibiliWebViewApplication(bilibiliWebViewService, app)
 	app.OnShutdown(func() {
-		live2dService.Shutdown()
 		danmakuDisplayService.CloseWindowForShutdown()
 		musicLyricsWindowService.CloseWindowForShutdown()
 		videoQueueService.Close()
