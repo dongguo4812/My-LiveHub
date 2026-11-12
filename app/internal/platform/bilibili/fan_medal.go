@@ -77,8 +77,11 @@ func (c *FanMedalChecker) Check(parent context.Context, userUID, minLevel int) (
 	if c.roomID <= 0 { return false, 0, errors.New("尚未设置有效的 B 站直播间房间号") }
 	ownerUID, err := c.getOwnerUID(ctx)
 	if err != nil { return false, 0, err }
+	now := time.Now()
+	for cachedKey, entry := range c.cache { if !now.Before(entry.expires) { delete(c.cache, cachedKey) } }
+	if len(c.cache) > 5000 { c.cache = make(map[string]medalCacheEntry) }
 	key := fmt.Sprintf("%d:%d", ownerUID, userUID)
-	if cached, ok := c.cache[key]; ok && time.Now().Before(cached.expires) {
+	if cached, ok := c.cache[key]; ok && now.Before(cached.expires) {
 		return cached.level >= minLevel && cached.level > 0, cached.level, nil
 	}
 
