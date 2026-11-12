@@ -95,10 +95,10 @@ func formatQQLyricAsLRC(track Track, primary, translated, romanized *qrc.Lyric) 
 	for at := range lines { times = append(times, at) }
 	sort.Ints(times)
 	var out strings.Builder
-	fmt.Fprintf(&out, "[ti:%s]\\n[ar:%s]\\n[al:%s]\\n[offset:0]\\n", track.Title, track.Artist, track.Album)
+	fmt.Fprintf(&out, "[ti:%s]\n[ar:%s]\n[al:%s]\n[offset:0]\n", track.Title, track.Artist, track.Album)
 	for _, at := range times {
 		minutes, seconds, centiseconds := at/60000, (at/1000)%60, (at%1000)/10
-		fmt.Fprintf(&out, "[%02d:%02d.%02d]%s\\n", minutes, seconds, centiseconds, strings.Join(lines[at], " / "))
+		fmt.Fprintf(&out, "[%02d:%02d.%02d]%s\n", minutes, seconds, centiseconds, strings.Join(lines[at], " / "))
 	}
 	return strings.TrimSpace(out.String())
 }
