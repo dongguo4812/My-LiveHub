@@ -153,7 +153,10 @@ func (s *VideoQueueService) startNextLocked() {
 		if err := s.webview.OpenVideo(item.BVID); err != nil {
 			s.mu.Lock()
 			if s.current != nil && s.current.ID == item.ID { s.current = nil }
+			hasNext := len(s.queue) > 0
+			if hasNext { s.startNextLocked() }
 			s.mu.Unlock()
+			if !hasNext { s.webview.CloseWindow() }
 		}
 	}()
 }
