@@ -324,9 +324,9 @@ func lxBackupTrack(song map[string]json.RawMessage)(music.Track,bool){
 	artist:=read("singer","artist");album:=read("albumName","album")
 	track:=music.Track{ID:id,SourceID:source,LXSourceKey:source,Title:title,Artist:artist,Album:album}
 	track.SourceData=map[string]string{}
-	for k,v:=range song{var str string;if json.Unmarshal(v,&str)==nil&&str!=""{track.SourceData[k]=str}}
+	for k,v:=range song{if value:=lxBackupScalarString(v);value!=""{track.SourceData[k]=value}}
 	var meta map[string]json.RawMessage;_ = json.Unmarshal(song["meta"],&meta)
-	for k,v:=range meta{var str string;if json.Unmarshal(v,&str)==nil&&str!=""{track.SourceData[k]=str}}
+	for k,v:=range meta{if value:=lxBackupScalarString(v);value!=""{track.SourceData[k]=value}}
 	_ = json.Unmarshal(meta["picUrl"],&track.CoverURL)
 	if d:=read("duration_ms");d!=""{track.DurationMS,_=strconv.ParseInt(d,10,64)} else if interval:=read("interval");interval!=""{track.DurationMS=parseLXInterval(interval)}
 	var qualities []map[string]json.RawMessage
@@ -341,6 +341,17 @@ func lxBackupTrack(song map[string]json.RawMessage)(music.Track,bool){
 	}
 	return track,true
 }
+// lxBackupScalarString preserves provider metadata whether LX serialized a
+// native identifier as a JSON string or number.
+func lxBackupScalarString(raw json.RawMessage) string {
+	if len(raw)==0 { return "" }
+	var value string
+	if json.Unmarshal(raw,&value)==nil { return value }
+	var number json.Number
+	if json.Unmarshal(raw,&number)==nil { return number.String() }
+	return ""
+}
+
 func parseLXInterval(value string)int64{
 	parts:=strings.Split(strings.TrimSpace(value),":")
 	if len(parts)==2{m,e1:=strconv.ParseInt(parts[0],10,64);sec,e2:=strconv.ParseInt(parts[1],10,64);if e1==nil&&e2==nil{return (m*60+sec)*1000}}
