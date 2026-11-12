@@ -5,6 +5,7 @@ import "testing"
 func TestLive2DConfigValidation(t *testing.T) {
 	cfg := DefaultLive2DConfig()
 	if err := cfg.Validate(); err != nil { t.Fatalf("default config invalid: %v", err) }
+	if cfg.ModelScale <= 0 { t.Fatal("default model scale must be positive") }
 	cfg.RuntimeVersion = "moc4"
 	if err := cfg.Validate(); err == nil { t.Fatal("expected invalid runtime version") }
 	cfg = DefaultLive2DConfig()
