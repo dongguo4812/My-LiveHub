@@ -27,6 +27,9 @@ const sourceFileInput = ref<HTMLInputElement | null>(null)
 const queue = ref<QueueSnapshot | null>(null)
 const draggedQueueItemID = ref('')
 const playback = ref<PlaybackSnapshot | null>(null)
+const syncedLyrics = ref<Array<{ time: number; text: string }>>([])
+const lyricsTrackKey = ref('')
+let lyricsRequestID = 0
 const results = ref<Track[]>([])
 const searchErrors = ref<Record<string, string>>({})
 const qualitySelections = ref<Record<string, string>>({})
@@ -61,6 +64,41 @@ function formatDuration(value?: number) {
   const numeric = Number(value)
   const seconds = Math.floor(numeric % 1 === 0 ? numeric / 1000 : numeric)
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+}
+function parseSyncedLyrics(lrc: string) {
+  const lines: Array<{ time: number; text: string }> = []
+  for (const line of lrc.split(/\\r?\\n/)) {
+    const match = line.match(/^\\[(\\d{1,2}):(\\d{2})(?:[.:](\\d{1,3}))?\\](.*)$/)
+    if (!match) continue
+    const fraction = match[3] ?? '0'
+    const milliseconds = Number(match[1]) * 60000 + Number(match[2]) * 1000 + Number(fraction.padEnd(3, '0').slice(0, 3))
+    lines.push({ time: milliseconds, text: match[4].trim() })
+  }
+  return lines.filter(line => line.text).sort((a, b) => a.time - b.time)
+}
+const currentLyric = computed(() => {
+  const position = playback.value?.position_ms ?? 0
+  let active = ''
+  for (const line of syncedLyrics.value) {
+    if (line.time > position) break
+    active = line.text
+  }
+  return active || '暂无歌词'
+})
+async function loadTrackLyrics() {
+  const track = playback.value?.track
+  const key = track ? `${track.source_id}:${track.id}` : ''
+  if (key === lyricsTrackKey.value) return
+  lyricsTrackKey.value = key
+  syncedLyrics.value = []
+  if (!track) return
+  const requestID = ++lyricsRequestID
+  try {
+    const lrc = await MusicService.GetLyrics(track)
+    if (requestID === lyricsRequestID && lyricsTrackKey.value === key) syncedLyrics.value = parseSyncedLyrics(lrc ?? '')
+  } catch {
+    if (requestID === lyricsRequestID) syncedLyrics.value = []
+  }
 }
 function sourceName(id?: string) {
   const names: Record<string, string> = { kw: '酷我音乐', kg: '酷狗音乐', tx: 'QQ 音乐', wy: '网易云音乐', mg: '咪咕音乐' }
@@ -362,6 +400,7 @@ async function clearQueue() {
 async function refreshPlayback() {
   try {
     playback.value = await MusicService.GetPlaybackStatus()
+    void loadTrackLyrics()
     if (playback.value.volume >= 0) volume.value = playback.value.volume
   } catch { /* The engine is not started until the first play request. */ }
   await refreshQueue()
@@ -523,8 +562,8 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
           <el-icon v-else><Headset /></el-icon>
         </div>
         <div class="track-info">
-          <strong>{{ playback?.track?.title ?? '尚未播放歌曲' }}</strong>
-          <span>{{ playback?.track?.artist ?? '搜索歌曲并加入播放队列' }}</span>
+          <strong>{{ playback?.track ? `${playback.track.title} - ${playback.track.artist || '未知歌手'}` : '尚未播放歌曲' }}</strong>
+          <span class="current-lyric">{{ playback?.track ? currentLyric : '搜索歌曲并加入播放队列' }}</span>
           <small v-if="playback?.track">{{ sourceName(playback.track.source_id) }}</small>
           <el-tag v-if="queue?.current?.requested_by === '__my_livehub_host_playlist__'" type="success" size="small">主播歌单</el-tag>
           <el-tag v-else-if="queue?.current" type="warning" size="small">观众点播</el-tag>
@@ -695,8 +734,8 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         <img v-if="playback?.track?.cover_url" :src="playback.track.cover_url" alt="当前歌曲封面" />
         <el-icon v-else><Headset /></el-icon>
         <div>
-          <strong>{{ playback?.track?.title ?? '尚未播放歌曲' }}</strong>
-          <span>{{ playback?.track?.artist ?? '从主播歌单或歌曲搜索开始播放' }}</span>
+          <strong>{{ playback?.track ? `${playback.track.title} - ${playback.track.artist || '未知歌手'}` : '尚未播放歌曲' }}</strong>
+          <span class="current-lyric">{{ playback?.track ? currentLyric : '从主播歌单或歌曲搜索开始播放' }}</span>
         </div>
       </div>
       <div class="mini-player-actions">
@@ -716,7 +755,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
 .music-tabs button:hover{color:var(--el-text-color-primary)}
 .music-tabs button.active{color:var(--app-accent);border-bottom-color:var(--app-accent);font-weight:600}
 .music-tabs button span{font-size:11px;padding:1px 6px;border-radius:10px;background:var(--app-bg-control)}
-.mini-player{position:sticky;bottom:-28px;z-index:30;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-shrink:0;margin-top:auto;margin-left:-32px;margin-right:-32px;margin-bottom:-28px;padding:12px 32px calc(12px + env(safe-area-inset-bottom));min-height:68px;border:1px solid var(--app-border);border-bottom:0;border-radius:12px 12px 0 0;background:var(--el-bg-color);box-shadow:0 -8px 28px #00000018}
+.current-lyric{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--el-text-color-secondary);font-size:12px;line-height:1.5}.mini-player-track>div{min-width:0}.mini-player-track .current-lyric{max-width:min(52vw,560px)}.track-info .current-lyric{max-width:100%}.mini-player{position:sticky;bottom:-28px;z-index:30;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-shrink:0;margin-top:auto;margin-left:-32px;margin-right:-32px;margin-bottom:-28px;padding:12px 32px calc(12px + env(safe-area-inset-bottom));min-height:68px;border:1px solid var(--app-border);border-bottom:0;border-radius:12px 12px 0 0;background:var(--el-bg-color);box-shadow:0 -8px 28px #00000018}
 .mini-player-track,.mini-player-actions{display:flex;align-items:center;gap:12px;min-width:0}
 .mini-player-track img{width:42px;height:42px;object-fit:cover;border-radius:7px}.mini-player-track>.el-icon{font-size:28px;color:var(--el-text-color-secondary)}
 .mini-player-track>div{display:flex;flex-direction:column;gap:3px;min-width:0}

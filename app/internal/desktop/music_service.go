@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 			"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -598,6 +600,35 @@ func (s *MusicService) Stop() error {
 	s.queue.FinishCurrent()
 	return err
 }
+type musicLyricsResponse struct {
+	SyncedLyrics string `json:"syncedLyrics"`
+}
+
+// GetLyrics retrieves time-synchronized lyrics for the current track.
+// LRCLIB is used only for lyrics; audio playback remains on the selected LX source.
+func (s *MusicService) GetLyrics(track music.Track) (string, error) {
+	if strings.TrimSpace(track.Title) == "" { return "", errors.New("歌曲名称不能为空") }
+	query := url.Values{}
+	query.Set("track_name", track.Title)
+	query.Set("artist_name", track.Artist)
+	if strings.TrimSpace(track.Album) != "" { query.Set("album_name", track.Album) }
+	if track.DurationMS > 0 { query.Set("duration", fmt.Sprintf("%d", track.DurationMS/1000)) }
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://lrclib.net/api/get?"+query.Encode(), nil)
+	if err != nil { return "", err }
+	req.Header.Set("User-Agent", "My-LiveHub/1.0")
+	client := &http.Client{Timeout: 8*time.Second}
+	resp, err := client.Do(req)
+	if err != nil { return "", fmt.Errorf("获取歌词失败：%w", err) }
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound { return "", nil }
+	if resp.StatusCode != http.StatusOK { return "", fmt.Errorf("歌词服务返回 HTTP %d", resp.StatusCode) }
+	var result musicLyricsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil { return "", fmt.Errorf("解析歌词失败：%w", err) }
+	return strings.TrimSpace(result.SyncedLyrics), nil
+}
+
 func (s *MusicService) GetPlaybackStatus() (music.PlaybackSnapshot, error) {
 	if s == nil || s.engine == nil { return music.PlaybackSnapshot{}, music.ErrPlaybackEngineUnavailable }
 	return s.engine.Snapshot(context.Background())
