@@ -9,9 +9,12 @@ export interface Live2DConfig {
   microphone_device_id: string
   microphone_sensitivity: number
   microphone_smoothing: number
-  model_scale: number
-  model_offset_x: number
-  model_offset_y: number
+  model_scale_moc2: number
+  model_offset_x_moc2: number
+  model_offset_y_moc2: number
+  model_scale_moc3: number
+  model_offset_x_moc3: number
+  model_offset_y_moc3: number
 }
 
 export interface Live2DModel {
