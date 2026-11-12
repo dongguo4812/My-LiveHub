@@ -1117,7 +1117,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         <el-divider />
         <div class="setting-row"><div><strong>粉丝勋章等级限制</strong><p>只检查用户是否拥有当前主播的粉丝勋章，不要求佩戴；主播和房管免检。</p></div><el-switch v-model="config.require_fan_medal" /></div>
         <el-divider />
-        <div class="setting-row"><div><strong>最低粉丝勋章等级</strong><p>未拥有当前主播粉丝勋章或等级不足时，拒绝本次点歌。</p></div><el-input-number v-model="config.fan_medal_level" :min="1" :max="100" /></div>
+        <div class="setting-row"><div><strong>最低粉丝勋章等级</strong><p>未拥有当前主播粉丝勋章或等级不足时，拒绝本次点歌。</p></div><el-input-number v-model="config.fan_medal_level" :min="1" :max="120" /></div>
         <el-divider />
         <div class="setting-row"><div><strong>点歌指令前缀</strong><p>例如：点歌 稻香 周杰伦。</p></div><el-input v-model="config.command_prefix" maxlength="16" style="width:220px" /></div>
         <el-divider />
