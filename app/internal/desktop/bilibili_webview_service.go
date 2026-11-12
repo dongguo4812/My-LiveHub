@@ -251,9 +251,12 @@ func (s *BilibiliWebViewService) handleWindowClosing(window *application.Webview
 	s.playbackState = BilibiliWebViewPlaybackState{}
 	shouldResume := s.resumeMusic
 	s.resumeMusic = false
+	handler := s.playbackStateHandler
 	s.mu.Unlock()
 
-	s.emitPlaybackState(BilibiliWebViewPlaybackState{})
+	emptyState := BilibiliWebViewPlaybackState{}
+	s.emitPlaybackState(emptyState)
+	if handler != nil { handler(emptyState) }
 	if shouldResume && s.music != nil {
 		_ = s.music.Resume()
 	}
