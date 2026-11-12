@@ -24,6 +24,8 @@ func DefaultBilibiliConfig() BilibiliConfig {
 		VideoQueueLimit: 30,
 		VideoMaxDurationSeconds: 300,
 		VideoQueueDisplayLimit: 10,
+		VideoWindowWidth: 1280,
+		VideoWindowHeight: 800,
 	}
 }
 
