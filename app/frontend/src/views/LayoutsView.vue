@@ -136,7 +136,8 @@ onMounted(() => { void load(); window.addEventListener('resize', refreshScale) }
         <el-select v-model="activeSceneID" style="width:190px" @change="selectedLayerID=''; refreshURL(); $nextTick(refreshScale)">
           <el-option v-for="item in scenes" :key="item.id" :label="item.name" :value="item.id" />
         </el-select>
-        <el-input v-if="scene" v-model="scene.name" size="default" style="width:150px" placeholder="场景名称" />\n        <el-input v-if="scene" v-model="scene.background" size="default" style="width:150px" placeholder="transparent 或 #000000" />
+        <el-input v-if="scene" v-model="scene.name" size="default" style="width:150px" placeholder="场景名称" />
+        <el-input v-if="scene" v-model="scene.background" size="default" style="width:150px" placeholder="transparent 或 #000000" />
         <el-button text type="danger" :disabled="scenes.length <= 1" @click="removeScene"><el-icon><Delete /></el-icon></el-button>
       </div>
       <div class="source-actions">
