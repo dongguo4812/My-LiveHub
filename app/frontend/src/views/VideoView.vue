@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import * as VideoService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/videoservice.js'
+import * as BilibiliVideoService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/bilibilivideoservice.js'
 
 type PlaybackSnapshot = Awaited<ReturnType<typeof VideoService.GetPlaybackStatus>>
+const bvid = ref('')
 const url = ref('')
 const title = ref('')
 const playback = ref<PlaybackSnapshot | null>(null)
@@ -31,6 +33,17 @@ async function refresh() {
     // Do not let the polling loop overwrite the user's in-progress seek.
     if (!isSeeking.value) seekValue.value = progress.value * 10
   } catch { /* The video process may not have been started yet. */ }
+}
+async function playBilibili() {
+  if (!bvid.value.trim()) { error.value = '请输入 B 站 BV 号'; return }
+  busy.value = true
+  error.value = ''
+  try {
+    await BilibiliVideoService.PlayBilibiliVideo(bvid.value.trim())
+    await refresh()
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  } finally { busy.value = false }
 }
 async function play() {
   if (!url.value.trim()) { error.value = '请输入视频直链地址'; return }
@@ -103,6 +116,12 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
     <el-card shadow="never">
       <template #header><strong>播放 MV</strong></template>
       <el-form label-position="top">
+        <el-form-item label="B 站 BV 号（使用当前已登录账号）">
+          <el-input v-model="bvid" placeholder="例如 BV1xx411c7mD" clearable />
+        </el-form-item>
+        <div class="actions bilibili-actions">
+          <el-button type="primary" :loading="busy" @click="playBilibili">解析并用 mpv 播放 B 站视频</el-button>
+        </div>
         <el-form-item label="视频直链地址">
           <el-input v-model="url" placeholder="https://.../video.mp4 或 file:///..." clearable />
         </el-form-item>
@@ -136,5 +155,5 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 </template>
 
 <style scoped>
-.video-page{display:flex;flex-direction:column;gap:20px}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.hint{color:var(--el-text-color-secondary);font-size:13px}.actions{display:flex;flex-wrap:wrap;gap:9px}.hint{margin:14px 0 0}.time-row{display:flex;justify-content:space-between;color:var(--el-text-color-secondary);font-size:12px;font-variant-numeric:tabular-nums}.volume-row{display:grid;grid-template-columns:90px 1fr;align-items:center;gap:12px;margin-top:18px}.volume-row span{font-size:13px;color:var(--el-text-color-secondary)}
+.video-page{display:flex;flex-direction:column;gap:20px}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.hint{color:var(--el-text-color-secondary);font-size:13px}.actions{display:flex;flex-wrap:wrap;gap:9px}.bilibili-actions{margin:0 0 14px}.hint{margin:14px 0 0}.time-row{display:flex;justify-content:space-between;color:var(--el-text-color-secondary);font-size:12px;font-variant-numeric:tabular-nums}.volume-row{display:grid;grid-template-columns:90px 1fr;align-items:center;gap:12px;margin-top:18px}.volume-row span{font-size:13px;color:var(--el-text-color-secondary)}
 </style>
