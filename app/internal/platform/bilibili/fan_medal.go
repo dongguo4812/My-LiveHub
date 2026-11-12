@@ -29,6 +29,7 @@ type medalWallItem struct {
 	MedalInfo struct {
 		TargetID int64 `json:"target_id"`
 		Level int `json:"level"`
+		WearingStatus int `json:"wearing_status"`
 	} `json:"medal_info"`
 }
 
