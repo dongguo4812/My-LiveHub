@@ -466,7 +466,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
       <el-slider :model-value="progress" :disabled="!playback?.track || !playback.duration_ms" @change="seekTo" />
       <div class="time-row"><span>{{ formatDuration(playback?.position_ms) }}</span><span>{{ formatDuration(playback?.duration_ms) }}</span></div>
       <div class="player-controls">
-        <el-button type="primary" @click="addHostPlaylistToQueue">播放主播歌单</el-button>
+        <el-button type="primary" @click="addHostPlaylistToQueue">播放</el-button>
         <el-button :disabled="playback?.state !== 'playing'" @click="pause">暂停</el-button>
         <el-button :disabled="playback?.state !== 'paused'" @click="resume">继续</el-button>
         <el-button @click="previousTrack">上一首</el-button>
@@ -560,7 +560,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
           <el-option label="单曲循环" value="single" />
           <el-option label="随机播放" value="shuffle" />
         </el-select>
-        <el-button type="primary" :disabled="favorites.length === 0" @click="addHostPlaylistToQueue">播放主播歌单</el-button>
+        <el-button type="primary" :disabled="favorites.length === 0" @click="addHostPlaylistToQueue">播放</el-button>
       </div>
       <el-table v-if="favorites.length" :data="favorites" :row-key="trackRowKey" style="width:100%">
         <el-table-column type="index" label="#" width="55" />
