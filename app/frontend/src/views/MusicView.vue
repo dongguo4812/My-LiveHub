@@ -772,14 +772,6 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
           <span class="playlist-card-meta">{{ item.track_count }} 首歌曲 · {{ item.mode === 'single' ? '单曲循环' : item.mode === 'shuffle' ? '随机播放' : '列表循环' }}</span>
         </button>
       </div>
-      <div class="playlist-playmode">
-        <span>当前歌单播放模式</span>
-        <el-select v-model="hostPlayMode" style="width:150px" @change="changeHostPlayMode">
-          <el-option label="列表循环" value="list" />
-          <el-option label="单曲循环" value="single" />
-          <el-option label="随机播放" value="shuffle" />
-        </el-select>
-      </div>
       <el-table v-if="favorites.length" :data="favorites" :row-key="trackRowKey" style="width:100%">
         <el-table-column type="index" label="#" width="55" />
         <el-table-column prop="title" label="歌曲" min-width="180" />
@@ -859,7 +851,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
 
 
 <style scoped>
-.playlist-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.playlist-header .section-description{margin:7px 0 0}.playlist-header-actions,.playlist-toolbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.playlist-toolbar{margin:18px 0 14px}.playlist-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;margin:14px 0 20px}.playlist-card{display:flex;flex-direction:column;align-items:flex-start;gap:8px;min-height:112px;padding:15px;border:1px solid var(--app-border);border-radius:11px;background:var(--el-bg-color);color:var(--el-text-color-primary);text-align:left;cursor:pointer;transition:border-color .15s,background .15s}.playlist-card:hover,.playlist-card.active{border-color:var(--app-accent);background:var(--app-bg-control)}.playlist-card.active{box-shadow:inset 0 0 0 1px var(--app-accent)}.playlist-card-icon{font-size:24px;color:var(--app-accent)}.playlist-card-name{font-weight:650}.playlist-card-meta{font-size:12px;color:var(--el-text-color-secondary)}.playlist-playmode{display:flex;align-items:center;justify-content:flex-end;gap:12px;margin:10px 0 14px;color:var(--el-text-color-secondary);font-size:13px}@media(max-width:800px){.playlist-header{flex-direction:column}.playlist-header-actions{width:100%}.playlist-toolbar{align-items:stretch}.playlist-playmode{justify-content:space-between}}.music-tabs{display:flex;align-items:center;gap:6px;overflow-x:auto;padding:0 2px 8px;border-bottom:1px solid var(--app-border)}
+.playlist-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.playlist-header .section-description{margin:7px 0 0}.playlist-header-actions,.playlist-toolbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.playlist-toolbar{margin:18px 0 14px}.playlist-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;margin:14px 0 20px}.playlist-card{display:flex;flex-direction:column;align-items:flex-start;gap:8px;min-height:112px;padding:15px;border:1px solid var(--app-border);border-radius:11px;background:var(--el-bg-color);color:var(--el-text-color-primary);text-align:left;cursor:pointer;transition:border-color .15s,background .15s}.playlist-card:hover,.playlist-card.active{border-color:var(--app-accent);background:var(--app-bg-control)}.playlist-card.active{box-shadow:inset 0 0 0 1px var(--app-accent)}.playlist-card-icon{font-size:24px;color:var(--app-accent)}.playlist-card-name{font-weight:650}.playlist-card-meta{font-size:12px;color:var(--el-text-color-secondary)}@media(max-width:800px){.playlist-header{flex-direction:column}.playlist-header-actions{width:100%}.playlist-toolbar{align-items:stretch}}.music-tabs{display:flex;align-items:center;gap:6px;overflow-x:auto;padding:0 2px 8px;border-bottom:1px solid var(--app-border)}
 .music-tabs button{display:inline-flex;align-items:center;gap:7px;white-space:nowrap;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--el-text-color-secondary);padding:11px 14px;margin-bottom:-1px;font:inherit;font-size:14px;cursor:pointer;transition:color .15s,border-color .15s}
 .music-tabs button:hover{color:var(--el-text-color-primary)}
 .music-tabs button.active{color:var(--app-accent);border-bottom-color:var(--app-accent);font-weight:600}
