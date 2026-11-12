@@ -9,6 +9,7 @@ type BilibiliConfig struct {
 	VideoQueueLimit int `json:"video_queue_limit"`
 	VideoMaxDurationSeconds int `json:"video_max_duration_seconds"`
 	VideoRequireFanMedal bool `json:"video_require_fan_medal"`
+	VideoFanMedalLevel int `json:"video_fan_medal_level"`
 	VideoQueueDisplayLimit int `json:"video_queue_display_limit"`
 	VideoWindowX int `json:"video_window_x"`
 	VideoWindowY int `json:"video_window_y"`
@@ -23,6 +24,7 @@ func DefaultBilibiliConfig() BilibiliConfig {
 		VideoRequestCooldownSeconds: 60,
 		VideoQueueLimit: 30,
 		VideoMaxDurationSeconds: 300,
+		VideoFanMedalLevel: 1,
 		VideoQueueDisplayLimit: 10,
 		VideoWindowWidth: 1280,
 		VideoWindowHeight: 800,
@@ -42,6 +44,7 @@ func (c BilibiliConfig) Validate() error {
 	if c.VideoMaxDurationSeconds < 1 || c.VideoMaxDurationSeconds > 3600 {
 		return fmt.Errorf("视频时长限制必须在 1 到 3600 秒之间")
 	}
+	if c.VideoFanMedalLevel < 0 || c.VideoFanMedalLevel > 100 { return fmt.Errorf("视频点播粉丝勋章等级必须在 1 到 100 之间") }
 	if c.VideoQueueDisplayLimit < 1 || c.VideoQueueDisplayLimit > 1000 {
 		return fmt.Errorf("队列展示数量必须在 1 到 1000 之间")
 	}
