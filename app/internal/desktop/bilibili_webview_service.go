@@ -1,7 +1,10 @@
 package desktop
 
 import (
+	"encoding/json"
 	"errors"
+	"math"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -17,16 +20,27 @@ type BilibiliWebViewWindowState struct {
 	IsOpen bool `json:"is_open"`
 }
 
+type BilibiliWebViewPlaybackState struct {
+	IsOpen     bool   `json:"is_open"`
+	Title      string `json:"title"`
+	PositionMS int64  `json:"position_ms"`
+	DurationMS int64  `json:"duration_ms"`
+	IsPlaying  bool   `json:"is_playing"`
+	IsPaused   bool   `json:"is_paused"`
+	IsEnded    bool   `json:"is_ended"`
+}
+
 // BilibiliWebViewService opens Bilibili's own player in a Wails WebView2
 // window. The remote page is not given any application-specific JS bridge.
 type BilibiliWebViewService struct {
-	mu          sync.RWMutex
-	app         *application.App
-	window          *application.WebviewWindow
-	music           musicPlaybackController
-	resumeMusic     bool
-	runtimeReady    bool
+	mu            sync.RWMutex
+	app           *application.App
+	window        *application.WebviewWindow
+	music         musicPlaybackController
+	resumeMusic   bool
+	runtimeReady  bool
 	pendingVideoURL string
+	playbackState BilibiliWebViewPlaybackState
 }
 
 func NewBilibiliWebViewService(musicService musicPlaybackController) *BilibiliWebViewService {
@@ -58,6 +72,7 @@ func (s *BilibiliWebViewService) OpenVideo(bvid string) error {
 	}
 	videoURL := "https://www.bilibili.com/video/" + bvid
 	if s.window != nil {
+		s.playbackState = BilibiliWebViewPlaybackState{IsOpen: true}
 		if !s.runtimeReady {
 			s.pendingVideoURL = videoURL
 			return nil
@@ -98,6 +113,7 @@ func (s *BilibiliWebViewService) OpenVideo(bvid string) error {
 	})
 	s.window = window
 	s.pendingVideoURL = videoURL
+	s.playbackState = BilibiliWebViewPlaybackState{IsOpen: true}
 	window.OnWindowEvent(events.Common.WindowRuntimeReady, func(_ *application.WindowEvent) {
 		s.mu.Lock()
 		if s.window != window {
@@ -116,6 +132,14 @@ func (s *BilibiliWebViewService) OpenVideo(bvid string) error {
 			window.Show()
 			window.Focus()
 		}()
+	})
+	window.OnWindowEvent(events.Windows.WebViewNavigationCompleted, func(_ *application.WindowEvent) {
+		s.mu.RLock()
+		isCurrent := s.window == window && s.runtimeReady
+		s.mu.RUnlock()
+		if isCurrent {
+			go window.ExecJS(bilibiliPlaybackMonitorScript)
+		}
 	})
 	window.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 		s.handleWindowClosing(window)
@@ -160,6 +184,17 @@ func (s *BilibiliWebViewService) GetWindowState() BilibiliWebViewWindowState {
 	return BilibiliWebViewWindowState{IsOpen: s.window != nil}
 }
 
+func (s *BilibiliWebViewService) GetPlaybackState() BilibiliWebViewPlaybackState {
+	if s == nil {
+		return BilibiliWebViewPlaybackState{}
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	state := s.playbackState
+	state.IsOpen = s.window != nil
+	return state
+}
+
 func (s *BilibiliWebViewService) CloseWindow() {
 	if s == nil {
 		return
@@ -183,14 +218,162 @@ func (s *BilibiliWebViewService) handleWindowClosing(window *application.Webview
 	s.window = nil
 	s.runtimeReady = false
 	s.pendingVideoURL = ""
+	s.playbackState = BilibiliWebViewPlaybackState{}
 	shouldResume := s.resumeMusic
 	s.resumeMusic = false
 	s.mu.Unlock()
 
+	s.emitPlaybackState(BilibiliWebViewPlaybackState{})
 	if shouldResume && s.music != nil {
 		_ = s.music.Resume()
 	}
 }
+
+func (s *BilibiliWebViewService) HandleRawMessage(windowName, message string, originInfo *application.OriginInfo) {
+	if s == nil || windowName != "bilibili-webview-player" || !isTrustedBilibiliOrigin(originInfo) || len(message) > 4096 {
+		return
+	}
+	state, ok := parseBilibiliPlayerState(message)
+	if !ok {
+		return
+	}
+
+	s.mu.Lock()
+	if s.window == nil {
+		s.mu.Unlock()
+		return
+	}
+	state.IsOpen = true
+	s.playbackState = state
+	s.mu.Unlock()
+	s.emitPlaybackState(state)
+}
+
+func isTrustedBilibiliOrigin(originInfo *application.OriginInfo) bool {
+	if originInfo == nil || !isBilibiliOrigin(originInfo.Origin) {
+		return false
+	}
+	return originInfo.TopOrigin == "" || isBilibiliOrigin(originInfo.TopOrigin)
+}
+
+func isBilibiliOrigin(value string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	return err == nil && parsed.Scheme == "https" &&
+		strings.EqualFold(parsed.Hostname(), "www.bilibili.com") && parsed.Port() == ""
+}
+
+func parseBilibiliPlayerState(message string) (BilibiliWebViewPlaybackState, bool) {
+	var payload struct {
+		Type                string  `json:"type"`
+		Title               string  `json:"title"`
+		CurrentTimeSeconds  float64 `json:"current_time_seconds"`
+		DurationSeconds     float64 `json:"duration_seconds"`
+		Paused              bool    `json:"paused"`
+		Ended               bool    `json:"ended"`
+	}
+	if json.Unmarshal([]byte(message), &payload) != nil || payload.Type != "bilibili-player-state" {
+		return BilibiliWebViewPlaybackState{}, false
+	}
+	if math.IsNaN(payload.CurrentTimeSeconds) || math.IsInf(payload.CurrentTimeSeconds, 0) ||
+		math.IsNaN(payload.DurationSeconds) || math.IsInf(payload.DurationSeconds, 0) ||
+		payload.CurrentTimeSeconds < 0 || payload.DurationSeconds < 0 {
+		return BilibiliWebViewPlaybackState{}, false
+	}
+
+	position := payload.CurrentTimeSeconds
+	duration := payload.DurationSeconds
+	if duration > 0 && position > duration {
+		position = duration
+	}
+	title := strings.TrimSpace(payload.Title)
+	if len(title) > 240 {
+		title = title[:240]
+	}
+	return BilibiliWebViewPlaybackState{
+		Title:      title,
+		PositionMS: int64(math.Round(position * 1000)),
+		DurationMS: int64(math.Round(duration * 1000)),
+		IsPlaying:  !payload.Paused && !payload.Ended,
+		IsPaused:   payload.Paused,
+		IsEnded:    payload.Ended,
+	}, true
+}
+
+func (s *BilibiliWebViewService) emitPlaybackState(state BilibiliWebViewPlaybackState) {
+	if s == nil {
+		return
+	}
+	s.mu.RLock()
+	app := s.app
+	s.mu.RUnlock()
+	if app == nil {
+		return
+	}
+	if mainWindow, ok := app.Window.GetByName("main-window"); ok {
+		mainWindow.EmitEvent("bilibili-player-state", state)
+	}
+}
+
+const bilibiliPlaybackMonitorScript = `(() => {
+  const marker = '__myLiveHubBilibiliPlaybackMonitor';
+  if (window[marker]) return;
+  window[marker] = true;
+
+  let activeVideo = null;
+  let lastSentAt = 0;
+  let lastPayload = '';
+
+  const send = (force = false) => {
+    const now = Date.now();
+    if (!force && now - lastSentAt < 900) return;
+
+    const video = document.querySelector('video');
+    const titleNode = document.querySelector('.video-title, h1');
+    let title = titleNode?.textContent?.trim() || '';
+    if (!title) title = (document.title || '').replace(/\\s*[-_|]\\s*哔哩哔哩.*$/, '').trim();
+
+    const payload = JSON.stringify({
+      type: 'bilibili-player-state',
+      title,
+      current_time_seconds: video && Number.isFinite(video.currentTime) ? video.currentTime : 0,
+      duration_seconds: video && Number.isFinite(video.duration) ? video.duration : 0,
+      paused: !video || video.paused,
+      ended: !!(video && video.ended)
+    });
+    if (payload === lastPayload) return;
+    lastPayload = payload;
+    lastSentAt = now;
+    try {
+      window.chrome?.webview?.postMessage(payload);
+    } catch (_) {}
+  };
+
+  const bindVideo = () => {
+    const video = document.querySelector('video');
+    if (video && video !== activeVideo) {
+      activeVideo = video;
+      ['play', 'pause', 'ended', 'loadedmetadata', 'durationchange', 'timeupdate', 'seeking', 'seeked'].forEach((name) => {
+        video.addEventListener(name, () => send(name !== 'timeupdate'));
+      });
+      send(true);
+    }
+    send(false);
+  };
+
+  const start = () => {
+    if (document.documentElement) {
+      new MutationObserver(bindVideo).observe(document.documentElement, { childList: true, subtree: true });
+    }
+    bindVideo();
+    window.setInterval(bindVideo, 500);
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start, { once: true });
+  } else {
+    start();
+  }
+})();`
 
 const bilibiliWebFullscreenScript = `(() => {
   const deadline = Date.now() + 15000;
