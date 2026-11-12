@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const CurrentMusicConfigVersion = 7
+const CurrentMusicConfigVersion = 8
 
 type LXUserSourceProxyConfig struct {
 	Enabled bool `json:"enabled"`
@@ -34,6 +34,7 @@ type MusicConfig struct {
 	SkipCommand string `json:"skip_command"`
 	QueueCapacity  int    `json:"queue_capacity"`
 	Volume int `json:"volume"`
+	LoudnessNormalization bool `json:"loudness_normalization"`
 	LXUserSourceProxy LXUserSourceProxyConfig `json:"lx_user_source_proxy"`
 }
 
@@ -64,6 +65,7 @@ func MigrateMusicConfig(c MusicConfig) (MusicConfig, bool) {
 		n.QueueCapacity = c.QueueCapacity
 	}
 	n.LXUserSourceProxy = c.LXUserSourceProxy
+	n.LoudnessNormalization = c.LoudnessNormalization
 	if c.Volume > 0 && c.Volume <= 100 { n.Volume = c.Volume }
 	return n, true
 }
@@ -109,6 +111,7 @@ func LoadMusicConfig(m *Manager) (MusicConfig, error) {
 			"skip_command": true,
 			"queue_capacity": true,
 			"volume": true,
+			"loudness_normalization": true,
 			"lx_user_source_proxy": true,
 		}
 		cleaned := make(map[string]any, len(local))
