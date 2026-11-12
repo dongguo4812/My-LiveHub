@@ -110,6 +110,7 @@ func main() {
 	if err != nil { log.Fatalf("initialize Bilibili video resolver: %v", err) }
 	bilibiliVideoService, err := desktop.NewBilibiliVideoService(videoService, bilibiliVideoResolver)
 	if err != nil { log.Fatalf("initialize Bilibili video playback service: %v", err) }
+	bilibiliWebViewService := desktop.NewBilibiliWebViewService(musicService)
 	cacheDir := ""
 	if environment == config.EnvironmentDevelopment {
 		if workingDir, getwdErr := os.Getwd(); getwdErr == nil {
@@ -184,15 +185,18 @@ func main() {
 			application.NewService(musicLyricsWindowService),
 			application.NewService(videoService),
 			application.NewService(bilibiliVideoService),
+			application.NewService(bilibiliWebViewService),
 		},
 	})
 	wailsApp = app
 	desktop.AttachApplication(platformService, app, appConfig.Appearance.Theme == "light")
 	desktop.AttachDanmakuDisplayApplication(danmakuDisplayService, app)
 	desktop.AttachMusicLyricsWindowApplication(musicLyricsWindowService, app)
+	desktop.AttachBilibiliWebViewApplication(bilibiliWebViewService, app)
 	app.OnShutdown(func() {
 		danmakuDisplayService.CloseWindowForShutdown()
 		musicLyricsWindowService.CloseWindowForShutdown()
+		bilibiliWebViewService.CloseWindowForShutdown()
 		if err := videoService.Shutdown(); err != nil {
 			log.Printf("stop video playback engine: %v", err)
 		}
