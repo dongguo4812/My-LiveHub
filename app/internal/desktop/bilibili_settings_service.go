@@ -11,10 +11,13 @@ type BilibiliSettingsService struct {
 	manager *config.Manager
 	current config.BilibiliConfig
 	adapter *bilibili.Adapter
+	fanMedalChecker interface { SetRoomID(int) }
 }
 
-func NewBilibiliSettingsService(manager *config.Manager, current config.BilibiliConfig, adapter *bilibili.Adapter) *BilibiliSettingsService {
-	return &BilibiliSettingsService{manager:manager, current:current, adapter:adapter}
+func NewBilibiliSettingsService(manager *config.Manager, current config.BilibiliConfig, adapter *bilibili.Adapter, checkers ...interface { SetRoomID(int) }) *BilibiliSettingsService {
+	service := &BilibiliSettingsService{manager:manager, current:current, adapter:adapter}
+	if len(checkers) > 0 { service.fanMedalChecker = checkers[0] }
+	return service
 }
 
 func (s *BilibiliSettingsService) GetSettings() config.BilibiliConfig {
@@ -40,5 +43,6 @@ func (s *BilibiliSettingsService) UpdateRoomID(roomID int) (config.BilibiliConfi
 		return config.BilibiliConfig{}, err
 	}
 	s.current = next
+	if s.fanMedalChecker != nil { s.fanMedalChecker.SetRoomID(roomID) }
 	return next, nil
 }
