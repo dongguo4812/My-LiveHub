@@ -256,7 +256,39 @@ func (s *BilibiliWebViewService) loadWindowBounds() (width, height, x, y int, sa
 		value.VideoWindowHeight < 560 || value.VideoWindowHeight > 4320 {
 		return
 	}
-	return value.VideoWindowWidth, value.VideoWindowHeight, value.VideoWindowX, value.VideoWindowY, true
+	width, height = value.VideoWindowWidth, value.VideoWindowHeight
+	x, y = value.VideoWindowX, value.VideoWindowY
+
+	// If the monitor used last time is no longer connected, keep the window
+	// reachable by moving it onto the primary screen's work area.
+	visible := false
+	if s.app != nil {
+		for _, screen := range s.app.Screen.GetAll() {
+			area := screen.WorkArea
+			if area.Width <= 0 || area.Height <= 0 {
+				area = screen.Bounds
+			}
+			visibleWidth := min(x+width, area.X+area.Width) - max(x, area.X)
+			visibleHeight := min(y+height, area.Y+area.Height) - max(y, area.Y)
+			if visibleWidth >= 100 && visibleHeight >= 100 {
+				visible = true
+				break
+			}
+		}
+		if !visible {
+			if primary := s.app.Screen.GetPrimary(); primary != nil {
+				area := primary.WorkArea
+				if area.Width <= 0 || area.Height <= 0 {
+					area = primary.Bounds
+				}
+				width = min(width, area.Width)
+				height = min(height, area.Height)
+				x = area.X + (area.Width-width)/2
+				y = area.Y + (area.Height-height)/2
+			}
+		}
+	}
+	return width, height, x, y, true
 }
 
 func (s *BilibiliWebViewService) saveWindowBounds(x, y, width, height int) {
