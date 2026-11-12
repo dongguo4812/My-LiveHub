@@ -159,10 +159,18 @@ func (s *Live2DService) Shutdown() {
 }
 func findModelEntry(dir, format string) string {
 	candidates := []string{"model3.json", "model.json", "model.model.json"}
-	if format == "moc2" { candidates = []string{"model.json", "model.model.json"} }
+	pattern := "*.model3.json"
+	if format == "moc2" {
+		candidates = []string{"model.json", "model.model.json"}
+		pattern = "*.model.json"
+	}
 	for _, name := range candidates {
 		path := filepath.Join(dir, name)
 		if info, err := os.Stat(path); err == nil && !info.IsDir() { return path }
+	}
+	matches, err := filepath.Glob(filepath.Join(dir, pattern))
+	if err == nil && len(matches) == 1 {
+		if info, statErr := os.Stat(matches[0]); statErr == nil && !info.IsDir() { return matches[0] }
 	}
 	return ""
 }
