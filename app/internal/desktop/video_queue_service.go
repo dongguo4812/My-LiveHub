@@ -260,10 +260,12 @@ func (s *VideoQueueService) handleEvent(event eventstream.Event) {
 func (s *VideoQueueService) processVideoRequest(event eventstream.Event, bvid string) {
 	privileged := event.IsModerator || event.IsRoomOwner
 	s.mu.Lock()
+	requestsEnabled := s.settings.VideoRequestsEnabled
 	requireMedal := s.settings.VideoRequireFanMedal
 	minLevel := s.settings.VideoFanMedalLevel
 	checker := s.fanMedalChecker
 	s.mu.Unlock()
+	if !privileged && !requestsEnabled { return }
 	if !privileged && requireMedal {
 		if minLevel < 1 { minLevel = 1 }
 		if checker == nil { log.Printf("视频点播粉丝勋章校验服务不可用，拒绝用户 %d 的点播", event.UserID); return }
