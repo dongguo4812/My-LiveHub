@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"strings"
 	"sync"
@@ -265,11 +266,12 @@ func (s *VideoQueueService) processVideoRequest(event eventstream.Event, bvid st
 	s.mu.Unlock()
 	if !privileged && requireMedal {
 		if minLevel < 1 { minLevel = 1 }
-		if checker == nil { return }
+		if checker == nil { log.Printf("视频点播粉丝勋章校验服务不可用，拒绝用户 %d 的点播", event.UserID); return }
 		ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
-		allowed, _, err := checker.Check(ctx, event.UserID, minLevel)
+		allowed, level, err := checker.Check(ctx, event.UserID, minLevel)
 		cancel()
-		if err != nil || !allowed { return }
+		if err != nil { log.Printf("校验视频点播用户 %d 的主播粉丝勋章失败，已拒绝：%v", event.UserID, err); return }
+		if !allowed { log.Printf("拒绝视频点播用户 %d：主播粉丝勋章等级 %d，要求 %d", event.UserID, level, minLevel); return }
 	}
 	s.mu.Lock()
 	if !privileged {
