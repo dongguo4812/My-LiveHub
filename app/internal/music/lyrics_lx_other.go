@@ -99,7 +99,7 @@ func GetNeteaseMusicLyrics(ctx context.Context,client *http.Client,track Track)(
  lrc:=lyricStr(lyricMap(result["lrc"])["lyric"]);if strings.TrimSpace(lrc)==""{return "",nil}
  // Preserve the independent synchronized streams returned by LX's EAPI.
  var out strings.Builder;out.WriteString(lrc)
- for _,key:=range []string{"tlyric","romalrc"}{v:=lyricStr(lyricMap(result[key])["lyric"]);if v!=""{out.WriteString("\n");out.WriteString(v)}}
+ for _,key:=range []string{"tlyric"}{v:=lyricStr(lyricMap(result[key])["lyric"]);if v!=""{out.WriteString("\n");out.WriteString(v)}}
  return strings.TrimSpace(out.String()),nil
 }
 
