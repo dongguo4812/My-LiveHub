@@ -12,12 +12,14 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
 const maxLXSourceRedirects = 4
 
 type LXUserSourceStore struct {
+	mu sync.Mutex
 	dir string
 	client *http.Client
 }
@@ -125,6 +127,8 @@ func writeLXAtomic(path string, data []byte) error {
 
 
 func (s *LXUserSourceStore) Update(ctx context.Context, id string) (LXUserSourceMetadata, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	current, err := s.Get(id)
 	if err != nil { return LXUserSourceMetadata{}, err }
 	if strings.TrimSpace(current.SourceURL) == "" { return LXUserSourceMetadata{}, errors.New("该音源没有更新 URL，请重新导入本地脚本或使用 URL 导入") }
@@ -197,6 +201,8 @@ func (s *LXUserSourceStore) Get(id string) (LXUserSourceMetadata, error) {
 // SetValidation stores a successful initialization result alongside the exact
 // source version. A changed script must never inherit an old validation result.
 func (s *LXUserSourceStore) SetValidation(id string, result LXSourceRuntimeResult) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if !result.Initialized {
 		return errors.New("不能保存未通过初始化的 LX 音源验证结果")
 	}
@@ -218,6 +224,8 @@ func (s *LXUserSourceStore) SetValidation(id string, result LXSourceRuntimeResul
 // SetEnabledSearchSources persists the user's search-provider selection for one source.
 // allowed is the set of providers supported by both the LX script and the local search SDK.
 func (s *LXUserSourceStore) SetEnabledSearchSources(id string, allowed, enabled []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	metadata, err := s.Get(id)
 	if err != nil { return err }
 	allowedSet := make(map[string]bool, len(allowed))
@@ -239,6 +247,8 @@ func (s *LXUserSourceStore) SetEnabledSearchSources(id string, allowed, enabled 
 }
 
 func (s *LXUserSourceStore) SetAllowShowUpdateAlert(id string, enabled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	metadata, err := s.Get(id)
 	if err != nil { return err }
 	metadata.AllowShowUpdateAlert = enabled
