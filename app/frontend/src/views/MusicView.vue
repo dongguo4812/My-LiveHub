@@ -15,6 +15,15 @@ const lxProxyBusy = ref(false)
 type MusicTab = 'now-playing' | 'host-playlist' | 'visitor-requests' | 'search' | 'settings'
 const activeTab = ref<MusicTab>('now-playing')
 const favorites = ref<Track[]>([])
+type HostTrackSourceResults = { source_id: string; name: string; tracks: Track[]; error?: string }
+const replaceDialogVisible = ref(false)
+const replacingTrack = ref<Track | null>(null)
+const replacementGroups = ref<HostTrackSourceResults[]>([])
+const replacementSourceID = ref('')
+const selectedReplacement = ref<Track | null>(null)
+const replacementSearching = ref(false)
+const replacementSaving = ref(false)
+
 const hostPlayMode = ref('list')
 type HostPlaylistSummary = { id: string; name: string; track_count: number; mode: string }
 const hostPlaylists = ref<HostPlaylistSummary[]>([])
@@ -254,6 +263,42 @@ async function playFavorite(track: Track) {
   if (index < 0) return
   try { await (MusicService as any).PlayHostTrackFromPlaylist(activeHostPlaylistID.value, index); await refreshPlayback(); success.value = '开始播放当前歌单' }
   catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+}
+async function openReplaceTrack(track: Track) {
+  replacingTrack.value = track
+  selectedReplacement.value = null
+  replacementGroups.value = []
+  replacementSourceID.value = ''
+  replaceDialogVisible.value = true
+  replacementSearching.value = true
+  error.value = ''
+  try {
+    const groups = await (MusicService as any).SearchHostTrackAlternatives(track) as HostTrackSourceResults[]
+    replacementGroups.value = groups ?? []
+    replacementSourceID.value = replacementGroups.value.find(group => group.tracks?.length || group.error)?.source_id ?? ''
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  } finally {
+    replacementSearching.value = false
+  }
+}
+async function confirmReplaceTrack() {
+  const original = replacingTrack.value
+  const replacement = selectedReplacement.value
+  if (!original || !replacement || !activeHostPlaylistID.value) return
+  replacementSaving.value = true
+  error.value = ''
+  try {
+    await (MusicService as any).ReplaceHostTrackInPlaylist(activeHostPlaylistID.value, original.source_id, original.id, replacement)
+    await refreshHostPlaylists(activeHostPlaylistID.value)
+    await refreshPlayback()
+    replaceDialogVisible.value = false
+    success.value = '已将「' + original.title + '」换源为「' + replacement.title + '」'
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  } finally {
+    replacementSaving.value = false
+  }
 }
 async function addHostPlaylistToQueue() {
   try { await (MusicService as any).PlayHostPlaylistByID(activeHostPlaylistID.value); await refreshPlayback(); success.value = '已开始播放当前歌单' }
@@ -977,7 +1022,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         <el-table-column prop="artist" label="歌手" min-width="140" />
         <el-table-column prop="album" label="专辑" min-width="140" />
         <el-table-column label="音源" width="130"><template #default="scope">{{ sourceName(scope.row.source_id) }}</template></el-table-column>
-        <el-table-column label="操作" width="220" fixed="right"><template #default="scope"><el-button link type="primary" @click="playFavorite(scope.row)">播放</el-button><el-button link :disabled="scope.$index === 0" @click="moveFavorite(scope.$index, -1)">上移</el-button><el-button link :disabled="scope.$index === favorites.length - 1" @click="moveFavorite(scope.$index, 1)">下移</el-button><el-dropdown :disabled="hostPlaylists.length <= 1" @command="(targetID: string) => moveTrackToPlaylist(scope.row, targetID)">
+        <el-table-column label="操作" width="220" fixed="right"><template #default="scope"><el-button link type="primary" @click="playFavorite(scope.row)">播放</el-button><el-button link type="primary" @click="openReplaceTrack(scope.row)">换源</el-button><el-button link :disabled="scope.$index === 0" @click="moveFavorite(scope.$index, -1)">上移</el-button><el-button link :disabled="scope.$index === favorites.length - 1" @click="moveFavorite(scope.$index, 1)">下移</el-button><el-dropdown :disabled="hostPlaylists.length <= 1" @command="(targetID: string) => moveTrackToPlaylist(scope.row, targetID)">
             <el-button link type="primary" :disabled="hostPlaylists.length <= 1">移动到</el-button>
             <template #dropdown><el-dropdown-menu>
               <el-dropdown-item v-for="item in hostPlaylists.filter(item => item.id !== activeHostPlaylistID)" :key="item.id" :command="item.id">{{ item.name }}</el-dropdown-item>
@@ -986,6 +1031,42 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
       </el-table>
       <el-empty v-else description="这个歌单还没有歌曲。可以从搜索结果收藏歌曲，或导入洛雪歌单。" :image-size="76" />
     </el-card>
+
+    <el-dialog v-model="replaceDialogVisible" title="歌曲换源" width="min(820px, 94vw)" destroy-on-close>
+      <div v-if="replacingTrack" class="replace-track-original">
+        <strong>原歌曲</strong>
+        <div>{{ replacingTrack.title }} · {{ replacingTrack.artist || '未知歌手' }}</div>
+        <small>{{ sourceName(replacingTrack.source_id) }} · {{ replacingTrack.album || '未知专辑' }} · {{ formatDuration(replacingTrack.duration_ms) }}</small>
+      </div>
+      <el-skeleton v-if="replacementSearching" :rows="5" animated />
+      <el-empty v-else-if="replacementGroups.length === 0" description="当前启用的音源没有可搜索的平台，请检查音乐音源设置。" />
+      <template v-else>
+        <el-tabs v-model="replacementSourceID">
+          <el-tab-pane v-for="group in replacementGroups" :key="group.source_id" :name="group.source_id">
+            <template #label>{{ group.name }} <el-tag size="small" effect="plain">{{ group.tracks?.length ?? 0 }}</el-tag></template>
+            <el-alert v-if="group.error" :title="group.error" type="warning" :closable="false" show-icon />
+            <el-empty v-else-if="!group.tracks?.length" description="这个平台没有搜索到匹配歌曲" :image-size="64" />
+            <el-radio-group v-else v-model="selectedReplacement" class="replace-candidate-list">
+              <el-radio v-for="candidate in group.tracks" :key="trackRowKey(candidate)" :value="candidate" class="replace-candidate">
+                <span class="replace-candidate-main">
+                  <strong>{{ candidate.title }}</strong>
+                  <small>{{ candidate.artist || '未知歌手' }} · {{ candidate.album || '未知专辑' }} · {{ formatDuration(candidate.duration_ms) }}</small>
+                </span>
+              </el-radio>
+            </el-radio-group>
+          </el-tab-pane>
+        </el-tabs>
+      </template>
+      <div v-if="selectedReplacement" class="replace-track-comparison">
+        <strong>将替换为</strong>
+        <div>{{ selectedReplacement.title }} · {{ selectedReplacement.artist || '未知歌手' }}</div>
+        <small>{{ sourceName(selectedReplacement.source_id) }} · {{ selectedReplacement.album || '未知专辑' }} · {{ formatDuration(selectedReplacement.duration_ms) }}</small>
+      </div>
+      <template #footer>
+        <el-button @click="replaceDialogVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="!selectedReplacement" :loading="replacementSaving" @click="confirmReplaceTrack">确认换源</el-button>
+      </template>
+    </el-dialog>
 
     <el-card v-if="activeTab === 'visitor-requests'" shadow="never">
       <template #header>
