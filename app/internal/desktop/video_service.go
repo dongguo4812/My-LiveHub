@@ -40,7 +40,9 @@ func NewVideoService(musicService musicPlaybackController, engine music.Playback
 	return &VideoService{music:musicService, engine:engine, volume:80}
 }
 
-func (s *VideoService) Play(resourceURL, title string) error {
+func (s *VideoService) Play(resourceURL, title string) error { return s.PlayWithHeaders(resourceURL, title, nil) }
+
+func (s *VideoService) PlayWithHeaders(resourceURL, title string, headers map[string]string) error {
 	if s == nil || s.engine == nil { return music.ErrPlaybackEngineUnavailable }
 	resourceURL = strings.TrimSpace(resourceURL)
 	title = strings.TrimSpace(title)
@@ -87,7 +89,7 @@ func (s *VideoService) Play(resourceURL, title string) error {
 		SourceID:"direct_video",
 		Title:title,
 	}
-	if err := s.engine.Load(context.Background(), music.PlaybackResource{URL:resourceURL}, track); err != nil {
+	if err := s.engine.Load(context.Background(), music.PlaybackResource{URL:resourceURL, Headers:headers}, track); err != nil {
 		return restoreOnFailure(fmt.Errorf("加载视频失败：%w", err))
 	}
 	s.active = true
