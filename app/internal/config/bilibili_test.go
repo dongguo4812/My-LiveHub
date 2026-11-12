@@ -13,6 +13,6 @@ func TestBilibiliConfigFanMedalLevelValidation(t *testing.T) {
 	c.VideoRequireFanMedal = true
 	c.VideoFanMedalLevel = 0
 	if err := c.Validate(); err == nil { t.Fatal("expected invalid required medal level to be rejected") }
-	c.VideoFanMedalLevel = 40
-	if err := c.Validate(); err != nil { t.Fatalf("valid medal level rejected: %v", err) }
+	c.VideoFanMedalLevel = 120
+	if err := c.Validate(); err != nil { t.Fatalf("valid maximum medal level rejected: %v", err) }
 }
