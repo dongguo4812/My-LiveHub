@@ -64,7 +64,8 @@ let analyser: AnalyserNode | null = null
 let raf = 0
 let samples: Float32Array<ArrayBuffer> | null = null
 let activeModelURL = ''
-let activeMoc2MouthParameter = ''\nlet activeMoc2TransformBase: { model: LegacyModel; scaleX: number; scaleY: number; centerX: number; centerY: number } | null = null
+let activeMoc2MouthParameter = ''
+let activeMoc2TransformBase: { model: LegacyModel; scaleX: number; scaleY: number; centerX: number; centerY: number } | null = null
 let legacyScriptPromise: Promise<void> | null = null
 let runtimeMessageHandler: ((event: MessageEvent) => void) | null = null
 
