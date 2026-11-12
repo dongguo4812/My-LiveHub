@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import * as VideoService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/videoservice.js'
 import * as BilibiliVideoService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/bilibilivideoservice.js'
+import * as BilibiliWebViewService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/bilibiliwebviewservice.js'
 
 type PlaybackSnapshot = Awaited<ReturnType<typeof VideoService.GetPlaybackStatus>>
 const bvid = ref('')
@@ -12,6 +13,8 @@ const volume = ref(80)
 const seekValue = ref(0)
 const isSeeking = ref(false)
 const busy = ref(false)
+const browserBusy = ref(false)
+const browserOpen = ref(false)
 const error = ref('')
 let timer: ReturnType<typeof setInterval> | undefined
 
@@ -38,6 +41,9 @@ async function refresh() {
     // Do not let the polling loop overwrite the user's in-progress seek.
     if (!isSeeking.value) seekValue.value = progress.value * 10
   } catch { /* The video process may not have been started yet. */ }
+  try {
+    browserOpen.value = (await BilibiliWebViewService.GetWindowState()).is_open
+  } catch { /* The browser window may not have been initialised yet. */ }
 }
 async function playBilibili() {
   if (!bvid.value.trim()) { error.value = '请输入 B 站 BV 号'; return }
@@ -49,6 +55,31 @@ async function playBilibili() {
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
   } finally { busy.value = false }
+}
+async function openBilibiliWebView() {
+  if (!bvid.value.trim()) { error.value = '请输入 B 站 BV 号'; return }
+  browserBusy.value = true
+  error.value = ''
+  try {
+    await BilibiliWebViewService.OpenVideo(bvid.value.trim())
+    browserOpen.value = true
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  } finally { browserBusy.value = false }
+}
+async function enterBilibiliWebFullscreen() {
+  try { await BilibiliWebViewService.EnterWebFullscreen() }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+}
+async function replayBilibiliFromStart() {
+  try { await BilibiliWebViewService.ReplayFromStart() }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+}
+async function closeBilibiliWebView() {
+  try {
+    await BilibiliWebViewService.CloseWindow()
+    browserOpen.value = false
+  } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
 }
 async function play() {
   if (!url.value.trim()) { error.value = '请输入视频直链地址'; return }
@@ -121,7 +152,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
     <el-card shadow="never">
       <template #header><strong>播放 MV</strong></template>
       <el-form label-position="top">
-        <el-form-item label="B 站 BV 号（使用当前已登录账号）">
+        <el-form-item label="B 站 BV 号">
           <el-input v-model="bvid" placeholder="例如 BV1xx411c7mD" clearable />
         </el-form-item>
         <div class="actions bilibili-actions">
@@ -141,6 +172,17 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
         <el-button type="danger" plain @click="stop">停止并关闭窗口</el-button>
       </div>
       <p class="hint">MV 开始时会自动暂停正在播放的音乐；MV 结束或停止后，仅恢复此前正在播放的音乐。</p>
+    </el-card>
+
+    <el-card shadow="never">
+      <template #header><strong>B 站网页播放器（WebView2）</strong></template>
+      <div class="actions">
+        <el-button type="primary" :loading="browserBusy" @click="openBilibiliWebView">打开 B 站网页播放器</el-button>
+        <el-button :disabled="!browserOpen" @click="enterBilibiliWebFullscreen">B 站网页全屏</el-button>
+        <el-button :disabled="!browserOpen" @click="replayBilibiliFromStart">从头播放</el-button>
+        <el-button type="danger" plain :disabled="!browserOpen" @click="closeBilibiliWebView">关闭网页播放器</el-button>
+      </div>
+      <p class="hint">此模式直接打开 B 站原生视频页面。请在新窗口内扫码登录；WebView2 会在本机保留站点登录状态，与 mpv 模式使用的 B 站 Cookie 相互独立。网页全屏按钮会定位并点击 B 站播放器自己的网页全屏控件；从头播放会将网页视频 currentTime 设为 0。</p>
     </el-card>
 
     <el-card shadow="never">
