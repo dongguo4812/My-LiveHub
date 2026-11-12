@@ -67,3 +67,26 @@ func TestLXBackupTrackNormalizesMetaSongIDForLyrics(t *testing.T) {
 		t.Fatalf("normalized songmid = %q, want %q", got, "987654")
 	}
 }
+
+func TestLXBackupTrackMatchesRealNetEaseLXPlaylistShape(t *testing.T) {
+ var song map[string]json.RawMessage
+ if err := json.Unmarshal([]byte(`{
+  "id": "wy_1500569811",
+  "source": "wy",
+  "name": "阿拉斯加海湾",
+  "singer": "蓝心羽",
+  "meta": {"songId": 1500569811, "albumName": "阿拉斯加海湾"}
+ }`), &song); err != nil {
+  t.Fatal(err)
+ }
+ track, ok := lxBackupTrack(song)
+ if !ok {
+  t.Fatal("expected real NetEase LX backup song to be imported")
+ }
+ if track.ID != "wy_1500569811" {
+  t.Fatalf("track ID = %q, want %q", track.ID, "wy_1500569811")
+ }
+ if got := track.SourceData["songmid"]; got != "1500569811" {
+  t.Fatalf("normalized songmid = %q, want %q", got, "1500569811")
+ }
+}
