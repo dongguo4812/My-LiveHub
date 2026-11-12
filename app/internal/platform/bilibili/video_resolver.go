@@ -29,6 +29,7 @@ const (
 type VideoPlayback struct {
 	BVID string
 	Title string
+	DurationSeconds int
 	ResourceURL string
 	Headers map[string]string
 	Quality int
@@ -68,6 +69,7 @@ func (r *VideoResolver) Resolve(ctx context.Context, rawBVID string) (VideoPlayb
 		Data struct {
 			BVID string `json:"bvid"`
 			Title string `json:"title"`
+			Duration int `json:"duration"`
 			CID int64 `json:"cid"`
 			Pages []struct { CID int64 `json:"cid"`; Page int `json:"page"` } `json:"pages"`
 		} `json:"data"`
@@ -121,10 +123,25 @@ func (r *VideoResolver) Resolve(ctx context.Context, rawBVID string) (VideoPlayb
 		danmakuASS, _ = DanmakuXMLToASS(danmakuBody)
 	}
 	return VideoPlayback{
-		BVID:bvid, Title:strings.TrimSpace(detail.Data.Title), ResourceURL:play.Data.DURL[0].URL,
+		BVID:bvid, Title:strings.TrimSpace(detail.Data.Title), DurationSeconds:detail.Data.Duration, ResourceURL:play.Data.DURL[0].URL,
 		Headers:map[string]string{"Cookie":credentials.Cookie,"Referer":videoReferer,"User-Agent":videoUserAgent},
 		Quality:play.Data.Quality, DanmakuASS:danmakuASS,
 	}, nil
+}
+
+// GetVideoInfo retrieves metadata without requiring a DURL/MP4 stream.
+func (r *VideoResolver) GetVideoInfo(ctx context.Context, rawBVID string) (string, int, error) {
+	bvid := strings.TrimSpace(rawBVID)
+	if !validVideoBVID(bvid) { return "", 0, errors.New("请输入有效的 B 站 BV 号") }
+	credentials, err := r.auth.LoadCredentials(ctx)
+	if err != nil { return "", 0, err }
+	body, err := r.get(ctx, r.viewURL, url.Values{"bvid": {bvid}}, credentials.Cookie)
+	if err != nil { return "", 0, fmt.Errorf("获取 B 站视频信息失败：%w", err) }
+	var payload struct { Code int `json:"code"`; Message string `json:"message"`; Data struct { Title string `json:"title"`; Duration int `json:"duration"` } `json:"data"` }
+	if err := json.Unmarshal(body, &payload); err != nil { return "", 0, fmt.Errorf("解析 B 站视频信息失败：%w", err) }
+	if payload.Code != 0 { return "", 0, fmt.Errorf("B 站视频信息接口错误（%d）：%s", payload.Code, payload.Message) }
+	if strings.TrimSpace(payload.Data.Title) == "" || payload.Data.Duration <= 0 { return "", 0, errors.New("B 站视频标题或时长无效") }
+	return strings.TrimSpace(payload.Data.Title), payload.Data.Duration, nil
 }
 
 func (r *VideoResolver) get(ctx context.Context, endpoint string, params url.Values, cookie string) ([]byte,error) {
