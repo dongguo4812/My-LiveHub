@@ -13,6 +13,11 @@ type MusicTab = 'now-playing' | 'host-playlist' | 'visitor-requests' | 'search' 
 const activeTab = ref<MusicTab>('now-playing')
 const favorites = ref<Track[]>([])
 const hostPlayMode = ref('list')
+type HostPlaylistSummary = { id: string; name: string; track_count: number; mode: string }
+const hostPlaylists = ref<HostPlaylistSummary[]>([])
+const activeHostPlaylistID = ref('')
+const playlistFileInput = ref<HTMLInputElement | null>(null)
+const importingPlaylist = ref(false)
 type LXSource = Awaited<ReturnType<typeof MusicService.GetLXUserSources>>[number]
 type LXValidation = Awaited<ReturnType<typeof MusicService.ValidateLXUserSource>>
 type LXSearchSourceOption = Awaited<ReturnType<typeof MusicService.GetLXSearchSourceOptions>>[number]
@@ -126,65 +131,123 @@ function qualityNames(track: Track) {
 }
 function trackRowKey(row: Track) { return `${row.source_id}:${row.id}` }
 function isFavorite(track: Track) { return favorites.value.some(item => trackRowKey(item) === trackRowKey(track)) }
-async function loadFavorites() {
-  try {
-    let playlist = await MusicService.GetHostPlaylist()
-    if (!(playlist.tracks ?? []).length) {
-      try {
-        const legacy = JSON.parse(localStorage.getItem('my-livehub.music.host-favorites') ?? '[]') as Track[]
-        if (Array.isArray(legacy)) {
-          for (const track of legacy) {
-            if (track && typeof track.id === 'string' && typeof track.source_id === 'string' && typeof track.title === 'string') {
-              await MusicService.AddHostTrack(track)
-            }
-          }
-          playlist = await MusicService.GetHostPlaylist()
-        }
-      } catch { /* Ignore malformed legacy browser data. */ }
-    }
+async function refreshHostPlaylists(preferredID = activeHostPlaylistID.value) {
+  const api = MusicService as any
+  const result = await api.GetHostPlaylists() as [HostPlaylistSummary[], string]
+  hostPlaylists.value = result[0] ?? []
+  const nextID = hostPlaylists.value.some(item => item.id === preferredID) ? preferredID : (result[1] || hostPlaylists.value[0]?.id || '')
+  activeHostPlaylistID.value = nextID
+  if (nextID && nextID !== result[1]) await api.SelectHostPlaylist(nextID)
+  if (nextID) {
+    const playlist = await api.GetHostPlaylistByID(nextID)
     favorites.value = playlist.tracks ?? []
     hostPlayMode.value = playlist.mode ?? 'list'
-  } catch (reason) {
+  } else {
+    favorites.value = []
+    hostPlayMode.value = 'list'
+  }
+}
+async function loadFavorites() {
+  try { await refreshHostPlaylists() }
+  catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
     favorites.value = []
   }
 }
+async function selectHostPlaylist(id: string) {
+  if (!id || id === activeHostPlaylistID.value) return
+  try {
+    await (MusicService as any).SelectHostPlaylist(id)
+    await refreshHostPlaylists(id)
+    success.value = '已切换歌单；当前正在播放的歌曲不会被打断'
+  } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+}
+async function createHostPlaylist() {
+  const name = window.prompt('请输入新歌单名称')
+  if (!name?.trim()) return
+  try {
+    const created = await (MusicService as any).CreateHostPlaylist(name.trim())
+    await refreshHostPlaylists(created.id)
+    success.value = `已创建歌单：${created.name}`
+  } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+}
+async function renameHostPlaylist() {
+  const current = hostPlaylists.value.find(item => item.id === activeHostPlaylistID.value)
+  if (!current) return
+  const name = window.prompt('修改歌单名称', current.name)
+  if (!name?.trim() || name.trim() === current.name) return
+  try {
+    await (MusicService as any).RenameHostPlaylist(current.id, name.trim())
+    await refreshHostPlaylists(current.id)
+    success.value = '歌单名称已修改'
+  } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+}
+async function deleteHostPlaylist() {
+  const current = hostPlaylists.value.find(item => item.id === activeHostPlaylistID.value)
+  if (!current || !window.confirm(`确定删除歌单“${current.name}”吗？歌单内歌曲也会一并删除。`)) return
+  try {
+    await (MusicService as any).DeleteHostPlaylist(current.id)
+    await refreshHostPlaylists()
+    success.value = '歌单已删除'
+  } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+}
+function choosePlaylistFile() { playlistFileInput.value?.click() }
+async function importLXPlaylist(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  importingPlaylist.value = true
+  error.value = ''
+  success.value = ''
+  try {
+    if (file.size > 64 * 1024 * 1024) throw new Error('歌单备份不能超过 64 MB')
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    let binary = ''
+    for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+    const imported = await (MusicService as any).ImportLXPlaylistFile(file.name, btoa(binary)) as HostPlaylistSummary[]
+    await refreshHostPlaylists(imported?.[0]?.id)
+    success.value = `成功导入 ${imported.length} 个洛雪歌单${imported.length ? '：' + imported.map(item => item.name + '（' + item.track_count + '首）').join('、') : ''}`
+  } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+  finally { importingPlaylist.value = false; input.value = '' }
+}
+function isFavorite(track: Track) { return favorites.value.some(item => trackRowKey(item) === trackRowKey(track)) }
 async function toggleFavorite(track: Track) {
   error.value = ''
   try {
-    if (isFavorite(track)) await MusicService.RemoveHostTrack(track.source_id, track.id)
-    else await MusicService.AddHostTrack(track)
+    if (isFavorite(track)) await (MusicService as any).RemoveHostTrackFromPlaylist(activeHostPlaylistID.value, track.source_id, track.id)
+    else await (MusicService as any).AddHostTrackToPlaylist(activeHostPlaylistID.value, track)
     await loadFavorites()
-    success.value = isFavorite(track) ? '已加入主播歌单' : '已从主播歌单移除'
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
-  }
+    success.value = isFavorite(track) ? '已加入当前歌单' : '已从当前歌单移除'
+  } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
 }
 async function removeFavorite(track: Track) {
   try {
-    await MusicService.RemoveHostTrack(track.source_id, track.id)
+    await (MusicService as any).RemoveHostTrackFromPlaylist(activeHostPlaylistID.value, track.source_id, track.id)
     await loadFavorites()
   } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
 }
 async function playFavorite(track: Track) {
   const index = favorites.value.findIndex(item => trackRowKey(item) === trackRowKey(track))
   if (index < 0) return
-  try { await MusicService.PlayHostTrack(index); await refreshPlayback(); success.value = '开始播放主播歌单' }
+  try { await (MusicService as any).PlayHostTrackFromPlaylist(activeHostPlaylistID.value, index); await refreshPlayback(); success.value = '开始播放当前歌单' }
   catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
 }
 async function addHostPlaylistToQueue() {
-  try { await MusicService.PlayHostPlaylist(); await refreshPlayback(); success.value = '已开始播放主播歌单' }
+  try { await (MusicService as any).PlayHostPlaylistByID(activeHostPlaylistID.value); await refreshPlayback(); success.value = '已开始播放当前歌单' }
   catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
 }
 async function moveFavorite(index: number, offset: number) {
   const target = index + offset
   if (target < 0 || target >= favorites.value.length) return
-  try { await MusicService.MoveHostTrack(index, target); await loadFavorites() }
+  try { await (MusicService as any).MoveHostTrackInPlaylist(activeHostPlaylistID.value, index, target); await loadFavorites() }
   catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
 }
 async function changeHostPlayMode(mode: string) {
-  try { await MusicService.SetHostPlayMode(mode); hostPlayMode.value = mode }
-  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+  try {
+    await (MusicService as any).SetHostPlaylistPlayMode(activeHostPlaylistID.value, mode)
+    hostPlayMode.value = mode
+    await refreshHostPlaylists(activeHostPlaylistID.value)
+  } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
 }
 async function loadConfig() {
   loading.value = true
@@ -683,10 +746,39 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
     </el-card>
 
     <el-card v-if="activeTab === 'host-playlist'" shadow="never">
-      <template #header><div class="card-heading"><strong>主播常驻歌单</strong><el-tag effect="plain">{{ favorites.length }} 首收藏</el-tag></div></template>
-      <p class="section-description">这里保存你经常播放的歌曲，作为直播期间的默认背景音乐。观众点播会暂时打断当前歌曲，点播队列结束后自动恢复原歌曲和进度。</p>
-      <div class="card-actions">
-        <el-button type="primary" :disabled="favorites.length === 0" @click="addHostPlaylistToQueue">播放</el-button>
+      <template #header>
+        <div class="playlist-header">
+          <div><strong>主播歌单</strong><p class="section-description">管理多组直播背景音乐。观众点播结束后，会继续播放被打断的歌曲。</p></div>
+          <div class="playlist-header-actions">
+            <el-button @click="createHostPlaylist">新建歌单</el-button>
+            <el-button type="primary" plain :loading="importingPlaylist" @click="choosePlaylistFile">导入洛雪歌单</el-button>
+            <input ref="playlistFileInput" class="hidden-file-input" type="file" accept=".lxmc,.json,application/json" @change="importLXPlaylist" />
+          </div>
+        </div>
+      </template>
+      <div class="playlist-toolbar">
+        <el-select v-model="activeHostPlaylistID" style="width:min(320px, 100%)" placeholder="选择歌单" @change="selectHostPlaylist">
+          <el-option v-for="item in hostPlaylists" :key="item.id" :label="`${item.name} · ${item.track_count} 首`" :value="item.id" />
+        </el-select>
+        <el-button :disabled="!activeHostPlaylistID" @click="renameHostPlaylist">重命名</el-button>
+        <el-button :disabled="hostPlaylists.length <= 1" type="danger" plain @click="deleteHostPlaylist">删除歌单</el-button>
+        <el-tag effect="plain">{{ favorites.length }} 首歌曲</el-tag>
+        <el-button type="primary" :disabled="favorites.length === 0" @click="addHostPlaylistToQueue">播放当前歌单</el-button>
+      </div>
+      <div v-if="hostPlaylists.length" class="playlist-cards">
+        <button v-for="item in hostPlaylists" :key="item.id" class="playlist-card" :class="{ active: item.id === activeHostPlaylistID }" @click="selectHostPlaylist(item.id)">
+          <span class="playlist-card-icon">♫</span>
+          <span class="playlist-card-name">{{ item.name }}</span>
+          <span class="playlist-card-meta">{{ item.track_count }} 首歌曲 · {{ item.mode === 'single' ? '单曲循环' : item.mode === 'shuffle' ? '随机播放' : '列表循环' }}</span>
+        </button>
+      </div>
+      <div class="playlist-playmode">
+        <span>当前歌单播放模式</span>
+        <el-select v-model="hostPlayMode" style="width:150px" @change="changeHostPlayMode">
+          <el-option label="列表循环" value="list" />
+          <el-option label="单曲循环" value="single" />
+          <el-option label="随机播放" value="shuffle" />
+        </el-select>
       </div>
       <el-table v-if="favorites.length" :data="favorites" :row-key="trackRowKey" style="width:100%">
         <el-table-column type="index" label="#" width="55" />
@@ -696,7 +788,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         <el-table-column label="音源" width="130"><template #default="scope">{{ sourceName(scope.row.source_id) }}</template></el-table-column>
         <el-table-column label="操作" width="220" fixed="right"><template #default="scope"><el-button link type="primary" @click="playFavorite(scope.row)">播放</el-button><el-button link :disabled="scope.$index === 0" @click="moveFavorite(scope.$index, -1)">上移</el-button><el-button link :disabled="scope.$index === favorites.length - 1" @click="moveFavorite(scope.$index, 1)">下移</el-button><el-button link type="danger" @click="removeFavorite(scope.row)">移除</el-button></template></el-table-column>
       </el-table>
-      <el-empty v-else description="还没有收藏歌曲。可以在歌曲搜索中点击「收藏」，将常听歌曲加入主播歌单。" :image-size="76" />
+      <el-empty v-else description="这个歌单还没有歌曲。可以从搜索结果收藏歌曲，或导入洛雪歌单。" :image-size="76" />
     </el-card>
 
     <el-card v-if="activeTab === 'visitor-requests'" shadow="never">
@@ -767,7 +859,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
 
 
 <style scoped>
-.music-tabs{display:flex;align-items:center;gap:6px;overflow-x:auto;padding:0 2px 8px;border-bottom:1px solid var(--app-border)}
+.playlist-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.playlist-header .section-description{margin:7px 0 0}.playlist-header-actions,.playlist-toolbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.playlist-toolbar{margin:18px 0 14px}.playlist-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;margin:14px 0 20px}.playlist-card{display:flex;flex-direction:column;align-items:flex-start;gap:8px;min-height:112px;padding:15px;border:1px solid var(--app-border);border-radius:11px;background:var(--el-bg-color);color:var(--el-text-color-primary);text-align:left;cursor:pointer;transition:border-color .15s,background .15s}.playlist-card:hover,.playlist-card.active{border-color:var(--app-accent);background:var(--app-bg-control)}.playlist-card.active{box-shadow:inset 0 0 0 1px var(--app-accent)}.playlist-card-icon{font-size:24px;color:var(--app-accent)}.playlist-card-name{font-weight:650}.playlist-card-meta{font-size:12px;color:var(--el-text-color-secondary)}.playlist-playmode{display:flex;align-items:center;justify-content:flex-end;gap:12px;margin:10px 0 14px;color:var(--el-text-color-secondary);font-size:13px}@media(max-width:800px){.playlist-header{flex-direction:column}.playlist-header-actions{width:100%}.playlist-toolbar{align-items:stretch}.playlist-playmode{justify-content:space-between}}.music-tabs{display:flex;align-items:center;gap:6px;overflow-x:auto;padding:0 2px 8px;border-bottom:1px solid var(--app-border)}
 .music-tabs button{display:inline-flex;align-items:center;gap:7px;white-space:nowrap;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--el-text-color-secondary);padding:11px 14px;margin-bottom:-1px;font:inherit;font-size:14px;cursor:pointer;transition:color .15s,border-color .15s}
 .music-tabs button:hover{color:var(--el-text-color-primary)}
 .music-tabs button.active{color:var(--app-accent);border-bottom-color:var(--app-accent);font-weight:600}
