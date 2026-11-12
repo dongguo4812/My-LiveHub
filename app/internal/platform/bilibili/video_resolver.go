@@ -21,6 +21,7 @@ const (
 	videoViewURL = "https://api.bilibili.com/x/web-interface/view"
 	videoNavURL = "https://api.bilibili.com/x/web-interface/nav"
 	videoPlayURL = "https://api.bilibili.com/x/player/wbi/playurl"
+	videoDanmakuURL = "https://api.bilibili.com/x/v1/dm/list.so"
 	videoReferer = "https://www.bilibili.com/"
 	videoUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/132.0.0.0 Safari/537.36"
 )
@@ -31,6 +32,7 @@ type VideoPlayback struct {
 	ResourceURL string
 	Headers map[string]string
 	Quality int
+	DanmakuASS string
 }
 
 type VideoCredentialProvider interface { LoadCredentials(context.Context) (Credentials, error) }
@@ -111,10 +113,16 @@ func (r *VideoResolver) Resolve(ctx context.Context, rawBVID string) (VideoPlayb
 	if len(play.Data.DURL) == 0 || strings.TrimSpace(play.Data.DURL[0].URL) == "" {
 		return VideoPlayback{}, errors.New("B 站没有返回 MP4 格式视频流；本次最小验证暂不处理 DASH 分离音视频")
 	}
+	danmakuQuery := url.Values{"oid": {strconv.FormatInt(cid, 10)}}
+	danmakuBody, danmakuErr := r.get(ctx, videoDanmakuURL, danmakuQuery, credentials.Cookie)
+	danmakuASS := ""
+	if danmakuErr == nil {
+		danmakuASS, _ = DanmakuXMLToASS(danmakuBody)
+	}
 	return VideoPlayback{
 		BVID:bvid, Title:strings.TrimSpace(detail.Data.Title), ResourceURL:play.Data.DURL[0].URL,
 		Headers:map[string]string{"Cookie":credentials.Cookie,"Referer":videoReferer,"User-Agent":videoUserAgent},
-		Quality:play.Data.Quality,
+		Quality:play.Data.Quality, DanmakuASS:danmakuASS,
 	}, nil
 }
 
