@@ -96,10 +96,11 @@ func TestVideoServicePassesPlaybackHeadersToEngine(t *testing.T) {
 	}
 	if err := service.PlayResource(resource, "Bilibili test"); err != nil { t.Fatal(err) }
 	engine.mu.Lock()
-	defer engine.mu.Unlock()
-	if engine.resource.URL != resource.URL { t.Fatalf("resource URL = %q", engine.resource.URL) }
+	gotResource := engine.resource
+	engine.mu.Unlock()
+	if gotResource.URL != resource.URL { t.Fatalf("resource URL = %q", gotResource.URL) }
 	for key, want := range resource.Headers {
-		if got := engine.resource.Headers[key]; got != want { t.Errorf("header %s = %q, want %q", key, got, want) }
+		if got := gotResource.Headers[key]; got != want { t.Errorf("header %s = %q, want %q", key, got, want) }
 	}
 	_ = service.Stop()
 }
