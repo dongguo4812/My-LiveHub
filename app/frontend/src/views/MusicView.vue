@@ -2,6 +2,8 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Headset, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
+import * as MusicLyricsWindowService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musiclyricswindowservice.js'
+import { getActiveSyncedLyric, parseSyncedLyrics } from '../utils/syncedLyrics'
 
 type MusicConfig = Awaited<ReturnType<typeof MusicService.GetConfig>>
 type Track = Awaited<ReturnType<typeof MusicService.Search>>['tracks'][number]
@@ -49,6 +51,7 @@ const queue = ref<QueueSnapshot | null>(null)
 const draggedQueueItemID = ref('')
 const playback = ref<PlaybackSnapshot | null>(null)
 const syncedLyrics = ref<Array<{ time: number; text: string; translation?: string }>>([])
+const lyricsWindowOpen = ref(false)
 const lyricsTrackKey = ref('')
 const lyricsStatus = ref<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle')
 let lyricsRequestID = 0
@@ -90,39 +93,12 @@ function formatSeekTooltip(percent: number) {
   const duration = playback.value?.duration_ms ?? 0
   return formatDuration(Math.round(duration * Math.min(100, Math.max(0, percent)) / 100))
 }
-function parseSyncedLyrics(lrc: string) {
-  const parsed: Array<{ time: number; text: string }> = []
-  for (const line of lrc.split(/\r?\n/)) {
-    const match = line.match(/^\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\](.*)$/)
-    if (!match) continue
-    const fraction = match[3] ?? '0'
-    const milliseconds = Number(match[1]) * 60000 + Number(match[2]) * 1000 + Number(fraction.padEnd(3, '0').slice(0, 3))
-    const text = match[4].trim()
-    if (text) parsed.push({ time: milliseconds, text })
-  }
-  parsed.sort((a, b) => a.time - b.time)
-  const lines: Array<{ time: number; text: string; translation?: string }> = []
-  for (const line of parsed) {
-    const previous = lines[lines.length - 1]
-    if (previous?.time === line.time) {
-      if (line.text !== previous.text && !previous.translation) previous.translation = line.text
-      continue
-    }
-    lines.push({ ...line })
-  }
-  return lines
-}
 const activeLyric = computed(() => {
   if (lyricsStatus.value === 'loading' || lyricsStatus.value === 'idle') return { text: '歌词加载中…', translation: '' }
   if (lyricsStatus.value === 'error') return { text: '歌词获取失败，稍后重试', translation: '' }
   if (lyricsStatus.value === 'empty' || lyricsStatus.value === 'ready' && syncedLyrics.value.length === 0) return { text: '暂无歌词', translation: '' }
   const position = playback.value?.position_ms ?? 0
-  let active = syncedLyrics.value[0]
-  for (const line of syncedLyrics.value) {
-    if (line.time > position) break
-    active = line
-  }
-  return active ?? { text: '歌词加载中…', translation: '' }
+  return getActiveSyncedLyric(syncedLyrics.value, position) ?? { text: '歌词加载中…', translation: '' }
 })
 const currentLyric = computed(() => activeLyric.value.text)
 const currentLyricTranslation = computed(() => activeLyric.value.translation ?? '')
@@ -660,6 +636,19 @@ async function clearQueue() {
     error.value = reason instanceof Error ? reason.message : String(reason)
   }
 }
+async function refreshLyricsWindowState() {
+  try { lyricsWindowOpen.value = (await MusicLyricsWindowService.GetWindowState()).is_open }
+  catch { lyricsWindowOpen.value = false }
+}
+async function toggleLyricsWindow() {
+  try {
+    if (lyricsWindowOpen.value) await MusicLyricsWindowService.CloseWindow()
+    else await MusicLyricsWindowService.OpenWindow()
+    await refreshLyricsWindowState()
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  }
+}
 async function refreshPlayback() {
   try {
     playback.value = await MusicService.GetPlaybackStatus()
@@ -668,6 +657,7 @@ async function refreshPlayback() {
   } catch { /* The engine is not started until the first play request. */ }
   await refreshQueue()
   await pollLXSourceUpdates()
+  await refreshLyricsWindowState()
 }
 async function loadLXProxy() {
   try { lxProxy.value = await MusicService.GetLXUserSourceProxy() }
@@ -818,6 +808,7 @@ onMounted(() => {
   void loadFavorites()
   void loadConfig()
   void loadLXProxy()
+  void refreshLyricsWindowState()
   statusTimer = setInterval(() => void refreshPlayback(), 1500)
 })
 onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
@@ -872,6 +863,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         <el-button @click="previousTrack">上一首</el-button>
         <el-button @click="nextTrack">下一首</el-button>
         <el-button @click="stop">停止</el-button>
+        <el-button type="primary" plain @click="toggleLyricsWindow">{{ lyricsWindowOpen ? '关闭桌面歌词' : '开启桌面歌词' }}</el-button>
       </div>
       <div class="playback-order-row">
         <span>播放顺序</span>
