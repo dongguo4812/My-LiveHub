@@ -5,6 +5,7 @@ import (
  "path/filepath"
  "testing"
  "strings"
+ "sync"
  "net/url"
 )
 
@@ -136,4 +137,55 @@ func TestSetEnabledSearchSourcesPreservesPriorityOrder(t *testing.T) {
 	want := []string{"tx", "kw", "kg"}
 	if len(got.EnabledSearchSources) != len(want) { t.Fatalf("priority length = %v, want %v", got.EnabledSearchSources, want) }
 	for i := range want { if got.EnabledSearchSources[i] != want[i] { t.Fatalf("priority = %v, want %v", got.EnabledSearchSources, want) } }
+}
+
+
+func TestLXUserSourceConcurrentMetadataUpdatesPreserveSearchSelection(t *testing.T) {
+	store, err := NewLXUserSourceStore(filepath.Join(t.TempDir(), "sources"))
+	if err != nil { t.Fatal(err) }
+	metadata, err := store.ImportScript("/*\n * @name Concurrent Metadata Test\n */\nvoid 0;", "")
+	if err != nil { t.Fatal(err) }
+
+	validation := LXSourceRuntimeResult{
+		Initialized: true,
+		Platforms: []string{"kw", "tx"},
+		DeclaredSources: []LXDeclaredSource{
+			{Key: "kw", Type: "music", Actions: []string{"musicUrl"}},
+			{Key: "tx", Type: "music", Actions: []string{"musicUrl"}},
+		},
+	}
+	enabled := []string{"tx", "kw"}
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		<-start
+		for i := 0; i < 100; i++ {
+			if err := store.SetValidation(metadata.ID, validation); err != nil { t.Errorf("SetValidation: %v", err); return }
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		<-start
+		for i := 0; i < 100; i++ {
+			if err := store.SetEnabledSearchSources(metadata.ID, []string{"kw", "tx"}, enabled); err != nil { t.Errorf("SetEnabledSearchSources: %v", err); return }
+		}
+	}()
+	close(start)
+	wg.Wait()
+
+	got, err := store.Get(metadata.ID)
+	if err != nil { t.Fatal(err) }
+	if got.Validation == nil || !got.Validation.Initialized {
+		t.Fatalf("validation update was lost: %#v", got.Validation)
+	}
+	if len(got.EnabledSearchSources) != len(enabled) {
+		t.Fatalf("search selection was lost: %#v", got.EnabledSearchSources)
+	}
+	for i := range enabled {
+		if got.EnabledSearchSources[i] != enabled[i] {
+			t.Fatalf("search priority = %#v, want %#v", got.EnabledSearchSources, enabled)
+		}
+	}
 }
