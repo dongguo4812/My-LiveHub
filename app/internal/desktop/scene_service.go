@@ -68,6 +68,7 @@ func NewSceneService(manager *config.Manager, events *eventstream.Buffer, assets
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/scenes/", service.handleScene)
 	mux.HandleFunc("/api/events", service.handleEvents)
+	mux.HandleFunc("/api/events/recent", service.handleRecentEvents)
 	mux.Handle("/", assets)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -239,6 +240,14 @@ func writeSceneJSON(w http.ResponseWriter, value any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+func (s *SceneService) handleRecentEvents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeSceneJSON(w, s.events.Snapshot())
 }
 
 func (s *SceneService) handleEvents(w http.ResponseWriter, r *http.Request) {
