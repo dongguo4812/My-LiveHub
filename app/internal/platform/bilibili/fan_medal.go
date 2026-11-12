@@ -68,7 +68,7 @@ func (c *FanMedalChecker) SetRoomID(roomID int) {
 func (c *FanMedalChecker) Check(parent context.Context, userUID, minLevel int) (bool, int, error) {
 	if c == nil || c.auth == nil { return false, 0, errors.New("粉丝勋章查询服务不可用") }
 	if userUID <= 0 { return false, 0, errors.New("无法获取点播用户 UID") }
-	if minLevel < 1 || minLevel > 100 { return false, 0, errors.New("粉丝勋章最低等级设置无效") }
+	if minLevel < 1 || minLevel > 120 { return false, 0, errors.New("粉丝勋章最低等级设置无效") }
 	if parent == nil { parent = context.Background() }
 	ctx, cancel := context.WithTimeout(parent, 6*time.Second)
 	defer cancel()
