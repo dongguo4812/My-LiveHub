@@ -49,9 +49,14 @@ func GetQQMusicLyrics(parent context.Context, client *http.Client, track Track) 
 		return "", fmt.Errorf("QQ 歌词接口返回异常：%s", stringValue(req["message"]))
 	}
 	data := mapValue(req["data"])
+	if strings.TrimSpace(stringValue(data["lyric"])) == "" {
+		// QQ 返回成功但没有 lyric 字段，代表该歌曲在当前平台没有可用歌词；
+		// 只有接口/解密失败才返回 error，前端据此区分“暂无歌词”和“获取失败”。
+		return "", nil
+	}
 	primary, err := decodeQQLyricField(stringValue(data["lyric"]))
 	if err != nil { return "", fmt.Errorf("解码 QQ 原文歌词失败：%w", err) }
-	if primary == nil || len(primary.Lines) == 0 { return "", errors.New("QQ 音乐没有返回有效的同步歌词") }
+	if primary == nil || len(primary.Lines) == 0 { return "", errors.New("QQ 音乐歌词响应无法解析") }
 	translated, _ := decodeQQLyricField(stringValue(data["trans"]))
 	romanized, _ := decodeQQLyricField(stringValue(data["roma"]))
 	return formatQQLyricAsLRC(track, primary, translated, romanized), nil
