@@ -442,9 +442,9 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
 
     <nav class="music-tabs" aria-label="音乐页面导航">
       <button :class="{ active: activeTab === 'now-playing' }" @click="activeTab = 'now-playing'">正在播放</button>
+      <button :class="{ active: activeTab === 'search' }" @click="activeTab = 'search'">歌曲搜索</button>
       <button :class="{ active: activeTab === 'host-playlist' }" @click="activeTab = 'host-playlist'">主播歌单 <span>{{ favorites.length }}</span></button>
       <button :class="{ active: activeTab === 'visitor-requests' }" @click="activeTab = 'visitor-requests'">观众点播 <span>{{ queue?.items.length ?? 0 }}</span></button>
-      <button :class="{ active: activeTab === 'search' }" @click="activeTab = 'search'">歌曲搜索</button>
       <button :class="{ active: activeTab === 'settings' }" @click="activeTab = 'settings'">音乐设置</button>
     </nav>
 
