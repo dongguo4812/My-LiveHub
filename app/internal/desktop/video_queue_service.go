@@ -155,6 +155,13 @@ func (s *VideoQueueService) startNextLocked() {
 }
 
 func (s *VideoQueueService) handlePlaybackState(state BilibiliWebViewPlaybackState) {
+	if !state.IsOpen {
+		s.mu.Lock()
+		s.current = nil
+		s.queue = s.queue[:0]
+		s.mu.Unlock()
+		return
+	}
 	if !state.IsEnded { return }
 	s.mu.Lock()
 	if s.closed || s.current == nil { s.mu.Unlock(); return }
