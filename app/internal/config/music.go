@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const CurrentMusicConfigVersion = 5
+const CurrentMusicConfigVersion = 6
 
 type LXUserSourceProxyConfig struct {
 	Enabled bool `json:"enabled"`
@@ -31,6 +31,7 @@ type MusicConfig struct {
 	CommandEnabled bool   `json:"command_enabled"`
 	CommandPrefix  string `json:"command_prefix"`
 	QueueCapacity  int    `json:"queue_capacity"`
+	Volume int `json:"volume"`
 	LXUserSourceProxy LXUserSourceProxyConfig `json:"lx_user_source_proxy"`
 }
 
@@ -41,6 +42,7 @@ func DefaultMusicConfig() MusicConfig {
 		CommandEnabled: true,
 		CommandPrefix: "点歌",
 		QueueCapacity: 100,
+		Volume: 80,
 	}
 }
 
@@ -58,6 +60,7 @@ func MigrateMusicConfig(c MusicConfig) (MusicConfig, bool) {
 		n.QueueCapacity = c.QueueCapacity
 	}
 	n.LXUserSourceProxy = c.LXUserSourceProxy
+	if c.Volume >= 0 && c.Volume <= 100 { n.Volume = c.Volume }
 	return n, true
 }
 
@@ -71,6 +74,7 @@ func (c MusicConfig) Validate() error {
 	if len([]rune(c.CommandPrefix)) > 16 {
 		return fmt.Errorf("music command prefix is too long")
 	}
+	if c.Volume < 0 || c.Volume > 100 { return fmt.Errorf("music volume must be between 0 and 100") }
 	if c.QueueCapacity < 1 || c.QueueCapacity > 1000 {
 		return fmt.Errorf("music queue capacity must be between 1 and 1000")
 	}
@@ -96,6 +100,7 @@ func LoadMusicConfig(m *Manager) (MusicConfig, error) {
 			"command_enabled": true,
 			"command_prefix": true,
 			"queue_capacity": true,
+			"volume": true,
 			"lx_user_source_proxy": true,
 		}
 		cleaned := make(map[string]any, len(local))

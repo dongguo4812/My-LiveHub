@@ -65,6 +65,10 @@ function formatDuration(value?: number) {
   const seconds = Math.floor(numeric % 1 === 0 ? numeric / 1000 : numeric)
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 }
+function formatSeekTooltip(percent: number) {
+  const duration = playback.value?.duration_ms ?? 0
+  return formatDuration(Math.round(duration * Math.min(100, Math.max(0, percent)) / 100))
+}
 function parseSyncedLyrics(lrc: string) {
   const lines: Array<{ time: number; text: string }> = []
   for (const line of lrc.split(/\r?\n/)) {
@@ -569,7 +573,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
           <el-tag v-else-if="queue?.current" type="warning" size="small">观众点播</el-tag>
         </div>
       </div>
-      <el-slider :model-value="progress" :min="0" :max="100" :step="0.1" :disabled="!playback?.track || !playback.duration_ms" @input="previewSeek" @change="seekTo" />
+      <el-slider :model-value="progress" :min="0" :max="100" :step="0.1" :format-tooltip="formatSeekTooltip" :disabled="!playback?.track || !playback.duration_ms" @input="previewSeek" @change="seekTo" />
       <div class="time-row"><span>{{ formatDuration(playback?.position_ms) }}</span><span>{{ formatDuration(playback?.duration_ms) }}</span></div>
       <div class="player-controls">
         <el-button type="primary" @click="addHostPlaylistToQueue">播放</el-button>
