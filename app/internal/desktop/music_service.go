@@ -641,6 +641,19 @@ type musicLyricsResponse struct {
 // GetLyrics retrieves time-synchronized lyrics for the current track.
 // LRCLIB is used only for lyrics; audio playback remains on the selected LX source.
 func (s *MusicService) GetLyrics(track music.Track) (string, error) {
+	source := track.LXSourceKey
+	if source == "" { source = track.SourceID }
+	// 洛雪桌面版的 QQ 歌词来自 QQ 自身的 PlayLyricInfo SDK，
+	// 不是 LRCLIB，也不是用户音源脚本的 musicUrl 动作。
+	if source == music.LXSearchTX {
+		ctx, cancel := context.WithTimeout(context.Background(), 18*time.Second)
+		defer cancel()
+		return music.GetQQMusicLyrics(ctx, nil, track)
+	}
+	return s.getLRCLIBLyrics(track)
+}
+
+func (s *MusicService) getLRCLIBLyrics(track music.Track) (string, error) {
 	if strings.TrimSpace(track.Title) == "" { return "", errors.New("歌曲名称不能为空") }
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -672,6 +685,7 @@ func (s *MusicService) GetLyrics(track music.Track) (string, error) {
 		if score > bestScore { bestScore, bestLyrics = score, strings.TrimSpace(match.SyncedLyrics) }
 	}
 	return bestLyrics, nil
+
 }
 func absFloat(value float64) float64 { if value < 0 { return -value }; return value }
 
