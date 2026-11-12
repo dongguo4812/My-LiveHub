@@ -36,17 +36,19 @@ const groups = [
 ]
 
 let refreshTimer: ReturnType<typeof setInterval> | undefined
+let voiceAudioInitialized = false
 function navigate(path: string) { router.push(path) }
 
-onMounted(() => {
+onMounted(async () => {
+  await router.isReady()
   if (route.meta.standalone) return
   initializeVoiceAudio()
+  voiceAudioInitialized = true
   void refreshCoreStatus()
   refreshTimer = setInterval(() => void refreshCoreStatus(), 3000)
 })
 onUnmounted(() => {
-  if (route.meta.standalone) return
-  disposeVoiceAudio()
+  if (voiceAudioInitialized) disposeVoiceAudio()
   if (refreshTimer) clearInterval(refreshTimer)
 })
 </script>
