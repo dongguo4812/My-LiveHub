@@ -1,5 +1,5 @@
 package desktop
-import ("context"; "errors"; "testing"; "github.com/dongguo4812/My-LiveHub/app/internal/config"
+import ("context"; "errors"; "testing"; "testing/fstest"; "github.com/dongguo4812/My-LiveHub/app/internal/config"
  "github.com/dongguo4812/My-LiveHub/app/internal/events"
  "github.com/dongguo4812/My-LiveHub/app/internal/music")
 func TestParseSongRequest(t *testing.T){
@@ -40,6 +40,34 @@ func (e *playbackStartTestEngine) SetVolume(context.Context, int) error { return
 func (e *playbackStartTestEngine) Stop(context.Context) error { return nil }
 func (e *playbackStartTestEngine) Snapshot(context.Context) (music.PlaybackSnapshot, error) {
 	return music.PlaybackSnapshot{}, nil
+}
+
+type audioProcessingTestEngine struct {
+	playbackStartTestEngine
+	normalization []bool
+	normalizationErr error
+}
+func (e *audioProcessingTestEngine) SetLoudnessNormalization(_ context.Context, enabled bool) error {
+	e.normalization = append(e.normalization, enabled)
+	return e.normalizationErr
+}
+
+func TestSaveConfigAppliesAndPersistsLoudnessNormalization(t *testing.T) {
+	manager, err := config.NewManager(fstest.MapFS{
+		"music.json": {Data: []byte(`{"config_version":8,"enabled":true,"command_enabled":true,"command_prefix":"点歌","skip_command_enabled":true,"skip_command":"切歌","queue_capacity":100,"volume":80,"loudness_normalization":false}`)},
+	}, t.TempDir())
+	if err != nil { t.Fatal(err) }
+	engine := &audioProcessingTestEngine{}
+	service := NewMusicServiceWithDependencies(manager, config.DefaultMusicConfig(), nil, engine)
+	next := service.GetConfig()
+	next.LoudnessNormalization = true
+	if err := service.SaveConfig(next); err != nil { t.Fatalf("SaveConfig: %v", err) }
+	if len(engine.normalization) != 1 || !engine.normalization[0] {
+		t.Fatalf("normalization was not applied to the engine: %#v", engine.normalization)
+	}
+	saved, err := config.LoadMusicConfig(manager)
+	if err != nil { t.Fatalf("reload saved music config: %v", err) }
+	if !saved.LoudnessNormalization { t.Fatalf("normalization preference was not persisted: %+v", saved) }
 }
 
 func TestLoadAndStartPlaybackAlwaysResumesAfterReplacingTrack(t *testing.T) {
