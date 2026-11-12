@@ -36,9 +36,22 @@ function formatClock() { return now.value.toLocaleTimeString('zh-CN', { hour12: 
 function handleEvent(event: MessageEvent<string>) {
   try {
     const value = JSON.parse(event.data) as LiveEvent
+    if (liveEvents.value.some(item => item.id === value.id)) return
     liveEvents.value.push(value)
+    liveEvents.value.sort((a, b) => a.id - b.id)
     if (liveEvents.value.length > 100) liveEvents.value.splice(0, liveEvents.value.length - 100)
   } catch { /* Ignore malformed event frames. */ }
+}
+async function loadRecentEvents() {
+  try {
+    const response = await fetch('/api/events/recent', { cache: 'no-store' })
+    if (!response.ok) return
+    const items = await response.json() as LiveEvent[]
+    const known = new Set(liveEvents.value.map(item => item.id))
+    liveEvents.value = [...items.filter(item => !known.has(item.id)), ...liveEvents.value]
+      .sort((a, b) => a.id - b.id)
+      .slice(-100)
+  } catch { /* The live stream remains available if history is unavailable. */ }
 }
 async function loadScene() {
   const id = encodeURIComponent(String(route.params.sceneID ?? ''))
@@ -57,12 +70,8 @@ onMounted(() => {
   void loadScene()
   source = new EventSource('/api/events')
   source.onmessage = handleEvent
-  void fetch('/api/events/recent', { cache: 'no-store' }).then(response => response.ok ? response.json() as Promise<LiveEvent[]> : []).then(items => {
-    const known = new Set(liveEvents.value.map(item => item.id))
-    liveEvents.value = [...items.filter(item => !known.has(item.id)), ...liveEvents.value].slice(-100)
-  }).catch(() => undefined)
   source.onerror = () => { error.value = '直播事件连接中断，正在自动重连…' }
-  source.onopen = () => { error.value = '' }
+  source.onopen = () => { error.value = ''; void loadRecentEvents() }
   clockTimer = setInterval(() => { now.value = new Date() }, 500)
 })
 onUnmounted(() => {
