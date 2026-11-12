@@ -1,3 +1,9 @@
 {
-  "room_id": 0
+  "room_id": 0,
+  "video_requests_enabled": true,
+  "video_request_cooldown_seconds": 60,
+  "video_queue_limit": 30,
+  "video_max_duration_seconds": 300,
+  "video_require_fan_medal": false,
+  "video_queue_display_limit": 10
 }
