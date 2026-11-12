@@ -181,6 +181,8 @@ func main() {
 	if cacheErr != nil { log.Printf("initialize local media image cache: %v", cacheErr) } else { assetHandler = imageCache; platformService.SetMediaImageCache(imageCache); imageCache.RefreshStats() }
 	assetHandler = desktop.WrapLive2DAssetHandler(live2dService, assetHandler)
 	danmakuDisplayService := desktop.NewDanmakuDisplayService(configManager, danmakuDisplayConfig, danmakuWindowConfig, bilibiliEvents, imageCache)
+	sceneService, err := desktop.NewSceneService(configManager, bilibiliEvents, assetHandler)
+	if err != nil { log.Fatalf("initialize scene browser source service: %v", err) }
 	app := application.New(application.Options{
 		Name:        "My-LiveHub",
 		Description: "多平台综合直播互动辅助平台",
@@ -199,6 +201,7 @@ func main() {
 			application.NewService(bilibiliSettingsService),
 			application.NewService(desktop.NewAppearanceService(configManager, appConfig)),
 			application.NewService(danmakuDisplayService),
+			application.NewService(sceneService),
 			application.NewService(voiceService),
 			application.NewService(musicService),
 			application.NewService(musicLyricsWindowService),
@@ -214,6 +217,7 @@ func main() {
 	desktop.AttachBilibiliWebViewApplication(bilibiliWebViewService, app)
 	app.OnShutdown(func() {
 		danmakuDisplayService.CloseWindowForShutdown()
+		if err := sceneService.Shutdown(); err != nil { log.Printf("stop scene browser source service: %v", err) }
 		musicLyricsWindowService.CloseWindowForShutdown()
 		videoQueueService.Close()
 		bilibiliWebViewService.CloseWindowForShutdown()
