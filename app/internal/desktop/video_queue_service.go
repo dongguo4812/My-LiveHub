@@ -164,7 +164,7 @@ func (s *VideoQueueService) handlePlaybackState(state BilibiliWebViewPlaybackSta
 	}
 	if !state.IsEnded { return }
 	s.mu.Lock()
-	if s.closed || s.current == nil { s.mu.Unlock(); return }
+	if s.closed || s.current == nil || (state.BVID != "" && state.BVID != s.current.BVID) { s.mu.Unlock(); return }
 	s.current = nil
 	if len(s.queue) > 0 {
 		s.startNextLocked()
