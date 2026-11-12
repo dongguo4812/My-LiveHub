@@ -25,6 +25,7 @@ const lxSourceURL = ref('')
 const importingLXSource = ref(false)
 const sourceFileInput = ref<HTMLInputElement | null>(null)
 const queue = ref<QueueSnapshot | null>(null)
+const draggedQueueItemID = ref('')
 const playback = ref<PlaybackSnapshot | null>(null)
 const results = ref<Track[]>([])
 const searchErrors = ref<Record<string, string>>({})
@@ -308,6 +309,50 @@ async function pollLXSourceUpdates() {
 async function refreshQueue() {
   try { queue.value = await MusicService.GetQueue() } catch { /* Keep the last known queue. */ }
 }
+function startQueueDrag(event: DragEvent, id: string) {
+  draggedQueueItemID.value = id
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', id)
+  }
+}
+async function dropQueueItem(event: DragEvent, targetIndex: number) {
+  event.preventDefault()
+  const id = event.dataTransfer?.getData('text/plain') || draggedQueueItemID.value
+  draggedQueueItemID.value = ''
+  if (!id || !queue.value) return
+  const fromIndex = queue.value.items.findIndex(item => item.id === id)
+  if (fromIndex < 0 || fromIndex === targetIndex) return
+  error.value = ''
+  try {
+    await MusicService.MoveQueueItem(id, targetIndex)
+    await refreshQueue()
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  }
+}
+async function removeQueueItem(id: string) {
+  error.value = ''
+  try {
+    await MusicService.RemoveQueueItem(id)
+    await refreshQueue()
+    success.value = '已从观众点播队列移除'
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  }
+}
+async function clearQueue() {
+  if (!queue.value?.items.length) return
+  if (!window.confirm(`确定清空全部 ${queue.value.items.length} 首待播歌曲吗？当前正在播放的歌曲不会受到影响。`)) return
+  error.value = ''
+  try {
+    MusicService.ClearQueue()
+    await refreshQueue()
+    success.value = '观众点播待播队列已清空'
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  }
+}
 async function refreshPlayback() {
   try {
     playback.value = await MusicService.GetPlaybackStatus()
@@ -577,16 +622,37 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
     </el-card>
 
     <el-card v-if="activeTab === 'visitor-requests'" shadow="never">
-      <template #header><div class="card-heading"><strong>观众点播队列</strong><el-tag effect="plain">{{ queue?.items.length ?? 0 }} 首待播</el-tag></div></template>
-      <div v-if="queue?.current" class="queue-current">当前：{{ queue.current.track.title }} · {{ queue.current.track.artist }}</div>
-      <el-table v-if="queue?.items.length" :data="queue.items" row-key="id" style="width:100%">
-        <el-table-column type="index" label="#" width="55" />
-        <el-table-column prop="track.title" label="歌曲" min-width="180" />
-        <el-table-column prop="track.artist" label="歌手" min-width="140" />
-        <el-table-column label="音源" width="130"><template #default="scope">{{ sourceName(scope.row.track.source_id) }}</template></el-table-column>
-        <el-table-column prop="requested_by" label="点歌用户" width="130" />
-      </el-table>
+      <template #header>
+        <div class="card-heading">
+          <div class="card-heading"><strong>观众点播队列</strong><el-tag effect="plain">{{ queue?.items.length ?? 0 }} 首待播</el-tag></div>
+          <el-button type="danger" plain size="small" :disabled="!queue?.items.length" @click="clearQueue">清空待播</el-button>
+        </div>
+      </template>
+      <div v-if="queue?.current" class="queue-current">当前播放：{{ queue.current.track.title }} · {{ queue.current.track.artist }}（{{ queue.current.requested_by || '观众点播' }}）</div>
+      <div v-if="queue?.items.length" class="queue-list">
+        <div
+          v-for="(item, index) in queue.items"
+          :key="item.id"
+          class="queue-item"
+          :class="{ 'queue-item-dragging': draggedQueueItemID === item.id }"
+          draggable="true"
+          @dragstart="startQueueDrag($event, item.id)"
+          @dragover.prevent
+          @drop="dropQueueItem($event, index)"
+          @dragend="draggedQueueItemID = ''"
+        >
+          <span class="queue-drag-handle" title="拖动调整顺序"><el-icon><Headset /></el-icon></span>
+          <span class="queue-index">{{ index + 1 }}</span>
+          <div class="queue-track">
+            <strong>{{ item.track.title }}</strong>
+            <span>{{ item.track.artist }} · {{ sourceName(item.track.source_id) }}</span>
+          </div>
+          <span class="queue-requester">{{ item.requested_by || '观众' }}</span>
+          <el-button link type="danger" @click.stop="removeQueueItem(item.id)">删除</el-button>
+        </div>
+      </div>
       <el-empty v-else description="队列暂时为空" :image-size="76" />
+      <p v-if="queue?.items.length" class="hint">拖动歌曲左侧的拖动图标即可调整待播顺序；当前播放歌曲不受影响。</p>
     </el-card>
 
     <el-card v-if="activeTab === 'settings'" shadow="never">
@@ -635,5 +701,5 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
 .mini-player-track strong,.mini-player-track span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:280px}
 .mini-player-track span,.mini-player-actions>span{font-size:12px;color:var(--el-text-color-secondary)}
 .music-page{display:flex;flex-direction:column;gap:20px;min-height:calc(100vh - 146px)}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.section-description,.source-copy span,.setting-row p,.hint{color:var(--el-text-color-secondary);font-size:13px}.section-description{margin:0 0 16px}.card-heading{display:flex;align-items:center;justify-content:space-between}.source-list,.setting-list{display:flex;flex-direction:column}.source-row,.setting-row{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:14px 0;border-bottom:1px solid var(--app-border)}.source-row:last-child{border-bottom:0}.source-copy,.track-info{display:flex;flex-direction:column;gap:5px}.source-copy span,.track-info span,.track-info small{font-size:12px;color:var(--el-text-color-secondary)}.setting-row p{margin:6px 0 0}.card-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}.now-playing{display:flex;align-items:center;gap:16px}.track-cover{width:76px;height:76px;border-radius:10px;background:var(--app-bg-control);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--el-text-color-secondary);font-size:30px}.track-cover img{width:100%;height:100%;object-fit:cover}.track-info strong{font-size:17px}.time-row{display:flex;justify-content:space-between;color:var(--el-text-color-secondary);font-size:12px;font-variant-numeric:tabular-nums}.player-controls{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:14px 0}.playback-order-row{display:flex;align-items:center;justify-content:center;gap:12px;margin:8px 0 14px}.playback-order-row span{font-size:13px;color:var(--el-text-color-secondary)}.volume-row{display:grid;grid-template-columns:50px 1fr;align-items:center;gap:12px}.volume-row span{font-size:13px;color:var(--el-text-color-secondary)}.hint{margin:12px 0 0}.search-row{display:flex;gap:10px}.lx-import-row{display:flex;gap:10px;align-items:center}.hidden-file-input{display:none}.lx-source-list{display:flex;flex-direction:column;margin-top:16px}.lx-source-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-top:1px solid var(--app-border)}.lx-source-row .source-copy{min-width:0}.lx-source-row .source-copy span{overflow-wrap:anywhere}.lx-search-source-settings{display:flex;flex-direction:column;gap:6px;margin-top:8px}.lx-search-source-settings :deep(.el-checkbox-group){display:flex;flex-wrap:wrap;gap:4px 14px}
-.lx-source-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}.search-summary{margin-top:12px;color:var(--el-text-color-secondary);font-size:12px}.search-pagination{display:flex;justify-content:center;margin-top:18px}.queue-current{padding:10px 12px;margin-bottom:12px;border-radius:8px;background:var(--app-bg-control);font-size:13px}.setting-row p{margin:6px 0 0}@media(max-width:800px){.music-page{min-height:calc(100vh - 126px)}.mini-player{margin-left:-22px;margin-right:-22px;padding-left:22px;padding-right:22px}.source-row,.setting-row{align-items:flex-start;flex-direction:column}.search-row,.lx-import-row{flex-direction:column;align-items:stretch}.lx-source-row{align-items:flex-start}.mini-player{align-items:flex-start;flex-direction:column}.mini-player-actions{width:100%;justify-content:space-between}}
+.lx-source-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}.search-summary{margin-top:12px;color:var(--el-text-color-secondary);font-size:12px}.search-pagination{display:flex;justify-content:center;margin-top:18px}.queue-current{padding:10px 12px;margin-bottom:12px;border-radius:8px;background:var(--app-bg-control);font-size:13px}..queue-list{display:flex;flex-direction:column;gap:8px}.queue-item{display:flex;align-items:center;gap:12px;padding:11px 12px;border:1px solid var(--app-border);border-radius:9px;background:var(--el-bg-color);transition:border-color .15s,opacity .15s}.queue-item:hover{border-color:var(--app-accent)}.queue-item-dragging{opacity:.45}.queue-drag-handle{display:flex;align-items:center;color:var(--el-text-color-secondary);cursor:grab;touch-action:none}.queue-drag-handle:active{cursor:grabbing}.queue-index{width:24px;color:var(--el-text-color-secondary);font-size:12px;text-align:center}.queue-track{display:flex;flex:1;flex-direction:column;gap:4px;min-width:0}.queue-track strong,.queue-track span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.queue-track span,.queue-requester{color:var(--el-text-color-secondary);font-size:12px}.queue-requester{max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.setting-row p{margin:6px 0 0}@media(max-width:800px){.music-page{min-height:calc(100vh - 126px)}.mini-player{margin-left:-22px;margin-right:-22px;padding-left:22px;padding-right:22px}.source-row,.setting-row{align-items:flex-start;flex-direction:column}.search-row,.lx-import-row{flex-direction:column;align-items:stretch}.lx-source-row{align-items:flex-start}.mini-player{align-items:flex-start;flex-direction:column}.mini-player-actions{width:100%;justify-content:space-between}}
 </style>

@@ -170,6 +170,31 @@ func (q *Queue) Clear() {
 	q.mu.Unlock()
 }
 
+// Move reorders a pending item without changing the currently playing item.
+func (q *Queue) Move(id string, targetIndex int) error {
+	if q == nil { return errors.New("music queue is unavailable") }
+	if strings.TrimSpace(id) == "" { return errors.New("queue item ID is required") }
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if targetIndex < 0 || targetIndex >= len(q.items) {
+		return fmt.Errorf("queue target index %d is out of range", targetIndex)
+	}
+	from := -1
+	for i := range q.items {
+		if q.items[i].ID == id { from = i; break }
+	}
+	if from < 0 { return fmt.Errorf("queue item %q was not found", id) }
+	if from == targetIndex { return nil }
+	item := q.items[from]
+	if from < targetIndex {
+		copy(q.items[from:targetIndex], q.items[from+1:targetIndex+1])
+	} else {
+		copy(q.items[targetIndex+1:from+1], q.items[targetIndex:from])
+	}
+	q.items[targetIndex] = item
+	return nil
+}
+
 func (q *Queue) Snapshot() QueueSnapshot {
 	if q == nil {
 		return QueueSnapshot{Items: []QueueItem{}}

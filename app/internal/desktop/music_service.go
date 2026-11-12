@@ -442,6 +442,25 @@ func (s *MusicService) GetQueue() music.QueueSnapshot {
 	return s.queue.Snapshot()
 }
 
+// RemoveQueueItem removes one pending audience request. It never interrupts current playback.
+func (s *MusicService) RemoveQueueItem(id string) error {
+	if s == nil || s.queue == nil { return errors.New("music queue is unavailable") }
+	if !s.queue.Remove(id) { return fmt.Errorf("待播歌曲不存在或已被播放：%s", id) }
+	return nil
+}
+
+// ClearQueue removes all pending audience requests and preserves the current track.
+func (s *MusicService) ClearQueue() {
+	if s == nil || s.queue == nil { return }
+	s.queue.Clear()
+}
+
+// MoveQueueItem moves a pending audience request to a zero-based position.
+func (s *MusicService) MoveQueueItem(id string, targetIndex int) error {
+	if s == nil || s.queue == nil { return errors.New("music queue is unavailable") }
+	return s.queue.Move(id, targetIndex)
+}
+
 func (s *MusicService) PlayNext() error { return s.playNext(context.Background()) }
 
 func (s *MusicService) playNext(parent context.Context) error {

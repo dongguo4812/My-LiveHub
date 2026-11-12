@@ -41,6 +41,23 @@ func TestQueueRemoveAndClearPreserveCurrent(t *testing.T) {
 	if second.ID == "" { t.Fatal("test fixture was not created") }
 }
 
+func TestQueueMoveReordersPendingItemsAndPreservesCurrent(t *testing.T) {
+	queue := NewQueue(4)
+	first, _ := queue.Enqueue(testTrack("first"), "甲")
+	second, _ := queue.Enqueue(testTrack("second"), "乙")
+	third, _ := queue.Enqueue(testTrack("third"), "丙")
+	queue.SetCurrent(QueueItem{ID:"current", Track:testTrack("current")})
+	if err := queue.Move(third.ID, 0); err != nil { t.Fatal(err) }
+	if err := queue.Move(first.ID, 2); err != nil { t.Fatal(err) }
+	snapshot := queue.Snapshot()
+	if got := []string{snapshot.Items[0].ID, snapshot.Items[1].ID, snapshot.Items[2].ID}; got[0] != third.ID || got[1] != second.ID || got[2] != first.ID {
+		t.Fatalf("unexpected queue order: %#v", got)
+	}
+	if snapshot.Current == nil || snapshot.Current.ID != "current" { t.Fatal("move should preserve current playback") }
+	if err := queue.Move("missing", 0); err == nil { t.Fatal("expected missing item error") }
+	if err := queue.Move(first.ID, 3); err == nil { t.Fatal("expected out-of-range error") }
+}
+
 func TestQueueRejectsInvalidTrack(t *testing.T) {
 	queue := NewQueue(2)
 	if _, err := queue.Enqueue(Track{}, ""); err == nil { t.Fatal("expected invalid track error") }
