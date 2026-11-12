@@ -34,6 +34,18 @@ func TestMusicConfigMigrationDropsPlatformConfig(t *testing.T) {
 	}
 }
 
+func TestMusicConfigV7MigrationPreservesSkipCommandAndNormalization(t *testing.T) {
+	got, changed := MigrateMusicConfig(MusicConfig{
+		ConfigVersion: 7, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
+		SkipCommandEnabled: false, SkipCommand: "下一首", QueueCapacity: 100, Volume: 66,
+		LoudnessNormalization: true,
+	})
+	if !changed { t.Fatal("expected v7 configuration migration") }
+	if got.SkipCommandEnabled || got.SkipCommand != "下一首" || !got.LoudnessNormalization || got.Volume != 66 {
+		t.Fatalf("v7 settings were not preserved: %+v", got)
+	}
+}
+
 func TestLoadMusicConfigRemovesRetiredFieldsBeforeStrictDecode(t *testing.T) {
 	localDir := t.TempDir()
 	manager, err := NewManager(fstest.MapFS{
