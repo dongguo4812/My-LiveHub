@@ -44,12 +44,13 @@ type VideoResolver struct {
 	viewURL string
 	navURL string
 	playURL string
+	danmakuURL string
 }
 
 func NewVideoResolver(auth VideoCredentialProvider, client *http.Client) (*VideoResolver, error) {
 	if auth == nil { return nil, errors.New("B 站登录管理器不能为空") }
 	if client == nil { client = &http.Client{Timeout: 20 * time.Second} }
-	return &VideoResolver{auth:auth, client:client, now:time.Now, viewURL:videoViewURL, navURL:videoNavURL, playURL:videoPlayURL}, nil
+	return &VideoResolver{auth:auth, client:client, now:time.Now, viewURL:videoViewURL, navURL:videoNavURL, playURL:videoPlayURL, danmakuURL:videoDanmakuURL}, nil
 }
 
 func (r *VideoResolver) Resolve(ctx context.Context, rawBVID string) (VideoPlayback, error) {
@@ -114,7 +115,7 @@ func (r *VideoResolver) Resolve(ctx context.Context, rawBVID string) (VideoPlayb
 		return VideoPlayback{}, errors.New("B 站没有返回 MP4 格式视频流；本次最小验证暂不处理 DASH 分离音视频")
 	}
 	danmakuQuery := url.Values{"oid": {strconv.FormatInt(cid, 10)}}
-	danmakuBody, danmakuErr := r.get(ctx, videoDanmakuURL, danmakuQuery, credentials.Cookie)
+	danmakuBody, danmakuErr := r.get(ctx, r.danmakuURL, danmakuQuery, credentials.Cookie)
 	danmakuASS := ""
 	if danmakuErr == nil {
 		danmakuASS, _ = DanmakuXMLToASS(danmakuBody)
