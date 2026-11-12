@@ -24,6 +24,9 @@ type LXSearchSourceOption = Awaited<ReturnType<typeof MusicService.GetLXSearchSo
 const lxSources = ref<LXSource[]>([])
 const lxValidation = ref<Record<string, LXValidation>>({})
 const lxSearchSourceOptions = ref<Record<string, LXSearchSourceOption[]>>({})
+// Serialize writes per LX source and ignore stale read-backs from earlier UI changes.
+const lxSearchSourceSaveQueues = new Map<string, Promise<void>>()
+const lxSearchSourceRevisions = new Map<string, number>()
 const activeLXSourceID = ref('')
 const validatingLXSourceID = ref('')
 const lxSourceURL = ref('')
@@ -406,13 +409,25 @@ async function deactivateLXSource() {
   }
 }
 async function persistLXSearchPriority(source: LXSource, options: LXSearchSourceOption[]) {
+  const revision = lxSearchSourceRevisions.get(source.id) ?? 0
   const enabled = options.filter(item => item.enabled).map(item => item.id)
-  // Keep the exact optimistic state supplied by the caller. Re-fetching here
-  // caused the checkbox UI to immediately revert to the stale backend snapshot.
-  await MusicService.SetLXSearchSources(source.id, enabled)
-  lxSearchSourceOptions.value = { ...lxSearchSourceOptions.value, [source.id]: options.map(item => ({ ...item })) }
-  if (activeLXSourceID.value === source.id && selectedSource.value !== 'all' && !searchableSources.value.some(item => item.id === selectedSource.value)) selectedSource.value = 'all'
-  results.value = []
+  const previous = lxSearchSourceSaveQueues.get(source.id) ?? Promise.resolve()
+  const save = previous.catch(() => undefined).then(async () => {
+    await MusicService.SetLXSearchSources(source.id, enabled)
+    const persisted = await MusicService.GetLXSearchSourceOptions(source.id)
+    const persistedEnabled = persisted.filter(item => item.enabled).map(item => item.id)
+    if (persistedEnabled.length !== enabled.length || persistedEnabled.some((id, index) => id !== enabled[index])) {
+      throw new Error('搜索来源保存结果与当前选择不一致，请重试')
+    }
+    if (lxSearchSourceRevisions.get(source.id) === revision) {
+      lxSearchSourceOptions.value = { ...lxSearchSourceOptions.value, [source.id]: persisted.map(item => ({ ...item })) }
+      if (activeLXSourceID.value === source.id && selectedSource.value !== 'all' && !searchableSources.value.some(item => item.id === selectedSource.value)) selectedSource.value = 'all'
+      results.value = []
+    }
+  })
+  lxSearchSourceSaveQueues.set(source.id, save)
+  try { await save }
+  finally { if (lxSearchSourceSaveQueues.get(source.id) === save) lxSearchSourceSaveQueues.delete(source.id) }
 }
 function onLXSearchSourceChange(source: LXSource, option: LXSearchSourceOption, event: Event) {
   const input = event.target as HTMLInputElement | null
@@ -426,20 +441,26 @@ async function toggleLXSearchSource(source: LXSource, option: LXSearchSourceOpti
   await setLXSearchSources(source, selected)
 }
 async function setLXSearchSources(source: LXSource, selected: string[]) {
+  const current = lxSearchSourceOptions.value[source.id] ?? []
+  const selectedSet = new Set(selected.map(String))
+  const ordered = current.filter(item => item.enabled && selectedSet.has(item.id))
+  for (const item of current) if (selectedSet.has(item.id) && !ordered.some(existing => existing.id === item.id)) ordered.push(item)
+  const updated = current.map(item => ({ ...item, enabled: selectedSet.has(item.id) }))
+  const reordered = [...ordered, ...updated.filter(item => !item.enabled)]
+  const revision = (lxSearchSourceRevisions.get(source.id) ?? 0) + 1
+  lxSearchSourceRevisions.set(source.id, revision)
+  lxSearchSourceOptions.value = { ...lxSearchSourceOptions.value, [source.id]: reordered }
   try {
-    const current = lxSearchSourceOptions.value[source.id] ?? []
-    const selectedSet = new Set(selected.map(String))
-    const ordered = current.filter(item => item.enabled && selectedSet.has(item.id))
-    for (const item of current) if (selectedSet.has(item.id) && !ordered.some(existing => existing.id === item.id)) ordered.push(item)
-    const updated = current.map(item => ({ ...item, enabled: selectedSet.has(item.id) }))
-    const reordered = [...ordered, ...updated.filter(item => !item.enabled)]
-    // The options array itself is the persisted priority order.
-    lxSearchSourceOptions.value = { ...lxSearchSourceOptions.value, [source.id]: reordered }
     await persistLXSearchPriority(source, reordered)
     success.value = '已保存搜索来源及优先级'
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
-    await refreshLXSources()
+    if (lxSearchSourceRevisions.get(source.id) === revision && !lxSearchSourceSaveQueues.has(source.id)) {
+      try {
+        const persisted = await MusicService.GetLXSearchSourceOptions(source.id)
+        if (lxSearchSourceRevisions.get(source.id) === revision) lxSearchSourceOptions.value = { ...lxSearchSourceOptions.value, [source.id]: persisted }
+      } catch { /* Keep the last known state and show the original save error. */ }
+    }
   }
 }
 async function moveLXSearchPriority(source: LXSource, index: number, direction: -1 | 1) {
@@ -451,13 +472,20 @@ async function moveLXSearchPriority(source: LXSource, index: number, direction: 
   enabled.splice(target, 0, moved)
   const disabled = current.filter(item => !item.enabled)
   const reordered = [...enabled, ...disabled]
+  const revision = (lxSearchSourceRevisions.get(source.id) ?? 0) + 1
+  lxSearchSourceRevisions.set(source.id, revision)
   lxSearchSourceOptions.value = { ...lxSearchSourceOptions.value, [source.id]: reordered }
   try {
     await persistLXSearchPriority(source, reordered)
     success.value = '已调整音源搜索优先级'
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
-    await refreshLXSources()
+    if (lxSearchSourceRevisions.get(source.id) === revision && !lxSearchSourceSaveQueues.has(source.id)) {
+      try {
+        const persisted = await MusicService.GetLXSearchSourceOptions(source.id)
+        if (lxSearchSourceRevisions.get(source.id) === revision) lxSearchSourceOptions.value = { ...lxSearchSourceOptions.value, [source.id]: persisted }
+      } catch { /* Keep the last known state and show the original save error. */ }
+    }
   }
 }
 async function setLXSourceUpdateAlert(source: LXSource, enabled: boolean | string | number) {
