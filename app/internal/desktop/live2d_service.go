@@ -23,6 +23,16 @@ type Live2DModel struct {
 	ModelURL string `json:"model_url"`
 	RuntimeAvailable bool `json:"runtime_available"`
 	CapabilityStatus string `json:"capability_status"`
+	Expressions []string `json:"expressions"`
+	MotionGroups []Live2DMotionGroup `json:"motion_groups"`
+	HasPhysics bool `json:"has_physics"`
+	HasPose bool `json:"has_pose"`
+	HitAreas []string `json:"hit_areas"`
+}
+
+type Live2DMotionGroup struct {
+	Name string `json:"name"`
+	Count int `json:"count"`
 }
 
 type Live2DService struct {
@@ -73,10 +83,13 @@ func (s *Live2DService) ListModels() ([]Live2DModel, error) {
 			modelURL := "/models/" + format + "/" + entry.Name() + "/" + manifestName
 			status := "等待运行时加载后检测"
 			if format == "moc2" { status = "等待 MOC2 运行时加载后检测" } else if hasMOC3LipSyncGroup(entryFile) { status = "模型声明了 LipSync 参数组，待运行时验证" } else { status = "未声明 LipSync 参数组，仍需运行时检查兼容嘴型参数" }
+			metadata := readLive2DManifest(entryFile, format)
 			models = append(models, Live2DModel{
 				ID: entry.Name(), Name: entry.Name(), Format: format, Directory: dir,
 				EntryFile: manifestName, ModelURL: modelURL,
 				RuntimeAvailable: true, CapabilityStatus: status,
+				Expressions: metadata.Expressions, MotionGroups: metadata.MotionGroups,
+				HasPhysics: metadata.HasPhysics, HasPose: metadata.HasPose, HitAreas: metadata.HitAreas,
 			})
 		}
 	}
@@ -86,6 +99,67 @@ func (s *Live2DService) ListModels() ([]Live2DModel, error) {
 	})
 	if models == nil { models = []Live2DModel{} }
 	return models, nil
+}
+
+type live2DManifestMetadata struct {
+	Expressions []string
+	MotionGroups []Live2DMotionGroup
+	HasPhysics bool
+	HasPose bool
+	HitAreas []string
+}
+
+func readLive2DManifest(manifestPath, format string) live2DManifestMetadata {
+	result := live2DManifestMetadata{Expressions: []string{}, MotionGroups: []Live2DMotionGroup{}, HitAreas: []string{}}
+	data, err := os.ReadFile(manifestPath)
+	if err != nil { return result }
+	var root map[string]json.RawMessage
+	if json.Unmarshal(data, &root) != nil { return result }
+	refs := root
+	if raw, ok := root["FileReferences"]; ok {
+		var nested map[string]json.RawMessage
+		if json.Unmarshal(raw, &nested) == nil { refs = nested }
+	}
+	decodeList := func(raw json.RawMessage) []map[string]json.RawMessage {
+		var values []map[string]json.RawMessage
+		_ = json.Unmarshal(raw, &values)
+		return values
+	}
+	if raw, ok := refs["Expressions"]; ok {
+		for _, item := range decodeList(raw) {
+			var name string
+			for _, key := range []string{"Name", "name"} {
+				if value, ok := item[key]; ok { _ = json.Unmarshal(value, &name); if name != "" { break } }
+			}
+			if name != "" { result.Expressions = append(result.Expressions, name) }
+		}
+	}
+	if raw, ok := refs["Motions"]; ok {
+		var groups map[string]json.RawMessage
+		if json.Unmarshal(raw, &groups) == nil {
+			for name, value := range groups {
+				var motions []json.RawMessage
+				if json.Unmarshal(value, &motions) == nil && len(motions) > 0 {
+					result.MotionGroups = append(result.MotionGroups, Live2DMotionGroup{Name: name, Count: len(motions)})
+				}
+			}
+		}
+	}
+	if raw, ok := refs["Physics"]; ok { var value string; _ = json.Unmarshal(raw, &value); result.HasPhysics = value != "" }
+	if raw, ok := refs["Pose"]; ok { var value string; _ = json.Unmarshal(raw, &value); result.HasPose = value != "" }
+	if raw, ok := root["HitAreas"]; ok {
+		for _, item := range decodeList(raw) {
+			var name string
+			for _, key := range []string{"Name", "name"} {
+				if value, ok := item[key]; ok { _ = json.Unmarshal(value, &name); if name != "" { break } }
+			}
+			if name != "" { result.HitAreas = append(result.HitAreas, name) }
+		}
+	}
+	sort.Slice(result.MotionGroups, func(i, j int) bool { return strings.ToLower(result.MotionGroups[i].Name) < strings.ToLower(result.MotionGroups[j].Name) })
+	sort.Strings(result.Expressions)
+	sort.Strings(result.HitAreas)
+	return result
 }
 
 func hasMOC3LipSyncGroup(manifestPath string) bool {
