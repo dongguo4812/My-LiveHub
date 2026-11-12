@@ -10,7 +10,6 @@ import (
 type MpvEngine struct{}
 
 func NewMpvEngine(string) *MpvEngine { return &MpvEngine{} }
-func NewMpvVideoEngine(string) *MpvEngine { return &MpvEngine{} }
 func (*MpvEngine) Validate() error { return errors.New("mpv IPC engine is currently supported on Windows only") }
 func (*MpvEngine) Start(context.Context) error { return errors.New("mpv IPC engine is currently supported on Windows only") }
 func (*MpvEngine) Load(context.Context, PlaybackResource, Track) error { return ErrPlaybackEngineUnavailable }
