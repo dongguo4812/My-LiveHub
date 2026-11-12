@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 
@@ -181,7 +183,19 @@ func main() {
 	if cacheErr != nil { log.Printf("initialize local media image cache: %v", cacheErr) } else { assetHandler = imageCache; platformService.SetMediaImageCache(imageCache); imageCache.RefreshStats() }
 	assetHandler = desktop.WrapLive2DAssetHandler(live2dService, assetHandler)
 	danmakuDisplayService := desktop.NewDanmakuDisplayService(configManager, danmakuDisplayConfig, danmakuWindowConfig, bilibiliEvents, imageCache)
-	sceneService, err := desktop.NewSceneService(configManager, bilibiliEvents, assetHandler)
+	sceneAssets := assetHandler
+	if environment == config.EnvironmentDevelopment {
+		vitePort := os.Getenv("WAILS_VITE_PORT")
+		if vitePort == "" {
+			vitePort = "8769"
+		}
+		viteURL, parseErr := url.Parse("http://127.0.0.1:" + vitePort)
+		if parseErr != nil {
+			log.Fatalf("configure scene development asset proxy: %v", parseErr)
+		}
+		sceneAssets = httputil.NewSingleHostReverseProxy(viteURL)
+	}
+	sceneService, err := desktop.NewSceneService(configManager, bilibiliEvents, sceneAssets)
 	if err != nil { log.Fatalf("initialize scene browser source service: %v", err) }
 	app := application.New(application.Options{
 		Name:        "My-LiveHub",
