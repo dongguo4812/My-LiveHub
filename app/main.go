@@ -174,7 +174,11 @@ func main() {
 		Description: "多平台综合直播互动辅助平台",
 		Assets: application.AssetOptions{Handler: assetHandler},
 		RawMessageHandler: func(window application.Window, message string, originInfo *application.OriginInfo) {
-			bilibiliWebViewService.HandleRawMessage(window.Name(), message, originInfo)
+			origin, topOrigin := "", ""
+			if originInfo != nil {
+				origin, topOrigin = originInfo.Origin, originInfo.TopOrigin
+			}
+			desktop.HandleBilibiliWebViewRawMessage(bilibiliWebViewService, window.Name(), message, origin, topOrigin)
 		},
 		Services: []application.Service{
 			application.NewService(desktop.NewCoreService(coreApp)),
