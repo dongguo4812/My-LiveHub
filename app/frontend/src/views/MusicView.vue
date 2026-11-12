@@ -599,7 +599,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
       </div>
       <div class="card-actions"><el-button type="primary" :loading="saving" :disabled="!config" @click="saveConfig">保存全部设置</el-button></div>
     </el-card>
-    <div v-if="activeTab !== 'now-playing' && playback?.track" class="mini-player">
+    <div v-if="playback?.track" class="mini-player">
       <div class="mini-player-track">
         <img v-if="playback.track.cover_url" :src="playback.track.cover_url" alt="当前歌曲封面" />
         <el-icon v-else><Headset /></el-icon>
@@ -622,7 +622,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
 .music-tabs button:hover{color:var(--el-text-color-primary)}
 .music-tabs button.active{color:var(--app-accent);border-bottom-color:var(--app-accent);font-weight:600}
 .music-tabs button span{font-size:11px;padding:1px 6px;border-radius:10px;background:var(--app-bg-control)}
-.mini-player{position:sticky;bottom:12px;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 14px;border:1px solid var(--app-border);border-radius:12px;background:var(--el-bg-color);box-shadow:0 6px 24px #00000012}
+.mini-player{position:sticky;bottom:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:auto;padding:10px 14px;border:1px solid var(--app-border);border-radius:12px 12px 0 0;background:var(--el-bg-color);box-shadow:0 -6px 24px #00000012}
 .mini-player-track,.mini-player-actions{display:flex;align-items:center;gap:12px;min-width:0}
 .mini-player-track img{width:42px;height:42px;object-fit:cover;border-radius:7px}
 .mini-player-track>div{display:flex;flex-direction:column;gap:3px;min-width:0}
