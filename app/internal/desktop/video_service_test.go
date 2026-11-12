@@ -15,11 +15,12 @@ type videoTestEngine struct {
 	state music.PlaybackState
 	started, closed bool
 	loadErr error
+	resource music.PlaybackResource
 }
 func (e *videoTestEngine) Start(context.Context) error { e.mu.Lock(); defer e.mu.Unlock(); e.started=true; return nil }
 func (e *videoTestEngine) Close() error { e.mu.Lock(); defer e.mu.Unlock(); e.closed=true; e.state=music.PlaybackIdle; return nil }
 func (e *videoTestEngine) Validate() error { return nil }
-func (e *videoTestEngine) Load(context.Context,music.PlaybackResource,music.Track) error { e.mu.Lock(); defer e.mu.Unlock(); if e.loadErr!=nil{return e.loadErr}; e.state=music.PlaybackPlaying; return nil }
+func (e *videoTestEngine) Load(_ context.Context, resource music.PlaybackResource, _ music.Track) error { e.mu.Lock(); defer e.mu.Unlock(); if e.loadErr!=nil{return e.loadErr}; e.resource=resource; e.state=music.PlaybackPlaying; return nil }
 func (e *videoTestEngine) Pause(context.Context) error { e.mu.Lock(); e.state=music.PlaybackPaused; e.mu.Unlock(); return nil }
 func (e *videoTestEngine) Resume(context.Context) error { e.mu.Lock(); e.state=music.PlaybackPlaying; e.mu.Unlock(); return nil }
 func (*videoTestEngine) Seek(context.Context,int64) error { return nil }
@@ -80,4 +81,25 @@ func TestVideoServiceNaturalEndClosesAndRestores(t *testing.T) {
 	}
 	musicState.mu.Lock();defer musicState.mu.Unlock()
 	if musicState.resumes!=1 {t.Fatal("music was not resumed after natural MV end")}
+}
+
+func TestVideoServicePassesPlaybackHeadersToEngine(t *testing.T) {
+	engine := &videoTestEngine{}
+	service := NewVideoService(nil, engine)
+	resource := music.PlaybackResource{
+		URL: "https://video.invalid/video.mp4",
+		Headers: map[string]string{
+			"Cookie": "SESSDATA=test-session",
+			"Referer": "https://www.bilibili.com/",
+			"User-Agent": "My-LiveHub test",
+		},
+	}
+	if err := service.PlayResource(resource, "Bilibili test"); err != nil { t.Fatal(err) }
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	if engine.resource.URL != resource.URL { t.Fatalf("resource URL = %q", engine.resource.URL) }
+	for key, want := range resource.Headers {
+		if got := engine.resource.Headers[key]; got != want { t.Errorf("header %s = %q, want %q", key, got, want) }
+	}
+	_ = service.Stop()
 }
