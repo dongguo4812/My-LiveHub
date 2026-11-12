@@ -443,10 +443,12 @@ func (s *MusicService) ReplaceHostTrackInPlaylist(playlistID, oldSourceID, oldTr
 	// Match LX behavior: if the selected candidate already exists elsewhere
 	// in this playlist, remove that duplicate and keep the replacement at the
 	// original song's position.
+	duplicateIsCurrent := false
 	for i, item := range playlist.Tracks {
 		if i == targetIndex || item.SourceID != replacement.SourceID || item.ID != replacement.ID {
 			continue
 		}
+		duplicateIsCurrent = playlistID == st.activeID && st.index == i
 		playlist.Tracks = append(playlist.Tracks[:i], playlist.Tracks[i+1:]...)
 		if i < targetIndex {
 			targetIndex--
@@ -457,7 +459,10 @@ func (s *MusicService) ReplaceHostTrackInPlaylist(playlistID, oldSourceID, oldTr
 		break
 	}
 	playlist.Tracks[targetIndex] = replacement
-	isCurrent := playlistID == st.activeID && st.index == targetIndex
+	if duplicateIsCurrent {
+		st.index = targetIndex
+	}
+	isCurrent := !duplicateIsCurrent && playlistID == st.activeID && st.index == targetIndex
 	if err := s.saveHostPlaylistLocked(st); err != nil {
 		st.mu.Unlock()
 		return err
