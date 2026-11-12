@@ -11,7 +11,8 @@ const liveEvents = ref<LiveEvent[]>([])
 const now = ref(new Date())
 const error = ref('')
 let source: EventSource | undefined
-let clockTimer: ReturnType<typeof setInterval> | undefined\nlet sceneRefreshTimer: ReturnType<typeof setInterval> | undefined
+let clockTimer: ReturnType<typeof setInterval> | undefined
+let sceneRefreshTimer: ReturnType<typeof setInterval> | undefined
 
 const danmaku = computed(() => liveEvents.value.filter(item => item.type === 'danmaku').slice(-8).reverse())
 const gifts = computed(() => liveEvents.value.filter(item => item.type === 'gift').slice(-3).reverse())
