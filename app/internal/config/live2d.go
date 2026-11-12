@@ -14,6 +14,9 @@ type Live2DConfig struct {
 	MicrophoneDeviceID string `json:"microphone_device_id"`
 	MicrophoneSensitivity float64 `json:"microphone_sensitivity"`
 	MicrophoneSmoothing float64 `json:"microphone_smoothing"`
+	ModelScale float64 `json:"model_scale"`
+	ModelOffsetX float64 `json:"model_offset_x"`
+	ModelOffsetY float64 `json:"model_offset_y"`
 }
 
 func DefaultLive2DConfig() Live2DConfig {
@@ -22,6 +25,7 @@ func DefaultLive2DConfig() Live2DConfig {
 		RuntimeVersion: "moc3",
 		MicrophoneSensitivity: 1.8,
 		MicrophoneSmoothing: 0.65,
+		ModelScale: 0.65,
 	}
 }
 
@@ -34,6 +38,12 @@ func (c Live2DConfig) Validate() error {
 	}
 	if c.MicrophoneSmoothing < 0 || c.MicrophoneSmoothing > 0.99 {
 		return fmt.Errorf("口型平滑度必须在 0 到 0.99 之间")
+	}
+	if c.ModelScale < 0.1 || c.ModelScale > 2.5 {
+		return fmt.Errorf("模型缩放比例必须在 0.1 到 2.5 之间")
+	}
+	if c.ModelOffsetX < -500 || c.ModelOffsetX > 500 || c.ModelOffsetY < -500 || c.ModelOffsetY > 500 {
+		return fmt.Errorf("模型位置偏移必须在 -500 到 500 之间")
 	}
 	if strings.TrimSpace(c.DefaultModelMOC2) != c.DefaultModelMOC2 || strings.TrimSpace(c.DefaultModelMOC3) != c.DefaultModelMOC3 {
 		return fmt.Errorf("Live2D 模型标识不能包含首尾空格")
