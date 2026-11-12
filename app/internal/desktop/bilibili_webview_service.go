@@ -374,7 +374,7 @@ const bilibiliPlaybackMonitorScript = `(() => {
 
     const payload = JSON.stringify({
       type: 'bilibili-player-state',
-      bvid: (location.pathname.match(/\\/(BV[0-9A-Za-z]{10})/) || [])[1] || '',
+      bvid: (location.pathname.match(/\/(BV[0-9A-Za-z]{10})/) || [])[1] || '',
       title,
       current_time_seconds: video && Number.isFinite(video.currentTime) ? video.currentTime : 0,
       duration_seconds: video && Number.isFinite(video.duration) ? video.duration : 0,
