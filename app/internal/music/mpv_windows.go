@@ -21,7 +21,6 @@ import (
 
 var mpvInstanceSequence atomic.Uint64
 
-const mpvVideoWindowTitle = "My-LiveHub MV"
 
 type MpvEngine struct {
 	lifecycleMu sync.Mutex
@@ -37,7 +36,6 @@ type MpvEngine struct {
 	volume int
 	loudnessNormalization bool
 	audioOutput string // Optional mpv audio output override, used by deterministic integration tests.
-	videoOutput bool
 	stderrTail string
 }
 
@@ -45,11 +43,6 @@ func NewMpvEngine(executable string) *MpvEngine {
 	return &MpvEngine{executable: strings.TrimSpace(executable), volume: 80}
 }
 
-// NewMpvVideoEngine creates a separate mpv process that renders video in a
-// dedicated borderless window. It never shares the audio engine's IPC pipe.
-func NewMpvVideoEngine(executable string) *MpvEngine {
-	return &MpvEngine{executable: strings.TrimSpace(executable), volume: 80, videoOutput: true}
-}
 
 func (e *MpvEngine) Validate() error {
 	if e == nil { return ErrPlaybackEngineUnavailable }
@@ -97,12 +90,9 @@ func (e *MpvEngine) Start(ctx context.Context) error {
 	e.mu.Unlock()
 
 
-	e.mu.RLock()
-	videoOutput := e.videoOutput
-	e.mu.RUnlock()
 	instanceID := mpvInstanceSequence.Add(1)
 	pipePath := fmt.Sprintf("\\\\.\\pipe\\my-livehub-mpv-%d-%d", os.Getpid(), instanceID)
-	args := buildMpvArgs(pipePath, videoOutput)
+	args := buildMpvArgs(pipePath)
 	e.mu.RLock()
 	audioOutput := strings.TrimSpace(e.audioOutput)
 	e.mu.RUnlock()
@@ -167,31 +157,12 @@ func (e *MpvEngine) Start(ctx context.Context) error {
 }
 
 
-func buildMpvArgs(pipePath string, videoOutput bool) []string {
-	args := []string{
-		"--no-config",
-		"--terminal=yes",
-		"--idle=yes",
-		"--keep-open=no",
-		"--msg-level=all=warn",
-		"--input-ipc-server=" + pipePath,
+func buildMpvArgs(pipePath string) []string {
+	return []string{
+		"--no-config", "--terminal=yes", "--idle=yes", "--keep-open=no",
+		"--msg-level=all=warn", "--input-ipc-server=" + pipePath,
+		"--no-video", "--force-window=no",
 	}
-	if !videoOutput {
-		return append(args, "--no-video", "--force-window=no")
-	}
-	// This is a video surface, not an mpv player UI: no decorations, OSD,
-	// OSC controls, playlist UI, or default keyboard controls.
-	return append(args,
-		"--force-window=yes",
-		"--no-border",
-		"--title="+mpvVideoWindowTitle,
-		"--geometry=1280x720+100+100",
-		"--osd-level=0",
-		"--osd-bar=no",
-		"--no-osc",
-		"--input-default-bindings=no",
-		"--input-vo-keyboard=no",
-	)
 }
 
 func (e *MpvEngine) captureStderr(reader io.ReadCloser) {
@@ -312,6 +283,13 @@ func (e *MpvEngine) Load(ctx context.Context, resource PlaybackResource, track T
 	e.loadStartedAt = time.Now()
 	e.mu.Unlock()
 	return nil
+}
+
+// AddSubtitle loads a local external subtitle track into the dedicated mpv process.
+func (e *MpvEngine) AddSubtitle(ctx context.Context, path string) error {
+	if strings.TrimSpace(path) == "" { return errors.New("subtitle path is required") }
+	_, err := e.commandIPC(ctx, "sub-add", path, "select")
+	return err
 }
 
 func (e *MpvEngine) Pause(ctx context.Context) error {

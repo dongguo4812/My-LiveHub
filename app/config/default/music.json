@@ -1,5 +1,5 @@
 {
-  "config_version": 8,
+  "config_version": 9,
   "enabled": true,
   "command_enabled": true,
   "skip_command_enabled": true,
@@ -8,6 +8,8 @@
   "queue_capacity": 100,
   "volume": 80,
   "loudness_normalization": false,
+  "require_fan_medal": false,
+  "fan_medal_level": 1,
   "lx_user_source_proxy": {
     "enabled": false,
     "host": "",
