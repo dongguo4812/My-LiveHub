@@ -39,10 +39,31 @@ const selectedExpression = ref('')
 const selectedMotionGroup = ref('')
 const selectedMotionIndex = ref(0)
 const currentModel = computed(() => modelOptions.value.find(model => model.id === selectedModel.value) || null)
-const previewCanvasStyle = computed(() => {
-  if (settings.value?.runtime_version !== 'moc2' || !settings.value) return {}
-  return { transform: `translate(${settings.value.model_offset_x}%, ${settings.value.model_offset_y}%) scale(${settings.value.model_scale})` }
+type ModelTransform = { model_scale: number; model_offset_x: number; model_offset_y: number }
+const transformSettings = computed<ModelTransform>(() => {
+  const config = settings.value
+  if (!config) return { model_scale: 0.65, model_offset_x: 0, model_offset_y: 0 }
+  return config.runtime_version === 'moc2'
+    ? { model_scale: config.model_scale_moc2, model_offset_x: config.model_offset_x_moc2, model_offset_y: config.model_offset_y_moc2 }
+    : { model_scale: config.model_scale_moc3, model_offset_x: config.model_offset_x_moc3, model_offset_y: config.model_offset_y_moc3 }
 })
+function runtimeTransformPatch(patch: Partial<ModelTransform>): Partial<Live2DConfig> {
+  const suffix = settings.value?.runtime_version === 'moc2' ? 'moc2' : 'moc3'
+  const result: Partial<Live2DConfig> = {}
+  if (patch.model_scale !== undefined) result[`model_scale_${suffix}`] = patch.model_scale
+  if (patch.model_offset_x !== undefined) result[`model_offset_x_${suffix}`] = patch.model_offset_x
+  if (patch.model_offset_y !== undefined) result[`model_offset_y_${suffix}`] = patch.model_offset_y
+  return result
+}
+function previewModelTransform(patch: Partial<ModelTransform>) {
+  if (!settings.value) return
+  Object.assign(settings.value, runtimeTransformPatch(patch))
+  applyModelTransform()
+}
+function saveModelTransform(patch: Partial<ModelTransform>) {
+  return save(runtimeTransformPatch(patch))
+}
+
 const loading = ref(false)
 const micError = ref('')
 const micActive = ref(false)
@@ -120,18 +141,12 @@ async function waitForLegacyModel(modelURL: string) {
   throw new Error('MOC2 模型加载超时，请检查模型配置、贴图和 MOC 文件')
 }
 
-function previewModelTransform(patch: Partial<Live2DConfig>) {
-  if (!settings.value) return
-  Object.assign(settings.value, patch)
-  applyModelTransform()
-}
-
 function applyModelTransform() {
   const config = settings.value
   if (!config) return
   if (config.runtime_version === 'moc3') {
     const frameWindow = runtimeFrame.value?.contentWindow as Live2DWindow | undefined
-    frameWindow?.live2dSetModelTransform?.(config.model_scale, config.model_offset_x / 100, config.model_offset_y / 100)
+    frameWindow?.live2dSetModelTransform?.(transformSettings.value.model_scale, transformSettings.value.model_offset_x / 100, transformSettings.value.model_offset_y / 100)
     return
   }
 
@@ -155,10 +170,10 @@ function applyModelTransform() {
   const width = matrix.width * Math.abs(base.scaleX)
   const height = matrix.height * Math.abs(base.scaleY)
   const fitScale = Math.min(1, 2 / width, 2 / height)
-  const scale = fitScale * config.model_scale
+  const scale = fitScale * transformSettings.value.model_scale
   matrix.scale(base.scaleX * scale, base.scaleY * scale)
-  matrix.centerX(base.centerX + config.model_offset_x * 2 / 100)
-  matrix.centerY(base.centerY - config.model_offset_y * 2 / 100)
+  matrix.centerX(base.centerX + transformSettings.value.model_offset_x * 2 / 100)
+  matrix.centerY(base.centerY - transformSettings.value.model_offset_y * 2 / 100)
 }
 
 async function playSelectedExpression() {
@@ -481,10 +496,10 @@ onUnmounted(() => {
       <el-alert v-if="runtimeError" type="error" :closable="false" show-icon :title="runtimeError" />
       <p class="hint">嘴型参数：{{ mouthCapability }}</p>
       <div class="model-adjustments" v-if="settings && currentModel">
-        <div class="adjustment"><label>模型大小 <strong>{{ Math.round(settings.model_scale * 100) }}%</strong></label><el-slider :model-value="settings.model_scale" :min="0.1" :max="2.5" :step="0.05" @input="previewModelTransform({ model_scale: Number($event) })" @change="save({ model_scale: Number($event) })" /></div>
-        <div class="adjustment"><label>水平位置 <strong>{{ settings.model_offset_x }}</strong></label><el-slider :model-value="settings.model_offset_x" :min="-100" :max="100" :step="1" @input="previewModelTransform({ model_offset_x: Number($event) })" @change="save({ model_offset_x: Number($event) })" /></div>
-        <div class="adjustment"><label>垂直位置 <strong>{{ settings.model_offset_y }}</strong></label><el-slider :model-value="settings.model_offset_y" :min="-100" :max="100" :step="1" @input="previewModelTransform({ model_offset_y: Number($event) })" @change="save({ model_offset_y: Number($event) })" /></div>
-        <el-button size="small" @click="save({ model_scale: 0.65, model_offset_x: 0, model_offset_y: 0 })">恢复默认大小和位置</el-button>
+        <div class="adjustment"><label>模型大小 <strong>{{ Math.round(transformSettings.model_scale * 100) }}%</strong></label><el-slider :model-value="transformSettings.model_scale" :min="0.1" :max="2.5" :step="0.05" @input="previewModelTransform({ model_scale: Number($event) })" @change="saveModelTransform({ model_scale: Number($event) })" /></div>
+        <div class="adjustment"><label>水平位置 <strong>{{ transformSettings.model_offset_x }}</strong></label><el-slider :model-value="transformSettings.model_offset_x" :min="-100" :max="100" :step="1" @input="previewModelTransform({ model_offset_x: Number($event) })" @change="saveModelTransform({ model_offset_x: Number($event) })" /></div>
+        <div class="adjustment"><label>垂直位置 <strong>{{ transformSettings.model_offset_y }}</strong></label><el-slider :model-value="transformSettings.model_offset_y" :min="-100" :max="100" :step="1" @input="previewModelTransform({ model_offset_y: Number($event) })" @change="saveModelTransform({ model_offset_y: Number($event) })" /></div>
+        <el-button size="small" @click="saveModelTransform({ model_scale: 0.65, model_offset_x: 0, model_offset_y: 0 })">恢复默认大小和位置</el-button>
       </div>
     </el-card>
 
