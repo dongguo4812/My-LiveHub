@@ -521,10 +521,25 @@ func (s *MusicService) playNext(parent context.Context) error {
 	playbackURL, err := parseLXMusicURLResponse(rawURL, sourceKey, selected.Type)
 	if err != nil { return err }
 	if err := ctx.Err(); err != nil { return err }
-	if err := s.engine.Load(ctx, music.PlaybackResource{URL: playbackURL}, track); err != nil {
-		return fmt.Errorf("mpv 加载歌曲失败：%w", err)
+	if err := loadAndStartPlayback(ctx, s.engine, music.PlaybackResource{URL: playbackURL}, track); err != nil {
+		return err
 	}
 	s.startPlaybackWatcher()
+	return nil
+}
+
+
+// loadAndStartPlayback explicitly clears mpv's global pause property after
+// replacing the current file. mpv retains pause=true across loadfile calls,
+// so a viewer request that preempts a paused host track can otherwise appear
+// to switch tracks while remaining silent.
+func loadAndStartPlayback(ctx context.Context, engine music.PlaybackEngine, resource music.PlaybackResource, track music.Track) error {
+	if err := engine.Load(ctx, resource, track); err != nil {
+		return fmt.Errorf("mpv 加载歌曲失败：%w", err)
+	}
+	if err := engine.Resume(ctx); err != nil {
+		return fmt.Errorf("启动歌曲播放失败：%w", err)
+	}
 	return nil
 }
 
