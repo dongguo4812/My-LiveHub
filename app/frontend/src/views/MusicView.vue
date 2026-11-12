@@ -854,7 +854,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
           <el-tag v-else-if="queue?.current && queue.current.requested_by !== '__my_livehub_search_play__'" type="warning" size="small">观众点播</el-tag>
         </div>
       </div>
-      <el-slider :model-value="progress" :min="0" :max="120" :step="0.1" :format-tooltip="formatSeekTooltip" :disabled="!playback?.track || !playback.duration_ms" @input="previewSeek" @change="seekTo" />
+      <el-slider :model-value="progress" :min="0" :max="100" :step="0.1" :format-tooltip="formatSeekTooltip" :disabled="!playback?.track || !playback.duration_ms" @input="previewSeek" @change="seekTo" />
       <div class="time-row"><span>{{ formatDuration(playback?.position_ms) }}</span><span>{{ formatDuration(playback?.duration_ms) }}</span></div>
       <div class="player-controls">
         <el-button type="primary" @click="addHostPlaylistToQueue">播放</el-button>
