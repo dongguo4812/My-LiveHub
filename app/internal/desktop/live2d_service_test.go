@@ -11,7 +11,7 @@ import (
 func TestLive2DListModelsSeparatesMOC2AndMOC3(t *testing.T) {
 	root := t.TempDir()
 	for _, item := range []struct{ format, id, entry string }{
-		{"moc2", "legacy-avatar", "model.json"},
+		{"moc2", "legacy-avatar", "legacy-avatar.model.json"},
 		{"moc3", "modern-avatar", "model3.json"},
 	} {
 		dir := filepath.Join(root, item.format, item.id)
@@ -26,6 +26,7 @@ func TestLive2DListModelsSeparatesMOC2AndMOC3(t *testing.T) {
 	for _, model := range models {
 		if model.RuntimeAvailable { t.Fatalf("runtime must not be reported available without an SDK: %#v", model) }
 		if model.CapabilityStatus == "" { t.Fatalf("capability status must be explicit: %#v", model) }
+		if model.ModelURL == "" { t.Fatalf("model asset URL must be exposed: %#v", model) }
 	}
 }
 
