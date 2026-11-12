@@ -106,6 +106,10 @@ func main() {
 	musicService := desktop.NewMusicService(configManager, musicConfig, bilibiliEvents)
 	musicLyricsWindowService := desktop.NewMusicLyricsWindowService(musicService)
 	videoService := desktop.NewVideoService(musicService, music.NewMpvVideoEngine(""))
+	bilibiliVideoResolver, err := bilibili.NewVideoResolver(bilibiliAuth, nil)
+	if err != nil { log.Fatalf("initialize Bilibili video resolver: %v", err) }
+	bilibiliVideoService, err := desktop.NewBilibiliVideoService(videoService, bilibiliVideoResolver)
+	if err != nil { log.Fatalf("initialize Bilibili video playback service: %v", err) }
 	cacheDir := ""
 	if environment == config.EnvironmentDevelopment {
 		if workingDir, getwdErr := os.Getwd(); getwdErr == nil {
@@ -179,6 +183,7 @@ func main() {
 			application.NewService(musicService),
 			application.NewService(musicLyricsWindowService),
 			application.NewService(videoService),
+			application.NewService(bilibiliVideoService),
 		},
 	})
 	wailsApp = app
