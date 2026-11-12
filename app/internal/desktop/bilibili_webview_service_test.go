@@ -42,19 +42,20 @@ func TestParseBilibiliPlayerStateRejectsInvalidMessages(t *testing.T) {
 func TestIsTrustedBilibiliOrigin(t *testing.T) {
 	tests := []struct {
 		name string
-		info *application.OriginInfo
+		origin string
+		topOrigin string
 		want bool
 	}{
-		{name: "trusted main origin", info: &application.OriginInfo{Origin: "https://www.bilibili.com", TopOrigin: "https://www.bilibili.com"}, want: true},
-		{name: "trusted full page URL", info: &application.OriginInfo{Origin: "https://www.bilibili.com/video/BV1xx411c7mD", TopOrigin: "https://www.bilibili.com"}, want: true},
-		{name: "untrusted subdomain", info: &application.OriginInfo{Origin: "https://evil.www.bilibili.com", TopOrigin: "https://evil.www.bilibili.com"}, want: false},
-		{name: "untrusted scheme", info: &application.OriginInfo{Origin: "http://www.bilibili.com", TopOrigin: "http://www.bilibili.com"}, want: false},
-		{name: "untrusted top origin", info: &application.OriginInfo{Origin: "https://www.bilibili.com", TopOrigin: "https://example.com"}, want: false},
-		{name: "missing origin", info: nil, want: false},
+		{name: "trusted main origin", origin: "https://www.bilibili.com", topOrigin: "https://www.bilibili.com", want: true},
+		{name: "trusted full page URL", origin: "https://www.bilibili.com/video/BV1xx411c7mD", topOrigin: "https://www.bilibili.com", want: true},
+		{name: "untrusted subdomain", origin: "https://evil.www.bilibili.com", topOrigin: "https://evil.www.bilibili.com", want: false},
+		{name: "untrusted scheme", origin: "http://www.bilibili.com", topOrigin: "http://www.bilibili.com", want: false},
+		{name: "untrusted top origin", origin: "https://www.bilibili.com", topOrigin: "https://example.com", want: false},
+		{name: "missing origin", origin: "", topOrigin: "", want: false},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := isTrustedBilibiliOrigin(test.info); got != test.want {
+			if got := isTrustedBilibiliOrigin(test.origin, test.topOrigin); got != test.want {
 				t.Fatalf("isTrustedBilibiliOrigin() = %v, want %v", got, test.want)
 			}
 		})
