@@ -67,8 +67,8 @@ function formatDuration(value?: number) {
 }
 function parseSyncedLyrics(lrc: string) {
   const lines: Array<{ time: number; text: string }> = []
-  for (const line of lrc.split(/\\r?\\n/)) {
-    const match = line.match(/^\\[(\\d{1,2}):(\\d{2})(?:[.:](\\d{1,3}))?\\](.*)$/)
+  for (const line of lrc.split(/\r?\n/)) {
+    const match = line.match(/^\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\](.*)$/)
     if (!match) continue
     const fraction = match[3] ?? '0'
     const milliseconds = Number(match[1]) * 60000 + Number(match[2]) * 1000 + Number(fraction.padEnd(3, '0').slice(0, 3))
