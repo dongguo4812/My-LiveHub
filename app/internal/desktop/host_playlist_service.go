@@ -293,9 +293,25 @@ func lxBackupTrack(song map[string]json.RawMessage)(music.Track,bool){
 	artist:=read("singer","artist");album:=read("albumName","album")
 	track:=music.Track{ID:id,SourceID:source,LXSourceKey:source,Title:title,Artist:artist,Album:album}
 	track.SourceData=map[string]string{}
+	for k,v:=range song{var str string;if json.Unmarshal(v,&str)==nil&&str!=""{track.SourceData[k]=str}}
 	var meta map[string]json.RawMessage;_ = json.Unmarshal(song["meta"],&meta)
 	for k,v:=range meta{var str string;if json.Unmarshal(v,&str)==nil&&str!=""{track.SourceData[k]=str}}
-	if track.SourceData==nil{track.SourceData=map[string]string{}}
-	if d:=read("duration_ms");d!=""{track.DurationMS,_=strconv.ParseInt(d,10,64)}
+	if d:=read("duration_ms");d!=""{track.DurationMS,_=strconv.ParseInt(d,10,64)} else if interval:=read("interval");interval!=""{track.DurationMS=parseLXInterval(interval)}
+	var qualities []map[string]json.RawMessage
+	if json.Unmarshal(song["types"],&qualities)==nil{
+		for _,quality:=range qualities{
+			var kind,size,hash string
+			_ = json.Unmarshal(quality["type"],&kind);_ = json.Unmarshal(quality["size"],&size);_ = json.Unmarshal(quality["hash"],&hash)
+			q:=music.TrackQuality{Type:kind,Size:size,SourceData:map[string]string{}}
+			if hash!=""{q.SourceData["hash"]=hash}
+			if kind!=""{track.Qualities=append(track.Qualities,q)}
+		}
+	}
 	return track,true
+}
+func parseLXInterval(value string)int64{
+	parts:=strings.Split(strings.TrimSpace(value),":")
+	if len(parts)==2{m,e1:=strconv.ParseInt(parts[0],10,64);sec,e2:=strconv.ParseInt(parts[1],10,64);if e1==nil&&e2==nil{return (m*60+sec)*1000}}
+	if seconds,err:=strconv.ParseFloat(value,64);err==nil&&seconds>0{return int64(seconds*1000)}
+	return 0
 }

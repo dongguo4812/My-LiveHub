@@ -155,7 +155,7 @@ async function loadFavorites() {
   }
 }
 async function selectHostPlaylist(id: string) {
-  if (!id || id === activeHostPlaylistID.value) return
+  if (!id) return
   try {
     await (MusicService as any).SelectHostPlaylist(id)
     await refreshHostPlaylists(id)
