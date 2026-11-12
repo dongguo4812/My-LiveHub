@@ -1,11 +1,18 @@
 package config
 
-import ("encoding/json"; "testing")
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestLive2DConfigValidation(t *testing.T) {
 	cfg := DefaultLive2DConfig()
-	if err := cfg.Validate(); err != nil { t.Fatalf("default config invalid: %v", err) }
-	if cfg.ModelScaleMOC2 <= 0 || cfg.ModelScaleMOC3 <= 0 { t.Fatal("default model scales must be positive") }
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("default config invalid: %v", err)
+	}
+	if cfg.ModelScaleMOC2 <= 0 || cfg.ModelScaleMOC3 <= 0 {
+		t.Fatal("default model scales must be positive")
+	}
 	cfg.RuntimeVersion = "moc4"
 	if err := cfg.Validate(); err == nil { t.Fatal("expected invalid runtime version") }
 	cfg = DefaultLive2DConfig()
