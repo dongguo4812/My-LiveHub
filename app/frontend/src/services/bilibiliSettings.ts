@@ -2,7 +2,7 @@ import { ref } from 'vue'
 import * as BilibiliSettingsService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/bilibilisettingsservice.js'
 
 export type BilibiliSettings = Awaited<ReturnType<typeof BilibiliSettingsService.GetSettings>>
-export const bilibiliSettings = ref<BilibiliSettings>({ room_id: 0 })
+export const bilibiliSettings = ref<BilibiliSettings>({ room_id: 0, video_requests_enabled: true, video_request_cooldown_seconds: 60, video_queue_limit: 30, video_max_duration_seconds: 300, video_require_fan_medal: false, video_queue_display_limit: 10 })
 export const bilibiliSettingsBusy = ref(false)
 export const bilibiliSettingsError = ref('')
 
