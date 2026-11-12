@@ -102,7 +102,7 @@ func (s *VideoRequestService) Shutdown() error {
 }
 
 func (s *VideoRequestService) handleEvent(event events.Event) {
-	if event.PlatformID != "bilibili" || event.Type != "danmaku" || event.IsSimulation { return }
+	if event.PlatformID != "bilibili" || event.Type != "danmaku" { return }
 	content := strings.TrimSpace(event.Content)
 	if strings.HasPrefix(content, videoRequestCommand) {
 		keyword := strings.TrimSpace(strings.TrimPrefix(content, videoRequestCommand))
@@ -184,7 +184,7 @@ func (s *VideoRequestService) Enqueue(bvid string, page int, requestedBy string)
 	s.queue = append(s.queue,item)
 	start := s.current == nil
 	s.mu.Unlock()
-	if start { if err := s.PlayNext(); err != nil { s.setError(err.Error()) } }
+	if start { if err := s.PlayNext(); err != nil { s.setError(err.Error()); return item, err } }
 	return item,nil
 }
 
@@ -199,13 +199,13 @@ func (s *VideoRequestService) PlayNext() error {
 	ctx,cancel:=context.WithTimeout(context.Background(),25*time.Second)
 	defer cancel()
 	stream,err:=s.client.Resolve(ctx,item.BVID,item.Page)
-	if err!=nil { s.mu.Lock(); if s.current!=nil && s.current.ID==item.ID { s.current=nil }; s.mu.Unlock(); return err }
+	if err!=nil { s.mu.Lock(); if s.current!=nil && s.current.ID==item.ID { s.current=nil }; s.queue=append([]VideoRequestItem{item},s.queue...); s.mu.Unlock(); return err }
 	referer:=fmt.Sprintf("https://www.bilibili.com/video/%s/?p=%d",item.BVID,item.Page)
 	if err:=s.video.PlayWithHeaders(stream.URL,item.Title+" - "+item.PartTitle,map[string]string{
 		"Referer":referer,
 		"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/132.0.0.0 Safari/537.36",
 	});err!=nil {
-		s.mu.Lock(); if s.current!=nil && s.current.ID==item.ID { s.current=nil }; s.mu.Unlock()
+		s.mu.Lock(); if s.current!=nil && s.current.ID==item.ID { s.current=nil }; s.queue=append([]VideoRequestItem{item},s.queue...); s.mu.Unlock()
 		return err
 	}
 	return nil
@@ -225,18 +225,31 @@ func (s *VideoRequestService) Next() error {
 }
 
 func (s *VideoRequestService) PlayNow(bvid string,page int,requestedBy string) error {
-	item,err:=s.Enqueue(bvid,page,requestedBy)
+	item,err:=s.prepareItem(bvid,page,requestedBy)
 	if err!=nil{return err}
 	s.mu.Lock()
-	index:=-1
-	for i:=range s.queue { if s.queue[i].ID==item.ID { index=i; break } }
-	if index>=0 { s.queue=append(s.queue[:index],s.queue[index+1:]...) }
-	old:=s.current
-	if old!=nil { s.queue=append([]VideoRequestItem{*old},s.queue...) }
+	if s.current!=nil { s.queue=append([]VideoRequestItem{*s.current},s.queue...) }
 	s.current=nil
+	s.manualStop=true
 	s.mu.Unlock()
-	_ = s.video.Stop()
+	if err:=s.video.Stop();err!=nil{return err}
 	return s.playItem(item)
+}
+
+func (s *VideoRequestService) prepareItem(bvid string,page int,requestedBy string) (VideoRequestItem,error) {
+	if page<1 { page=1 }
+	ctx,cancel:=context.WithTimeout(context.Background(),20*time.Second)
+	defer cancel()
+	detail,err:=s.client.Detail(ctx,bvid)
+	if err!=nil{return VideoRequestItem{},err}
+	if page>len(detail.Pages){return VideoRequestItem{},fmt.Errorf("该视频只有 %d P",len(detail.Pages))}
+	part:=detail.Pages[page-1]
+	return VideoRequestItem{
+		ID:fmt.Sprintf("video-request-%d",s.nextID.Add(1)),BVID:detail.BVID,
+		Page:page,Title:detail.Title,PartTitle:part.Part,Author:detail.Author,
+		Cover:detail.Cover,Duration:part.Duration,RequestedBy:strings.TrimSpace(requestedBy),
+		AddedAt:time.Now().UTC(),
+	},nil
 }
 
 func (s *VideoRequestService) playItem(item VideoRequestItem) error {
