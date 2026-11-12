@@ -80,7 +80,7 @@ func (p stubSearchProvider) Name() string { return p.id }
 func (p stubSearchProvider) Search(context.Context,string,int,int)(SearchPage,error) { return p.result,p.err }
 
 
-func TestLXSearchClientUsesMaxProviderTotalAndRelevanceSortWithIDDedup(t *testing.T) {
+func TestLXSearchClientPreservesProviderPriorityAndIDDedup(t *testing.T) {
 	client := &LXSearchClient{providers: []SearchProvider{
 		stubSearchProvider{id:"kw", result:SearchPage{Tracks:[]Track{
 			{ID:"kw:1",SourceID:"kw",Title:"completely unrelated"},
@@ -98,7 +98,7 @@ func TestLXSearchClientUsesMaxProviderTotalAndRelevanceSortWithIDDedup(t *testin
 		t.Fatalf("pagination must use max provider total/pages and 30 item page size: %#v", result)
 	}
 	if len(result.Tracks) != 3 { t.Fatalf("duplicate IDs should be removed once: %#v", result.Tracks) }
-	if result.Tracks[0].ID != "kw:2" { t.Fatalf("best keyword match should be first: %#v", result.Tracks) }
+	if result.Tracks[0].ID != "kw:1" || result.Tracks[1].ID != "kw:2" || result.Tracks[2].ID != "kg:3" { t.Fatalf("results should retain provider priority and native order: %#v", result.Tracks) }
 }
 
 func TestLXSearchPageTwoUsesSameLimitAndOffsets(t *testing.T) {
