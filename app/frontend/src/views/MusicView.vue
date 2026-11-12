@@ -419,7 +419,6 @@ async function setLXSearchSources(source: LXSource, selected: (string | number |
     const ordered = current.filter(item => item.enabled && selectedSet.has(item.id))
     for (const item of current) if (selectedSet.has(item.id) && !ordered.some(existing => existing.id === item.id)) ordered.push(item)
     const updated = current.map(item => ({ ...item, enabled: selectedSet.has(item.id) }))
-    const enabledOrder = ordered.map(item => item.id)
     const reordered = [...ordered, ...updated.filter(item => !item.enabled)]
     // The options array itself is the persisted priority order.
     lxSearchSourceOptions.value = { ...lxSearchSourceOptions.value, [source.id]: reordered }
