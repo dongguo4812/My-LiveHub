@@ -3,6 +3,7 @@ package desktop
 import (
 	"errors"
 	"regexp"
+	"strings"
 	"sync"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/music"
@@ -43,8 +44,8 @@ func (s *BilibiliWebViewService) OpenVideo(bvid string) error {
 	if s == nil {
 		return errors.New("B 站网页播放器服务不可用")
 	}
-	bvid = regexp.MustCompile(`^BV[0-9A-Za-z]{10}$`).FindString(bvid)
-	if bvid == "" {
+	bvid = strings.TrimSpace(bvid)
+	if !bilibiliBVPattern.MatchString(bvid) {
 		return errors.New("请输入有效的 B 站 BV 号")
 	}
 
