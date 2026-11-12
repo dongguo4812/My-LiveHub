@@ -466,16 +466,14 @@ async function persistLXSearchPriority(source: LXSource, options: LXSearchSource
   try { await save }
   finally { if (lxSearchSourceSaveQueues.get(source.id) === save) lxSearchSourceSaveQueues.delete(source.id) }
 }
-function onLXSearchSourceChange(source: LXSource, option: LXSearchSourceOption, event: Event) {
-  const input = event.target as HTMLInputElement | null
-  if (!input) return
-  void toggleLXSearchSource(source, option, input.checked)
-}
-async function toggleLXSearchSource(source: LXSource, option: LXSearchSourceOption, checked: boolean | string | number) {
-  const current = lxSearchSourceOptions.value[source.id] ?? []
-  const selected = current.filter(item => item.enabled && item.id !== option.id).map(item => item.id)
-  if (Boolean(checked)) selected.push(option.id)
-  await setLXSearchSources(source, selected)
+function onLXSearchSourceChange(source: LXSource) {
+  // v-model has already updated the reactive option. Read the complete checked
+  // list from that single source of truth so the priority list and saved value
+  // cannot diverge from the checkbox state.
+  const selected = (lxSearchSourceOptions.value[source.id] ?? [])
+    .filter(item => item.enabled)
+    .map(item => item.id)
+  void setLXSearchSources(source, selected)
 }
 async function setLXSearchSources(source: LXSource, selected: string[]) {
   const current = lxSearchSourceOptions.value[source.id] ?? []
@@ -855,7 +853,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
               <span>允许参与搜索的来源（脚本和搜索引擎均支持）：</span>
               <div class="lx-search-source-checkboxes">
                 <label v-for="option in lxSearchSourceOptions[source.id]" :key="option.id" class="lx-search-source-toggle">
-                  <input class="lx-search-source-checkbox" type="checkbox" :checked="option.enabled" @change="onLXSearchSourceChange(source, option, $event)">
+                  <input class="lx-search-source-checkbox" type="checkbox" v-model="option.enabled" @change="onLXSearchSourceChange(source)">
                   <span>{{ option.name }}</span>
                 </label>
               </div>
