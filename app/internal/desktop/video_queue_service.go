@@ -11,7 +11,6 @@ import (
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
 	eventstream "github.com/dongguo4812/My-LiveHub/app/internal/events"
-	"github.com/dongguo4812/My-LiveHub/app/internal/platform/bilibili"
 )
 
 type bilibiliVideoInfoResolver interface {
