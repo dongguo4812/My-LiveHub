@@ -67,7 +67,7 @@ func (s *VideoService) PlayWithHeaders(resourceURL, title string, headers map[st
 		if s.resumeMusic {
 			if err := s.music.Pause(); err != nil {
 				s.resumeMusic = false
-				return fmt.Errorf("MV 开始前暂停音乐失败：%w", err)
+				return fmt.Errorf("视频开始前暂停音乐失败：%w", err)
 			}
 		}
 	}
