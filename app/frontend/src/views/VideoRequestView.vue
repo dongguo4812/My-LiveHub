@@ -40,7 +40,7 @@ async function refresh() {
   try {
     queue.value = await VideoRequestService.GetQueue()
     playback.value = await VideoRequestService.GetPlaybackStatus()
-    const lastError = await VideoRequestService.GetLastError()
+    const lastError = await VideoRequestService.TakeLastError()
     if (lastError) error.value = lastError
     if (!seeking.value && playback.value.duration_ms > 0) {
       seekValue.value = playback.value.position_ms / playback.value.duration_ms * 100
