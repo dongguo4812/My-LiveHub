@@ -31,7 +31,7 @@ type BilibiliWebViewPlaybackState struct {
 }
 
 // BilibiliWebViewService opens Bilibili's own player in a Wails WebView2
-// window. The remote page is not given any application-specific JS bridge.
+// window. The remote page receives no service bindings; a narrow origin-checked raw telemetry channel is used.
 type BilibiliWebViewService struct {
 	mu            sync.RWMutex
 	app           *application.App
@@ -229,8 +229,10 @@ func (s *BilibiliWebViewService) handleWindowClosing(window *application.Webview
 	}
 }
 
-func (s *BilibiliWebViewService) HandleRawMessage(windowName, message string, originInfo *application.OriginInfo) {
-	if s == nil || windowName != "bilibili-webview-player" || !isTrustedBilibiliOrigin(originInfo) || len(message) > 4096 {
+// HandleBilibiliWebViewRawMessage processes the narrow playback telemetry channel
+// from the Bilibili WebView. It is a package function, not a bound service method.
+func HandleBilibiliWebViewRawMessage(s *BilibiliWebViewService, windowName, message, origin, topOrigin string) {
+	if s == nil || windowName != "bilibili-webview-player" || !isTrustedBilibiliOrigin(origin, topOrigin) || len(message) > 4096 {
 		return
 	}
 	state, ok := parseBilibiliPlayerState(message)
@@ -249,11 +251,11 @@ func (s *BilibiliWebViewService) HandleRawMessage(windowName, message string, or
 	s.emitPlaybackState(state)
 }
 
-func isTrustedBilibiliOrigin(originInfo *application.OriginInfo) bool {
-	if originInfo == nil || !isBilibiliOrigin(originInfo.Origin) {
+func isTrustedBilibiliOrigin(origin, topOrigin string) bool {
+	if !isBilibiliOrigin(origin) {
 		return false
 	}
-	return originInfo.TopOrigin == "" || isBilibiliOrigin(originInfo.TopOrigin)
+	return topOrigin == "" || isBilibiliOrigin(topOrigin)
 }
 
 func isBilibiliOrigin(value string) bool {
