@@ -36,7 +36,7 @@ func TestVideoServicePausesAndRestoresPreviouslyPlayingMusic(t *testing.T) {
 	musicState:=&videoTestMusic{state:music.PlaybackPlaying}
 	engine:=&videoTestEngine{}
 	service:=NewVideoService(musicStateAdapter{musicState},engine)
-	if err:=service.Play("https://media.invalid/movie.mp4","Test MV");err!=nil{t.Fatal(err)}
+	if err:=service.Play("https://media.invalid/movie.mp4","Test video");err!=nil{t.Fatal(err)}
 	if musicState.state!=music.PlaybackPaused || musicState.pauses!=1 {t.Fatalf("music was not paused: %#v",musicState)}
 	if err:=service.Stop();err!=nil{t.Fatal(err)}
 	if musicState.state!=music.PlaybackPlaying || musicState.resumes!=1 {t.Fatalf("music was not restored: %#v",musicState)}
@@ -49,7 +49,7 @@ func TestVideoServiceDoesNotResumeMusicThatWasAlreadyPaused(t *testing.T) {
 	if err:=service.Stop();err!=nil{t.Fatal(err)}
 	if musicState.pauses!=0 || musicState.resumes!=0 || musicState.state!=music.PlaybackPaused {t.Fatalf("paused music state changed: %#v",musicState)}
 }
-func TestVideoServiceRestoresMusicWhenMVLoadFails(t *testing.T) {
+func TestVideoServiceRestoresMusicWhenVideoLoadFails(t *testing.T) {
 	musicState:=&videoTestMusic{state:music.PlaybackPlaying}
 	engine:=&videoTestEngine{loadErr:errors.New("load failed")}
 	service:=NewVideoService(musicStateAdapter{musicState},engine)
@@ -66,7 +66,7 @@ func (a musicStateAdapter) Pause() error { return a.value.Pause() }
 func (a musicStateAdapter) Resume() error { return a.value.Resume() }
 func (a musicStateAdapter) GetPlaybackStatus()(music.PlaybackSnapshot,error){return a.value.GetPlaybackStatus()}
 
-func TestVideoServiceNaturalEndClosesAndRestores(t *testing.T) {
+func TestVideoServiceNaturalEndClosesAndRestoresMusic(t *testing.T) {
 	musicState:=&videoTestMusic{state:music.PlaybackPlaying}
 	engine:=&videoTestEngine{}
 	service:=NewVideoService(musicStateAdapter{musicState},engine)
@@ -79,5 +79,5 @@ func TestVideoServiceNaturalEndClosesAndRestores(t *testing.T) {
 		time.Sleep(20*time.Millisecond)
 	}
 	musicState.mu.Lock();defer musicState.mu.Unlock()
-	if musicState.resumes!=1 {t.Fatal("music was not resumed after natural MV end")}
+	if musicState.resumes!=1 {t.Fatal("music was not resumed after natural video end")}
 }
