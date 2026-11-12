@@ -146,7 +146,14 @@ func (s *BilibiliWebViewService) OpenVideo(bvid string) error {
 		isCurrent := s.window == window && s.runtimeReady
 		s.mu.RUnlock()
 		if isCurrent {
-			go window.ExecJS(bilibiliPlaybackMonitorScript)
+			// Every Bilibili navigation (including the next item in the queue)
+			// automatically installs playback telemetry, enters Bilibili's own
+			// web-fullscreen mode, and seeks the new video to its beginning.
+			go func() {
+				window.ExecJS(bilibiliPlaybackMonitorScript)
+				window.ExecJS(bilibiliWebFullscreenScript)
+				window.ExecJS(bilibiliReplayFromStartScript)
+			}()
 		}
 	})
 	window.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
