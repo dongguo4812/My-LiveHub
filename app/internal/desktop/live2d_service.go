@@ -109,6 +109,11 @@ type live2DManifestMetadata struct {
 	HitAreas []string
 }
 
+func rawLive2DField(values map[string]json.RawMessage, name string) (json.RawMessage, bool) {
+	for key, value := range values { if strings.EqualFold(key, name) { return value, true } }
+	return nil, false
+}
+
 func readLive2DManifest(manifestPath, format string) live2DManifestMetadata {
 	result := live2DManifestMetadata{Expressions: []string{}, MotionGroups: []Live2DMotionGroup{}, HitAreas: []string{}}
 	data, err := os.ReadFile(manifestPath)
@@ -116,7 +121,7 @@ func readLive2DManifest(manifestPath, format string) live2DManifestMetadata {
 	var root map[string]json.RawMessage
 	if json.Unmarshal(data, &root) != nil { return result }
 	refs := root
-	if raw, ok := root["FileReferences"]; ok {
+	if raw, ok := rawLive2DField(root, "FileReferences"); ok {
 		var nested map[string]json.RawMessage
 		if json.Unmarshal(raw, &nested) == nil { refs = nested }
 	}
@@ -125,7 +130,7 @@ func readLive2DManifest(manifestPath, format string) live2DManifestMetadata {
 		_ = json.Unmarshal(raw, &values)
 		return values
 	}
-	if raw, ok := refs["Expressions"]; ok {
+	if raw, ok := rawLive2DField(refs, "Expressions"); ok {
 		for _, item := range decodeList(raw) {
 			var name string
 			for _, key := range []string{"Name", "name"} {
@@ -134,7 +139,7 @@ func readLive2DManifest(manifestPath, format string) live2DManifestMetadata {
 			if name != "" { result.Expressions = append(result.Expressions, name) }
 		}
 	}
-	if raw, ok := refs["Motions"]; ok {
+	if raw, ok := rawLive2DField(refs, "Motions"); ok {
 		var groups map[string]json.RawMessage
 		if json.Unmarshal(raw, &groups) == nil {
 			for name, value := range groups {
@@ -145,9 +150,9 @@ func readLive2DManifest(manifestPath, format string) live2DManifestMetadata {
 			}
 		}
 	}
-	if raw, ok := refs["Physics"]; ok { var value string; _ = json.Unmarshal(raw, &value); result.HasPhysics = value != "" }
-	if raw, ok := refs["Pose"]; ok { var value string; _ = json.Unmarshal(raw, &value); result.HasPose = value != "" }
-	if raw, ok := root["HitAreas"]; ok {
+	if raw, ok := rawLive2DField(refs, "Physics"); ok { var value string; _ = json.Unmarshal(raw, &value); result.HasPhysics = value != "" }
+	if raw, ok := rawLive2DField(refs, "Pose"); ok { var value string; _ = json.Unmarshal(raw, &value); result.HasPose = value != "" }
+	if raw, ok := rawLive2DField(root, "HitAreas"); ok {
 		for _, item := range decodeList(raw) {
 			var name string
 			for _, key := range []string{"Name", "name"} {
