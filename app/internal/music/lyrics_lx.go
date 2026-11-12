@@ -2,6 +2,11 @@ package music
 
 import (
 	"context"
+	"compress/zlib"
+	"encoding/base64"
+	"encoding/json"
+	"io"
+	"regexp"
 	"errors"
 	"fmt"
 	"net/http"
@@ -99,6 +104,104 @@ func formatQQLyricAsLRC(track Track, primary, translated, romanized *qrc.Lyric) 
 	for _, at := range times {
 		minutes, seconds, centiseconds := at/60000, (at/1000)%60, (at%1000)/10
 		fmt.Fprintf(&out, "[%02d:%02d.%02d]%s\n", minutes, seconds, centiseconds, strings.Join(lines[at], " / "))
+	}
+	return strings.TrimSpace(out.String())
+}
+
+
+// GetKugouMusicLyrics follows LX Music Desktop's Kugou lyric flow:
+// lyrics.kugou.com/search -> lyrics.kugou.com/download -> KRC decrypt/decompress.
+func GetKugouMusicLyrics(parent context.Context, client *http.Client, track Track) (string, error) {
+	if parent == nil { parent = context.Background() }
+	if client == nil { client = &http.Client{Timeout: 15 * time.Second} }
+	hash := strings.TrimSpace(track.SourceData["hash"])
+	if hash == "" { return "", errors.New("酷狗歌词请求缺少 FileHash") }
+	duration := track.DurationMS / 1000
+	query := url.Values{}
+	query.Set("ver", "1")
+	query.Set("man", "yes")
+	query.Set("client", "pc")
+	query.Set("keyword", track.Title)
+	query.Set("hash", hash)
+	query.Set("timelength", fmt.Sprintf("%d", duration))
+	query.Set("lrctxt", "1")
+	searchURL := "https://lyrics.kugou.com/search?" + query.Encode()
+	headers := map[string]string{
+		"KG-RC": "1",
+		"KG-THash": "expand_search_manager.cpp:852736169:451",
+		"User-Agent": "KuGou2012-9020-ExpandSearchManager",
+	}
+	search, err := doLXJSON(parent, client, http.MethodGet, searchURL, headers, nil)
+	if err != nil { return "", fmt.Errorf("搜索酷狗歌词失败：%w", err) }
+	if intValue(search["status"]) != 200 { return "", fmt.Errorf("酷狗歌词搜索返回异常状态：%s", stringValue(search["info"])) }
+	candidates := sliceValue(search["candidates"])
+	if len(candidates) == 0 { return "", nil }
+	candidate := mapValue(candidates[0])
+	id := stringValue(candidate["id"])
+	accessKey := stringValue(candidate["accesskey"])
+	if id == "" || accessKey == "" { return "", errors.New("酷狗歌词候选结果缺少下载凭据") }
+	format := "lrc"
+	if intValue(candidate["krctype"]) == 1 && intValue(candidate["contenttype"]) != 1 { format = "krc" }
+	download := url.Values{}
+	download.Set("ver", "1")
+	download.Set("client", "pc")
+	download.Set("id", id)
+	download.Set("accesskey", accessKey)
+	download.Set("fmt", format)
+	download.Set("charset", "utf8")
+	result, err := doLXJSON(parent, client, http.MethodGet, "https://lyrics.kugou.com/download?"+download.Encode(), headers, nil)
+	if err != nil { return "", fmt.Errorf("下载酷狗歌词失败：%w", err) }
+	if intValue(result["status"]) != 200 { return "", fmt.Errorf("酷狗歌词下载失败：%s", stringValue(result["info"])) }
+	content := stringValue(result["content"])
+	if content == "" { return "", nil }
+	switch strings.ToLower(stringValue(result["fmt"])) {
+	case "krc":
+		return decodeKugouKRC(content, track)
+	case "lrc":
+		decoded, err := base64.StdEncoding.DecodeString(content)
+		if err != nil { return "", fmt.Errorf("解码酷狗 LRC 失败：%w", err) }
+		return strings.TrimSpace(string(decoded)), nil
+	default:
+		return "", fmt.Errorf("酷狗返回未知歌词格式：%s", stringValue(result["fmt"]))
+	}
+}
+
+var kugouKRCLineTime = regexp.MustCompile(`^\\[(\\d+),(\\d+)\\]`)
+var kugouKRCWordTime = regexp.MustCompile(`<\\d+,\\d+(?:,\\d+)?>`)
+var kugouKRCHeader = regexp.MustCompile(`(?m)^.*\\[id:\\$[A-Za-z0-9]+\\]\\r?\\n`)
+
+func decodeKugouKRC(encoded string, track Track) (string, error) {
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil { return "", fmt.Errorf("KRC Base64 解码失败：%w", err) }
+	if len(raw) <= 4 { return "", errors.New("KRC 数据长度无效") }
+	key := []byte{0x40,0x47,0x61,0x77,0x5e,0x32,0x74,0x47,0x51,0x36,0x31,0x2d,0xce,0xd2,0x6e,0x69}
+	cipherText := append([]byte(nil), raw[4:]...)
+	for i := range cipherText { cipherText[i] ^= key[i%len(key)] }
+	reader, err := zlib.NewReader(strings.NewReader(string(cipherText)))
+	if err != nil { return "", fmt.Errorf("KRC 解压失败：%w", err) }
+	plain, readErr := io.ReadAll(io.LimitReader(reader, 4<<20))
+	closeErr := reader.Close()
+	if readErr != nil { return "", readErr }
+	if closeErr != nil { return "", closeErr }
+	return parseKugouKRC(string(plain), track), nil
+}
+
+func parseKugouKRC(content string, track Track) string {
+	content = strings.ReplaceAll(content, "\\r", "")
+	content = kugouKRCHeader.ReplaceAllString(content, "")
+	lines := strings.Split(content, "\\n")
+	var out strings.Builder
+	fmt.Fprintf(&out, "[ti:%s]\\n[ar:%s]\\n[al:%s]\\n[offset:0]\\n", track.Title, track.Artist, track.Album)
+	for _, line := range lines {
+		match := kugouKRCLineTime.FindStringSubmatch(line)
+		if len(match) != 3 { continue }
+		start, _ := strconv.Atoi(match[1])
+		minutes, seconds, centiseconds := start/60000, (start/1000)%60, (start%1000)/10
+		text := kugouKRCLineTime.ReplaceAllString(line, "")
+		text = kugouKRCWordTime.ReplaceAllString(text, "")
+		text = strings.TrimSpace(text)
+		if text == "" { continue }
+		fmt.Fprintf(&out, "[%02d:%02d.%02d]%s\\n", minutes, seconds, centiseconds, text)
 	}
 	return strings.TrimSpace(out.String())
 }

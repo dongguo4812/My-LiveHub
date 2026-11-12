@@ -2,6 +2,8 @@ package music
 
 import (
 	"context"
+	"encoding/base64"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -30,4 +32,36 @@ func TestGetQQMusicLyricsUsesNativePlayLyricInfo(t *testing.T) {
 	got, err := GetQQMusicLyrics(context.Background(), client, Track{ID:"tx_1",SourceID:"tx",LXSourceKey:"tx",SourceData:map[string]string{"song_id":"123","songmid":"abc"},Title:"测试",Artist:"歌手"})
 	if err != nil { t.Fatal(err) }
 	if !strings.Contains(got,"[00:01.00]测试歌词") { t.Fatalf("unexpected lyric result: %s",got) }
+}
+
+func TestParseKugouKRCLyric(t *testing.T) {
+	got := parseKugouKRC("[id:$00000000]\\n[1000,2000]<1000,500>春风<1500,500>十里\\n[2500,1000]<2500,1000>不如你", Track{Title:"春风十里", Artist:"鹿先森乐队"})
+	for _, want := range []string{"[ti:春风十里]", "[ar:鹿先森乐队]", "[00:01.00]春风十里", "[00:02.50]不如你"} {
+		if !strings.Contains(got, want) { t.Fatalf("missing %q in KRC output:\\n%s", want, got) }
+	}
+}
+
+func TestGetKugouMusicLyricsUsesLXSearchAndDownloadFlow(t *testing.T) {
+	lrc := "[00:01.00]第一句\\n[00:02.50]第二句"
+	encoded := base64.StdEncoding.EncodeToString([]byte(lrc))
+	client := &http.Client{Transport: lyricRoundTripper(func(r *http.Request) (*http.Response, error) {
+		if !strings.Contains(r.URL.Host, "lyrics.kugou.com") { t.Fatalf("unexpected host: %s", r.URL.Host) }
+		switch r.URL.Path {
+		case "/search":
+			if r.URL.Query().Get("hash") != "abc123" { t.Fatalf("missing Kugou hash: %s", r.URL.RawQuery) }
+			return &http.Response{StatusCode:200,Header:make(http.Header),Body:io.NopCloser(strings.NewReader(`{"status":200,"candidates":[{"id":"42","accesskey":"secret","krctype":0,"contenttype":1}]}`))},nil
+		case "/download":
+			if r.URL.Query().Get("id") != "42" || r.URL.Query().Get("fmt") != "lrc" { t.Fatalf("unexpected download query: %s", r.URL.RawQuery) }
+			return &http.Response{StatusCode:200,Header:make(http.Header),Body:io.NopCloser(strings.NewReader(fmt.Sprintf(`{"status":200,"fmt":"lrc","content":%q}`,encoded)))},nil
+		default:
+			t.Fatalf("unexpected path: %s",r.URL.Path)
+			return nil,nil
+		}
+	})}
+	got, err := GetKugouMusicLyrics(context.Background(),client,Track{
+		SourceID:"kg",LXSourceKey:"kg",Title:"测试歌曲",Artist:"测试歌手",DurationMS:180000,
+		SourceData:map[string]string{"hash":"abc123"},
+	})
+	if err != nil { t.Fatal(err) }
+	if !strings.Contains(got,"[00:01.00]第一句") || !strings.Contains(got,"[00:02.50]第二句") { t.Fatalf("unexpected LRC result: %s",got) }
 }

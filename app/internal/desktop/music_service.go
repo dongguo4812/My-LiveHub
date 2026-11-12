@@ -643,14 +643,16 @@ type musicLyricsResponse struct {
 func (s *MusicService) GetLyrics(track music.Track) (string, error) {
 	source := track.LXSourceKey
 	if source == "" { source = track.SourceID }
-	// 洛雪桌面版的 QQ 歌词来自 QQ 自身的 PlayLyricInfo SDK，
-	// 不是 LRCLIB，也不是用户音源脚本的 musicUrl 动作。
-	if source == music.LXSearchTX {
-		ctx, cancel := context.WithTimeout(context.Background(), 18*time.Second)
-		defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 18*time.Second)
+	defer cancel()
+	switch source {
+	case music.LXSearchTX:
 		return music.GetQQMusicLyrics(ctx, nil, track)
+	case music.LXSearchKG:
+		return music.GetKugouMusicLyrics(ctx, nil, track)
+	default:
+		return s.getLRCLIBLyrics(track)
 	}
-	return s.getLRCLIBLyrics(track)
 }
 
 func (s *MusicService) getLRCLIBLyrics(track music.Track) (string, error) {
