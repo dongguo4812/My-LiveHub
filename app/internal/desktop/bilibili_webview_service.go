@@ -43,6 +43,7 @@ type BilibiliWebViewWindowState struct {
 }
 
 type BilibiliWebViewPlaybackState struct {
+	BVID       string `json:"bvid"`
 	IsOpen     bool   `json:"is_open"`
 	Title      string `json:"title"`
 	PositionMS int64  `json:"position_ms"`
@@ -302,6 +303,7 @@ func isBilibiliOrigin(value string) bool {
 func parseBilibiliPlayerState(message string) (BilibiliWebViewPlaybackState, bool) {
 	var payload struct {
 		Type                string  `json:"type"`
+		BVID                string  `json:"bvid"`
 		Title               string  `json:"title"`
 		CurrentTimeSeconds  float64 `json:"current_time_seconds"`
 		DurationSeconds     float64 `json:"duration_seconds"`
@@ -327,6 +329,7 @@ func parseBilibiliPlayerState(message string) (BilibiliWebViewPlaybackState, boo
 		title = title[:240]
 	}
 	return BilibiliWebViewPlaybackState{
+		BVID: strings.TrimSpace(payload.BVID),
 		Title:      title,
 		PositionMS: int64(math.Round(position * 1000)),
 		DurationMS: int64(math.Round(duration * 1000)),
@@ -371,6 +374,7 @@ const bilibiliPlaybackMonitorScript = `(() => {
 
     const payload = JSON.stringify({
       type: 'bilibili-player-state',
+      bvid: (location.pathname.match(/\\/(BV[0-9A-Za-z]{10})/) || [])[1] || '',
       title,
       current_time_seconds: video && Number.isFinite(video.currentTime) ? video.currentTime : 0,
       duration_seconds: video && Number.isFinite(video.duration) ? video.duration : 0,
