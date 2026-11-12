@@ -10,5 +10,5 @@ import './styles.css'
 const app=createApp(App)
 app.use(router).use(ElementPlus).mount('#app')
 void router.isReady().then(() => {
-  if (!router.currentRoute.value.meta.standalone) void loadAppearance()
+  if (!router.currentRoute.value.path.startsWith('/scene/')) void loadAppearance()
 })
