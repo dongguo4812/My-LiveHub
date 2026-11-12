@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -63,6 +64,8 @@ type videoAPIEnvelope struct {
 	Message string `json:"message"`
 	Data json.RawMessage `json:"data"`
 }
+
+var videoSearchTagPattern = regexp.MustCompile(`<[^>]*>`)
 
 type VideoClient struct {
 	auth *AuthManager
@@ -207,9 +210,9 @@ func (c *VideoClient) Search(ctx context.Context, keyword string, page int) ([]V
 		if item.BVID == "" { continue }
 		play, _ := strconv.ParseInt(item.Play.String(), 10, 64)
 		danmaku, _ := strconv.ParseInt(item.Danmaku.String(), 10, 64)
-		cover := item.Pic
-		if strings.HasPrefix(cover, "//") { cover = "https:" + cover }
-		results = append(results, VideoSearchResult{BVID:item.BVID, Title:html.UnescapeString(item.Title), Author:item.Author, Cover:cover, Duration:item.Duration, PlayCount:play, DanmakuCount:danmaku})
+		cover := normalizeEmoticonURL(item.Pic)
+		title := videoSearchTagPattern.ReplaceAllString(html.UnescapeString(item.Title), "")
+		results = append(results, VideoSearchResult{BVID:item.BVID, Title:title, Author:item.Author, Cover:cover, Duration:item.Duration, PlayCount:play, DanmakuCount:danmaku})
 	}
 	return results, nil
 }
@@ -234,7 +237,7 @@ func (c *VideoClient) Detail(ctx context.Context, bvid string) (VideoDetail, err
 	}
 	if err := json.Unmarshal(envelope.Data, &data); err != nil { return VideoDetail{}, err }
 	result := VideoDetail{BVID:data.BVID, Title:html.UnescapeString(data.Title), Author:data.Owner.Name, Cover:data.Pic, Duration:data.Duration, Pages:make([]VideoPage,0,len(data.Pages))}
-	if strings.HasPrefix(result.Cover, "//") { result.Cover = "https:" + result.Cover }
+	result.Cover = normalizeEmoticonURL(result.Cover)
 	for _, item := range data.Pages { result.Pages = append(result.Pages, VideoPage{CID:item.CID,Page:item.Page,Part:html.UnescapeString(item.Part),Duration:item.Duration}) }
 	if len(result.Pages) == 0 { return VideoDetail{}, errors.New("该视频没有可播放的分 P") }
 	return result, nil
