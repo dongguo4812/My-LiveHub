@@ -7,6 +7,7 @@ type LegacyModel = {
   initialized?: boolean
   lipSync?: boolean | null
   lipSyncValue?: number
+  lipSyncParameterID?: string
   getLive2DModel?: () => { getParamIndex?: (id: string) => number } | null
 }
 type LegacyManager = { getModel?: (index: number) => LegacyModel | null }
@@ -39,6 +40,7 @@ let analyser: AnalyserNode | null = null
 let raf = 0
 let samples: Float32Array<ArrayBuffer> | null = null
 let activeModelURL = ''
+let activeMoc2MouthParameter = ''
 let legacyScriptPromise: Promise<void> | null = null
 let runtimeMessageHandler: ((event: MessageEvent) => void) | null = null
 
@@ -84,6 +86,8 @@ async function waitForLegacyModel(modelURL: string) {
       if (!liveModel) throw new Error('MOC2 模型对象尚未就绪')
       const candidates = ['PARAM_MOUTH_OPEN_Y', 'ParamMouthOpenY', 'MouthOpenY', 'ParamMouthOpen', 'MouthOpen']
       const available = candidates.find(id => (liveModel.getParamIndex?.(id) ?? -1) >= 0)
+      activeMoc2MouthParameter = available || ''
+      model.lipSyncParameterID = activeMoc2MouthParameter
       mouthCapability.value = available ? '支持：' + available : '未找到兼容的嘴型参数'
       return
     }
@@ -109,6 +113,7 @@ async function loadSelectedModel() {
     return
   }
   activeModelURL = model.model_url
+  activeMoc2MouthParameter = ''
   runtimeStatus.value = '正在加载 ' + format.toUpperCase() + ' 模型…'
   await nextTick()
   try {
@@ -223,6 +228,8 @@ function driveModelMouth(value: number) {
   }
   const model = live2dWindow().__live2dManager?.getModel?.(0)
   if (!model?.initialized) return
+  if (!activeMoc2MouthParameter) return
+  model.lipSyncParameterID = activeMoc2MouthParameter
   model.lipSync = null
   model.lipSyncValue = bounded
 }
