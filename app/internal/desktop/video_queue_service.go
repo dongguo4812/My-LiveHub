@@ -91,6 +91,17 @@ func (s *VideoQueueService) UpdateSettings(next config.BilibiliConfig) (config.B
 	if err := next.Validate(); err != nil { return config.BilibiliConfig{}, err }
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	latest, err := config.LoadTyped[config.BilibiliConfig](s.manager, "bilibili.json", func(value config.BilibiliConfig) error { return value.Validate() })
+	if err != nil {
+		return config.BilibiliConfig{}, err
+	}
+	// Window geometry is managed by the WebView window itself, not the
+	// settings form. Preserve it when the user saves video request rules.
+	next.VideoWindowX = latest.VideoWindowX
+	next.VideoWindowY = latest.VideoWindowY
+	next.VideoWindowWidth = latest.VideoWindowWidth
+	next.VideoWindowHeight = latest.VideoWindowHeight
+	next.VideoWindowBoundsSaved = latest.VideoWindowBoundsSaved
 	if err := config.SaveTyped(s.manager, "bilibili.json", next, func(value config.BilibiliConfig) error { return value.Validate() }); err != nil {
 		return config.BilibiliConfig{}, err
 	}
