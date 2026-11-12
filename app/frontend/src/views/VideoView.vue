@@ -36,6 +36,7 @@ interface VideoSettings {
   video_queue_limit: number
   video_max_duration_seconds: number
   video_require_fan_medal: boolean
+  video_fan_medal_level: number
   video_queue_display_limit: number
   video_window_x: number
   video_window_y: number
@@ -49,7 +50,7 @@ const snapshot = ref<QueueSnapshot>({
 })
 const settings = ref<VideoSettings>({
   room_id: 0, video_requests_enabled: true, video_request_cooldown_seconds: 60,
-  video_queue_limit: 30, video_max_duration_seconds: 300, video_require_fan_medal: false, video_queue_display_limit: 10,
+  video_queue_limit: 30, video_max_duration_seconds: 300, video_require_fan_medal: false, video_fan_medal_level: 1, video_queue_display_limit: 10,
   video_window_x: 0, video_window_y: 0, video_window_width: 1280, video_window_height: 800, video_window_bounds_saved: false,
 })
 const activeTab = ref<'queue'|'settings'>('queue')
@@ -223,8 +224,12 @@ onUnmounted(() => { unsubscribe?.(); if (timer) clearInterval(timer) })
             <el-input-number v-model="settings.video_max_duration_seconds" :min="1" :max="3600" />
             <div class="field-hint">主播和房管不受时长限制。</div>
           </el-form-item>
-          <el-form-item label="粉丝勋章要求">
-            <el-switch v-model="settings.video_require_fan_medal" active-text="要求佩戴粉丝勋章" inactive-text="不要求" />
+          <el-form-item label="粉丝勋章等级限制">
+            <el-switch v-model="settings.video_require_fan_medal" active-text="启用" inactive-text="关闭" />
+            <div class="field-hint">只检查用户是否拥有当前主播的粉丝勋章，不要求佩戴；主播和房管免检。</div>
+          </el-form-item>
+          <el-form-item label="最低粉丝勋章等级">
+            <el-input-number v-model="settings.video_fan_medal_level" :min="1" :max="100" />
           </el-form-item>
           <el-form-item label="队列页面显示数量">
             <el-input-number v-model="settings.video_queue_display_limit" :min="1" :max="100" />
