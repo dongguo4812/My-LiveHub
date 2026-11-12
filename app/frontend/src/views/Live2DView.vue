@@ -48,11 +48,16 @@ const transformSettings = computed<ModelTransform>(() => {
     : { model_scale: config.model_scale_moc3, model_offset_x: config.model_offset_x_moc3, model_offset_y: config.model_offset_y_moc3 }
 })
 function runtimeTransformPatch(patch: Partial<ModelTransform>): Partial<Live2DConfig> {
-  const suffix = settings.value?.runtime_version === 'moc2' ? 'moc2' : 'moc3'
   const result: Partial<Live2DConfig> = {}
-  if (patch.model_scale !== undefined) result[`model_scale_${suffix}`] = patch.model_scale
-  if (patch.model_offset_x !== undefined) result[`model_offset_x_${suffix}`] = patch.model_offset_x
-  if (patch.model_offset_y !== undefined) result[`model_offset_y_${suffix}`] = patch.model_offset_y
+  if (settings.value?.runtime_version === 'moc2') {
+    if (patch.model_scale !== undefined) result.model_scale_moc2 = patch.model_scale
+    if (patch.model_offset_x !== undefined) result.model_offset_x_moc2 = patch.model_offset_x
+    if (patch.model_offset_y !== undefined) result.model_offset_y_moc2 = patch.model_offset_y
+  } else {
+    if (patch.model_scale !== undefined) result.model_scale_moc3 = patch.model_scale
+    if (patch.model_offset_x !== undefined) result.model_offset_x_moc3 = patch.model_offset_x
+    if (patch.model_offset_y !== undefined) result.model_offset_y_moc3 = patch.model_offset_y
+  }
   return result
 }
 function previewModelTransform(patch: Partial<ModelTransform>) {
