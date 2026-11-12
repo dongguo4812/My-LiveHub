@@ -29,7 +29,7 @@ func TestMusicConfigMigrationDropsPlatformConfig(t *testing.T) {
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if c.ConfigVersion != 6 || c.QueueCapacity != 80 || c.Volume != 42 {
+	if c.ConfigVersion != CurrentMusicConfigVersion || c.QueueCapacity != 80 || c.Volume != 42 {
 		t.Fatalf("migrated: %+v", c)
 	}
 }
