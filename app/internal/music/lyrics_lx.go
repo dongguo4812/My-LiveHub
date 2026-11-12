@@ -74,30 +74,31 @@ func decodeQQLyricField(value string) (*qrc.Lyric, error) {
 
 func formatQQLyricAsLRC(track Track, primary, translated, romanized *qrc.Lyric) string {
 	lines := make(map[int][]string)
-	for _, line := range primary.Lines {
-		if text := strings.TrimSpace(line.Text); text != "" { lines[line.Start] = append(lines[line.Start], text) }
+	seen := make(map[int]map[string]bool)
+	add := func(at int, text string) {
+		text = strings.TrimSpace(text)
+		if text == "" { return }
+		if seen[at] == nil { seen[at] = make(map[string]bool) }
+		if seen[at][text] { return }
+		seen[at][text] = true
+		lines[at] = append(lines[at], text)
 	}
-	for _, line := range primary.Translation {
-		if text := strings.TrimSpace(line.Text); text != "" { lines[line.Start] = append(lines[line.Start], text) }
-	}
+	for _, line := range primary.Lines { add(line.Start, line.Text) }
+	for _, line := range primary.Translation { add(line.Start, line.Text) }
 	if translated != nil {
-		for _, line := range translated.Lines {
-			if text := strings.TrimSpace(line.Text); text != "" { lines[line.Start] = append(lines[line.Start], text) }
-		}
+		for _, line := range translated.Lines { add(line.Start, line.Text) }
 	}
 	if romanized != nil {
-		for _, line := range romanized.Lines {
-			if text := strings.TrimSpace(line.Text); text != "" { lines[line.Start] = append(lines[line.Start], text) }
-		}
+		for _, line := range romanized.Lines { add(line.Start, line.Text) }
 	}
 	times := make([]int, 0, len(lines))
 	for at := range lines { times = append(times, at) }
 	sort.Ints(times)
 	var out strings.Builder
-	fmt.Fprintf(&out, "[ti:%s]\n[ar:%s]\n[al:%s]\n[offset:0]\n", track.Title, track.Artist, track.Album)
+	fmt.Fprintf(&out, "[ti:%s]\\n[ar:%s]\\n[al:%s]\\n[offset:0]\\n", track.Title, track.Artist, track.Album)
 	for _, at := range times {
 		minutes, seconds, centiseconds := at/60000, (at/1000)%60, (at%1000)/10
-		for _, text := range lines[at] { fmt.Fprintf(&out, "[%02d:%02d.%02d]%s\n", minutes, seconds, centiseconds, text) }
+		fmt.Fprintf(&out, "[%02d:%02d.%02d]%s\\n", minutes, seconds, centiseconds, strings.Join(lines[at], " / "))
 	}
 	return strings.TrimSpace(out.String())
 }
