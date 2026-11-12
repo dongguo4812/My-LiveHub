@@ -776,7 +776,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
             <div v-if="lxSearchSourceOptions[source.id]?.length" class="lx-search-source-settings">
               <span>允许参与搜索的来源（脚本和搜索引擎均支持）：</span>
               <el-checkbox-group :model-value="lxSearchSourceOptions[source.id].filter(item => item.enabled).map(item => item.id)" @change="setLXSearchSources(source, $event)">
-                <el-checkbox v-for="option in lxSearchSourceOptions[source.id]" :key="option.id" :label="option.id">{{ option.name }}</el-checkbox>
+                <el-checkbox v-for="option in lxSearchSourceOptions[source.id]" :key="option.id" :value="option.id">{{ option.name }}</el-checkbox>
               </el-checkbox-group>
               <div v-if="lxSearchSourceOptions[source.id].some(item => item.enabled)" class="lx-search-priority-list">
                 <span>搜索优先级（从上到下）：</span>
