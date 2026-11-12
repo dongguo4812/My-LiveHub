@@ -19,7 +19,7 @@ func TestFormatQQLyricAsLRC(t *testing.T) {
 	primary := &qrc.Lyric{Lines: []qrc.Line{{Start: 1000, Text: "第一句"},{Start: 2450, Text: "第二句"}}}
 	translated := &qrc.Lyric{Lines: []qrc.Line{{Start: 1000, Text: "First line"}}}
 	got := formatQQLyricAsLRC(Track{Title:"晴天",Artist:"周杰伦"}, primary, translated, nil)
-	for _, want := range []string{"[ti:晴天]","[ar:周杰伦]","[00:01.00]第一句 / First line","[00:02.45]第二句"} {
+	for _, want := range []string{"[ti:晴天]","[ar:周杰伦]","[00:01.00]第一句", "[00:01.00]First line","[00:02.45]第二句"} {
 		if !strings.Contains(got, want) { t.Fatalf("formatted lyrics missing %q:\n%s", want, got) }
 	}
 }
