@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -32,6 +33,7 @@ type VideoService struct {
 	resumeMusic bool
 	volume int
 	watchCancel context.CancelFunc
+	subtitleFile string
 	generation uint64
 }
 
@@ -59,6 +61,7 @@ func (s *VideoService) PlayResource(resource music.PlaybackResource, title strin
 	defer s.mu.Unlock()
 	if s.active {
 		s.cancelWatcherLocked()
+		s.cleanupSubtitleLocked()
 		if lifecycle, ok := s.engine.(music.PlaybackEngineLifecycle); ok {
 			if err := lifecycle.Close(); err != nil { return fmt.Errorf("close previous MV window: %w", err) }
 		}
@@ -98,6 +101,43 @@ func (s *VideoService) PlayResource(resource music.PlaybackResource, title strin
 	s.active = true
 	s.startWatcherLocked()
 	return nil
+}
+
+// PlayResourceWithSubtitle starts the video and best-effort attaches an ASS subtitle.
+func (s *VideoService) PlayResourceWithSubtitle(resource music.PlaybackResource, title, ass string) error {
+	if strings.TrimSpace(ass) == "" { return s.PlayResource(resource, title) }
+	file, err := os.CreateTemp("", "my-livehub-bilibili-*.ass")
+	if err != nil { return s.PlayResource(resource, title) }
+	path := file.Name()
+	if _, err = file.WriteString(ass); err != nil {
+		_ = file.Close()
+		_ = os.Remove(path)
+		return s.PlayResource(resource, title)
+	}
+	if err = file.Close(); err != nil {
+		_ = os.Remove(path)
+		return s.PlayResource(resource, title)
+	}
+	if err = s.PlayResource(resource, title); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+	adder, ok := s.engine.(interface { AddSubtitle(context.Context, string) error })
+	if !ok || adder.AddSubtitle(context.Background(), path) != nil {
+		_ = os.Remove(path)
+		return nil
+	}
+	s.mu.Lock()
+	s.subtitleFile = path
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *VideoService) cleanupSubtitleLocked() {
+	if s.subtitleFile != "" {
+		_ = os.Remove(s.subtitleFile)
+		s.subtitleFile = ""
+	}
 }
 
 func (s *VideoService) musicSnapshot() (music.PlaybackSnapshot, error) {
@@ -145,6 +185,7 @@ func (s *VideoService) finishLocked() error {
 		err = s.engine.Stop(context.Background())
 	}
 	s.active = false
+	s.cleanupSubtitleLocked()
 	s.restoreMusicLocked()
 	return err
 }
