@@ -64,7 +64,6 @@ func GetQQMusicLyrics(parent context.Context, client *http.Client, track Track) 
 	if err != nil { return "", fmt.Errorf("解码 QQ 原文歌词失败：%w", err) }
 	if primary == nil || len(primary.Lines) == 0 { return "", errors.New("QQ 音乐歌词响应无法解析") }
 	translated, _ := decodeQQLyricField(stringValue(data["trans"]))
-	romanized, _ := decodeQQLyricField(stringValue(data["roma"]))
 	return formatQQLyricAsLRC(track, primary, translated, nil), nil
 }
 
