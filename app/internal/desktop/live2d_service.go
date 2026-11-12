@@ -7,6 +7,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -126,10 +127,26 @@ func safeLive2DPathPart(value string) bool {
 	return value != "" && value != "." && value != ".." && filepath.Base(value) == value && !strings.ContainsAny(value, "/\\")
 }
 
+func allowedLive2DOrigin(origin string) bool {
+	parsed, err := url.Parse(origin)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") { return false }
+	switch strings.ToLower(parsed.Hostname()) {
+	case "wails.localhost", "localhost", "127.0.0.1":
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *Live2DService) serveModelAsset(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Range, Content-Type")
+	origin := r.Header.Get("Origin")
+	if origin != "" && allowedLive2DOrigin(origin) {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Add("Vary", "Origin")
+		w.Header().Set("Access-Control-Allow-Private-Network", "true")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Range, Content-Type")
+	}
 	if r.Method == http.MethodOptions { w.WriteHeader(http.StatusNoContent); return }
 	if r.Method != http.MethodGet && r.Method != http.MethodHead { http.Error(w, "method not allowed", http.StatusMethodNotAllowed); return }
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/models/"), "/")
