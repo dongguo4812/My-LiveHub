@@ -35,6 +35,7 @@ type MpvEngine struct {
 	track *Track
 	loadStartedAt time.Time
 	volume int
+	loudnessNormalization bool
 	audioOutput string // Optional mpv audio output override, used by deterministic integration tests.
 	videoOutput bool
 	stderrTail string
@@ -155,8 +156,11 @@ func (e *MpvEngine) Start(ctx context.Context) error {
 				_ = pipe.Close()
 				e.mu.RLock()
 				volume := e.volume
+				normalize := e.loudnessNormalization
 				e.mu.RUnlock()
-				return e.SetVolume(ctx, volume)
+				if err := e.SetVolume(ctx, volume); err != nil { return err }
+				if normalize { return e.SetLoudnessNormalization(ctx, true) }
+				return nil
 			}
 		}
 	}
@@ -337,6 +341,34 @@ func (e *MpvEngine) SetVolume(ctx context.Context, volume int) error {
 	e.mu.Unlock()
 	return nil
 }
+const mpvLoudnessNormalizationFilter = "lavfi=[loudnorm=I=-16:TP=-1.5:LRA=11:linear=false]"
+
+// SetLoudnessNormalization applies EBU R128 single-pass dynamic loudness
+// normalization. The setting is retained while mpv is stopped and applied
+// when the engine starts.
+func (e *MpvEngine) SetLoudnessNormalization(ctx context.Context, enabled bool) error {
+	if e == nil { return ErrPlaybackEngineUnavailable }
+	if ctx == nil { return errors.New("loudness normalization context is required") }
+	e.mu.RLock()
+	started := e.pipePath != ""
+	e.mu.RUnlock()
+	if started {
+		var err error
+		if enabled {
+			_, err = e.commandIPC(ctx, "af", "set", mpvLoudnessNormalizationFilter)
+		} else {
+			_, err = e.commandIPC(ctx, "af", "clr", "")
+		}
+		if err != nil {
+			return fmt.Errorf("apply mpv loudness normalization: %w", err)
+		}
+	}
+	e.mu.Lock()
+	e.loudnessNormalization = enabled
+	e.mu.Unlock()
+	return nil
+}
+
 func (e *MpvEngine) Stop(ctx context.Context) error {
 	_, err := e.commandIPC(ctx, "stop")
 	e.mu.Lock()
