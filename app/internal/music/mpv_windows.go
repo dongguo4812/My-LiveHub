@@ -21,7 +21,7 @@ import (
 
 var mpvInstanceSequence atomic.Uint64
 
-const mpvVideoWindowTitle = "My-LiveHub MV"
+const mpvVideoWindowTitle = "My-LiveHub 视频播放"
 
 type MpvEngine struct {
 	lifecycleMu sync.Mutex
