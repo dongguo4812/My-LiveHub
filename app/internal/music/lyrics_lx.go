@@ -4,9 +4,10 @@ import (
 	"context"
 	"compress/zlib"
 	"encoding/base64"
-	"encoding/json"
 	"io"
 	"regexp"
+	"net/url"
+	"strconv"
 	"errors"
 	"fmt"
 	"net/http"
@@ -166,9 +167,9 @@ func GetKugouMusicLyrics(parent context.Context, client *http.Client, track Trac
 	}
 }
 
-var kugouKRCLineTime = regexp.MustCompile(`^\\[(\\d+),(\\d+)\\]`)
-var kugouKRCWordTime = regexp.MustCompile(`<\\d+,\\d+(?:,\\d+)?>`)
-var kugouKRCHeader = regexp.MustCompile(`(?m)^.*\\[id:\\$[A-Za-z0-9]+\\]\\r?\\n`)
+var kugouKRCLineTime = regexp.MustCompile(`^\[(\d+),(\d+)\]`)
+var kugouKRCWordTime = regexp.MustCompile(`<\d+,\d+(?:,\d+)?>`)
+var kugouKRCHeader = regexp.MustCompile(`(?m)^.*\[id:\$[A-Za-z0-9]+\]\r?\n`)
 
 func decodeKugouKRC(encoded string, track Track) (string, error) {
 	raw, err := base64.StdEncoding.DecodeString(encoded)
@@ -187,11 +188,11 @@ func decodeKugouKRC(encoded string, track Track) (string, error) {
 }
 
 func parseKugouKRC(content string, track Track) string {
-	content = strings.ReplaceAll(content, "\\r", "")
+	content = strings.ReplaceAll(content, "\r", "")
 	content = kugouKRCHeader.ReplaceAllString(content, "")
-	lines := strings.Split(content, "\\n")
+	lines := strings.Split(content, "\n")
 	var out strings.Builder
-	fmt.Fprintf(&out, "[ti:%s]\\n[ar:%s]\\n[al:%s]\\n[offset:0]\\n", track.Title, track.Artist, track.Album)
+	fmt.Fprintf(&out, "[ti:%s]\n[ar:%s]\n[al:%s]\n[offset:0]\n", track.Title, track.Artist, track.Album)
 	for _, line := range lines {
 		match := kugouKRCLineTime.FindStringSubmatch(line)
 		if len(match) != 3 { continue }
@@ -201,7 +202,7 @@ func parseKugouKRC(content string, track Track) string {
 		text = kugouKRCWordTime.ReplaceAllString(text, "")
 		text = strings.TrimSpace(text)
 		if text == "" { continue }
-		fmt.Fprintf(&out, "[%02d:%02d.%02d]%s\\n", minutes, seconds, centiseconds, text)
+		fmt.Fprintf(&out, "[%02d:%02d.%02d]%s\n", minutes, seconds, centiseconds, text)
 	}
 	return strings.TrimSpace(out.String())
 }

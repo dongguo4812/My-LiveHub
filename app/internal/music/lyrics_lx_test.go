@@ -35,14 +35,14 @@ func TestGetQQMusicLyricsUsesNativePlayLyricInfo(t *testing.T) {
 }
 
 func TestParseKugouKRCLyric(t *testing.T) {
-	got := parseKugouKRC("[id:$00000000]\\n[1000,2000]<1000,500>春风<1500,500>十里\\n[2500,1000]<2500,1000>不如你", Track{Title:"春风十里", Artist:"鹿先森乐队"})
+	got := parseKugouKRC("[id:$00000000]\n[1000,2000]<1000,500>春风<1500,500>十里\n[2500,1000]<2500,1000>不如你", Track{Title:"春风十里", Artist:"鹿先森乐队"})
 	for _, want := range []string{"[ti:春风十里]", "[ar:鹿先森乐队]", "[00:01.00]春风十里", "[00:02.50]不如你"} {
-		if !strings.Contains(got, want) { t.Fatalf("missing %q in KRC output:\\n%s", want, got) }
+		if !strings.Contains(got, want) { t.Fatalf("missing %q in KRC output:\n%s", want, got) }
 	}
 }
 
 func TestGetKugouMusicLyricsUsesLXSearchAndDownloadFlow(t *testing.T) {
-	lrc := "[00:01.00]第一句\\n[00:02.50]第二句"
+	lrc := "[00:01.00]第一句\n[00:02.50]第二句"
 	encoded := base64.StdEncoding.EncodeToString([]byte(lrc))
 	client := &http.Client{Transport: lyricRoundTripper(func(r *http.Request) (*http.Response, error) {
 		if !strings.Contains(r.URL.Host, "lyrics.kugou.com") { t.Fatalf("unexpected host: %s", r.URL.Host) }
