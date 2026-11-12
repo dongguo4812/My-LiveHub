@@ -106,6 +106,11 @@ func main() {
 	musicService := desktop.NewMusicService(configManager, musicConfig, bilibiliEvents)
 	musicLyricsWindowService := desktop.NewMusicLyricsWindowService(musicService)
 	videoService := desktop.NewVideoService(musicService, music.NewMpvVideoEngine(""))
+	videoRequestService, err := desktop.NewVideoRequestService(videoService, bilibiliAuth, bilibiliEvents)
+	if err != nil { log.Fatalf("initialize Bilibili video request service: %v", err) }
+	if err := coreApp.Modules().Register("video-requests", desktop.NewVideoRequestModule(videoRequestService)); err != nil {
+		log.Fatalf("register video request module: %v", err)
+	}
 	cacheDir := ""
 	if environment == config.EnvironmentDevelopment {
 		if workingDir, getwdErr := os.Getwd(); getwdErr == nil {
@@ -176,6 +181,7 @@ func main() {
 			application.NewService(musicService),
 			application.NewService(musicLyricsWindowService),
 			application.NewService(videoService),
+			application.NewService(videoRequestService),
 		},
 	})
 	wailsApp = app
@@ -185,8 +191,8 @@ func main() {
 	app.OnShutdown(func() {
 		danmakuDisplayService.CloseWindowForShutdown()
 		musicLyricsWindowService.CloseWindowForShutdown()
-		if err := videoService.Shutdown(); err != nil {
-			log.Printf("stop video playback engine: %v", err)
+		if err := videoRequestService.Shutdown(); err != nil {
+			log.Printf("stop Bilibili video request service: %v", err)
 		}
 		if err := musicService.Shutdown(); err != nil {
 			log.Printf("stop music playback engine: %v", err)
