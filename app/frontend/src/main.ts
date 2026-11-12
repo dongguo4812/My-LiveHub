@@ -9,4 +9,4 @@ import {loadAppearance} from './services/appearance'
 import './styles.css'
 const app=createApp(App)
 app.use(router).use(ElementPlus).mount('#app')
-void loadAppearance()
+void router.isReady().then(() => {\n  if (!router.currentRoute.value.meta.standalone) void loadAppearance()\n})
