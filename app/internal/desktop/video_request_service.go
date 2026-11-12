@@ -91,6 +91,8 @@ func (s *VideoRequestService) Stop(ctx context.Context) error {
 	cancel, unsubscribe, done := s.cancel, s.unsubscribe, s.done
 	s.generation++
 	s.playbackStarted = false
+	s.current = nil
+	s.manualStop = true
 	s.cancel, s.unsubscribe = nil, nil
 	s.mu.Unlock()
 	if unsubscribe != nil { unsubscribe() }
