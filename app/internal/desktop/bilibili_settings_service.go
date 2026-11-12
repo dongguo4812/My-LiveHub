@@ -11,26 +11,38 @@ type BilibiliSettingsService struct {
 	manager *config.Manager
 	current config.BilibiliConfig
 	adapter *bilibili.Adapter
+	fanMedalChecker interface { SetRoomID(int) }
 }
 
-func NewBilibiliSettingsService(manager *config.Manager, current config.BilibiliConfig, adapter *bilibili.Adapter) *BilibiliSettingsService {
-	return &BilibiliSettingsService{manager:manager, current:current, adapter:adapter}
+func NewBilibiliSettingsService(manager *config.Manager, current config.BilibiliConfig, adapter *bilibili.Adapter, checkers ...interface { SetRoomID(int) }) *BilibiliSettingsService {
+	service := &BilibiliSettingsService{manager:manager, current:current, adapter:adapter}
+	if len(checkers) > 0 { service.fanMedalChecker = checkers[0] }
+	return service
 }
 
 func (s *BilibiliSettingsService) GetSettings() config.BilibiliConfig {
 	if s == nil { return config.DefaultBilibiliConfig() }
+	if s.manager != nil {
+		if latest, err := config.LoadTyped[config.BilibiliConfig](s.manager, "bilibili.json", func(value config.BilibiliConfig) error { return value.Validate() }); err == nil {
+			s.current = latest
+		}
+	}
 	return s.current
 }
 
 func (s *BilibiliSettingsService) UpdateRoomID(roomID int) (config.BilibiliConfig, error) {
 	if s == nil || s.manager == nil || s.adapter == nil { return config.BilibiliConfig{}, errors.New("Bilibili settings service is unavailable") }
-	next := config.BilibiliConfig{RoomID:roomID}
+	latest, err := config.LoadTyped[config.BilibiliConfig](s.manager, "bilibili.json", func(value config.BilibiliConfig) error { return value.Validate() })
+	if err != nil { return config.BilibiliConfig{}, err }
+	next := latest
+	next.RoomID = roomID
 	if err := next.Validate(); err != nil { return config.BilibiliConfig{}, err }
 	if err := s.adapter.SetRoomID(roomID); err != nil { return config.BilibiliConfig{}, err }
 	if err := config.SaveTyped(s.manager, "bilibili.json", next, func(value config.BilibiliConfig) error { return value.Validate() }); err != nil {
-		_ = s.adapter.SetRoomID(s.current.RoomID)
+		_ = s.adapter.SetRoomID(latest.RoomID)
 		return config.BilibiliConfig{}, err
 	}
 	s.current = next
+	if s.fanMedalChecker != nil { s.fanMedalChecker.SetRoomID(roomID) }
 	return next, nil
 }

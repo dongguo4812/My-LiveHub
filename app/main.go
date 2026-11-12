@@ -91,6 +91,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("load Bilibili configuration: %v", err)
 	}
+	fanMedalChecker := bilibili.NewFanMedalChecker(bilibiliAuth, bilibiliConfig.RoomID)
 	musicConfig, err := config.LoadMusicConfig(configManager)
 	if err != nil {
 		log.Fatalf("load music configuration: %v", err)
@@ -103,9 +104,13 @@ func main() {
 	}
 	eventBus := eventstream.NewBus()
 	bilibiliEvents := eventstream.NewBuffer(eventBus)
-	musicService := desktop.NewMusicService(configManager, musicConfig, bilibiliEvents)
+	musicService := desktop.NewMusicServiceWithFanMedalChecker(configManager, musicConfig, fanMedalChecker, bilibiliEvents)
 	musicLyricsWindowService := desktop.NewMusicLyricsWindowService(musicService)
-	videoService := desktop.NewVideoService(musicService, music.NewMpvVideoEngine(""))
+	bilibiliVideoResolver, err := bilibili.NewVideoResolver(bilibiliAuth, nil)
+	if err != nil { log.Fatalf("initialize Bilibili video resolver: %v", err) }
+	bilibiliWebViewService := desktop.NewBilibiliWebViewService(musicService, configManager)
+	videoQueueService, err := desktop.NewVideoQueueServiceWithFanMedalChecker(configManager, bilibiliConfig, bilibiliVideoResolver, bilibiliWebViewService, bilibiliEvents, fanMedalChecker)
+	if err != nil { log.Fatalf("initialize Bilibili video queue service: %v", err) }
 	cacheDir := ""
 	if environment == config.EnvironmentDevelopment {
 		if workingDir, getwdErr := os.Getwd(); getwdErr == nil {
@@ -157,9 +162,10 @@ func main() {
 	if err := coreApp.Modules().Register("music", desktop.NewMusicModule(musicService)); err != nil {
 		log.Fatalf("register music module: %v", err)
 	}
-	if err := coreApp.Modules().Register("video", desktop.NewVideoModule(videoService)); err != nil {
+	if err := coreApp.Modules().Register("video", desktop.NewVideoModule(videoQueueService)); err != nil {
 		log.Fatalf("register video module: %v", err)
 	}
+	bilibiliSettingsService := desktop.NewBilibiliSettingsService(configManager, bilibiliConfig, bilibiliAdapter, fanMedalChecker)
 	assetHandler := application.AssetFileServerFS(assets)
 	imageCache, cacheErr := imagecache.NewWithPolicies(filepath.Join(cacheDir, "media-images"), assetHandler, map[string]imagecache.URLPolicy{"bilibili":imagecache.BilibiliURLPolicy})
 	if cacheErr != nil { log.Printf("initialize local media image cache: %v", cacheErr) } else { assetHandler = imageCache; platformService.SetMediaImageCache(imageCache); imageCache.RefreshStats() }
@@ -167,30 +173,38 @@ func main() {
 	app := application.New(application.Options{
 		Name:        "My-LiveHub",
 		Description: "多平台综合直播互动辅助平台",
-		Assets:      application.AssetOptions{Handler: assetHandler},
+		Assets: application.AssetOptions{Handler: assetHandler},
+		RawMessageHandler: func(window application.Window, message string, originInfo *application.OriginInfo) {
+			origin, topOrigin := "", ""
+			if originInfo != nil {
+				origin, topOrigin = originInfo.Origin, originInfo.TopOrigin
+			}
+			desktop.HandleBilibiliWebViewRawMessage(bilibiliWebViewService, window.Name(), message, origin, topOrigin)
+		},
 		Services: []application.Service{
 			application.NewService(desktop.NewCoreService(coreApp)),
 			application.NewService(platformService),
 			application.NewService(desktop.NewBilibiliAuthService(bilibiliAuth, platformManager)),
-			application.NewService(desktop.NewBilibiliSettingsService(configManager, bilibiliConfig, bilibiliAdapter)),
+			application.NewService(bilibiliSettingsService),
 			application.NewService(desktop.NewAppearanceService(configManager, appConfig)),
 			application.NewService(danmakuDisplayService),
 			application.NewService(voiceService),
 			application.NewService(musicService),
 			application.NewService(musicLyricsWindowService),
-			application.NewService(videoService),
+			application.NewService(videoQueueService),
+			application.NewService(bilibiliWebViewService),
 		},
 	})
 	wailsApp = app
 	desktop.AttachApplication(platformService, app, appConfig.Appearance.Theme == "light")
 	desktop.AttachDanmakuDisplayApplication(danmakuDisplayService, app)
 	desktop.AttachMusicLyricsWindowApplication(musicLyricsWindowService, app)
+	desktop.AttachBilibiliWebViewApplication(bilibiliWebViewService, app)
 	app.OnShutdown(func() {
 		danmakuDisplayService.CloseWindowForShutdown()
 		musicLyricsWindowService.CloseWindowForShutdown()
-		if err := videoService.Shutdown(); err != nil {
-			log.Printf("stop video playback engine: %v", err)
-		}
+		videoQueueService.Close()
+		bilibiliWebViewService.CloseWindowForShutdown()
 		if err := musicService.Shutdown(); err != nil {
 			log.Printf("stop music playback engine: %v", err)
 		}
