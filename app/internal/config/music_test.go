@@ -122,6 +122,6 @@ func TestMusicConfigFanMedalLevelValidation(t *testing.T) {
 	c.RequireFanMedal = true
 	c.FanMedalLevel = 0
 	if err := c.Validate(); err == nil { t.Fatal("expected invalid required medal level to be rejected") }
-	c.FanMedalLevel = 40
-	if err := c.Validate(); err != nil { t.Fatalf("valid medal level rejected: %v", err) }
+	c.FanMedalLevel = 120
+	if err := c.Validate(); err != nil { t.Fatalf("valid maximum medal level rejected: %v", err) }
 }
