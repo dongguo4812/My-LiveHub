@@ -172,7 +172,10 @@ func main() {
 	app := application.New(application.Options{
 		Name:        "My-LiveHub",
 		Description: "多平台综合直播互动辅助平台",
-		Assets:      application.AssetOptions{Handler: assetHandler},
+		Assets: application.AssetOptions{Handler: assetHandler},
+		RawMessageHandler: func(window application.Window, message string, originInfo *application.OriginInfo) {
+			bilibiliWebViewService.HandleRawMessage(window.Name(), message, originInfo)
+		},
 		Services: []application.Service{
 			application.NewService(desktop.NewCoreService(coreApp)),
 			application.NewService(platformService),
