@@ -407,8 +407,10 @@ async function deactivateLXSource() {
 }
 async function persistLXSearchPriority(source: LXSource, options: LXSearchSourceOption[]) {
   const enabled = options.filter(item => item.enabled).map(item => item.id)
+  // Keep the exact optimistic state supplied by the caller. Re-fetching here
+  // caused the checkbox UI to immediately revert to the stale backend snapshot.
   await MusicService.SetLXSearchSources(source.id, enabled)
-  lxSearchSourceOptions.value = { ...lxSearchSourceOptions.value, [source.id]: await MusicService.GetLXSearchSourceOptions(source.id) }
+  lxSearchSourceOptions.value = { ...lxSearchSourceOptions.value, [source.id]: options.map(item => ({ ...item })) }
   if (activeLXSourceID.value === source.id && selectedSource.value !== 'all' && !searchableSources.value.some(item => item.id === selectedSource.value)) selectedSource.value = 'all'
   results.value = []
 }
