@@ -76,6 +76,10 @@ func (s *BilibiliWebViewService) OpenVideo(bvid string) error {
 		}
 	}
 
+	// Wails queues ExecJS until its local runtime reports ready. Bootstrap
+	// this hidden window on the local app origin first, then navigate to
+	// Bilibili; the runtime-ready state remains available for later ExecJS
+	// calls, while the remote page itself never receives Wails bindings.
 	window := s.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:      "bilibili-webview-player",
 		Title:     "Bilibili 视频播放器",
@@ -83,15 +87,19 @@ func (s *BilibiliWebViewService) OpenVideo(bvid string) error {
 		Height:    800,
 		MinWidth:  800,
 		MinHeight: 560,
-		URL:       videoURL,
+		Hidden:    true,
+		URL:       "/",
 	})
 	s.window = window
+	window.OnWindowEvent(events.Common.WindowRuntimeReady, func(_ *application.WindowEvent) {
+		window.SetURL(videoURL)
+		window.Show()
+		window.Focus()
+	})
 	window.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 		s.handleWindowClosing(window)
 	})
 	window.Center()
-	window.Show()
-	window.Focus()
 	return nil
 }
 
