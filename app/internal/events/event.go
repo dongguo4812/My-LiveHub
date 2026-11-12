@@ -31,6 +31,7 @@ type Event struct {
 	UserName       string          `json:"user_name"`
 	Avatar         string          `json:"avatar,omitempty"`
 	IsModerator    bool            `json:"is_moderator,omitempty"`
+	IsRoomOwner    bool            `json:"is_room_owner,omitempty"`
 	UserLevel      int             `json:"user_level,omitempty"`
 	GuardLevel     int             `json:"guard_level,omitempty"`
 	FanMedalName   string          `json:"fan_medal_name,omitempty"`

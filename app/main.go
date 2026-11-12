@@ -17,6 +17,7 @@ import (
 	"github.com/dongguo4812/My-LiveHub/app/internal/voice"
 	"github.com/dongguo4812/My-LiveHub/app/internal/media/imagecache"
 	"github.com/dongguo4812/My-LiveHub/app/internal/media/resource"
+	"github.com/dongguo4812/My-LiveHub/app/internal/music"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
@@ -28,6 +29,12 @@ var assets embed.FS
 var embeddedDefaultConfig embed.FS
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == music.LXSourceWorkerArgument {
+		if len(os.Args) > 2 && os.Args[2] == music.LXSourceSessionWorkerArgument {
+			os.Exit(music.RunLXUserSourceSessionWorker(os.Stdin, os.Stdout))
+		}
+		os.Exit(music.RunLXSourceWorker(os.Stdin, os.Stdout))
+	}
 	environment := config.ResolveEnvironment(os.Args[1:])
 	paths, err := config.ResolveRuntimePaths(environment)
 	if err != nil {
@@ -84,6 +91,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("load Bilibili configuration: %v", err)
 	}
+	musicConfig, err := config.LoadMusicConfig(configManager)
+	if err != nil {
+		log.Fatalf("load music configuration: %v", err)
+	}
 	voiceConfig, err := config.LoadTyped[config.VoiceConfig](configManager, "voice.json", func(value config.VoiceConfig) error {
 		return value.Validate()
 	})
@@ -92,6 +103,9 @@ func main() {
 	}
 	eventBus := eventstream.NewBus()
 	bilibiliEvents := eventstream.NewBuffer(eventBus)
+	musicService := desktop.NewMusicService(configManager, musicConfig, bilibiliEvents)
+	musicLyricsWindowService := desktop.NewMusicLyricsWindowService(musicService)
+	videoService := desktop.NewVideoService(musicService, music.NewMpvVideoEngine(""))
 	cacheDir := ""
 	if environment == config.EnvironmentDevelopment {
 		if workingDir, getwdErr := os.Getwd(); getwdErr == nil {
@@ -140,6 +154,12 @@ func main() {
 	if err := coreApp.Modules().Register("voice", voice.NewModule(voiceService)); err != nil {
 		log.Fatalf("register voice module: %v", err)
 	}
+	if err := coreApp.Modules().Register("music", desktop.NewMusicModule(musicService)); err != nil {
+		log.Fatalf("register music module: %v", err)
+	}
+	if err := coreApp.Modules().Register("video", desktop.NewVideoModule(videoService)); err != nil {
+		log.Fatalf("register video module: %v", err)
+	}
 	assetHandler := application.AssetFileServerFS(assets)
 	imageCache, cacheErr := imagecache.NewWithPolicies(filepath.Join(cacheDir, "media-images"), assetHandler, map[string]imagecache.URLPolicy{"bilibili":imagecache.BilibiliURLPolicy})
 	if cacheErr != nil { log.Printf("initialize local media image cache: %v", cacheErr) } else { assetHandler = imageCache; platformService.SetMediaImageCache(imageCache); imageCache.RefreshStats() }
@@ -156,13 +176,24 @@ func main() {
 			application.NewService(desktop.NewAppearanceService(configManager, appConfig)),
 			application.NewService(danmakuDisplayService),
 			application.NewService(voiceService),
+			application.NewService(musicService),
+			application.NewService(musicLyricsWindowService),
+			application.NewService(videoService),
 		},
 	})
 	wailsApp = app
 	desktop.AttachApplication(platformService, app, appConfig.Appearance.Theme == "light")
 	desktop.AttachDanmakuDisplayApplication(danmakuDisplayService, app)
+	desktop.AttachMusicLyricsWindowApplication(musicLyricsWindowService, app)
 	app.OnShutdown(func() {
 		danmakuDisplayService.CloseWindowForShutdown()
+		musicLyricsWindowService.CloseWindowForShutdown()
+		if err := videoService.Shutdown(); err != nil {
+			log.Printf("stop video playback engine: %v", err)
+		}
+		if err := musicService.Shutdown(); err != nil {
+			log.Printf("stop music playback engine: %v", err)
+		}
 		if err := mediaCatalog.Close(); err != nil {
 			log.Printf("flush local media resource catalog: %v", err)
 		}

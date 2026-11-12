@@ -7,6 +7,7 @@ tasks:
   dev:
     summary: 生成 Wails 前端绑定并启动 My-LiveHub 桌面开发环境
     cmds:
+      - powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/dev-preflight.ps1 -Port {{.VITE_PORT}}
       - wails3 generate bindings -ts
       - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
   frontend:install:

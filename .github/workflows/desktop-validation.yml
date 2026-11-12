@@ -18,70 +18,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  windows:
-    name: Windows desktop build
-    runs-on: windows-latest
-    defaults:
-      run:
-        working-directory: prototype/desktop-validation/My-LiveHub-Desktop-Validation
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.27.x'
-          cache: true
-          cache-dependency-path: prototype/desktop-validation/My-LiveHub-Desktop-Validation/go.sum
-
-      - name: Add Go bin to PATH
-        shell: pwsh
-        run: |
-          "$(go env GOPATH)\\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '26'
-          cache: npm
-          cache-dependency-path: prototype/desktop-validation/My-LiveHub-Desktop-Validation/frontend/package-lock.json
-
-      - name: Cache Wails CLI
-        uses: actions/cache@v4
-        with:
-          path: ~/go/bin/wails3.exe
-          key: wails3-${{ runner.os }}-go1.27-v3.0.0
-
-      - name: Install Wails CLI
-        shell: pwsh
-        run: |
-          $wails = Join-Path (go env GOPATH) 'bin/wails3.exe'
-          if (!(Test-Path $wails)) {
-            go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
-          }
-
-      - name: Generate frontend bindings
-        shell: pwsh
-        run: wails3 generate bindings -ts
-
-      - name: Install frontend dependencies
-        working-directory: prototype/desktop-validation/My-LiveHub-Desktop-Validation/frontend
-        run: npm ci
-
-      - name: Build frontend
-        working-directory: prototype/desktop-validation/My-LiveHub-Desktop-Validation/frontend
-        run: npm run build
-
-      - name: Test Go
-        run: go test ./...
-
-      - name: Build Windows desktop application
-        run: wails3 build
-
   formal-client:
-    name: Formal client frontend and Go build
+    name: Formal client frontend and Go validation
     runs-on: windows-latest
     defaults:
       run:
@@ -98,12 +36,24 @@ jobs:
           cache: true
           cache-dependency-path: app/go.sum
 
+      - name: Verify Go module metadata is tidy
+        shell: pwsh
+        run: |
+          go mod tidy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code -- go.mod go.sum
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '26'
           cache: npm
           cache-dependency-path: app/frontend/package-lock.json
+
+      - name: Add Go bin to PATH
+        shell: pwsh
+        run: |
+          "$(go env GOPATH)\\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Cache Wails CLI
         uses: actions/cache@v4
@@ -137,3 +87,60 @@ jobs:
       - name: Build Windows executable
         shell: pwsh
         run: go build -o bin/My-LiveHub.exe .
+
+  mpv-runtime:
+    name: Validate pinned Windows x64 mpv runtime
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go for mpv integration tests
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+          cache: true
+          cache-dependency-path: app/go.sum
+
+      - name: Download and install verified mpv runtime
+        shell: pwsh
+        run: |
+          $destination = Join-Path $env:RUNNER_TEMP "mpv-runtime"
+          & ".\\app\\scripts\\prepare-mpv-runtime.ps1" -Destination $destination
+          "MPV_EXECUTABLE=$(Join-Path $destination 'mpv.exe')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Verify mpv starts
+        shell: pwsh
+        run: |
+          $stdout = Join-Path $env:RUNNER_TEMP "mpv-version.stdout.txt"
+          $stderr = Join-Path $env:RUNNER_TEMP "mpv-version.stderr.txt"
+          $workingDirectory = Split-Path -Parent $env:MPV_EXECUTABLE
+
+          try {
+            $process = Start-Process -FilePath $env:MPV_EXECUTABLE -ArgumentList @("--no-config", "--version") -WorkingDirectory $workingDirectory -Wait -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          }
+          catch {
+            throw "Windows could not start the bundled mpv executable: $($_.Exception.Message)"
+          }
+
+          $output = @()
+          if (Test-Path $stdout) { $output += Get-Content $stdout }
+          if (Test-Path $stderr) { $output += Get-Content $stderr }
+          if ($process.ExitCode -ne 0) {
+            throw "mpv failed to start (exit code $($process.ExitCode)): $($output -join [Environment]::NewLine)"
+          }
+
+          $versionText = ($output -join [Environment]::NewLine).TrimStart([char]0xFEFF)
+          if ($versionText -notlike "*mpv v0.42.0*") {
+            throw "Unexpected mpv version output: $versionText"
+          }
+          $output | Select-Object -First 5 | ForEach-Object { Write-Host $_ }
+
+      - name: Verify decoded audio playback and JSON IPC controls
+        working-directory: app
+        shell: pwsh
+        run: |
+          if (!(Test-Path $env:MPV_EXECUTABLE)) {
+            throw "Pinned mpv executable is unavailable for playback integration testing"
+          }
+          go test ./internal/music -run TestMpvPlaybackIntegration -count=1 -v
