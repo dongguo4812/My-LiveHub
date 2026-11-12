@@ -30,6 +30,10 @@ func TestVideoResolverReturnsMP4AndRequiredHeaders(t *testing.T) {
 			fmt.Fprint(w,`{"code":0,"data":{"bvid":"BV1xx411c7mD","title":"测试视频","cid":12345,"pages":[{"cid":12345,"page":1}]}}`)
 		case "/nav":
 			fmt.Fprintf(w,`{"code":0,"data":{"wbi_img":{"img_url":"https://i.example/%s.png","sub_url":"https://i.example/%s.png"}}}`,img,sub)
+		case "/danmaku":
+			if r.URL.Query().Get("oid") != "12345" { t.Errorf("danmaku oid = %q", r.URL.Query().Get("oid")) }
+			w.Header().Set("Content-Type", "text/xml")
+			fmt.Fprint(w, `<i><d p="1,1,25,16777215,0,0,0,0">测试弹幕</d></i>`)
 		case "/playurl":
 			if r.URL.Query().Get("bvid")!="BV1xx411c7mD" || r.URL.Query().Get("cid")!="12345" { t.Errorf("unexpected playurl query: %s",r.URL.RawQuery) }
 			if r.URL.Query().Get("w_rid")=="" || r.URL.Query().Get("wts")=="" { t.Errorf("missing WBI signature: %s",r.URL.RawQuery) }
@@ -46,10 +50,12 @@ func TestVideoResolverReturnsMP4AndRequiredHeaders(t *testing.T) {
 	resolver.viewURL=server.URL+"/view"
 	resolver.navURL=server.URL+"/nav"
 	resolver.playURL=server.URL+"/playurl"
+	resolver.danmakuURL=server.URL+"/danmaku"
 	resolver.now=func()time.Time{return time.Unix(1700000000,0)}
 	got,err:=resolver.Resolve(context.Background(),"BV1xx411c7mD")
 	if err!=nil {t.Fatal(err)}
 	if got.Title!="测试视频" || got.Quality!=80 {t.Fatalf("unexpected video metadata: %#v",got)}
+	if !strings.Contains(got.DanmakuASS, "测试弹幕") { t.Fatalf("danmaku ASS missing converted comment: %s", got.DanmakuASS) }
 	if got.ResourceURL!="https://cdn.example/video.mp4?expires=1" {t.Fatalf("resource URL = %q",got.ResourceURL)}
 	for key,want:=range map[string]string{"Cookie":cookie,"Referer":videoReferer,"User-Agent":videoUserAgent} {
 		if got.Headers[key]!=want {t.Errorf("playback header %s = %q, want %q",key,got.Headers[key],want)}
