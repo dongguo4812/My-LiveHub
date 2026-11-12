@@ -22,9 +22,11 @@ type BilibiliWebViewWindowState struct {
 type BilibiliWebViewService struct {
 	mu          sync.RWMutex
 	app         *application.App
-	window      *application.WebviewWindow
-	music       musicPlaybackController
-	resumeMusic bool
+	window          *application.WebviewWindow
+	music           musicPlaybackController
+	resumeMusic     bool
+	runtimeReady    bool
+	pendingVideoURL string
 }
 
 func NewBilibiliWebViewService(musicService musicPlaybackController) *BilibiliWebViewService {
@@ -56,6 +58,10 @@ func (s *BilibiliWebViewService) OpenVideo(bvid string) error {
 	}
 	videoURL := "https://www.bilibili.com/video/" + bvid
 	if s.window != nil {
+		if !s.runtimeReady {
+			s.pendingVideoURL = videoURL
+			return nil
+		}
 		s.window.SetURL(videoURL)
 		s.window.Show()
 		s.window.Focus()
@@ -91,10 +97,25 @@ func (s *BilibiliWebViewService) OpenVideo(bvid string) error {
 		URL:       "/",
 	})
 	s.window = window
+	s.pendingVideoURL = videoURL
 	window.OnWindowEvent(events.Common.WindowRuntimeReady, func(_ *application.WindowEvent) {
-		window.SetURL(videoURL)
-		window.Show()
-		window.Focus()
+		s.mu.Lock()
+		if s.window != window {
+			s.mu.Unlock()
+			return
+		}
+		targetURL := s.pendingVideoURL
+		s.pendingVideoURL = ""
+		s.runtimeReady = true
+		s.mu.Unlock()
+		if targetURL == "" {
+			return
+		}
+		go func() {
+			window.SetURL(targetURL)
+			window.Show()
+			window.Focus()
+		}()
 	})
 	window.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 		s.handleWindowClosing(window)
@@ -160,6 +181,8 @@ func (s *BilibiliWebViewService) handleWindowClosing(window *application.Webview
 		return
 	}
 	s.window = nil
+	s.runtimeReady = false
+	s.pendingVideoURL = ""
 	shouldResume := s.resumeMusic
 	s.resumeMusic = false
 	s.mu.Unlock()
