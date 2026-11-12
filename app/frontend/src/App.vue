@@ -39,11 +39,13 @@ let refreshTimer: ReturnType<typeof setInterval> | undefined
 function navigate(path: string) { router.push(path) }
 
 onMounted(() => {
+  if (route.meta.standalone) return
   initializeVoiceAudio()
   void refreshCoreStatus()
   refreshTimer = setInterval(() => void refreshCoreStatus(), 3000)
 })
 onUnmounted(() => {
+  if (route.meta.standalone) return
   disposeVoiceAudio()
   if (refreshTimer) clearInterval(refreshTimer)
 })
