@@ -197,3 +197,27 @@ func TestLXSearchSingleProviderPreservesNativeOrder(t *testing.T) {
 		t.Fatalf("single-provider search must preserve provider-native order, got %#v", result.Tracks)
 	}
 }
+
+
+func TestQQSearchRetriesRejectedResponsesLikeLXDesktop(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if r.URL.Query().Get("sign") == "" { t.Error("QQ request missing signature") }
+		if attempts < 3 {
+			_, _ = w.Write([]byte(`{"code":-1,"music.search.SearchCgiService":{"code":-1,"message":"temporary rejection"}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"code":0,"music.search.SearchCgiService":{"code":0,"data":{"body":{"song":{"list":[]}},"meta":{"sum":0}}}}`))
+	}))
+	defer server.Close()
+	provider := qqSearchProvider{client:server.Client(), endpoint:server.URL}
+	if _, err := provider.Search(context.Background(), "test", 1, 30); err != nil { t.Fatalf("QQ Search() failed after transient rejections: %v", err) }
+	if attempts != 3 { t.Fatalf("QQ request attempts = %d, want 3", attempts) }
+}
+
+func TestDefaultLXSearchQQEndpointMatchesLXDesktop(t *testing.T) {
+	if got := DefaultLXSearchEndpoints().QQ; got != "https://u.y.qq.com/cgi-bin/musics.fcg" {
+		t.Fatalf("QQ search endpoint = %q, want LX desktop endpoint musics.fcg", got)
+	}
+}

@@ -74,7 +74,7 @@ func DefaultLXSearchEndpoints() LXSearchEndpoints {
 	return LXSearchEndpoints{
 		Kuwo: "http://search.kuwo.cn/r.s",
 		Kugou: "http://songsearch.kugou.com/song_search_v2",
-		QQ: "https://u.y.qq.com/cgi-bin/musicu.fcg",
+		QQ: "https://u.y.qq.com/cgi-bin/musics.fcg",
 		Netease: "http://interface.music.163.com/eapi/batch",
 		Migu: "https://jadeite.migu.cn/music_search/v3/search/searchAll",
 	}
@@ -447,35 +447,49 @@ func qqSignature(text string) string {
 }
 func (p qqSearchProvider) Search(ctx context.Context,keyword string,page,limit int)(SearchPage,error){
 	if limit <= 0 { limit = lxSongSearchPageSize }
-	var payload qqSearchRequest
-	payload.Comm.ChannelID="0";payload.Comm.OSVersion="6.2.9200-2";payload.Comm.CT="19";payload.Comm.CV="2151"
-	payload.Comm.GUID="1F70E520B2EAA7D25E11760783C53CA9";payload.Comm.Patch="118";payload.Comm.AppID="qqmusic";payload.Comm.WID="7223299733393904640";payload.Comm.UIN="0"
-	payload.Service.Module="music.search.SearchCgiService";payload.Service.Method="DoSearchForQQMusicDesktop"
-	payload.Service.Param.Group=1;payload.Service.Param.Limit=limit;payload.Service.Param.Page=page;payload.Service.Param.Query=keyword;payload.Service.Param.Remote="txt.newclient.top";payload.Service.Param.Type=0
-	var random [16]byte;_,_=rand.Read(random[:])
-	payload.Service.Param.SearchID=strings.ToUpper(hex.EncodeToString(random[:]))+fmt.Sprintf("%05d",time.Now().UnixNano()%100000)
-	body,err:=jsonBody(payload);if err!=nil{return SearchPage{},err}
-	sign:=qqSignature(string(body))
-	raw,err:=doLXJSON(ctx,p.client,http.MethodPost,p.endpoint+"?sign="+url.QueryEscape(sign),map[string]string{"User-Agent":"QQMusic 14090508(android 12)","Content-Type":"application/json"},bytes.NewReader(body))
-	if err!=nil{return SearchPage{},err}
-	req:=mapValue(raw["music.search.SearchCgiService"]);if len(req)==0{req=mapValue(raw["req"])}
-	if len(req)==0||intValue(raw["code"])!=0||intValue(req["code"])!=0{return SearchPage{},errors.New("QQ 音乐搜索响应状态异常")}
-	data:=mapValue(req["data"]);resultBody:=mapValue(data["body"]);song:=mapValue(resultBody["song"]);meta:=mapValue(data["meta"])
-	items:=sliceValue(song["list"]);tracks:=make([]Track,0,len(items))
-	for _,entry:=range items{
-		item:=mapValue(entry);file:=mapValue(item["file"]);media:=stringValue(file["media_mid"]);if media==""{continue}
-		types:=[]TrackQuality{}
-		for _,spec:=range []struct{key,kind string}{{"size_128mp3","128k"},{"size_320mp3","320k"},{"size_flac","flac"},{"size_hires","flac24bit"}}{sz:=intValue(file[spec.key]);if sz>0{types=append(types,quality(spec.kind,sz,nil))}}
-		album:=mapValue(item["album"]);albumID:=stringValue(album["mid"]);albumName:=stringValue(album["name"])
-		artists:=[]string{};for _,v:=range sliceValue(item["singer"]){if n:=stringValue(mapValue(v)["name"]);n!=""{artists=append(artists,n)}}
-		id:=stringValue(item["mid"]);if id==""{id=stringValue(item["id"])}
-		cover:="";if albumID!="" && albumID!="空"{cover="https://y.gtimg.cn/music/photo_new/T002R500x500M000"+albumID+".jpg"}else if singers:=sliceValue(item["singer"]);len(singers)>0{if singerMid:=stringValue(mapValue(singers[0])["mid"]);singerMid!=""{cover="https://y.gtimg.cn/music/photo_new/T001R500x500M000"+singerMid+".jpg"}}
-		dur:=intValue(item["interval"])*1000
-		dataMap:=map[string]string{"songmid":id,"song_id":stringValue(item["id"]),"media_mid":media,"album_mid":albumID}
-		tracks=append(tracks,newLXTrack("tx",id,stringValue(item["title"]),strings.Join(artists,"、"),albumName,dur,cover,dataMap,types))
+	// LX desktop retries QQ's signed search request when the API returns a
+	// non-zero status. The production endpoint is musics.fcg (plural), not
+	// musicu.fcg; the latter is used by the lyric API.
+	var raw map[string]any
+	var lastStatus string
+	for attempt:=0;attempt<=5;attempt++ {
+		var payload qqSearchRequest
+		payload.Comm.ChannelID="0";payload.Comm.OSVersion="6.2.9200-2";payload.Comm.CT="19";payload.Comm.CV="2151"
+		payload.Comm.GUID="1F70E520B2EAA7D25E11760783C53CA9";payload.Comm.Patch="118";payload.Comm.AppID="qqmusic";payload.Comm.WID="7223299733393904640";payload.Comm.UIN="0"
+		payload.Service.Module="music.search.SearchCgiService";payload.Service.Method="DoSearchForQQMusicDesktop"
+		payload.Service.Param.Group=1;payload.Service.Param.Limit=limit;payload.Service.Param.Page=page;payload.Service.Param.Query=keyword;payload.Service.Param.Remote="txt.newclient.top";payload.Service.Param.Type=0
+		var random [16]byte
+		if _,err:=rand.Read(random[:]);err!=nil{return SearchPage{},fmt.Errorf("生成 QQ 搜索会话 ID 失败：%w",err)}
+		payload.Service.Param.SearchID=strings.ToUpper(hex.EncodeToString(random[:]))+fmt.Sprintf("%05d",time.Now().UnixNano()%100000)
+		body,err:=jsonBody(payload);if err!=nil{return SearchPage{},err}
+		sign:=qqSignature(string(body))
+		raw,err=doLXJSON(ctx,p.client,http.MethodPost,p.endpoint+"?sign="+url.QueryEscape(sign),map[string]string{"User-Agent":"QQMusic 14090508(android 12)","Content-Type":"application/json"},bytes.NewReader(body))
+		if err!=nil{return SearchPage{},err}
+		req:=mapValue(raw["music.search.SearchCgiService"]);if len(req)==0{req=mapValue(raw["req"])}
+		if len(req)>0&&intValue(raw["code"])==0&&intValue(req["code"])==0 {
+			data:=mapValue(req["data"]);resultBody:=mapValue(data["body"]);song:=mapValue(resultBody["song"]);meta:=mapValue(data["meta"])
+			items:=sliceValue(song["list"]);tracks:=make([]Track,0,len(items))
+			for _,entry:=range items{
+				item:=mapValue(entry);file:=mapValue(item["file"]);media:=stringValue(file["media_mid"]);if media==""{continue}
+				types:=[]TrackQuality{}
+				for _,spec:=range []struct{key,kind string}{{"size_128mp3","128k"},{"size_320mp3","320k"},{"size_flac","flac"},{"size_hires","flac24bit"}}{sz:=intValue(file[spec.key]);if sz>0{types=append(types,quality(spec.kind,sz,nil))}}
+				album:=mapValue(item["album"]);albumID:=stringValue(album["mid"]);albumName:=stringValue(album["name"])
+				artists:=[]string{};for _,v:=range sliceValue(item["singer"]){if n:=stringValue(mapValue(v)["name"]);n!=""{artists=append(artists,n)}}
+				id:=stringValue(item["mid"]);if id==""{id=stringValue(item["id"])}
+				cover:="";if albumID!="" && albumID!="空"{cover="https://y.gtimg.cn/music/photo_new/T002R500x500M000"+albumID+".jpg"}else if singers:=sliceValue(item["singer"]);len(singers)>0{if singerMid:=stringValue(mapValue(singers[0])["mid"]);singerMid!=""{cover="https://y.gtimg.cn/music/photo_new/T001R500x500M000"+singerMid+".jpg"}}
+				dur:=intValue(item["interval"])*1000
+				dataMap:=map[string]string{"songmid":id,"song_id":stringValue(item["id"]),"media_mid":media,"album_mid":albumID}
+				tracks=append(tracks,newLXTrack("tx",id,stringValue(item["title"]),strings.Join(artists,"、"),albumName,dur,cover,dataMap,types))
+			}
+			total:=intValue(meta["sum"]);if total==0{total=intValue(song["totalnum"])}
+			return SearchPage{Tracks:tracks,Total:total,Page:page,PageSize:limit,MaxPage:pageCount(total,limit),Source:"tx"},nil
+		}
+		lastStatus=fmt.Sprintf("top-level code=%v, provider code=%v",raw["code"],mapValue(raw["music.search.SearchCgiService"])["code"])
+		if attempt<5 {
+			select { case <-ctx.Done(): return SearchPage{},ctx.Err(); case <-time.After(time.Duration(attempt+1)*150*time.Millisecond): }
+		}
 	}
-	total:=intValue(meta["sum"]);if total==0{total=intValue(song["totalnum"])}
-	return SearchPage{Tracks:tracks,Total:total,Page:page,PageSize:limit,MaxPage:pageCount(total,limit),Source:"tx"},nil
+	return SearchPage{},fmt.Errorf("QQ 音乐搜索响应状态异常（重试 6 次后仍失败：%s）",lastStatus)
 }
 
 // NetEase Cloud Music (wy): LX desktop uses the EAPI AES-128-ECB request.

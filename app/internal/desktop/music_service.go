@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 			"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -663,9 +664,9 @@ func (s *MusicService) GetLyrics(track music.Track) (string, error) {
 
 func (s *MusicService) getLRCLIBLyrics(track music.Track) (string, error) {
 	if strings.TrimSpace(track.Title) == "" { return "", errors.New("歌曲名称不能为空") }
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 18*time.Second)
 	defer cancel()
-	client := &http.Client{Timeout: 10*time.Second}
+	client := &http.Client{Timeout: 18*time.Second}
 	// Search first: exact-match requires exact duration and album values, often
 	// unavailable or different in metadata returned by LX source providers.
 	query := url.Values{}
@@ -679,8 +680,10 @@ func (s *MusicService) getLRCLIBLyrics(track music.Track) (string, error) {
 	if err != nil { return "", fmt.Errorf("搜索歌词失败：%w", err) }
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK { return "", fmt.Errorf("歌词服务返回 HTTP %d", resp.StatusCode) }
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if err != nil { return "", fmt.Errorf("读取歌词搜索结果失败：%w", err) }
 	var matches []musicLyricsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&matches); err != nil { return "", fmt.Errorf("解析歌词搜索结果失败：%w", err) }
+	if err := json.Unmarshal(raw, &matches); err != nil { return "", fmt.Errorf("解析歌词搜索结果失败：%w", err) }
 	normalize := func(value string) string { return strings.ToLower(strings.Join(strings.Fields(value), "")) }
 	title, artist := normalize(track.Title), normalize(track.Artist)
 	bestScore, bestLyrics := -1, ""
