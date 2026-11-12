@@ -34,6 +34,7 @@ func TestVideoResolverReturnsMP4AndRequiredHeaders(t *testing.T) {
 			if r.URL.Query().Get("bvid")!="BV1xx411c7mD" || r.URL.Query().Get("cid")!="12345" { t.Errorf("unexpected playurl query: %s",r.URL.RawQuery) }
 			if r.URL.Query().Get("w_rid")=="" || r.URL.Query().Get("wts")=="" { t.Errorf("missing WBI signature: %s",r.URL.RawQuery) }
 			if r.URL.Query().Get("fnval")!="1" { t.Errorf("fnval = %q, want MP4",r.URL.Query().Get("fnval")) }
+			if r.URL.Query().Get("qn")!="127" { t.Errorf("qn = %q, want highest-quality request 127",r.URL.Query().Get("qn")) }
 			fmt.Fprint(w,`{"code":0,"data":{"quality":80,"durl":[{"url":"https://cdn.example/video.mp4?expires=1"}]}}`)
 		default:
 			http.NotFound(w,r)
