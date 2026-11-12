@@ -17,7 +17,7 @@ var videoTrackSequence atomic.Uint64
 
 // VideoService owns the dedicated borderless mpv video process. Music remains
 // on its own audio-only process and is resumed only when it was playing before
-// the MV started.
+// the video started.
 type musicPlaybackController interface {
 	Pause() error
 	Resume() error
@@ -46,16 +46,16 @@ func (s *VideoService) Play(resourceURL, title string) error {
 	title = strings.TrimSpace(title)
 	parsed, err := url.Parse(resourceURL)
 	if err != nil || parsed.Scheme == "" || (parsed.Scheme != "http" && parsed.Scheme != "https" && parsed.Scheme != "file") {
-		return errors.New("MV 地址必须是 http、https 或 file URL")
+		return errors.New("视频地址必须是 http、https 或 file URL")
 	}
-	if title == "" { title = "MV" }
+	if title == "" { title = "视频" }
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.active {
 		s.cancelWatcherLocked()
 		if lifecycle, ok := s.engine.(music.PlaybackEngineLifecycle); ok {
-			if err := lifecycle.Close(); err != nil { return fmt.Errorf("close previous MV window: %w", err) }
+			if err := lifecycle.Close(); err != nil { return fmt.Errorf("close previous video window: %w", err) }
 		}
 		s.active = false
 	} else {
@@ -77,18 +77,18 @@ func (s *VideoService) Play(resourceURL, title string) error {
 		return cause
 	}
 	if validator, ok := s.engine.(music.PlaybackEngineValidator); ok {
-		if err := validator.Validate(); err != nil { return restoreOnFailure(fmt.Errorf("MV 播放运行时验证失败：%w", err)) }
+		if err := validator.Validate(); err != nil { return restoreOnFailure(fmt.Errorf("视频播放运行时验证失败：%w", err)) }
 	}
 	if lifecycle, ok := s.engine.(music.PlaybackEngineLifecycle); ok {
-		if err := lifecycle.Start(context.Background()); err != nil { return restoreOnFailure(fmt.Errorf("启动 MV 视频窗口失败：%w", err)) }
+		if err := lifecycle.Start(context.Background()); err != nil { return restoreOnFailure(fmt.Errorf("启动视频窗口失败：%w", err)) }
 	}
 	track := music.Track{
-		ID:fmt.Sprintf("mv-%d", videoTrackSequence.Add(1)),
+		ID:fmt.Sprintf("video-%d", videoTrackSequence.Add(1)),
 		SourceID:"direct_video",
 		Title:title,
 	}
 	if err := s.engine.Load(context.Background(), music.PlaybackResource{URL:resourceURL}, track); err != nil {
-		return restoreOnFailure(fmt.Errorf("加载 MV 失败：%w", err))
+		return restoreOnFailure(fmt.Errorf("加载视频失败：%w", err))
 	}
 	s.active = true
 	s.startWatcherLocked()
