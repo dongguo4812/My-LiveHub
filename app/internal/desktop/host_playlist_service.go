@@ -347,3 +347,152 @@ func parseLXInterval(value string)int64{
 	if seconds,err:=strconv.ParseFloat(value,64);err==nil&&seconds>0{return int64(seconds*1000)}
 	return 0
 }
+
+
+// HostTrackSourceResults keeps replacement candidates grouped by their native
+// music platform, matching the source tabs used by LX Music.
+type HostTrackSourceResults struct {
+	SourceID string        `json:"source_id"`
+	Name     string        `json:"name"`
+	Tracks   []music.Track `json:"tracks"`
+	Error    string        `json:"error,omitempty"`
+}
+
+// SearchHostTrackAlternatives searches only the currently enabled LX script
+// sources. Each provider keeps its own native result order and metadata.
+func (s *MusicService) SearchHostTrackAlternatives(track music.Track) ([]HostTrackSourceResults, error) {
+	if s == nil || s.searcher == nil {
+		return nil, errors.New("洛雪搜索 SDK 未初始化")
+	}
+	keyword := strings.TrimSpace(track.Title + " " + track.Artist)
+	if strings.TrimSpace(track.Title) == "" {
+		return nil, errors.New("原歌曲缺少歌名，无法换源搜索")
+	}
+	sourceIDs := s.activeLXSearchSourceIDs()
+	if len(sourceIDs) == 0 {
+		return []HostTrackSourceResults{}, nil
+	}
+	names := make(map[string]string)
+	for _, source := range s.searcher.Sources() {
+		names[source.ID] = source.Name
+	}
+	type outcome struct {
+		result HostTrackSourceResults
+	}
+	results := make([]HostTrackSourceResults, len(sourceIDs))
+	ctx, cancel := context.WithTimeout(context.Background(), 22*time.Second)
+	defer cancel()
+	var wg sync.WaitGroup
+	for i, sourceID := range sourceIDs {
+		wg.Add(1)
+		go func(index int, id string) {
+			defer wg.Done()
+			group := HostTrackSourceResults{SourceID: id, Name: names[id], Tracks: []music.Track{}}
+			page, err := s.searcher.SearchProvider(ctx, id, keyword, 1)
+			if err != nil {
+				group.Error = err.Error()
+			} else {
+				group.Tracks = page.Tracks
+			}
+			results[index] = group
+		}(i, sourceID)
+	}
+	wg.Wait()
+	return results, nil
+}
+
+// ReplaceHostTrackInPlaylist replaces one saved song with the complete Track
+// returned by the provider search, retaining the original playlist position.
+func (s *MusicService) ReplaceHostTrackInPlaylist(playlistID, oldSourceID, oldTrackID string, replacement music.Track) error {
+	if s == nil {
+		return errors.New("音乐服务不可用")
+	}
+	if err := musicTrackReplacementValid(replacement); err != nil {
+		return err
+	}
+	st := hostStateFor(s)
+	st.mu.Lock()
+	if err := s.loadHostPlaylistLocked(st); err != nil {
+		st.mu.Unlock()
+		return err
+	}
+	if playlistID == "" {
+		playlistID = st.activeID
+	}
+	playlistIndex := findHostPlaylist(st, playlistID)
+	if playlistIndex < 0 {
+		st.mu.Unlock()
+		return errors.New("找不到指定歌单")
+	}
+	playlist := &st.playlists[playlistIndex]
+	targetIndex := -1
+	for i, item := range playlist.Tracks {
+		if item.SourceID == oldSourceID && item.ID == oldTrackID {
+			targetIndex = i
+			break
+		}
+	}
+	if targetIndex < 0 {
+		st.mu.Unlock()
+		return errors.New("原歌曲已不在当前歌单，请刷新后重试")
+	}
+	if replacement.SourceID == oldSourceID && replacement.ID == oldTrackID {
+		st.mu.Unlock()
+		return errors.New("所选歌曲与原歌曲相同，无需换源")
+	}
+	// Match LX behavior: if the selected candidate already exists elsewhere
+	// in this playlist, remove that duplicate and keep the replacement at the
+	// original song's position.
+	for i, item := range playlist.Tracks {
+		if i == targetIndex || item.SourceID != replacement.SourceID || item.ID != replacement.ID {
+			continue
+		}
+		playlist.Tracks = append(playlist.Tracks[:i], playlist.Tracks[i+1:]...)
+		if i < targetIndex {
+			targetIndex--
+		}
+		break
+	}
+	playlist.Tracks[targetIndex] = replacement
+	isCurrent := playlistID == st.activeID && st.index == targetIndex
+	if err := s.saveHostPlaylistLocked(st); err != nil {
+		st.mu.Unlock()
+		return err
+	}
+	st.mu.Unlock()
+
+	if isCurrent {
+		current := s.queue.Snapshot().Current
+		if current != nil && current.RequestedBy == hostQueueMarker &&
+			current.Track.SourceID == oldSourceID && current.Track.ID == oldTrackID {
+			snapshot, snapshotErr := s.engine.Snapshot(context.Background())
+			if snapshotErr != nil {
+				return fmt.Errorf("歌曲已在歌单中替换，但读取当前播放状态失败：%w", snapshotErr)
+			}
+			if _, err := s.queue.SetCurrentTrack(replacement, hostQueueMarker); err != nil {
+				return err
+			}
+			s.cancelPlaybackWatcher()
+			if err := s.PlayNext(); err != nil {
+				return fmt.Errorf("歌曲已在歌单中替换，但切换当前播放失败：%w", err)
+			}
+			if snapshot.PositionMS > 0 {
+				_ = s.Seek(snapshot.PositionMS)
+			}
+			if snapshot.State == music.PlaybackPaused {
+				_ = s.Pause()
+			}
+		}
+	}
+	return nil
+}
+
+func musicTrackReplacementValid(track music.Track) error {
+	if strings.TrimSpace(track.ID) == "" || strings.TrimSpace(track.SourceID) == "" || strings.TrimSpace(track.Title) == "" {
+		return errors.New("候选歌曲缺少平台歌曲 ID、音源或歌名，无法换源")
+	}
+	if track.DurationMS < 0 {
+		return errors.New("候选歌曲时长无效")
+	}
+	return nil
+}
