@@ -37,6 +37,11 @@ interface VideoSettings {
   video_max_duration_seconds: number
   video_require_fan_medal: boolean
   video_queue_display_limit: number
+  video_window_x: number
+  video_window_y: number
+  video_window_width: number
+  video_window_height: number
+  video_window_bounds_saved: boolean
 }
 const snapshot = ref<QueueSnapshot>({
   enabled: true, items: [], queue_count: 0,
@@ -45,6 +50,7 @@ const snapshot = ref<QueueSnapshot>({
 const settings = ref<VideoSettings>({
   room_id: 0, video_requests_enabled: true, video_request_cooldown_seconds: 60,
   video_queue_limit: 30, video_max_duration_seconds: 300, video_require_fan_medal: false, video_queue_display_limit: 10,
+  video_window_x: 0, video_window_y: 0, video_window_width: 1280, video_window_height: 800, video_window_bounds_saved: false,
 })
 const activeTab = ref<'queue'|'settings'>('queue')
 const bvid = ref('')
