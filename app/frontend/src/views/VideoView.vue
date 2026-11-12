@@ -229,7 +229,7 @@ onUnmounted(() => { unsubscribe?.(); if (timer) clearInterval(timer) })
             <div class="field-hint">只检查用户是否拥有当前主播的粉丝勋章，不要求佩戴；主播和房管免检。</div>
           </el-form-item>
           <el-form-item label="最低粉丝勋章等级">
-            <el-input-number v-model="settings.video_fan_medal_level" :min="1" :max="100" />
+            <el-input-number v-model="settings.video_fan_medal_level" :min="1" :max="120" />
           </el-form-item>
           <el-form-item label="队列页面显示数量">
             <el-input-number v-model="settings.video_queue_display_limit" :min="1" :max="100" />
