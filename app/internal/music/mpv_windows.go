@@ -341,7 +341,7 @@ func (e *MpvEngine) SetVolume(ctx context.Context, volume int) error {
 	e.mu.Unlock()
 	return nil
 }
-const mpvLoudnessNormalizationFilter = "lavfi=[loudnorm=I=-16:TP=-1.5:LRA=11:linear=false]"
+const mpvLoudnessNormalizationFilter = "lavfi=[loudnorm=I=-16:TP=-1.5:LRA=11:linear=false,aresample=48000]"
 
 // SetLoudnessNormalization applies EBU R128 single-pass dynamic loudness
 // normalization. The setting is retained while mpv is stopped and applied
