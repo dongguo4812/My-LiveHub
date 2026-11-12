@@ -210,7 +210,7 @@ async function importLXPlaylist(event: Event) {
   } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
   finally { importingPlaylist.value = false; input.value = '' }
 }
-function isFavorite(track: Track) { return favorites.value.some(item => trackRowKey(item) === trackRowKey(track)) }
+
 async function toggleFavorite(track: Track) {
   error.value = ''
   try {
