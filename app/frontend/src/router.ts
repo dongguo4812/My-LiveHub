@@ -25,7 +25,7 @@ const routes=[
 {path:'/danmaku',component:DanmakuView,meta:{title:'弹幕显示',section:'功能模块'}},
 {path:'/voice',component:VoiceView,meta:{title:'语音播报',section:'功能模块'}},
 {path:'/music',component:MusicView,meta:{title:'音乐播放器',section:'功能模块'}},
-{path:'/video',component:VideoView,meta:{title:'MV 播放器',section:'功能模块'}},
+{path:'/video',component:VideoView,meta:{title:'视频点播',section:'功能模块'}},
 {path:'/danmaku/overlay',component:DanmakuOverlayView,meta:{title:'弹幕展示',standalone:true}},
 {path:'/music/lyrics-overlay',component:MusicLyricsOverlayView,meta:{title:'桌面歌词',standalone:true}},
 {path:'/settings',component:SettingsView,meta:{title:'系统设置',section:'系统管理'}},
