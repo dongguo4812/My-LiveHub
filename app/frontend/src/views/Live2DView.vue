@@ -15,12 +15,24 @@ type Live2DWindow = Window & {
   loadlive2d?: (canvasID: string, modelURL: string) => void
   __live2dManager?: LegacyManager
   live2dSetMouthOpen?: (value: number) => void
+  live2dSetModelTransform?: (scale: number, x: number, y: number) => boolean
+  live2dPlayMotion?: (group: string, index: number) => Promise<boolean>
+  live2dSetExpression?: (name: string) => boolean
+  live2dResetExpression?: () => boolean
 }
 
 const settings = ref<Live2DConfig | null>(null)
 const models = ref<Live2DModel[]>([])
 const devices = ref<MediaDeviceInfo[]>([])
 const selectedModel = ref('')
+const selectedExpression = ref('')
+const selectedMotionGroup = ref('')
+const selectedMotionIndex = ref(0)
+const currentModel = computed(() => modelOptions.value.find(model => model.id === selectedModel.value) || null)
+const previewCanvasStyle = computed(() => {
+  if (settings.value?.runtime_version !== 'moc2' || !settings.value) return {}
+  return { transform: `translate(${settings.value.model_offset_x}%, ${settings.value.model_offset_y}%) scale(${settings.value.model_scale})` }
+})
 const loading = ref(false)
 const micError = ref('')
 const micActive = ref(false)
@@ -96,6 +108,54 @@ async function waitForLegacyModel(modelURL: string) {
   throw new Error('MOC2 模型加载超时，请检查模型配置、贴图和 MOC 文件')
 }
 
+function applyModelTransform() {
+  const config = settings.value
+  if (!config || config.runtime_version !== 'moc3') return
+  const frameWindow = runtimeFrame.value?.contentWindow as Live2DWindow | undefined
+  frameWindow?.live2dSetModelTransform?.(config.model_scale, config.model_offset_x / 100, config.model_offset_y / 100)
+}
+
+async function playSelectedExpression() {
+  const name = selectedExpression.value
+  if (!name) return
+  try {
+    let ok = false
+    if (settings.value?.runtime_version === 'moc3') {
+      const frameWindow = runtimeFrame.value?.contentWindow as Live2DWindow | undefined
+      ok = frameWindow?.live2dSetExpression?.(name) ?? false
+    } else {
+      const model = live2dWindow().__live2dManager?.getModel?.(0)
+      if (model && typeof (model as any).setExpression === 'function') { (model as any).setExpression(name); ok = true }
+    }
+    if (!ok) ElMessage.warning('当前模型无法应用该表情')
+  } catch (error) { ElMessage.error('切换表情失败：' + String(error)) }
+}
+
+async function resetExpression() {
+  if (settings.value?.runtime_version === 'moc3') {
+    const frameWindow = runtimeFrame.value?.contentWindow as Live2DWindow | undefined
+    if (!frameWindow?.live2dResetExpression?.()) ElMessage.warning('当前模型不支持恢复表情')
+    return
+  }
+  const model = live2dWindow().__live2dManager?.getModel?.(0) as any
+  model?.expressionManager?.stopAllMotions?.()
+}
+
+async function playSelectedMotion() {
+  if (!selectedMotionGroup.value || !currentModel.value) return
+  try {
+    let ok = false
+    if (settings.value?.runtime_version === 'moc3') {
+      const frameWindow = runtimeFrame.value?.contentWindow as Live2DWindow | undefined
+      ok = await (frameWindow?.live2dPlayMotion?.(selectedMotionGroup.value, selectedMotionIndex.value) ?? false)
+    } else {
+      const model = live2dWindow().__live2dManager?.getModel?.(0) as any
+      if (model && typeof model.startMotion === 'function') { model.startMotion(selectedMotionGroup.value, selectedMotionIndex.value, 3); ok = true }
+    }
+    if (!ok) ElMessage.warning('动作播放失败，请检查模型动作资源')
+  } catch (error) { ElMessage.error('播放动作失败：' + String(error)) }
+}
+
 async function loadSelectedModel() {
   const format = settings.value?.runtime_version
   const model = modelOptions.value.find(item => item.id === selectedModel.value)
@@ -157,6 +217,7 @@ async function loadSelectedModel() {
         frame.src = '/live2d-runtime/moc3/index.html?model=' + encodeURIComponent(model.model_url)
       })
       runtimeStatus.value = 'MOC3 模型已加载并开始渲染'
+      applyModelTransform()
       const status = runtimeFrame.value?.contentWindow as Live2DWindow | undefined
       if (status && typeof status.live2dSetMouthOpen === 'function') {
         // The runtime reports the definitive parameter capability through postMessage after its first model update.
@@ -199,6 +260,7 @@ async function save(patch: Partial<Live2DConfig>) {
   const next = { ...settings.value, ...patch }
   try {
     settings.value = await updateLive2DSettings(next)
+    applyModelTransform()
     ElMessage.success('Live2D 设置已保存')
   } catch (error) {
     ElMessage.error('保存 Live2D 设置失败：' + String(error))
@@ -215,6 +277,9 @@ async function chooseRuntime(value: 'moc2' | 'moc3') {
 async function chooseModel(value: string) {
   if (!settings.value) return
   selectedModel.value = value
+  selectedExpression.value = ''
+  selectedMotionGroup.value = ''
+  selectedMotionIndex.value = 0
   await save(settings.value.runtime_version === 'moc2' ? { default_model_moc2: value } : { default_model_moc3: value })
   await loadSelectedModel()
 }
@@ -331,13 +396,19 @@ onUnmounted(() => {
     <el-card shadow="never" class="preview-card">
       <template #header><div class="card-heading"><strong>模型预览</strong><el-tag :type="runtimeError ? 'danger' : 'success'">{{ runtimeStatus }}</el-tag></div></template>
       <div class="model-preview">
-        <canvas v-show="settings?.runtime_version === 'moc2'" id="live2d-model-canvas" ref="canvas" />
+        <canvas v-show="settings?.runtime_version === 'moc2'" id="live2d-model-canvas" ref="canvas" :style="previewCanvasStyle" />
         <iframe v-show="settings?.runtime_version === 'moc3'" ref="runtimeFrame" title="Live2D MOC3 Runtime" allow="autoplay" />
         <div v-if="runtimeError" class="preview-error">{{ runtimeError }}</div>
         <div v-else-if="!selectedModel" class="preview-empty">请选择一个模型开始预览</div>
       </div>
       <el-alert v-if="runtimeError" type="error" :closable="false" show-icon :title="runtimeError" />
       <p class="hint">嘴型参数：{{ mouthCapability }}</p>
+      <div class="model-adjustments" v-if="settings && currentModel">
+        <div class="adjustment"><label>模型大小 <strong>{{ Math.round(settings.model_scale * 100) }}%</strong></label><el-slider :model-value="settings.model_scale" :min="0.1" :max="2.5" :step="0.05" @change="save({ model_scale: Number($event) })" /></div>
+        <div class="adjustment"><label>水平位置 <strong>{{ settings.model_offset_x }}</strong></label><el-slider :model-value="settings.model_offset_x" :min="-100" :max="100" :step="1" @change="save({ model_offset_x: Number($event) })" /></div>
+        <div class="adjustment"><label>垂直位置 <strong>{{ settings.model_offset_y }}</strong></label><el-slider :model-value="settings.model_offset_y" :min="-100" :max="100" :step="1" @change="save({ model_offset_y: Number($event) })" /></div>
+        <el-button size="small" @click="save({ model_scale: 0.65, model_offset_x: 0, model_offset_y: 0 })">恢复默认大小和位置</el-button>
+      </div>
     </el-card>
 
     <el-card shadow="never">
@@ -358,12 +429,29 @@ onUnmounted(() => {
         </div>
         <el-tag type="info">{{ modelOptions.length }} 个模型</el-tag>
       </div>
-      <el-table v-if="models.length" :data="models" size="small" class="model-table">
+      <el-table v-if="modelOptions.length" :data="modelOptions" size="small" class="model-table">
         <el-table-column prop="name" label="模型" min-width="150" />
         <el-table-column label="格式" width="100"><template #default="{ row }"><el-tag size="small">{{ row.format.toUpperCase() }}</el-tag></template></el-table-column>
         <el-table-column label="嘴型参数检测" min-width="180"><template #default="{ row }">{{ row.capability_status }}</template></el-table-column>
       </el-table>
-      <el-empty v-else description="尚未发现模型。请将模型文件夹放入应用数据目录下的 live2d/models/moc2 或 moc3。" :image-size="90" />
+      <el-empty v-else :description="'当前 ' + (settings?.runtime_version || 'MOC3').toUpperCase() + ' 目录下尚未发现模型。请将对应格式的完整模型文件夹放入 live2d/models/' + (settings?.runtime_version || 'moc3') + '。'" :image-size="90" />
+    </el-card>
+
+    <el-card shadow="never" v-if="currentModel">
+      <template #header><strong>动作与表情</strong></template>
+      <div class="animation-controls">
+        <div class="animation-row">
+          <div class="animation-select"><span>模型表情</span><el-select v-model="selectedExpression" clearable placeholder="该模型没有可用表情" :disabled="!currentModel.expressions.length"><el-option v-for="name in currentModel.expressions" :key="name" :label="name" :value="name" /></el-select></div>
+          <el-button type="primary" :disabled="!selectedExpression" @click="playSelectedExpression">应用表情</el-button>
+          <el-button plain @click="resetExpression">恢复默认表情</el-button>
+        </div>
+        <div class="animation-row">
+          <div class="animation-select"><span>动作分组</span><el-select v-model="selectedMotionGroup" clearable placeholder="该模型没有可用动作" :disabled="!currentModel.motion_groups.length" @change="selectedMotionIndex = 0"><el-option v-for="group in currentModel.motion_groups" :key="group.name" :label="group.name + '（' + group.count + '）'" :value="group.name" /></el-select></div>
+          <div class="animation-select index-select"><span>动作序号</span><el-select v-model="selectedMotionIndex" :disabled="!selectedMotionGroup"><el-option v-for="index in (currentModel.motion_groups.find(group => group.name === selectedMotionGroup)?.count || 0)" :key="index - 1" :label="'动作 ' + index" :value="index - 1" /></el-select></div>
+          <el-button type="primary" :disabled="!selectedMotionGroup" @click="playSelectedMotion">播放动作</el-button>
+        </div>
+      </div>
+      <div class="capability-tags"><el-tag size="small" :type="currentModel.has_physics ? 'success' : 'info'">{{ currentModel.has_physics ? '物理效果' : '无物理配置' }}</el-tag><el-tag size="small" :type="currentModel.has_pose ? 'success' : 'info'">{{ currentModel.has_pose ? '姿势配置' : '无姿势配置' }}</el-tag><el-tag size="small" :type="currentModel.hit_areas.length ? 'success' : 'info'">{{ currentModel.hit_areas.length ? '触摸区域 ' + currentModel.hit_areas.length : '无触摸区域' }}</el-tag><el-tag size="small" type="info">{{ currentModel.expressions.length }} 个表情</el-tag><el-tag size="small" type="info">{{ currentModel.motion_groups.reduce((sum, group) => sum + group.count, 0) }} 个动作</el-tag></div>
     </el-card>
 
     <el-card shadow="never">
@@ -395,5 +483,5 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.live2d-page{display:flex;flex-direction:column;gap:20px}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.eyebrow{margin:0 0 9px;color:var(--el-color-primary);font-size:11px;letter-spacing:.16em}h2{margin:0;font-size:25px;font-weight:650}.muted{margin:9px 0 0;color:var(--el-text-color-secondary)}.runtime-row,.model-row,.mic-controls,.card-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}.runtime-row{margin-bottom:20px}.model-row{margin-bottom:16px}.model-select,.device-control{display:flex;align-items:center;gap:14px;flex:1}.model-select .el-select,.device-control .el-select{max-width:420px;width:100%}.model-table{margin-top:16px}.card-heading{display:flex}.meter-block{margin-top:24px}.meter-label{display:flex;justify-content:space-between;margin:12px 0 8px;font-size:13px}.meter-label strong{font-variant-numeric:tabular-nums}.mouth-label{margin-top:20px}.hint{margin:12px 0 0;color:var(--el-text-color-secondary);font-size:12px}.tuning-row{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:22px}.tuning-row>div>span{font-size:13px;color:var(--el-text-color-regular)}.model-preview{height:420px;position:relative;overflow:hidden;border-radius:8px;background:repeating-conic-gradient(#222 0% 25%,#292929 0% 50%) 50%/24px 24px}.model-preview canvas,.model-preview iframe{display:block;width:100%;height:100%;border:0;background:transparent}.preview-error,.preview-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;color:var(--el-text-color-secondary);text-align:center;pointer-events:none}.preview-error{color:var(--el-color-danger)}@media(max-width:760px){.tuning-row{grid-template-columns:1fr}.mic-controls,.model-row{align-items:stretch;flex-direction:column}.model-select,.device-control{align-items:stretch;flex-direction:column}.model-preview{height:300px}}
+.live2d-page{display:flex;flex-direction:column;gap:20px}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.eyebrow{margin:0 0 9px;color:var(--el-color-primary);font-size:11px;letter-spacing:.16em}h2{margin:0;font-size:25px;font-weight:650}.muted{margin:9px 0 0;color:var(--el-text-color-secondary)}.runtime-row,.model-row,.mic-controls,.card-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}.runtime-row{margin-bottom:20px}.model-row{margin-bottom:16px}.model-select,.device-control{display:flex;align-items:center;gap:14px;flex:1}.model-select .el-select,.device-control .el-select{max-width:420px;width:100%}.model-table{margin-top:16px}.model-adjustments{display:grid;grid-template-columns:1fr 1fr 1fr auto;align-items:center;gap:18px;margin-top:18px;padding-top:16px;border-top:1px solid var(--el-border-color-lighter)}.adjustment label{display:flex;justify-content:space-between;font-size:12px;color:var(--el-text-color-secondary)}.adjustment strong{color:var(--el-text-color-primary)}.animation-controls{display:flex;flex-direction:column;gap:18px}.animation-row{display:flex;align-items:end;gap:12px}.animation-select{display:flex;flex-direction:column;gap:7px;flex:1}.animation-select span{font-size:12px;color:var(--el-text-color-secondary)}.animation-select .el-select{width:100%}.index-select{max-width:150px}.capability-tags{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}.card-heading{display:flex}.meter-block{margin-top:24px}.meter-label{display:flex;justify-content:space-between;margin:12px 0 8px;font-size:13px}.meter-label strong{font-variant-numeric:tabular-nums}.mouth-label{margin-top:20px}.hint{margin:12px 0 0;color:var(--el-text-color-secondary);font-size:12px}.tuning-row{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:22px}.tuning-row>div>span{font-size:13px;color:var(--el-text-color-regular)}.model-preview{height:420px;position:relative;overflow:hidden;border-radius:8px;background:repeating-conic-gradient(#222 0% 25%,#292929 0% 50%) 50%/24px 24px}.model-preview canvas,.model-preview iframe{display:block;width:100%;height:100%;border:0;background:transparent;transform-origin:center center;transition:transform .12s ease}.preview-error,.preview-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;color:var(--el-text-color-secondary);text-align:center;pointer-events:none}.preview-error{color:var(--el-color-danger)}@media(max-width:980px){.model-adjustments{grid-template-columns:1fr 1fr}.animation-row{flex-wrap:wrap}}@media(max-width:760px){.model-adjustments{grid-template-columns:1fr}.tuning-row{grid-template-columns:1fr}.mic-controls,.model-row{align-items:stretch;flex-direction:column}.model-select,.device-control{align-items:stretch;flex-direction:column}.model-preview{height:300px}}
 </style>
