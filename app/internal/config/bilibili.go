@@ -44,7 +44,7 @@ func (c BilibiliConfig) Validate() error {
 	if c.VideoMaxDurationSeconds < 1 || c.VideoMaxDurationSeconds > 3600 {
 		return fmt.Errorf("视频时长限制必须在 1 到 3600 秒之间")
 	}
-	if c.VideoFanMedalLevel < 0 || c.VideoFanMedalLevel > 100 { return fmt.Errorf("视频点播粉丝勋章等级必须在 1 到 100 之间") }
+	if c.VideoRequireFanMedal && (c.VideoFanMedalLevel < 1 || c.VideoFanMedalLevel > 100) { return fmt.Errorf("视频点播粉丝勋章等级必须在 1 到 100 之间") }
 	if c.VideoQueueDisplayLimit < 1 || c.VideoQueueDisplayLimit > 1000 {
 		return fmt.Errorf("队列展示数量必须在 1 到 1000 之间")
 	}
