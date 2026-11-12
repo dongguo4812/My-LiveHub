@@ -3,6 +3,7 @@ package desktop
 import (
 	"context"
 	"errors"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ type videoTestEngine struct {
 	started, closed bool
 	loadErr error
 	resource music.PlaybackResource
+	subtitlePath string
 }
 func (e *videoTestEngine) Start(context.Context) error { e.mu.Lock(); defer e.mu.Unlock(); e.started=true; return nil }
 func (e *videoTestEngine) Close() error { e.mu.Lock(); defer e.mu.Unlock(); e.closed=true; e.state=music.PlaybackIdle; return nil }
@@ -23,6 +25,7 @@ func (e *videoTestEngine) Validate() error { return nil }
 func (e *videoTestEngine) Load(_ context.Context, resource music.PlaybackResource, _ music.Track) error { e.mu.Lock(); defer e.mu.Unlock(); if e.loadErr!=nil{return e.loadErr}; e.resource=resource; e.state=music.PlaybackPlaying; return nil }
 func (e *videoTestEngine) Pause(context.Context) error { e.mu.Lock(); e.state=music.PlaybackPaused; e.mu.Unlock(); return nil }
 func (e *videoTestEngine) Resume(context.Context) error { e.mu.Lock(); e.state=music.PlaybackPlaying; e.mu.Unlock(); return nil }
+func (*videoTestEngine) AddSubtitle(_ context.Context, path string) error { return nil }
 func (*videoTestEngine) Seek(context.Context,int64) error { return nil }
 func (*videoTestEngine) SetVolume(context.Context,int) error { return nil }
 func (e *videoTestEngine) Stop(context.Context) error { return e.Close() }
@@ -103,4 +106,17 @@ func TestVideoServicePassesPlaybackHeadersToEngine(t *testing.T) {
 		if got := gotResource.Headers[key]; got != want { t.Errorf("header %s = %q, want %q", key, got, want) }
 	}
 	_ = service.Stop()
+}
+
+func TestVideoServiceLoadsAndCleansExternalSubtitle(t *testing.T) {
+	engine := &videoTestEngine{}
+	service := NewVideoService(nil, engine)
+	if err := service.PlayResourceWithSubtitle(music.PlaybackResource{URL:"https://video.invalid/test.mp4"}, "test", "[Script Info]\n"); err != nil { t.Fatal(err) }
+	service.mu.Lock()
+	path := service.subtitleFile
+	service.mu.Unlock()
+	if path == "" { t.Fatal("subtitle file was not retained during playback") }
+	if _, err := os.Stat(path); err != nil { t.Fatalf("subtitle file does not exist: %v", err) }
+	if err := service.Stop(); err != nil { t.Fatal(err) }
+	if _, err := os.Stat(path); !os.IsNotExist(err) { t.Fatalf("subtitle file was not cleaned up: %v", err) }
 }
