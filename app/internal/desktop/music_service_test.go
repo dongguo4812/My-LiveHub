@@ -128,7 +128,7 @@ func TestLXSearchSourceSelectionPersistsThroughServiceReload(t *testing.T) {
 	service := newService()
 	defer service.Shutdown()
 
-	script := "/*\\n * @name Huibq search source fixture\\n * @version 1.2.0\\n */\\nvoid 0;"
+	script := "/*\n * @name Huibq search source fixture\n * @version 1.2.0\n */\nvoid 0;"
 	metadata, err := service.lxStore.ImportScript(script, "")
 	if err != nil {
 		t.Fatal(err)
