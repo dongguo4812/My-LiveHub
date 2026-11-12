@@ -128,7 +128,8 @@ async function removeScene() {
 function layerLabel(type: string) {
   return ({ text: '文字', image: '图片', clock: '时钟', danmaku: '弹幕', gift: '礼物', super_chat: 'SC' } as Record<string, string>)[type] ?? type
 }
-onMounted(() => { void load(); window.addEventListener('resize', refreshScale) })\nonUnmounted(() => { window.removeEventListener('resize', refreshScale) })
+onMounted(() => { void load(); window.addEventListener('resize', refreshScale) })
+onUnmounted(() => { window.removeEventListener('resize', refreshScale) })
 </script>
 
 <template>
