@@ -9,6 +9,18 @@ type LegacyModel = {
   lipSyncValue?: number
   lipSyncParameterID?: string
   getLive2DModel?: () => { getParamIndex?: (id: string) => number } | null
+  modelMatrix?: {
+    width: number
+    height: number
+    tr: Float32Array
+    getScaleX: () => number
+    getScaleY: () => number
+    getTranslateX: () => number
+    getTranslateY: () => number
+    scale: (x: number, y: number) => void
+    centerX: (x: number) => void
+    centerY: (y: number) => void
+  } | null
 }
 type LegacyManager = { getModel?: (index: number) => LegacyModel | null }
 type Live2DWindow = Window & {
@@ -52,7 +64,7 @@ let analyser: AnalyserNode | null = null
 let raf = 0
 let samples: Float32Array<ArrayBuffer> | null = null
 let activeModelURL = ''
-let activeMoc2MouthParameter = ''
+let activeMoc2MouthParameter = ''\nlet activeMoc2TransformBase: { model: LegacyModel; scaleX: number; scaleY: number; centerX: number; centerY: number } | null = null
 let legacyScriptPromise: Promise<void> | null = null
 let runtimeMessageHandler: ((event: MessageEvent) => void) | null = null
 
@@ -116,9 +128,37 @@ function previewModelTransform(patch: Partial<Live2DConfig>) {
 
 function applyModelTransform() {
   const config = settings.value
-  if (!config || config.runtime_version !== 'moc3') return
-  const frameWindow = runtimeFrame.value?.contentWindow as Live2DWindow | undefined
-  frameWindow?.live2dSetModelTransform?.(config.model_scale, config.model_offset_x / 100, config.model_offset_y / 100)
+  if (!config) return
+  if (config.runtime_version === 'moc3') {
+    const frameWindow = runtimeFrame.value?.contentWindow as Live2DWindow | undefined
+    frameWindow?.live2dSetModelTransform?.(config.model_scale, config.model_offset_x / 100, config.model_offset_y / 100)
+    return
+  }
+
+  // MOC2 must scale the model matrix, not the canvas element. CSS-scaling the
+  // canvas only shrinks an already-clipped viewport and cannot restore the model.
+  const model = live2dWindow().__live2dManager?.getModel?.(0)
+  const matrix = model?.modelMatrix
+  if (!model || !matrix || !matrix.width || !matrix.height) return
+  if (!activeMoc2TransformBase || activeMoc2TransformBase.model !== model) {
+    const scaleX = matrix.getScaleX()
+    const scaleY = matrix.getScaleY()
+    activeMoc2TransformBase = {
+      model,
+      scaleX,
+      scaleY,
+      centerX: matrix.getTranslateX() + matrix.width * scaleX / 2,
+      centerY: matrix.getTranslateY() + matrix.height * scaleY / 2,
+    }
+  }
+  const base = activeMoc2TransformBase
+  const width = matrix.width * Math.abs(base.scaleX)
+  const height = matrix.height * Math.abs(base.scaleY)
+  const fitScale = Math.min(1, 2 / width, 2 / height)
+  const scale = fitScale * config.model_scale
+  matrix.scale(base.scaleX * scale, base.scaleY * scale)
+  matrix.centerX(base.centerX + config.model_offset_x * 2 / 100)
+  matrix.centerY(base.centerY - config.model_offset_y * 2 / 100)
 }
 
 async function playSelectedExpression() {
@@ -402,7 +442,7 @@ onUnmounted(() => {
     <el-card shadow="never" class="preview-card">
       <template #header><div class="card-heading"><strong>模型预览</strong><el-tag :type="runtimeError ? 'danger' : 'success'">{{ runtimeStatus }}</el-tag></div></template>
       <div class="model-preview">
-        <canvas v-show="settings?.runtime_version === 'moc2'" id="live2d-model-canvas" ref="canvas" :style="previewCanvasStyle" />
+        <canvas v-show="settings?.runtime_version === 'moc2'" id="live2d-model-canvas" ref="canvas"  />
         <iframe v-show="settings?.runtime_version === 'moc3'" ref="runtimeFrame" title="Live2D MOC3 Runtime" allow="autoplay" />
         <div v-if="runtimeError" class="preview-error">{{ runtimeError }}</div>
         <div v-else-if="!selectedModel" class="preview-empty">请选择一个模型开始预览</div>
