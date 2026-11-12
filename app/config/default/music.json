@@ -2,8 +2,11 @@
   "config_version": 8,
   "enabled": true,
   "command_enabled": true,
+  "skip_command_enabled": true,
+  "skip_command": "切歌",
   "command_prefix": "点歌",
   "queue_capacity": 100,
+  "volume": 80,
   "loudness_normalization": false,
   "lx_user_source_proxy": {
     "enabled": false,
