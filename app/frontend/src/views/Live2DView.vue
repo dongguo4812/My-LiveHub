@@ -1,7 +1,20 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getLive2DSettings, updateLive2DSettings, listLive2DModels, type Live2DConfig, type Live2DModel } from '../services/live2d'
+
+type LegacyModel = {
+  initialized?: boolean
+  lipSync?: boolean | null
+  lipSyncValue?: number
+  getLive2DModel?: () => { getParamIndex?: (id: string) => number } | null
+}
+type LegacyManager = { getModel?: (index: number) => LegacyModel | null }
+type Live2DWindow = Window & {
+  loadlive2d?: (canvasID: string, modelURL: string) => void
+  __live2dManager?: LegacyManager
+  live2dSetMouthOpen?: (value: number) => void
+}
 
 const settings = ref<Live2DConfig | null>(null)
 const models = ref<Live2DModel[]>([])
@@ -12,16 +25,145 @@ const micError = ref('')
 const micActive = ref(false)
 const level = ref(0)
 const mouthOpen = ref(0)
-const hasRuntime = computed(() => models.value.some(model => model.runtime_available))
+const runtimeStatus = ref('尚未加载模型')
+const runtimeError = ref('')
+const mouthCapability = ref('尚未检测')
+const canvas = ref<HTMLCanvasElement | null>(null)
+const runtimeFrame = ref<HTMLIFrameElement | null>(null)
+const modelOptions = computed(() => models.value.filter(model => model.format === settings.value?.runtime_version))
+const levelPercent = computed(() => Math.round(level.value * 100))
+const mouthPercent = computed(() => Math.round(mouthOpen.value * 100))
 let stream: MediaStream | null = null
 let audioContext: AudioContext | null = null
 let analyser: AnalyserNode | null = null
 let raf = 0
 let samples: Float32Array<ArrayBuffer> | null = null
+let activeModelURL = ''
+let legacyScriptPromise: Promise<void> | null = null
+let runtimeMessageHandler: ((event: MessageEvent) => void) | null = null
 
-const modelOptions = computed(() => models.value.filter(model => model.format === settings.value?.runtime_version))
-const levelPercent = computed(() => Math.round(level.value * 100))
-const mouthPercent = computed(() => Math.round(mouthOpen.value * 100))
+function live2dWindow(): Live2DWindow {
+  return window as Live2DWindow
+}
+
+async function loadLegacyRuntime() {
+  if (typeof live2dWindow().loadlive2d === 'function') return
+  if (!legacyScriptPromise) {
+    legacyScriptPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script')
+      script.src = '/live2d-runtime/moc2/live2d.min.js'
+      script.onload = () => resolve()
+      script.onerror = () => reject(new Error('MOC2 运行时脚本加载失败'))
+      document.head.appendChild(script)
+    })
+  }
+  await legacyScriptPromise
+  if (typeof live2dWindow().loadlive2d !== 'function') throw new Error('MOC2 运行时未导出 loadlive2d 接口')
+}
+
+function onRuntimeMessage(event: MessageEvent) {
+  if (!runtimeFrame.value || event.source !== runtimeFrame.value.contentWindow || !event.data || event.data.modelUrl !== activeModelURL) return
+  if (event.data.type === 'moc3-model-loaded') {
+    runtimeStatus.value = 'MOC3 模型已加载并开始渲染'
+  } else if (event.data.type === 'moc3-mouth-sync-status') {
+    const ids = Array.isArray(event.data.parameterIds) ? event.data.parameterIds.join('、') : ''
+    mouthCapability.value = event.data.supported ? '支持：' + ids : (event.data.reason || '模型没有可用的嘴型参数')
+  } else if (event.data.type === 'moc3-model-error') {
+    runtimeError.value = String(event.data.message || 'MOC3 模型资源加载失败')
+    runtimeStatus.value = '模型加载失败'
+  }
+}
+
+async function waitForLegacyModel(modelURL: string) {
+  const started = Date.now()
+  while (Date.now() - started < 30000) {
+    if (activeModelURL !== modelURL) return
+    const model = live2dWindow().__live2dManager?.getModel?.(0)
+    if (model?.initialized && model.getLive2DModel) {
+      const liveModel = model.getLive2DModel()
+      if (!liveModel) throw new Error('MOC2 模型对象尚未就绪')
+      const candidates = ['PARAM_MOUTH_OPEN_Y', 'ParamMouthOpenY', 'MouthOpenY', 'ParamMouthOpen', 'MouthOpen']
+      const available = candidates.find(id => (liveModel.getParamIndex?.(id) ?? -1) >= 0)
+      mouthCapability.value = available ? '支持：' + available : '未找到兼容的嘴型参数'
+      return
+    }
+    await new Promise(resolve => window.setTimeout(resolve, 100))
+  }
+  throw new Error('MOC2 模型加载超时，请检查模型配置、贴图和 MOC 文件')
+}
+
+async function loadSelectedModel() {
+  const format = settings.value?.runtime_version
+  const model = modelOptions.value.find(item => item.id === selectedModel.value)
+  runtimeError.value = ''
+  mouthCapability.value = '正在检测'
+  if (!format || !model) {
+    activeModelURL = ''
+    runtimeStatus.value = '请选择模型'
+    mouthCapability.value = '尚未检测'
+    return
+  }
+  if (!model.model_url || !model.runtime_available) {
+    runtimeStatus.value = '本地模型资源服务不可用'
+    runtimeError.value = '无法访问本地模型文件，请重启应用后重试'
+    return
+  }
+  activeModelURL = model.model_url
+  runtimeStatus.value = '正在加载 ' + format.toUpperCase() + ' 模型…'
+  await nextTick()
+  try {
+    if (format === 'moc2') {
+      if (!canvas.value) throw new Error('MOC2 展示画布尚未创建')
+      await loadLegacyRuntime()
+      const target = canvas.value
+      target.width = Math.max(1, target.clientWidth * window.devicePixelRatio)
+      target.height = Math.max(1, target.clientHeight * window.devicePixelRatio)
+      live2dWindow().loadlive2d?.(target.id, model.model_url)
+      await waitForLegacyModel(model.model_url)
+      runtimeStatus.value = 'MOC2 模型已加载并开始渲染'
+    } else {
+      if (!runtimeFrame.value) throw new Error('MOC3 展示框架尚未创建')
+      const frame = runtimeFrame.value
+      await new Promise<void>((resolve, reject) => {
+        let finished = false
+        const cleanup = () => {
+          window.clearTimeout(timeout)
+          frame.removeEventListener('load', onLoad)
+          window.removeEventListener('message', onMessage)
+        }
+        const finish = (error?: Error) => {
+          if (finished) return
+          finished = true
+          cleanup()
+          error ? reject(error) : resolve()
+        }
+        const timeout = window.setTimeout(() => finish(new Error('MOC3 模型加载超时，请检查 model3.json、MOC3 文件和贴图')), 45000)
+        const onMessage = (event: MessageEvent) => {
+          if (event.source !== frame.contentWindow || !event.data || event.data.modelUrl !== model.model_url) return
+          if (event.data.type === 'moc3-model-error') finish(new Error(String(event.data.message || 'MOC3 模型资源加载失败')))
+          if (event.data.type === 'moc3-model-loaded') finish()
+        }
+        const onLoad = () => {
+          if (!frame.contentWindow) return finish(new Error('MOC3 WebView 初始化失败'))
+          if (typeof (frame.contentWindow as Live2DWindow).live2dSetMouthOpen !== 'function') return finish(new Error('Cubism 5 R5 运行时接口未初始化'))
+        }
+        window.addEventListener('message', onMessage)
+        frame.addEventListener('load', onLoad, { once: true })
+        frame.src = '/live2d-runtime/moc3/index.html?model=' + encodeURIComponent(model.model_url)
+      })
+      runtimeStatus.value = 'MOC3 模型已加载并开始渲染'
+      const status = runtimeFrame.value?.contentWindow as Live2DWindow | undefined
+      if (status && typeof status.live2dSetMouthOpen === 'function') {
+        // The runtime reports the definitive parameter capability through postMessage after its first model update.
+        status.live2dSetMouthOpen(0)
+      }
+    }
+  } catch (error) {
+    runtimeStatus.value = '模型加载失败'
+    runtimeError.value = String(error)
+    mouthCapability.value = '检测失败'
+  }
+}
 
 async function refresh() {
   loading.value = true
@@ -31,6 +173,7 @@ async function refresh() {
     models.value = found
     selectedModel.value = config.runtime_version === 'moc2' ? config.default_model_moc2 : config.default_model_moc3
     await enumerateDevices()
+    await loadSelectedModel()
   } catch (error) {
     ElMessage.error('读取 Live2D 配置失败：' + String(error))
   } finally {
@@ -61,12 +204,27 @@ async function chooseRuntime(value: 'moc2' | 'moc3') {
   if (!settings.value) return
   await save({ runtime_version: value })
   selectedModel.value = value === 'moc2' ? settings.value.default_model_moc2 : settings.value.default_model_moc3
+  await loadSelectedModel()
 }
 
 async function chooseModel(value: string) {
   if (!settings.value) return
   selectedModel.value = value
   await save(settings.value.runtime_version === 'moc2' ? { default_model_moc2: value } : { default_model_moc3: value })
+  await loadSelectedModel()
+}
+
+function driveModelMouth(value: number) {
+  const bounded = Math.max(0, Math.min(1, value))
+  if (settings.value?.runtime_version === 'moc3') {
+    const frameWindow = runtimeFrame.value?.contentWindow as Live2DWindow | undefined
+    frameWindow?.live2dSetMouthOpen?.(bounded)
+    return
+  }
+  const model = live2dWindow().__live2dManager?.getModel?.(0)
+  if (!model?.initialized) return
+  model.lipSync = null
+  model.lipSyncValue = bounded
 }
 
 function stopMicrophone() {
@@ -81,6 +239,7 @@ function stopMicrophone() {
   micActive.value = false
   level.value = 0
   mouthOpen.value = 0
+  driveModelMouth(0)
 }
 
 function analyseMicrophone() {
@@ -93,6 +252,7 @@ function analyseMicrophone() {
   const smoothing = settings.value.microphone_smoothing
   level.value = level.value * smoothing + Math.min(1, rms * 8) * (1 - smoothing)
   mouthOpen.value = mouthOpen.value * smoothing + raw * (1 - smoothing)
+  driveModelMouth(mouthOpen.value)
   raf = requestAnimationFrame(analyseMicrophone)
 }
 
@@ -143,8 +303,15 @@ async function changeDevice(deviceID: string) {
   if (micActive.value) await startMicrophone()
 }
 
-onMounted(() => { void refresh() })
-onUnmounted(stopMicrophone)
+onMounted(() => {
+  runtimeMessageHandler = onRuntimeMessage
+  window.addEventListener('message', runtimeMessageHandler)
+  void refresh()
+})
+onUnmounted(() => {
+  stopMicrophone()
+  if (runtimeMessageHandler) window.removeEventListener('message', runtimeMessageHandler)
+})
 </script>
 
 <template>
@@ -154,9 +321,17 @@ onUnmounted(stopMicrophone)
       <el-button :loading="loading" @click="refresh">刷新模型</el-button>
     </div>
 
-    <el-alert type="warning" :closable="false" show-icon title="运行时尚未随程序提供">
-      当前已接入模型目录扫描与麦克风实时音频分析。MOC2 / MOC3 的官方运行时及 Core 需要按其许可单独提供；在运行时加载成功前，不会把模型嘴型能力误报为可用。
-    </el-alert>
+    <el-card shadow="never" class="preview-card">
+      <template #header><div class="card-heading"><strong>模型预览</strong><el-tag :type="runtimeError ? 'danger' : 'success'">{{ runtimeStatus }}</el-tag></div></template>
+      <div class="model-preview">
+        <canvas v-show="settings?.runtime_version === 'moc2'" id="live2d-model-canvas" ref="canvas" />
+        <iframe v-show="settings?.runtime_version === 'moc3'" ref="runtimeFrame" title="Live2D MOC3 Runtime" allow="autoplay" />
+        <div v-if="runtimeError" class="preview-error">{{ runtimeError }}</div>
+        <div v-else-if="!selectedModel" class="preview-empty">请选择一个模型开始预览</div>
+      </div>
+      <el-alert v-if="runtimeError" type="error" :closable="false" show-icon :title="runtimeError" />
+      <p class="hint">嘴型参数：{{ mouthCapability }}</p>
+    </el-card>
 
     <el-card shadow="never">
       <template #header><strong>模型管理</strong></template>
@@ -200,9 +375,9 @@ onUnmounted(stopMicrophone)
       <div class="meter-block">
         <div class="meter-label"><span>输入音量</span><strong>{{ levelPercent }}%</strong></div>
         <el-progress :percentage="levelPercent" :show-text="false" />
-        <div class="meter-label mouth-label"><span>实时嘴型开合目标值</span><strong>{{ mouthPercent }}%</strong></div>
+        <div class="meter-label mouth-label"><span>实时嘴型开合</span><strong>{{ mouthPercent }}%</strong></div>
         <el-progress :percentage="mouthPercent" :show-text="false" status="success" />
-        <p class="hint">此数值来自麦克风 RMS 音量分析。待对应 SDK 运行时接入后，将映射到模型实际存在的嘴型参数。</p>
+        <p class="hint">麦克风 RMS 音量实时映射到已检测到的模型嘴型参数。模型不支持时会明确显示检测结果。</p>
       </div>
       <div class="tuning-row">
         <div><span>麦克风灵敏度</span><el-slider v-if="settings" :model-value="settings.microphone_sensitivity" :min="0.1" :max="10" :step="0.1" @change="save({ microphone_sensitivity: Number($event) })" /></div>
@@ -213,5 +388,5 @@ onUnmounted(stopMicrophone)
 </template>
 
 <style scoped>
-.live2d-page{display:flex;flex-direction:column;gap:20px}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.eyebrow{margin:0 0 9px;color:var(--el-color-primary);font-size:11px;letter-spacing:.16em}h2{margin:0;font-size:25px;font-weight:650}.muted{margin:9px 0 0;color:var(--el-text-color-secondary)}.runtime-row,.model-row,.mic-controls,.card-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}.runtime-row{margin-bottom:20px}.model-row{margin-bottom:16px}.model-select,.device-control{display:flex;align-items:center;gap:14px;flex:1}.model-select .el-select,.device-control .el-select{max-width:420px;width:100%}.model-table{margin-top:16px}.card-heading{display:flex}.meter-block{margin-top:24px}.meter-label{display:flex;justify-content:space-between;margin:12px 0 8px;font-size:13px}.meter-label strong{font-variant-numeric:tabular-nums}.mouth-label{margin-top:20px}.hint{margin:12px 0 0;color:var(--el-text-color-secondary);font-size:12px}.tuning-row{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:22px}.tuning-row>div>span{font-size:13px;color:var(--el-text-color-regular)}@media(max-width:760px){.tuning-row{grid-template-columns:1fr}.mic-controls,.model-row{align-items:stretch;flex-direction:column}.model-select,.device-control{align-items:stretch;flex-direction:column}}
+.live2d-page{display:flex;flex-direction:column;gap:20px}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.eyebrow{margin:0 0 9px;color:var(--el-color-primary);font-size:11px;letter-spacing:.16em}h2{margin:0;font-size:25px;font-weight:650}.muted{margin:9px 0 0;color:var(--el-text-color-secondary)}.runtime-row,.model-row,.mic-controls,.card-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}.runtime-row{margin-bottom:20px}.model-row{margin-bottom:16px}.model-select,.device-control{display:flex;align-items:center;gap:14px;flex:1}.model-select .el-select,.device-control .el-select{max-width:420px;width:100%}.model-table{margin-top:16px}.card-heading{display:flex}.meter-block{margin-top:24px}.meter-label{display:flex;justify-content:space-between;margin:12px 0 8px;font-size:13px}.meter-label strong{font-variant-numeric:tabular-nums}.mouth-label{margin-top:20px}.hint{margin:12px 0 0;color:var(--el-text-color-secondary);font-size:12px}.tuning-row{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:22px}.tuning-row>div>span{font-size:13px;color:var(--el-text-color-regular)}.model-preview{height:420px;position:relative;overflow:hidden;border-radius:8px;background:repeating-conic-gradient(#222 0% 25%,#292929 0% 50%) 50%/24px 24px}.model-preview canvas,.model-preview iframe{display:block;width:100%;height:100%;border:0;background:transparent}.preview-error,.preview-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;color:var(--el-text-color-secondary);text-align:center;pointer-events:none}.preview-error{color:var(--el-color-danger)}@media(max-width:760px){.tuning-row{grid-template-columns:1fr}.mic-controls,.model-row{align-items:stretch;flex-direction:column}.model-select,.device-control{align-items:stretch;flex-direction:column}.model-preview{height:300px}}
 </style>
