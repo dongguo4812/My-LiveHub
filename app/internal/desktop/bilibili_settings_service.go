@@ -24,12 +24,14 @@ func (s *BilibiliSettingsService) GetSettings() config.BilibiliConfig {
 
 func (s *BilibiliSettingsService) UpdateRoomID(roomID int) (config.BilibiliConfig, error) {
 	if s == nil || s.manager == nil || s.adapter == nil { return config.BilibiliConfig{}, errors.New("Bilibili settings service is unavailable") }
-	next := s.current
+	latest, err := config.LoadTyped[config.BilibiliConfig](s.manager, "bilibili.json", func(value config.BilibiliConfig) error { return value.Validate() })
+	if err != nil { return config.BilibiliConfig{}, err }
+	next := latest
 	next.RoomID = roomID
 	if err := next.Validate(); err != nil { return config.BilibiliConfig{}, err }
 	if err := s.adapter.SetRoomID(roomID); err != nil { return config.BilibiliConfig{}, err }
 	if err := config.SaveTyped(s.manager, "bilibili.json", next, func(value config.BilibiliConfig) error { return value.Validate() }); err != nil {
-		_ = s.adapter.SetRoomID(s.current.RoomID)
+		_ = s.adapter.SetRoomID(latest.RoomID)
 		return config.BilibiliConfig{}, err
 	}
 	s.current = next
