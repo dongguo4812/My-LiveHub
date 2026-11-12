@@ -77,6 +77,7 @@ type MusicService struct {
 	searcher *music.LXSearchClient
 	lyricsMu sync.Mutex
 	lyricsCache map[string]string
+	fanMedalChecker interface { Check(context.Context, int, int) (bool, int, error) }
 }
 
 func NewMusicService(manager *config.Manager, value config.MusicConfig, buffers ...*events.Buffer) *MusicService {
@@ -199,6 +200,13 @@ func (s *MusicService) worker() {
 	}
 }
 
+func (s *MusicService) SetFanMedalChecker(checker interface { Check(context.Context, int, int) (bool, int, error) }) {
+	if s == nil { return }
+	s.mu.Lock()
+	s.fanMedalChecker = checker
+	s.mu.Unlock()
+}
+
 func (s *MusicService) processSongRequest(ctx context.Context, event events.Event) {
 	s.mu.RLock()
 	enabled := s.value.Enabled && s.started
@@ -206,6 +214,9 @@ func (s *MusicService) processSongRequest(ctx context.Context, event events.Even
 	prefix := s.value.CommandPrefix
 	skipEnabled := s.value.SkipCommandEnabled
 	skipCommand := strings.TrimSpace(s.value.SkipCommand)
+	requireFanMedal := s.value.RequireFanMedal
+	fanMedalLevel := s.value.FanMedalLevel
+	checker := s.fanMedalChecker
 	s.mu.RUnlock()
 	if !enabled { return }
 	if skipEnabled && isSkipCommand(event.Content, skipCommand) {
@@ -216,6 +227,12 @@ func (s *MusicService) processSongRequest(ctx context.Context, event events.Even
 	if !commandEnabled { return }
 	keyword, ok := parseSongRequest(event.Content, prefix)
 	if !ok { return }
+	if requireFanMedal && !event.IsRoomOwner && !event.IsModerator {
+		if checker == nil { s.setLastError(errors.New("音乐点播粉丝勋章校验服务不可用，已拒绝本次点播")); return }
+		allowed, level, checkErr := checker.Check(ctx, event.UserID, fanMedalLevel)
+		if checkErr != nil { s.setLastError(fmt.Errorf("校验观众 %s 的主播粉丝勋章失败，已拒绝本次点播：%w", event.UserName, checkErr)); return }
+		if !allowed { s.setLastError(fmt.Errorf("观众 %s 的主播粉丝勋章等级不足（当前 %d，要求 %d）", event.UserName, level, fanMedalLevel)); return }
+	}
 	result, err := s.search(ctx, keyword)
 	if err != nil {
 		s.setLastError(fmt.Errorf("搜索弹幕点歌失败：%w", err))
