@@ -29,6 +29,7 @@ const draggedQueueItemID = ref('')
 const playback = ref<PlaybackSnapshot | null>(null)
 const syncedLyrics = ref<Array<{ time: number; text: string }>>([])
 const lyricsTrackKey = ref('')
+const lyricsStatus = ref<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle')
 let lyricsRequestID = 0
 const results = ref<Track[]>([])
 const searchErrors = ref<Record<string, string>>({})
@@ -80,13 +81,16 @@ function parseSyncedLyrics(lrc: string) {
   return lines.filter(line => line.text).sort((a, b) => a.time - b.time)
 }
 const currentLyric = computed(() => {
+  if (lyricsStatus.value === 'loading' || lyricsStatus.value === 'idle') return '歌词加载中…'
+  if (lyricsStatus.value === 'error') return '歌词获取失败，稍后重试'
+  if (lyricsStatus.value === 'empty' || lyricsStatus.value === 'ready' && syncedLyrics.value.length === 0) return '暂无歌词'
   const position = playback.value?.position_ms ?? 0
   let active = ''
   for (const line of syncedLyrics.value) {
     if (line.time > position) break
     active = line.text
   }
-  return active || '暂无歌词'
+  return active || syncedLyrics.value[0]?.text || '歌词加载中…'
 })
 async function loadTrackLyrics() {
   const track = playback.value?.track
@@ -94,13 +98,23 @@ async function loadTrackLyrics() {
   if (key === lyricsTrackKey.value) return
   lyricsTrackKey.value = key
   syncedLyrics.value = []
-  if (!track) return
   const requestID = ++lyricsRequestID
+  if (!track) {
+    lyricsStatus.value = 'idle'
+    return
+  }
+  lyricsStatus.value = 'loading'
   try {
     const lrc = await MusicService.GetLyrics(track)
-    if (requestID === lyricsRequestID && lyricsTrackKey.value === key) syncedLyrics.value = parseSyncedLyrics(lrc ?? '')
+    if (requestID !== lyricsRequestID || lyricsTrackKey.value !== key) return
+    const parsed = parseSyncedLyrics(lrc ?? '')
+    syncedLyrics.value = parsed
+    lyricsStatus.value = parsed.length > 0 ? 'ready' : 'empty'
   } catch {
-    if (requestID === lyricsRequestID) syncedLyrics.value = []
+    if (requestID === lyricsRequestID && lyricsTrackKey.value === key) {
+      // A network/API failure is not proof that the track has no lyrics.
+      lyricsStatus.value = 'error'
+    }
   }
 }
 function sourceName(id?: string) {
