@@ -24,7 +24,7 @@ func TestLive2DListModelsSeparatesMOC2AndMOC3(t *testing.T) {
 	if len(models) != 2 { t.Fatalf("expected 2 models, got %d", len(models)) }
 	if models[0].Format != "moc2" || models[1].Format != "moc3" { t.Fatalf("unexpected model formats: %#v", models) }
 	for _, model := range models {
-		if model.RuntimeAvailable { t.Fatalf("runtime must not be reported available without an SDK: %#v", model) }
+		if !model.RuntimeAvailable { t.Fatalf("local model asset server should expose a runtime URL: %#v", model) }
 		if model.CapabilityStatus == "" { t.Fatalf("capability status must be explicit: %#v", model) }
 		if model.ModelURL == "" { t.Fatalf("model asset URL must be exposed: %#v", model) }
 	}
