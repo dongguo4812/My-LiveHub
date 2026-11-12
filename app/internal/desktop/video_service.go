@@ -41,14 +41,19 @@ func NewVideoService(musicService musicPlaybackController, engine music.Playback
 }
 
 func (s *VideoService) Play(resourceURL, title string) error {
+	return s.PlayResource(music.PlaybackResource{URL: resourceURL}, title)
+}
+
+// PlayResource starts a video with provider-specific HTTP headers when required.
+func (s *VideoService) PlayResource(resource music.PlaybackResource, title string) error {
 	if s == nil || s.engine == nil { return music.ErrPlaybackEngineUnavailable }
-	resourceURL = strings.TrimSpace(resourceURL)
+	resource.URL = strings.TrimSpace(resource.URL)
 	title = strings.TrimSpace(title)
-	parsed, err := url.Parse(resourceURL)
+	parsed, err := url.Parse(resource.URL)
 	if err != nil || parsed.Scheme == "" || (parsed.Scheme != "http" && parsed.Scheme != "https" && parsed.Scheme != "file") {
-		return errors.New("MV 地址必须是 http、https 或 file URL")
+		return errors.New("视频地址必须是 http、https 或 file URL")
 	}
-	if title == "" { title = "MV" }
+	if title == "" { title = "视频" }
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -87,7 +92,7 @@ func (s *VideoService) Play(resourceURL, title string) error {
 		SourceID:"direct_video",
 		Title:title,
 	}
-	if err := s.engine.Load(context.Background(), music.PlaybackResource{URL:resourceURL}, track); err != nil {
+	if err := s.engine.Load(context.Background(), resource, track); err != nil {
 		return restoreOnFailure(fmt.Errorf("加载 MV 失败：%w", err))
 	}
 	s.active = true
