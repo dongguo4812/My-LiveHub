@@ -114,6 +114,7 @@ func (s *VideoQueueService) UpdateSettings(next config.BilibiliConfig) (config.B
 		return config.BilibiliConfig{}, err
 	}
 	s.settings = next
+	if setter, ok := s.fanMedalChecker.(interface { SetRoomID(int) }); ok { setter.SetRoomID(next.RoomID) }
 	return next, nil
 }
 
