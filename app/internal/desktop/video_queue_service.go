@@ -60,7 +60,7 @@ func NewVideoQueueService(manager *config.Manager, settings config.BilibiliConfi
 	s := &VideoQueueService{manager:manager, settings:settings, resolver:resolver, webview:webview,
 		events:eventBuffer, lastRequest:make(map[int]time.Time), pending:make(map[string]bool), queue:make([]VideoQueueItem,0)}
 	s.unsubscribe = eventBuffer.Subscribe(s.handleEvent)
-	webview.SetPlaybackStateHandler(s.handlePlaybackState)
+	webview.setPlaybackStateHandler(s.handlePlaybackState)
 	return s, nil
 }
 
@@ -261,5 +261,5 @@ func (s *VideoQueueService) Close() {
 	s.unsubscribe = nil
 	s.mu.Unlock()
 	if unsubscribe != nil { unsubscribe() }
-	s.webview.SetPlaybackStateHandler(nil)
+	s.webview.setPlaybackStateHandler(nil)
 }
