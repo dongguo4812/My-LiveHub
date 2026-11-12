@@ -3,6 +3,7 @@
 package music
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -68,6 +69,21 @@ func TestMpvPlaybackIntegration(t *testing.T) {
 	}, "mpv did not decode and start the WAV fixture")
 	if playing.Track == nil || playing.Track.ID != track.ID {
 		t.Fatalf("unexpected active track: %#v", playing.Track)
+	}
+
+	if err := engine.SetLoudnessNormalization(ctx, true); err != nil {
+		t.Fatalf("enable EBU R128 loudness normalization: %v", err)
+	}
+	filters, err := engine.commandIPC(ctx, "get_property", "af")
+	if err != nil || !bytes.Contains(filters, []byte("loudnorm")) {
+		t.Fatalf("mpv did not install the loudnorm audio filter: filters=%s err=%v", filters, err)
+	}
+	if err := engine.SetLoudnessNormalization(ctx, false); err != nil {
+		t.Fatalf("disable EBU R128 loudness normalization: %v", err)
+	}
+	filters, err = engine.commandIPC(ctx, "get_property", "af")
+	if err != nil || bytes.Contains(filters, []byte("loudnorm")) {
+		t.Fatalf("mpv did not remove the loudnorm audio filter: filters=%s err=%v", filters, err)
 	}
 
 	if err := engine.Pause(ctx); err != nil {
