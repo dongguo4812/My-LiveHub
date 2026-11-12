@@ -451,6 +451,9 @@ func (s *MusicService) ReplaceHostTrackInPlaylist(playlistID, oldSourceID, oldTr
 		if i < targetIndex {
 			targetIndex--
 		}
+		if playlistID == st.activeID && i < st.index {
+			st.index--
+		}
 		break
 	}
 	playlist.Tracks[targetIndex] = replacement
