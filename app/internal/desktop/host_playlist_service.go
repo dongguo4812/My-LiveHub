@@ -296,9 +296,10 @@ func lxBackupTrack(song map[string]json.RawMessage)(music.Track,bool){
 	for k,v:=range song{var str string;if json.Unmarshal(v,&str)==nil&&str!=""{track.SourceData[k]=str}}
 	var meta map[string]json.RawMessage;_ = json.Unmarshal(song["meta"],&meta)
 	for k,v:=range meta{var str string;if json.Unmarshal(v,&str)==nil&&str!=""{track.SourceData[k]=str}}
+	_ = json.Unmarshal(meta["picUrl"],&track.CoverURL)
 	if d:=read("duration_ms");d!=""{track.DurationMS,_=strconv.ParseInt(d,10,64)} else if interval:=read("interval");interval!=""{track.DurationMS=parseLXInterval(interval)}
 	var qualities []map[string]json.RawMessage
-	if json.Unmarshal(song["types"],&qualities)==nil{
+	if json.Unmarshal(meta["qualitys"],&qualities)==nil{
 		for _,quality:=range qualities{
 			var kind,size,hash string
 			_ = json.Unmarshal(quality["type"],&kind);_ = json.Unmarshal(quality["size"],&size);_ = json.Unmarshal(quality["hash"],&hash)
