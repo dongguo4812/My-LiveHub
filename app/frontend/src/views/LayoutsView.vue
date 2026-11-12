@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CopyDocument, Plus, Delete, Picture, ChatLineRound, Clock, Present, ChatDotRound } from '@element-plus/icons-vue'
 import { getScenes, saveScene, deleteScene, getBrowserSourceURL, type LayoutScene, type LayoutLayer } from '../services/layouts'
@@ -128,7 +128,7 @@ async function removeScene() {
 function layerLabel(type: string) {
   return ({ text: '文字', image: '图片', clock: '时钟', danmaku: '弹幕', gift: '礼物', super_chat: 'SC' } as Record<string, string>)[type] ?? type
 }
-onMounted(() => { void load(); window.addEventListener('resize', refreshScale) })
+onMounted(() => { void load(); window.addEventListener('resize', refreshScale) })\nonUnmounted(() => { window.removeEventListener('resize', refreshScale) })
 </script>
 
 <template>
