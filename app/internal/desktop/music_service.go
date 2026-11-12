@@ -357,23 +357,31 @@ func (s *MusicService) activeLXSearchSourceIDs() []string {
 	if err != nil { return []string{} }
 	metadata, err := store.Get(sessionID)
 	if err != nil { return []string{} }
-	selected := make(map[string]bool)
-	if metadata.EnabledSearchSources == nil {
-		for _, item := range s.searcher.Sources() { selected[item.ID] = true }
-	} else {
-		for _, id := range metadata.EnabledSearchSources { selected[id] = true }
+	declared := make(map[string]bool)
+	for _, item := range state.DeclaredSources {
+		if !containsLXAction(item.Actions, "musicUrl") { continue }
+		declared[item.Key] = true
+	}
+	priority := metadata.EnabledSearchSources
+	if priority == nil {
+		priority = make([]string, 0, len(s.searcher.Sources()))
+		for _, item := range s.searcher.Sources() { priority = append(priority, item.ID) }
 	}
 	searchable := make(map[string]bool)
 	for _, item := range s.searcher.Sources() { searchable[item.ID] = true }
-	result := make([]string, 0, len(state.DeclaredSources))
+	result := make([]string, 0, len(priority))
 	seen := make(map[string]bool)
-	for _, declared := range state.DeclaredSources {
-		if !searchable[declared.Key] || !selected[declared.Key] || seen[declared.Key] { continue }
-		canResolve := false
-		for _, action := range declared.Actions { if action == "musicUrl" { canResolve = true; break } }
-		if canResolve { result = append(result, declared.Key); seen[declared.Key] = true }
+	for _, id := range priority {
+		if !declared[id] || !searchable[id] || seen[id] { continue }
+		result = append(result, id)
+		seen[id] = true
 	}
 	return result
+}
+
+func containsLXAction(actions []string, target string) bool {
+	for _, action := range actions { if action == target { return true } }
+	return false
 }
 
 func (s *MusicService) search(parent context.Context, keyword string) (MusicSearchResponse, error) {
@@ -1001,21 +1009,26 @@ type LXSearchSourceOption struct {
 
 func (s *MusicService) lxSearchSourceOptions(result music.LXSourceRuntimeResult, enabled []string) []LXSearchSourceOption {
 	if s == nil || s.searcher == nil { return []LXSearchSourceOption{} }
-	searchProviders := make(map[string]string)
-	for _, item := range s.searcher.Sources() { searchProviders[item.ID] = item.Name }
+	declared := make(map[string]bool)
+	for _, item := range result.DeclaredSources {
+		if containsLXAction(item.Actions, "musicUrl") { declared[item.Key] = true }
+	}
+	names := make(map[string]string)
+	for _, item := range s.searcher.Sources() { names[item.ID] = item.Name }
 	selected := make(map[string]bool, len(enabled))
 	for _, key := range enabled { selected[key] = true }
 	options := make([]LXSearchSourceOption, 0)
 	seen := make(map[string]bool)
-	for _, declared := range result.DeclaredSources {
-		name, supported := searchProviders[declared.Key]
-		if !supported || seen[declared.Key] { continue }
-		canResolve := false
-		for _, action := range declared.Actions { if action == "musicUrl" { canResolve = true; break } }
-		if !canResolve { continue }
-		options = append(options, LXSearchSourceOption{ID: declared.Key, Name: name, Enabled: selected[declared.Key]})
-		seen[declared.Key] = true
+	appendOption := func(id string) {
+		name, supported := names[id]
+		if !supported || !declared[id] || seen[id] { return }
+		options = append(options, LXSearchSourceOption{ID:id, Name:name, Enabled:selected[id]})
+		seen[id] = true
 	}
+	// Enabled options follow the saved priority; disabled options follow the
+	// built-in provider order so they have a predictable position when enabled.
+	for _, id := range enabled { appendOption(id) }
+	for _, item := range s.searcher.Sources() { appendOption(item.ID) }
 	return options
 }
 

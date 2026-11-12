@@ -132,8 +132,14 @@ func (c *LXSearchClient) SearchSources(ctx context.Context, keyword string, page
 	if ctx == nil { ctx = context.Background() }
 	allowed := make(map[string]bool, len(sourceIDs))
 	for _, id := range sourceIDs { allowed[id] = true }
+	providerByID := make(map[string]SearchProvider, len(c.providers))
+	for _, provider := range c.providers { providerByID[provider.ID()] = provider }
 	providers := make([]SearchProvider, 0, len(sourceIDs))
-	for _, provider := range c.providers { if allowed[provider.ID()] { providers = append(providers, provider) } }
+	seenProviders := make(map[string]bool, len(sourceIDs))
+	for _, id := range sourceIDs {
+		if !allowed[id] || seenProviders[id] { continue }
+		if provider, ok := providerByID[id]; ok { providers = append(providers, provider); seenProviders[id] = true }
+	}
 	if len(providers) == 0 { return SearchPage{Tracks: []Track{}, Page: page, PageSize: lxSongSearchPageSize}, map[string]string{}, nil }
 
 	type outcome struct { page SearchPage; err error }
@@ -166,11 +172,8 @@ func (c *LXSearchClient) SearchSources(ctx context.Context, keyword string, page
 		return result, errs, nil
 	}
 	result.Tracks = deduplicateLXTracks(result.Tracks)
-	// Keep the selected provider's native ranking when only one source is
-	// queried. Relevance sorting is reserved for cross-provider aggregation.
-	if len(providers) > 1 {
-		result.Tracks = sortLXTracksByRelevance(result.Tracks, keyword)
-	}
+	// Cross-provider results are grouped by the user's configured source
+	// priority. Each provider's native ranking is retained within its group.
 	if page > 1 && (result.Total == 0 || len(result.Tracks) == 0) { result.Total = int64(result.PageSize * page) }
 	return result, errs, nil
 }

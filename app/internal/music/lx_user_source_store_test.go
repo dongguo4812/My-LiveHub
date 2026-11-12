@@ -124,3 +124,16 @@ func TestLXUserSourceEnabledSearchSourcesPersistAndRejectUnsupportedKeys(t *test
 	if err != nil { t.Fatal(err) }
 	if got.EnabledSearchSources == nil || len(got.EnabledSearchSources) != 0 { t.Fatalf("empty selection was not persisted distinctly from an unset selection: %#v", got.EnabledSearchSources) }
 }
+
+func TestSetEnabledSearchSourcesPreservesPriorityOrder(t *testing.T) {
+	store, err := NewLXUserSourceStore(filepath.Join(t.TempDir(), "sources"))
+	if err != nil { t.Fatal(err) }
+	metadata, err := store.ImportScript("/*\n * @name Priority Test\n */\nvoid 0;", "")
+	if err != nil { t.Fatal(err) }
+	if err := store.SetEnabledSearchSources(metadata.ID, []string{"kw", "kg", "tx"}, []string{"tx", "kw", "kg"}); err != nil { t.Fatal(err) }
+	got, err := store.Get(metadata.ID)
+	if err != nil { t.Fatal(err) }
+	want := []string{"tx", "kw", "kg"}
+	if len(got.EnabledSearchSources) != len(want) { t.Fatalf("priority length = %v, want %v", got.EnabledSearchSources, want) }
+	for i := range want { if got.EnabledSearchSources[i] != want[i] { t.Fatalf("priority = %v, want %v", got.EnabledSearchSources, want) } }
+}

@@ -228,7 +228,10 @@ func (s *LXUserSourceStore) SetEnabledSearchSources(id string, allowed, enabled 
 		selected[key] = true
 	}
 	ordered := make([]string, 0, len(selected))
-	for _, key := range allowed { if selected[key] { ordered = append(ordered, key); delete(selected, key) } }
+	seen := make(map[string]bool, len(selected))
+	for _, key := range enabled {
+		if selected[key] && !seen[key] { ordered = append(ordered, key); seen[key] = true }
+	}
 	metadata.EnabledSearchSources = ordered
 	script, err := s.ReadScript(id)
 	if err != nil { return err }
