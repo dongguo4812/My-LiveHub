@@ -125,7 +125,9 @@ func (c *VideoClient) wbiKeys(ctx context.Context, cookie string) (string, strin
 	}
 	if err := json.Unmarshal(body, &envelope); err != nil { return "", "", err }
 	if envelope.Code != 0 { return "", "", fmt.Errorf("读取 B 站 WBI 密钥失败：%s", safeMessage(envelope.Message)) }
-	return keyFromImageURL(envelope.Data.WBI.ImgURL), keyFromImageURL(envelope.Data.WBI.SubURL), nil
+	imgKey, subKey := keyFromImageURL(envelope.Data.WBI.ImgURL), keyFromImageURL(envelope.Data.WBI.SubURL)
+	if len(imgKey) < 32 || len(subKey) < 32 { return "", "", errors.New("B 站没有返回有效的 WBI 签名密钥") }
+	return imgKey, subKey, nil
 }
 
 func keyFromImageURL(raw string) string {
