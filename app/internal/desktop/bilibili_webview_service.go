@@ -156,14 +156,7 @@ func (s *BilibiliWebViewService) OpenVideo(bvid string) error {
 	return nil
 }
 
-func (s *BilibiliWebViewService) SetPlaybackStateHandler(handler func(BilibiliWebViewPlaybackState)) {
-	if s == nil { return }
-	s.mu.Lock()
-	s.playbackStateHandler = handler
-	s.mu.Unlock()
-}
-
-func (s *BilibiliWebViewService) SetPlaybackStateHandler(handler func(BilibiliWebViewPlaybackState)) {
+func (s *BilibiliWebViewService) setPlaybackStateHandler(handler func(BilibiliWebViewPlaybackState)) {
 	if s == nil { return }
 	s.mu.Lock()
 	s.playbackStateHandler = handler
