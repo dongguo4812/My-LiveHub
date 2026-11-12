@@ -79,3 +79,17 @@ func TestDecryptMiguLyricLeavesPlainShortPayload(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	if got != "plain" { t.Fatalf("got %q", got) }
 }
+
+func TestNeteaseLyricSongIDFallsBackToLXPlaylistTrackID(t *testing.T) {
+ track := Track{ID: "wy_1500569811", SourceID: "wy"}
+ if got := neteaseLyricSongID(track); got != "1500569811" {
+  t.Fatalf("netease lyric ID = %q, want %q", got, "1500569811")
+ }
+}
+
+func TestNeteaseLyricSongIDPrefersProviderMetadata(t *testing.T) {
+ track := Track{ID: "wy_1500569811", SourceID: "wy", SourceData: map[string]string{"songmid": "987654"}}
+ if got := neteaseLyricSongID(track); got != "987654" {
+  t.Fatalf("netease lyric ID = %q, want metadata value %q", got, "987654")
+ }
+}
