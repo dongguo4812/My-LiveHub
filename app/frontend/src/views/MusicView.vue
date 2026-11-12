@@ -822,7 +822,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         <el-table-column prop="artist" label="歌手" min-width="140" />
         <el-table-column prop="album" label="专辑" min-width="140" />
         <el-table-column label="音源" width="130"><template #default="scope">{{ sourceName(scope.row.source_id) }}</template></el-table-column>
-        <el-table-column label="操作" width="220" fixed="right"><template #default="scope"><el-button link type="primary" @click="playFavorite(scope.row)">播放</el-button><el-button link :disabled="scope.$index === 0" @click="moveFavorite(scope.$index, -1)">上移</el-button><el-button link :disabled="scope.$index === favorites.length - 1" @click="moveFavorite(scope.$index, 1)">下移</el-button><el-dropdown :disabled="hostPlaylists.length <= 1" @command="(targetID: string) => moveTrackToPlaylist(scope.row, targetID)">
+        <el-table-column label="操作" width="220" fixed="right"><template #default="scope"><el-button link type="primary" @click="playFavorite(scope.row)">播放</el-button><el-button link :disabled="scope.$index === 0" @click="moveFavorite(scope.$index, -1)">上移</el-button><el-button link :disabled="scope.$index === favorites.length - 1" @click="moveFavorite(scope.$index, 1)">下移</el-button><el-dropdown :disabled="hostPlaylists.length <= 1" @command="targetID => moveTrackToPlaylist(scope.row, String(targetID))">
             <el-button link type="primary" :disabled="hostPlaylists.length <= 1">移动到</el-button>
             <template #dropdown><el-dropdown-menu>
               <el-dropdown-item v-for="item in hostPlaylists.filter(item => item.id !== activeHostPlaylistID)" :key="item.id" :command="item.id">{{ item.name }}</el-dropdown-item>
