@@ -59,10 +59,9 @@ const progress = computed(() => {
 const searchErrorText = computed(() => Object.values(searchErrors.value).join('；'))
 function formatDuration(value?: number) {
   if (value == null || !Number.isFinite(Number(value)) || Number(value) < 0) return '--:--'
-  // Playback snapshots expose milliseconds. Fractional values are treated as
-  // seconds as a defensive fallback for providers that return decimal clocks.
+  // Playback snapshots and seek previews are both expressed in milliseconds.
   const numeric = Number(value)
-  const seconds = Math.floor(numeric % 1 === 0 ? numeric / 1000 : numeric)
+  const seconds = Math.floor(numeric / 1000)
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 }
 function formatSeekTooltip(percent: number) {

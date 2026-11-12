@@ -60,7 +60,7 @@ func MigrateMusicConfig(c MusicConfig) (MusicConfig, bool) {
 		n.QueueCapacity = c.QueueCapacity
 	}
 	n.LXUserSourceProxy = c.LXUserSourceProxy
-	if c.Volume >= 0 && c.Volume <= 100 { n.Volume = c.Volume }
+	if c.Volume > 0 && c.Volume <= 100 { n.Volume = c.Volume }
 	return n, true
 }
 
