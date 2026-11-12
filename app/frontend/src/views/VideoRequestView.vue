@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { VideoRequestService } from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop'
+import * as VideoRequestService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/videorequestservice.js'
 import { ElMessage } from 'element-plus'
 
 type SearchResult = Awaited<ReturnType<typeof VideoRequestService.Search>>[number]
@@ -140,7 +140,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
         <article v-for="item in results" :key="item.bvid" class="video-result">
           <img :src="item.cover" :alt="item.title" loading="lazy" referrerpolicy="no-referrer" />
           <div class="result-info">
-            <strong v-html="item.title"></strong>
+            <strong>{{ item.title }}</strong>
             <span>{{ item.author }} · {{ formatDuration(item.duration) }}</span>
             <small>{{ item.bvid }} · 播放 {{ item.play_count.toLocaleString() }} · 弹幕 {{ item.danmaku_count.toLocaleString() }}</small>
           </div>
