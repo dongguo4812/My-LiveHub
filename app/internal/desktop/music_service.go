@@ -75,6 +75,8 @@ type MusicService struct {
 	lxUpdateMu sync.Mutex
 	lxUpdates []music.LXUserSourceUpdate
 	searcher *music.LXSearchClient
+	lyricsMu sync.Mutex
+	lyricsCache map[string]string
 }
 
 func NewMusicService(manager *config.Manager, value config.MusicConfig, buffers ...*events.Buffer) *MusicService {
@@ -90,7 +92,7 @@ func NewMusicServiceWithDependencies(manager *config.Manager, value config.Music
 	return &MusicService{
 		manager: manager, buffer: buffer, value: cloneMusicConfig(value),
 		sources: sources, engine: engine, queue: music.NewQueue(value.QueueCapacity),
-		searcher: music.NewLXSearchClient(nil),
+		searcher: music.NewLXSearchClient(nil), lyricsCache: make(map[string]string),
 	}
 }
 
@@ -744,25 +746,45 @@ type musicLyricsResponse struct {
 
 // GetLyrics retrieves time-synchronized lyrics for the current track.
 // LRCLIB is used only for lyrics; audio playback remains on the selected LX source.
+// Successful results are cached so the main player and desktop lyrics window
+// reuse the same lyric response instead of issuing duplicate provider requests.
 func (s *MusicService) GetLyrics(track music.Track) (string, error) {
+	if s == nil { return "", errors.New("music lyrics service is unavailable") }
 	source := track.LXSourceKey
 	if source == "" { source = track.SourceID }
+	cacheKey := strings.Join([]string{source, track.ID, track.Title, track.Artist}, "\x00")
+	s.lyricsMu.Lock()
+	if cached, ok := s.lyricsCache[cacheKey]; ok {
+		s.lyricsMu.Unlock()
+		return cached, nil
+	}
+	s.lyricsMu.Unlock()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 18*time.Second)
 	defer cancel()
+	var lyrics string
+	var err error
 	switch source {
 	case music.LXSearchTX:
-		return music.GetQQMusicLyrics(ctx, nil, track)
+		lyrics, err = music.GetQQMusicLyrics(ctx, nil, track)
 	case music.LXSearchKG:
-		return music.GetKugouMusicLyrics(ctx, nil, track)
+		lyrics, err = music.GetKugouMusicLyrics(ctx, nil, track)
 	case music.LXSearchKW:
-		return music.GetKuwoMusicLyrics(ctx, nil, track)
+		lyrics, err = music.GetKuwoMusicLyrics(ctx, nil, track)
 	case music.LXSearchWY:
-		return music.GetNeteaseMusicLyrics(ctx, nil, track)
+		lyrics, err = music.GetNeteaseMusicLyrics(ctx, nil, track)
 	case music.LXSearchMG:
-		return music.GetMiguMusicLyrics(ctx, nil, track)
+		lyrics, err = music.GetMiguMusicLyrics(ctx, nil, track)
 	default:
-		return s.getLRCLIBLyrics(track)
+		lyrics, err = s.getLRCLIBLyrics(track)
 	}
+	if err != nil { return "", err }
+	s.lyricsMu.Lock()
+	if s.lyricsCache == nil { s.lyricsCache = make(map[string]string) }
+	if len(s.lyricsCache) >= 128 { s.lyricsCache = make(map[string]string) }
+	s.lyricsCache[cacheKey] = lyrics
+	s.lyricsMu.Unlock()
+	return lyrics, nil
 }
 
 func (s *MusicService) getLRCLIBLyrics(track music.Track) (string, error) {
