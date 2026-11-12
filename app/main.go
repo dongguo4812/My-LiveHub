@@ -105,14 +105,14 @@ func main() {
 	eventBus := eventstream.NewBus()
 	bilibiliEvents := eventstream.NewBuffer(eventBus)
 	musicService := desktop.NewMusicService(configManager, musicConfig, bilibiliEvents)
-	musicService.SetFanMedalChecker(fanMedalChecker)
+	musicService.setFanMedalChecker(fanMedalChecker)
 	musicLyricsWindowService := desktop.NewMusicLyricsWindowService(musicService)
 	bilibiliVideoResolver, err := bilibili.NewVideoResolver(bilibiliAuth, nil)
 	if err != nil { log.Fatalf("initialize Bilibili video resolver: %v", err) }
 	bilibiliWebViewService := desktop.NewBilibiliWebViewService(musicService, configManager)
 	videoQueueService, err := desktop.NewVideoQueueService(configManager, bilibiliConfig, bilibiliVideoResolver, bilibiliWebViewService, bilibiliEvents)
 	if err != nil { log.Fatalf("initialize Bilibili video queue service: %v", err) }
-	videoQueueService.SetFanMedalChecker(fanMedalChecker)
+	videoQueueService.setFanMedalChecker(fanMedalChecker)
 	cacheDir := ""
 	if environment == config.EnvironmentDevelopment {
 		if workingDir, getwdErr := os.Getwd(); getwdErr == nil {
