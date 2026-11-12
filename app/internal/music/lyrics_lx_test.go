@@ -2,9 +2,12 @@ package music
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
+
+	qrc "github.com/dongguo4812/My-LiveHub/app/internal/music/lxqrc"
 )
 
 type lyricRoundTripper func(*http.Request) (*http.Response, error)

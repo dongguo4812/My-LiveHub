@@ -38,9 +38,11 @@ func GetQQMusicLyrics(parent context.Context, client *http.Client, track Track) 
 			},
 		},
 	}
+	body, err := jsonBody(payload)
+	if err != nil { return "", fmt.Errorf("构建 QQ 歌词请求失败：%w", err) }
 	raw, err := doLXJSON(parent, client, http.MethodPost, qqMusicLyricEndpoint,
 		map[string]string{"Referer":"https://y.qq.com","User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36","Content-Type":"application/json"},
-		strings.NewReader(mustJSONBody(payload)))
+		strings.NewReader(string(body)))
 	if err != nil { return "", fmt.Errorf("请求 QQ 歌词失败：%w", err) }
 	req := mapValue(raw["req"])
 	if len(req) == 0 || intValue(req["code"]) != 0 || intValue(raw["code"]) != 0 {
@@ -53,12 +55,6 @@ func GetQQMusicLyrics(parent context.Context, client *http.Client, track Track) 
 	translated, _ := decodeQQLyricField(stringValue(data["trans"]))
 	romanized, _ := decodeQQLyricField(stringValue(data["roma"]))
 	return formatQQLyricAsLRC(track, primary, translated, romanized), nil
-}
-
-func mustJSONBody(value any) string {
-	encoded, err := jsonBody(value)
-	if err != nil { return "{}" }
-	return string(encoded)
 }
 
 func decodeQQLyricField(value string) (*qrc.Lyric, error) {
