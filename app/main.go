@@ -105,12 +105,11 @@ func main() {
 	bilibiliEvents := eventstream.NewBuffer(eventBus)
 	musicService := desktop.NewMusicService(configManager, musicConfig, bilibiliEvents)
 	musicLyricsWindowService := desktop.NewMusicLyricsWindowService(musicService)
-	videoService := desktop.NewVideoService(musicService, music.NewMpvVideoEngine(""))
 	bilibiliVideoResolver, err := bilibili.NewVideoResolver(bilibiliAuth, nil)
 	if err != nil { log.Fatalf("initialize Bilibili video resolver: %v", err) }
-	bilibiliVideoService, err := desktop.NewBilibiliVideoService(videoService, bilibiliVideoResolver)
-	if err != nil { log.Fatalf("initialize Bilibili video playback service: %v", err) }
 	bilibiliWebViewService := desktop.NewBilibiliWebViewService(musicService)
+	videoQueueService, err := desktop.NewVideoQueueService(configManager, bilibiliConfig, bilibiliVideoResolver, bilibiliWebViewService, bilibiliEvents)
+	if err != nil { log.Fatalf("initialize Bilibili video queue service: %v", err) }
 	cacheDir := ""
 	if environment == config.EnvironmentDevelopment {
 		if workingDir, getwdErr := os.Getwd(); getwdErr == nil {
@@ -162,7 +161,7 @@ func main() {
 	if err := coreApp.Modules().Register("music", desktop.NewMusicModule(musicService)); err != nil {
 		log.Fatalf("register music module: %v", err)
 	}
-	if err := coreApp.Modules().Register("video", desktop.NewVideoModule(videoService)); err != nil {
+	if err := coreApp.Modules().Register("video", desktop.NewVideoModule(videoQueueService)); err != nil {
 		log.Fatalf("register video module: %v", err)
 	}
 	assetHandler := application.AssetFileServerFS(assets)
@@ -190,8 +189,7 @@ func main() {
 			application.NewService(voiceService),
 			application.NewService(musicService),
 			application.NewService(musicLyricsWindowService),
-			application.NewService(videoService),
-			application.NewService(bilibiliVideoService),
+			application.NewService(videoQueueService),
 			application.NewService(bilibiliWebViewService),
 		},
 	})
@@ -203,10 +201,8 @@ func main() {
 	app.OnShutdown(func() {
 		danmakuDisplayService.CloseWindowForShutdown()
 		musicLyricsWindowService.CloseWindowForShutdown()
+		videoQueueService.Close()
 		bilibiliWebViewService.CloseWindowForShutdown()
-		if err := videoService.Shutdown(); err != nil {
-			log.Printf("stop video playback engine: %v", err)
-		}
 		if err := musicService.Shutdown(); err != nil {
 			log.Printf("stop music playback engine: %v", err)
 		}
