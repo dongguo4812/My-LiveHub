@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CopyDocument, Plus, Delete, Picture, ChatLineRound, Clock, Present, ChatDotRound } from '@element-plus/icons-vue'
 import { getScenes, saveScene, deleteScene, getBrowserSourceURL, type LayoutScene, type LayoutLayer } from '../services/layouts'
@@ -44,7 +44,6 @@ function removeLayer() {
 function startDrag(event: PointerEvent, layer: LayoutLayer) {
   if (!canvas.value || event.button !== 0) return
   selectedLayerID.value = layer.id
-  const rect = canvas.value.getBoundingClientRect()
   drag = { x: event.clientX, y: event.clientY, layerX: layer.x, layerY: layer.y }
   const move = (next: PointerEvent) => {
     if (!drag || !scene.value) return
@@ -58,7 +57,6 @@ function startDrag(event: PointerEvent, layer: LayoutLayer) {
     window.removeEventListener('pointercancel', stop)
   }
   event.preventDefault()
-  void rect
   window.addEventListener('pointermove', move)
   window.addEventListener('pointerup', stop, { once: true })
   window.addEventListener('pointercancel', stop, { once: true })
@@ -69,6 +67,8 @@ async function load() {
     scenes.value = await getScenes()
     activeSceneID.value = scenes.value[0]?.id ?? ''
     await refreshURL()
+    await nextTick()
+    refreshScale()
   } catch (error) { ElMessage.error(error instanceof Error ? error.message : String(error)) }
   finally { loading.value = false }
 }
@@ -89,6 +89,7 @@ async function refreshURL() {
   try { sourceURL.value = await getBrowserSourceURL(scene.value.id) }
   catch { sourceURL.value = '' }
 }
+function preview() { if (sourceURL.value) window.open(sourceURL.value, '_blank', 'noopener') }
 async function copyURL() {
   if (!sourceURL.value) return
   await navigator.clipboard.writeText(sourceURL.value)
@@ -141,7 +142,7 @@ onMounted(() => { void load(); window.addEventListener('resize', refreshScale) }
       <div class="source-actions">
         <el-tag type="success" effect="plain">浏览器源服务运行中</el-tag>
         <el-button :disabled="!sourceURL" @click="copyURL"><el-icon><CopyDocument /></el-icon>复制 OBS 地址</el-button>
-        <el-button :disabled="!sourceURL" @click="sourceURL && window.open(sourceURL, '_blank')">预览</el-button>
+        <el-button :disabled="!sourceURL" @click="preview">预览</el-button>
       </div>
     </div>
     <div class="studio-grid" v-loading="loading">
@@ -187,10 +188,10 @@ onMounted(() => { void load(); window.addEventListener('resize', refreshScale) }
             <el-form-item v-if="selectedLayer.type === 'text'" label="文字内容"><el-input v-model="selectedLayer.text" type="textarea" :rows="3" /></el-form-item>
             <el-form-item v-if="selectedLayer.type === 'image'" label="图片 URL"><el-input v-model="selectedLayer.url" placeholder="https://..." /></el-form-item>
             <div class="property-grid">
-              <el-form-item label="X"><el-input-number v-model="selectedLayer.x" :min="0" :max="scene!.width" controls-position="right" /></el-form-item>
-              <el-form-item label="Y"><el-input-number v-model="selectedLayer.y" :min="0" :max="scene!.height" controls-position="right" /></el-form-item>
-              <el-form-item label="宽度"><el-input-number v-model="selectedLayer.width" :min="20" :max="scene!.width" controls-position="right" /></el-form-item>
-              <el-form-item label="高度"><el-input-number v-model="selectedLayer.height" :min="20" :max="scene!.height" controls-position="right" /></el-form-item>
+              <el-form-item label="X"><el-input-number v-model="selectedLayer.x" :min="0" :max="scene?.width ?? 1920" controls-position="right" /></el-form-item>
+              <el-form-item label="Y"><el-input-number v-model="selectedLayer.y" :min="0" :max="scene?.height ?? 1080" controls-position="right" /></el-form-item>
+              <el-form-item label="宽度"><el-input-number v-model="selectedLayer.width" :min="20" :max="scene?.width ?? 1920" controls-position="right" /></el-form-item>
+              <el-form-item label="高度"><el-input-number v-model="selectedLayer.height" :min="20" :max="scene?.height ?? 1080" controls-position="right" /></el-form-item>
             </div>
             <el-form-item label="字体大小"><el-input-number v-model="selectedLayer.font_size" :min="10" :max="160" /></el-form-item>
             <el-form-item label="文字颜色"><el-color-picker v-model="selectedLayer.color" show-alpha /></el-form-item>
