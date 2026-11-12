@@ -19,6 +19,11 @@ func NewBilibiliSettingsService(manager *config.Manager, current config.Bilibili
 
 func (s *BilibiliSettingsService) GetSettings() config.BilibiliConfig {
 	if s == nil { return config.DefaultBilibiliConfig() }
+	if s.manager != nil {
+		if latest, err := config.LoadTyped[config.BilibiliConfig](s.manager, "bilibili.json", func(value config.BilibiliConfig) error { return value.Validate() }); err == nil {
+			s.current = latest
+		}
+	}
 	return s.current
 }
 
