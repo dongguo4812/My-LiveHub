@@ -170,8 +170,16 @@ func signWBI(params url.Values, imgKey, subKey string, now time.Time) url.Values
 	for key := range clean { keys = append(keys, key) }
 	sort.Strings(keys)
 	sorted := make(url.Values, len(clean))
-	for _, key := range keys { sorted[key] = clean[key] }
-	sum := md5.Sum([]byte(sorted.Encode() + mixinWBIKey(imgKey, subKey)))
+	var canonicalParts []string
+	for _, key := range keys {
+		sorted[key] = clean[key]
+		for _, value := range clean[key] {
+			encodedKey := strings.ReplaceAll(url.QueryEscape(key), "+", "%20")
+			encodedValue := strings.ReplaceAll(url.QueryEscape(value), "+", "%20")
+			canonicalParts = append(canonicalParts, encodedKey+"="+encodedValue)
+		}
+	}
+	sum := md5.Sum([]byte(strings.Join(canonicalParts, "&") + mixinWBIKey(imgKey, subKey)))
 	sorted.Set("w_rid", hex.EncodeToString(sum[:]))
 	return sorted
 }
