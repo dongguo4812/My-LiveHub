@@ -56,6 +56,10 @@ onMounted(() => {
   void loadScene()
   source = new EventSource('/api/events')
   source.onmessage = handleEvent
+  void fetch('/api/events/recent', { cache: 'no-store' }).then(response => response.ok ? response.json() as Promise<LiveEvent[]> : []).then(items => {
+    const known = new Set(liveEvents.value.map(item => item.id))
+    liveEvents.value = [...items.filter(item => !known.has(item.id)), ...liveEvents.value].slice(-100)
+  }).catch(() => undefined)
   source.onerror = () => { error.value = '直播事件连接中断，正在自动重连…' }
   source.onopen = () => { error.value = '' }
   clockTimer = setInterval(() => { now.value = new Date() }, 500)
