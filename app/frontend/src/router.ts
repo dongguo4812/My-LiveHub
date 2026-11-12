@@ -24,7 +24,7 @@ const routes=[
 {path:'/extensions',component:PlaceholderView,meta:{title:'扩展管理',section:'扩展中心',description:'管理官方与第三方扩展、权限和独立进程状态。'}},
 {path:'/danmaku',component:DanmakuView,meta:{title:'弹幕显示',section:'功能模块'}},
 {path:'/voice',component:VoiceView,meta:{title:'语音播报',section:'功能模块'}},
-{path:'/music',component:MusicView,meta:{title:'音乐播放器',section:'功能模块'}},
+{path:'/music',component:MusicView,meta:{title:'音乐播放',section:'功能模块'}},
 {path:'/video',component:VideoView,meta:{title:'视频点播',section:'功能模块'}},
 {path:'/danmaku/overlay',component:DanmakuOverlayView,meta:{title:'弹幕展示',standalone:true}},
 {path:'/music/lyrics-overlay',component:MusicLyricsOverlayView,meta:{title:'桌面歌词',standalone:true}},
