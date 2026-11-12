@@ -650,6 +650,12 @@ func (s *MusicService) GetLyrics(track music.Track) (string, error) {
 		return music.GetQQMusicLyrics(ctx, nil, track)
 	case music.LXSearchKG:
 		return music.GetKugouMusicLyrics(ctx, nil, track)
+	case music.LXSearchKW:
+		return music.GetKuwoMusicLyrics(ctx, nil, track)
+	case music.LXSearchWY:
+		return music.GetNeteaseMusicLyrics(ctx, nil, track)
+	case music.LXSearchMG:
+		return music.GetMiguMusicLyrics(ctx, nil, track)
 	default:
 		return s.getLRCLIBLyrics(track)
 	}
