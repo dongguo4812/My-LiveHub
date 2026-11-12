@@ -3,11 +3,8 @@ package desktop
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"mime"
-	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -33,22 +30,11 @@ type Live2DService struct {
 	modelRoot string
 	mu sync.RWMutex
 	current config.Live2DConfig
-	assetBaseURL string
-	assetServer *http.Server
-	listener net.Listener
 }
 
 func NewLive2DService(manager *config.Manager, current config.Live2DConfig, modelRoot string) *Live2DService {
-	s := &Live2DService{manager: manager, current: current, modelRoot: modelRoot}
-	if modelRoot == "" { return s }
-	if err := os.MkdirAll(modelRoot, 0o700); err != nil { return s }
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil { return s }
-	s.listener = listener
-	s.assetBaseURL = "http://" + listener.Addr().String()
-	s.assetServer = &http.Server{Handler: http.HandlerFunc(s.serveModelAsset)}
-	go func() { _ = s.assetServer.Serve(listener) }()
-	return s
+	if modelRoot != "" { _ = os.MkdirAll(modelRoot, 0o700) }
+	return &Live2DService{manager: manager, current: current, modelRoot: modelRoot}
 }
 
 func (s *Live2DService) GetSettings() config.Live2DConfig {
@@ -84,17 +70,13 @@ func (s *Live2DService) ListModels() ([]Live2DModel, error) {
 			entryFile := findModelEntry(dir, format)
 			if entryFile == "" { continue }
 			manifestName := filepath.Base(entryFile)
-			modelURL := ""
-			if s.assetBaseURL != "" {
-				modelURL = fmt.Sprintf("%s/models/%s/%s/%s", s.assetBaseURL, format, entry.Name(), manifestName)
-			}
+			modelURL := "/models/" + format + "/" + entry.Name() + "/" + manifestName
 			status := "等待运行时加载后检测"
 			if format == "moc2" { status = "等待 MOC2 运行时加载后检测" } else if hasMOC3LipSyncGroup(entryFile) { status = "模型声明了 LipSync 参数组，待运行时验证" } else { status = "未声明 LipSync 参数组，仍需运行时检查兼容嘴型参数" }
 			models = append(models, Live2DModel{
 				ID: entry.Name(), Name: entry.Name(), Format: format, Directory: dir,
 				EntryFile: manifestName, ModelURL: modelURL,
-				RuntimeAvailable: modelURL != "",
-				CapabilityStatus: status,
+				RuntimeAvailable: true, CapabilityStatus: status,
 			})
 		}
 	}
@@ -127,27 +109,19 @@ func safeLive2DPathPart(value string) bool {
 	return value != "" && value != "." && value != ".." && filepath.Base(value) == value && !strings.ContainsAny(value, "/\\")
 }
 
-func allowedLive2DOrigin(origin string) bool {
-	parsed, err := url.Parse(origin)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") { return false }
-	switch strings.ToLower(parsed.Hostname()) {
-	case "wails.localhost", "localhost", "127.0.0.1":
-		return true
-	default:
-		return false
-	}
+// WrapLive2DAssetHandler serves user-provided model files on the Wails asset
+// origin, avoiding cross-origin and private-network restrictions in WebView2.
+func WrapLive2DAssetHandler(service *Live2DService, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if service != nil && strings.HasPrefix(r.URL.Path, "/models/") {
+			service.serveModelAsset(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Live2DService) serveModelAsset(w http.ResponseWriter, r *http.Request) {
-	origin := r.Header.Get("Origin")
-	if origin != "" && allowedLive2DOrigin(origin) {
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Add("Vary", "Origin")
-		w.Header().Set("Access-Control-Allow-Private-Network", "true")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Range, Content-Type")
-	}
-	if r.Method == http.MethodOptions { w.WriteHeader(http.StatusNoContent); return }
 	if r.Method != http.MethodGet && r.Method != http.MethodHead { http.Error(w, "method not allowed", http.StatusMethodNotAllowed); return }
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/models/"), "/")
 	if len(parts) < 3 || (parts[0] != "moc2" && parts[0] != "moc3") || !safeLive2DPathPart(parts[1]) {
@@ -170,10 +144,6 @@ func (s *Live2DService) serveModelAsset(w http.ResponseWriter, r *http.Request) 
 	http.ServeContent(w, r, filepath.Base(resolved), info.ModTime(), file)
 }
 
-func (s *Live2DService) Shutdown() {
-	if s == nil || s.assetServer == nil { return }
-	_ = s.assetServer.Close()
-}
 func findModelEntry(dir, format string) string {
 	candidates := []string{"model3.json", "model.json", "model.model.json"}
 	pattern := "*.model3.json"
