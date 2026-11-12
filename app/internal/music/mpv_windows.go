@@ -314,6 +314,13 @@ func (e *MpvEngine) Load(ctx context.Context, resource PlaybackResource, track T
 	return nil
 }
 
+// AddSubtitle loads a local external subtitle track into the dedicated mpv process.
+func (e *MpvEngine) AddSubtitle(ctx context.Context, path string) error {
+	if strings.TrimSpace(path) == "" { return errors.New("subtitle path is required") }
+	_, err := e.commandIPC(ctx, "sub-add", path, "select")
+	return err
+}
+
 func (e *MpvEngine) Pause(ctx context.Context) error {
 	_, err := e.commandIPC(ctx, "set_property", "pause", true)
 	return err
