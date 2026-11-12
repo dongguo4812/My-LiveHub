@@ -108,6 +108,12 @@ async function waitForLegacyModel(modelURL: string) {
   throw new Error('MOC2 模型加载超时，请检查模型配置、贴图和 MOC 文件')
 }
 
+function previewModelTransform(patch: Partial<Live2DConfig>) {
+  if (!settings.value) return
+  Object.assign(settings.value, patch)
+  applyModelTransform()
+}
+
 function applyModelTransform() {
   const config = settings.value
   if (!config || config.runtime_version !== 'moc3') return
@@ -404,9 +410,9 @@ onUnmounted(() => {
       <el-alert v-if="runtimeError" type="error" :closable="false" show-icon :title="runtimeError" />
       <p class="hint">嘴型参数：{{ mouthCapability }}</p>
       <div class="model-adjustments" v-if="settings && currentModel">
-        <div class="adjustment"><label>模型大小 <strong>{{ Math.round(settings.model_scale * 100) }}%</strong></label><el-slider :model-value="settings.model_scale" :min="0.1" :max="2.5" :step="0.05" @change="save({ model_scale: Number($event) })" /></div>
-        <div class="adjustment"><label>水平位置 <strong>{{ settings.model_offset_x }}</strong></label><el-slider :model-value="settings.model_offset_x" :min="-100" :max="100" :step="1" @change="save({ model_offset_x: Number($event) })" /></div>
-        <div class="adjustment"><label>垂直位置 <strong>{{ settings.model_offset_y }}</strong></label><el-slider :model-value="settings.model_offset_y" :min="-100" :max="100" :step="1" @change="save({ model_offset_y: Number($event) })" /></div>
+        <div class="adjustment"><label>模型大小 <strong>{{ Math.round(settings.model_scale * 100) }}%</strong></label><el-slider :model-value="settings.model_scale" :min="0.1" :max="2.5" :step="0.05" @input="previewModelTransform({ model_scale: Number($event) })" @change="save({ model_scale: Number($event) })" /></div>
+        <div class="adjustment"><label>水平位置 <strong>{{ settings.model_offset_x }}</strong></label><el-slider :model-value="settings.model_offset_x" :min="-100" :max="100" :step="1" @input="previewModelTransform({ model_offset_x: Number($event) })" @change="save({ model_offset_x: Number($event) })" /></div>
+        <div class="adjustment"><label>垂直位置 <strong>{{ settings.model_offset_y }}</strong></label><el-slider :model-value="settings.model_offset_y" :min="-100" :max="100" :step="1" @input="previewModelTransform({ model_offset_y: Number($event) })" @change="save({ model_offset_y: Number($event) })" /></div>
         <el-button size="small" @click="save({ model_scale: 0.65, model_offset_x: 0, model_offset_y: 0 })">恢复默认大小和位置</el-button>
       </div>
     </el-card>
