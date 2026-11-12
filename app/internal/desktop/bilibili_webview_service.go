@@ -14,7 +14,29 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
-var bilibiliBVPattern = regexp.MustCompile(`^BV[0-9A-Za-z]{10}$`)
+type musicPlaybackController interface {
+	Pause() error
+	Resume() error
+	GetPlaybackStatus() (music.PlaybackSnapshot, error)
+}
+
+var bilibiliBVPattern = regexp.MustCompile(`^BV[0-9A-Za-z]{10}package desktop
+
+import (
+	"encoding/json"
+	"errors"
+	"math"
+	"net/url"
+	"regexp"
+	"strings"
+	"sync"
+
+	"github.com/dongguo4812/My-LiveHub/app/internal/music"
+	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
+)
+
+)
 
 type BilibiliWebViewWindowState struct {
 	IsOpen bool `json:"is_open"`
