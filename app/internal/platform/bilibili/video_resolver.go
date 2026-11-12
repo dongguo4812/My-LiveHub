@@ -96,7 +96,7 @@ func (r *VideoResolver) Resolve(ctx context.Context, rawBVID string) (VideoPlayb
 	// Keep the interleaved MP4/DURL request so mpv needs no external muxer.
 	params := url.Values{
 		"bvid":{bvid}, "cid":{strconv.FormatInt(cid,10)}, "qn":{"127"},
-		"fnval":{"1"}, "fnver":{"0"}, "fourk":{"1"}, "platform":{"html5"},
+		"fnval":{"1"}, "fnver":{"0"}, "fourk":{"1"}, "platform":{"web"},
 	}
 	signed := signVideoWBI(params, imgKey, subKey, r.now())
 	playBody, err := r.get(ctx, r.playURL, signed, credentials.Cookie)
