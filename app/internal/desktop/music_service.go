@@ -106,6 +106,13 @@ func (s *MusicService) start(ctx context.Context) error {
 		}
 	}
 	if err := s.engine.SetVolume(ctx, s.value.Volume); err != nil { return fmt.Errorf("恢复音乐音量失败：%w", err) }
+	if processor, ok := s.engine.(music.PlaybackEngineAudioProcessing); ok {
+		if err := processor.SetLoudnessNormalization(ctx, s.value.LoudnessNormalization); err != nil {
+			return fmt.Errorf("恢复响度标准化设置失败：%w", err)
+		}
+	} else if s.value.LoudnessNormalization {
+		return errors.New("当前播放引擎不支持响度标准化")
+	}
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()
 	s.mu.Lock()
@@ -247,9 +254,33 @@ func (s *MusicService) GetConfig() config.MusicConfig {
 func (s *MusicService) SaveConfig(value config.MusicConfig) error {
 	if s == nil || s.manager == nil { return errors.New("music configuration service is unavailable") }
 	if err := value.Validate(); err != nil { return err }
+	oldConfig := s.GetConfig()
+	processor, supportsAudioProcessing := s.engine.(music.PlaybackEngineAudioProcessing)
+	normalizationChanged := oldConfig.LoudnessNormalization != value.LoudnessNormalization
+	if value.LoudnessNormalization && !supportsAudioProcessing {
+		return errors.New("当前播放引擎不支持响度标准化")
+	}
+	if normalizationChanged && supportsAudioProcessing {
+		if err := processor.SetLoudnessNormalization(context.Background(), value.LoudnessNormalization); err != nil {
+			return fmt.Errorf("应用响度标准化设置失败：%w", err)
+		}
+	}
+	rollbackNormalization := func() error {
+		if normalizationChanged && supportsAudioProcessing {
+			return processor.SetLoudnessNormalization(context.Background(), oldConfig.LoudnessNormalization)
+		}
+		return nil
+	}
 	oldCapacity := s.queue.Snapshot().Capacity
-	if err := s.queue.Resize(value.QueueCapacity); err != nil { return err }
-	if err := config.SaveTyped(s.manager, "music.json", value, func(candidate config.MusicConfig) error { return candidate.Validate() }); err != nil { _ = s.queue.Resize(oldCapacity); return err }
+	if err := s.queue.Resize(value.QueueCapacity); err != nil {
+		if rollbackErr := rollbackNormalization(); rollbackErr != nil { return fmt.Errorf("调整播放队列失败：%v；恢复原响度标准化设置失败：%w", err, rollbackErr) }
+		return err
+	}
+	if err := config.SaveTyped(s.manager, "music.json", value, func(candidate config.MusicConfig) error { return candidate.Validate() }); err != nil {
+		_ = s.queue.Resize(oldCapacity)
+		if rollbackErr := rollbackNormalization(); rollbackErr != nil { return fmt.Errorf("保存音乐配置失败：%v；恢复原响度标准化设置失败：%w", err, rollbackErr) }
+		return err
+	}
 	s.mu.Lock(); wasEnabled := s.value.Enabled; s.value = cloneMusicConfig(value); s.mu.Unlock()
 	if wasEnabled && !value.Enabled { s.cancelPlaybackWatcher(); _ = s.engine.Stop(context.Background()); s.queue.Clear(); s.queue.FinishCurrent(); s.mu.Lock(); s.history = nil; s.mu.Unlock() }
 	return nil
