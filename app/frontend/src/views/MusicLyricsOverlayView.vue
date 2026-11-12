@@ -1,10 +1,46 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
 import * as MusicLyricsWindowService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musiclyricswindowservice.js'
 import { getActiveSyncedLyric, parseSyncedLyrics, type SyncedLyricLine } from '../utils/syncedLyrics'
 
 type PlaybackSnapshot = Awaited<ReturnType<typeof MusicService.GetPlaybackStatus>>
+type LyricsStyle = {
+  originalColor: string
+  translationColor: string
+  originalSize: number
+  translationSize: number
+  textShadow: boolean
+}
+const defaultLyricsStyle: LyricsStyle = {
+  originalColor: '#ffffff',
+  translationColor: '#c6d0e6',
+  originalSize: 27,
+  translationSize: 18,
+  textShadow: true,
+}
+const lyricsStyle = ref<LyricsStyle>({ ...defaultLyricsStyle })
+const settingsVisible = ref(false)
+const styleStorageKey = 'my-livehub.music-lyrics-style'
+
+function loadLyricsStyle() {
+  try {
+    const saved = localStorage.getItem(styleStorageKey)
+    if (!saved) return
+    const value = JSON.parse(saved) as Partial<LyricsStyle>
+    if (typeof value.originalColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(value.originalColor)) lyricsStyle.value.originalColor = value.originalColor
+    if (typeof value.translationColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(value.translationColor)) lyricsStyle.value.translationColor = value.translationColor
+    if (typeof value.originalSize === 'number' && Number.isFinite(value.originalSize)) lyricsStyle.value.originalSize = Math.min(48, Math.max(16, value.originalSize))
+    if (typeof value.translationSize === 'number' && Number.isFinite(value.translationSize)) lyricsStyle.value.translationSize = Math.min(36, Math.max(12, value.translationSize))
+    if (typeof value.textShadow === 'boolean') lyricsStyle.value.textShadow = value.textShadow
+  } catch { /* Ignore unavailable or invalid local settings. */ }
+}
+watch(lyricsStyle, value => {
+  try { localStorage.setItem(styleStorageKey, JSON.stringify(value)) } catch { /* The overlay remains usable when storage is unavailable. */ }
+}, { deep: true })
+function resetLyricsStyle() {
+  lyricsStyle.value = { ...defaultLyricsStyle }
+}
 
 const playback = ref<PlaybackSnapshot | null>(null)
 const syncedLyrics = ref<SyncedLyricLine[]>([])
@@ -80,6 +116,7 @@ async function closeWindow() {
 }
 
 onMounted(() => {
+  loadLyricsStyle()
   void refreshPlayback()
   refreshTimer = setInterval(() => void refreshPlayback(), 500)
 })
@@ -96,11 +133,40 @@ onUnmounted(() => {
         <span class="eyebrow">MY-LIVEHUB · DESKTOP LYRICS</span>
         <strong>{{ trackTitle }}</strong>
       </div>
-      <button class="close-button" title="关闭桌面歌词" aria-label="关闭桌面歌词" @click="closeWindow">×</button>
+      <div class="header-actions">
+        <button class="settings-button" title="歌词样式设置" aria-label="歌词样式设置" @click="settingsVisible = !settingsVisible">⚙</button>
+        <button class="close-button" title="关闭桌面歌词" aria-label="关闭桌面歌词" @click="closeWindow">×</button>
+      </div>
     </header>
+    <section v-if="settingsVisible" class="settings-panel">
+      <div class="settings-heading">
+        <strong>歌词样式</strong>
+        <button class="reset-button" @click="resetLyricsStyle">恢复默认</button>
+      </div>
+      <label class="style-control">
+        <span>原文字体颜色</span>
+        <input v-model="lyricsStyle.originalColor" type="color">
+      </label>
+      <label class="style-control">
+        <span>翻译字体颜色</span>
+        <input v-model="lyricsStyle.translationColor" type="color">
+      </label>
+      <label class="style-control">
+        <span>原文字号 <b>{{ lyricsStyle.originalSize }}px</b></span>
+        <input v-model.number="lyricsStyle.originalSize" type="range" min="16" max="48" step="1">
+      </label>
+      <label class="style-control">
+        <span>翻译字号 <b>{{ lyricsStyle.translationSize }}px</b></span>
+        <input v-model.number="lyricsStyle.translationSize" type="range" min="12" max="36" step="1">
+      </label>
+      <label class="shadow-control">
+        <input v-model="lyricsStyle.textShadow" type="checkbox">
+        <span>显示文字阴影</span>
+      </label>
+    </section>
     <section class="lyrics-content">
-      <p class="original-lyric">{{ activeLyric.text }}</p>
-      <p v-if="activeLyric.translation" class="translated-lyric">{{ activeLyric.translation }}</p>
+      <p class="original-lyric" :style="{ color: lyricsStyle.originalColor, fontSize: lyricsStyle.originalSize + 'px', textShadow: lyricsStyle.textShadow ? '0 2px 12px #0008' : 'none' }">{{ activeLyric.text }}</p>
+      <p v-if="activeLyric.translation" class="translated-lyric" :style="{ color: lyricsStyle.translationColor, fontSize: lyricsStyle.translationSize + 'px', textShadow: lyricsStyle.textShadow ? '0 1px 8px #0007' : 'none' }">{{ activeLyric.translation }}</p>
     </section>
     <footer class="lyrics-footer">
       <span>{{ playbackLabel }}</span>
@@ -111,15 +177,28 @@ onUnmounted(() => {
 
 <style scoped>
 :global(html), :global(body), :global(#app) { width:100%; height:100%; margin:0; overflow:hidden; background:transparent !important; }
-.lyrics-overlay { --wails-draggable:drag; box-sizing:border-box; display:flex; flex-direction:column; justify-content:space-between; width:100%; height:100%; padding:15px 22px 12px; border:1px solid #ffffff35; border-radius:14px; background:rgba(12,16,24,.86); color:#f6f7fb; font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif; text-align:center; box-shadow:0 8px 28px #0005; backdrop-filter:blur(12px); }
+.lyrics-overlay { --wails-draggable:drag; position:relative; box-sizing:border-box; display:flex; flex-direction:column; justify-content:space-between; width:100%; height:100%; padding:15px 22px 12px; border:1px solid #ffffff35; border-radius:14px; background:rgba(12,16,24,.86); color:#f6f7fb; font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif; text-align:center; box-shadow:0 8px 28px #0005; backdrop-filter:blur(12px); }
 .lyrics-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; text-align:left; }
 .lyrics-track { display:flex; flex-direction:column; gap:4px; min-width:0; }
 .eyebrow { color:#aeb9d4; font-size:9px; letter-spacing:.16em; }
 .lyrics-track strong { overflow:hidden; color:#dce3f5; font-size:12px; font-weight:550; text-overflow:ellipsis; white-space:nowrap; }
-.close-button { --wails-draggable:no-drag; flex:0 0 28px; width:28px; height:28px; padding:0; border:0; border-radius:7px; background:#ffffff16; color:#e8ecf5; font-size:22px; line-height:1; cursor:pointer; }
-.close-button:hover { background:#ffffff2b; }
+.header-actions { --wails-draggable:no-drag; display:flex; gap:6px; flex:0 0 auto; }
+.settings-button,.close-button { display:flex; align-items:center; justify-content:center; width:28px; height:28px; padding:0; border:0; border-radius:7px; background:#ffffff16; color:#e8ecf5; cursor:pointer; }
+.settings-button { font-size:16px; }
+.close-button { font-size:22px; line-height:1; }
+.settings-button:hover,.close-button:hover { background:#ffffff2b; }
+.settings-panel { --wails-draggable:no-drag; position:absolute; z-index:5; top:49px; right:22px; display:flex; flex-direction:column; gap:11px; width:230px; padding:14px; border:1px solid #ffffff30; border-radius:10px; background:rgba(20,25,37,.97); box-shadow:0 8px 28px #0008; text-align:left; }
+.settings-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:2px; color:#f6f7fb; font-size:13px; }
+.reset-button { padding:3px 7px; border:1px solid #ffffff30; border-radius:5px; background:#ffffff12; color:#cbd5e8; font-size:11px; cursor:pointer; }
+.style-control { display:flex; flex-direction:column; gap:6px; color:#dce3f5; font-size:12px; }
+.style-control span { display:flex; justify-content:space-between; align-items:center; }
+.style-control b { color:#aeb9d4; font-weight:500; }
+.style-control input[type="color"] { width:100%; height:27px; padding:2px; border:1px solid #ffffff30; border-radius:5px; background:#ffffff12; cursor:pointer; }
+.style-control input[type="range"] { width:100%; accent-color:#8da8ed; cursor:pointer; }
+.shadow-control { display:flex; align-items:center; gap:8px; color:#dce3f5; font-size:12px; }
+.shadow-control input { accent-color:#8da8ed; }
 .lyrics-content { display:flex; flex:1; flex-direction:column; justify-content:center; gap:7px; min-height:0; padding:4px 20px; }
-.original-lyric { margin:0; color:#ffffff; font-size:27px; font-weight:650; line-height:1.25; text-shadow:0 2px 12px #0008; overflow-wrap:anywhere; }
-.translated-lyric { margin:0; color:#c6d0e6; font-size:18px; font-weight:450; line-height:1.3; overflow-wrap:anywhere; }
+.original-lyric { margin:0; font-weight:650; line-height:1.25; overflow-wrap:anywhere; }
+.translated-lyric { margin:0; font-weight:450; line-height:1.3; overflow-wrap:anywhere; }
 .lyrics-footer { display:flex; justify-content:space-between; color:#9ba7bf; font-size:10px; font-variant-numeric:tabular-nums; }
 </style>
