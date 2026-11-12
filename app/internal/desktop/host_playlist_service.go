@@ -105,7 +105,9 @@ func moveHostTrackBetweenPlaylists(st *hostPlaylistState, fromID, toID, sourceID
 	for i, track := range from.Tracks { if track.SourceID == sourceID && track.ID == trackID { sourceIndex, moving = i, track; break } }
 	if sourceIndex < 0 { return errors.New("源歌单中不存在这首歌曲") }
 	for _, track := range to.Tracks { if track.SourceID == moving.SourceID && track.ID == moving.ID { return errors.New("目标歌单已经有这首歌曲") } }
-	if fromID == st.activeID && sourceIndex < st.index { st.index-- }
+	// If the moved song is before or is the current song, the cursor must
+	// point to the item immediately before the next song to be played.
+	if fromID == st.activeID && sourceIndex <= st.index { st.index-- }
 	from.Tracks = append(from.Tracks[:sourceIndex], from.Tracks[sourceIndex+1:]...)
 	if fromID == st.activeID && st.index >= len(from.Tracks) { st.index = len(from.Tracks)-1 }
 	to.Tracks = append(to.Tracks, moving)
