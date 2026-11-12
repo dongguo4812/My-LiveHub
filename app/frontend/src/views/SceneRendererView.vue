@@ -67,7 +67,8 @@ onMounted(() => {
 })
 onUnmounted(() => {
   source?.close()
-  if (clockTimer) clearInterval(clockTimer)\n  if (sceneRefreshTimer) clearInterval(sceneRefreshTimer)
+  if (clockTimer) clearInterval(clockTimer)
+  if (sceneRefreshTimer) clearInterval(sceneRefreshTimer)
 })
 </script>
 
