@@ -102,6 +102,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("load voice configuration: %v", err)
 	}
+	live2dConfig, err := config.LoadTyped[config.Live2DConfig](configManager, "live2d.json", func(value config.Live2DConfig) error {
+		return value.Validate()
+	})
+	if err != nil {
+		log.Fatalf("load Live2D configuration: %v", err)
+	}
 	eventBus := eventstream.NewBus()
 	bilibiliEvents := eventstream.NewBuffer(eventBus)
 	musicService := desktop.NewMusicServiceWithFanMedalChecker(configManager, musicConfig, fanMedalChecker, bilibiliEvents)
@@ -165,6 +171,10 @@ func main() {
 	if err := coreApp.Modules().Register("video", desktop.NewVideoModule(videoQueueService)); err != nil {
 		log.Fatalf("register video module: %v", err)
 	}
+	live2dService := desktop.NewLive2DService(configManager, live2dConfig, filepath.Join(cacheDir, "live2d", "models"))
+	if err := coreApp.Modules().Register("live2d", desktop.NewLive2DModule(live2dService)); err != nil {
+		log.Fatalf("register Live2D module: %v", err)
+	}
 	bilibiliSettingsService := desktop.NewBilibiliSettingsService(configManager, bilibiliConfig, bilibiliAdapter, fanMedalChecker)
 	assetHandler := application.AssetFileServerFS(assets)
 	imageCache, cacheErr := imagecache.NewWithPolicies(filepath.Join(cacheDir, "media-images"), assetHandler, map[string]imagecache.URLPolicy{"bilibili":imagecache.BilibiliURLPolicy})
@@ -192,6 +202,7 @@ func main() {
 			application.NewService(musicService),
 			application.NewService(musicLyricsWindowService),
 			application.NewService(videoQueueService),
+			application.NewService(live2dService),
 			application.NewService(bilibiliWebViewService),
 		},
 	})
