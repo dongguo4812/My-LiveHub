@@ -275,7 +275,7 @@ async function openReplaceTrack(track: Track) {
   try {
     const groups = await (MusicService as any).SearchHostTrackAlternatives(track) as HostTrackSourceResults[]
     replacementGroups.value = groups ?? []
-    replacementSourceID.value = replacementGroups.value.find(group => group.tracks?.length || group.error)?.source_id ?? ''
+    replacementSourceID.value = replacementGroups.value[0]?.source_id ?? ''
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
   } finally {
