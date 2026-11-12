@@ -278,6 +278,7 @@ func (s *SceneService) handleEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 	defer cancel()
+	flusher.Flush()
 	heartbeat := time.NewTicker(20 * time.Second)
 	defer heartbeat.Stop()
 	for {
