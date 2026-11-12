@@ -166,19 +166,10 @@ func (s *BilibiliWebViewService) OpenVideo(bvid string) error {
 		isCurrent := s.window == window && s.runtimeReady
 		s.mu.RUnlock()
 		if isCurrent {
-			// NavigationCompleted is reached for the Bilibili URL after the
-			// hidden local bootstrap. Only now reveal the window, avoiding a
-			// one-frame flash of My-LiveHub's overview page.
-			go func() {
-				window.Show()
-				window.Focus()
-				// Every Bilibili navigation (including the next item in the queue)
-				// automatically installs playback telemetry, enters Bilibili's own
-				// web-fullscreen mode, and seeks the new video to its beginning.
-				window.ExecJS(bilibiliPlaybackMonitorScript)
-				window.ExecJS(bilibiliWebFullscreenScript)
-				window.ExecJS(bilibiliReplayFromStartScript)
-			}()
+			// Wails' navigation-completed event has no URL field. Never infer
+			// that the Bilibili page is ready from this event alone: ask the
+			// currently loaded document to identify its origin via RawMessage.
+			window.ExecJS(bilibiliPageReadyHandshakeScript)
 		}
 	})
 	window.OnWindowEvent(events.Common.WindowDidMove, func(_ *application.WindowEvent) {
@@ -406,6 +397,37 @@ func HandleBilibiliWebViewRawMessage(s *BilibiliWebViewService, windowName, mess
 	if s == nil || windowName != "bilibili-webview-player" || !isTrustedBilibiliOrigin(origin, topOrigin) || len(message) > 4096 {
 		return
 	}
+
+	var envelope struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal([]byte(message), &envelope) != nil {
+		return
+	}
+	if envelope.Type == "bilibili-page-ready" {
+		window := s.currentWindow()
+		if window == nil {
+			return
+		}
+		// This handshake is accepted only from the trusted Bilibili origin.
+		// The local My-LiveHub bootstrap can emit the same message, but its
+		// origin is rejected before reaching this branch.
+		go func() {
+			s.mu.RLock()
+			isCurrent := s.window == window
+			s.mu.RUnlock()
+			if !isCurrent {
+				return
+			}
+			window.Show()
+			window.Focus()
+			window.ExecJS(bilibiliPlaybackMonitorScript)
+			window.ExecJS(bilibiliWebFullscreenScript)
+			window.ExecJS(bilibiliReplayFromStartScript)
+		}()
+		return
+	}
+
 	state, ok := parseBilibiliPlayerState(message)
 	if !ok {
 		return
@@ -490,6 +512,19 @@ func (s *BilibiliWebViewService) emitPlaybackState(state BilibiliWebViewPlayback
 		mainWindow.EmitEvent("bilibili-player-state", state)
 	}
 }
+
+const bilibiliPageReadyHandshakeScript = `(() => {
+  try {
+    const host = (location.hostname || '').toLowerCase();
+    const match = location.pathname.match(/\\/(BV[0-9A-Za-z]{10})(?:\\/|$)/);
+    if (host === 'www.bilibili.com' && match) {
+      window.chrome?.webview?.postMessage(JSON.stringify({
+        type: 'bilibili-page-ready',
+        bvid: match[1]
+      }));
+    }
+  } catch (_) {}
+})();`
 
 const bilibiliPlaybackMonitorScript = `(() => {
   const marker = '__myLiveHubBilibiliPlaybackMonitor';
