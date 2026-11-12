@@ -101,6 +101,7 @@ async function setVideoVolume(value: number) {
   try { await VideoRequestService.SetVolume(value) }
   catch (reason) { error.value = String(reason) }
 }
+function updateSeekPreview(value: number) { seeking.value = true; seekValue.value = value }
 async function seekVideo(value: number) {
   seeking.value = false
   const duration = playback.value?.duration_ms ?? 0
@@ -158,7 +159,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
       </div>
       <el-empty v-else description="当前没有正在播放的视频" :image-size="64" />
       <div class="time-row"><span>{{ formatTime(playback?.position_ms) }}</span><span>{{ formatTime(playback?.duration_ms) }}</span></div>
-      <el-slider v-model="seekValue" :max="100" :disabled="!playback || playback.duration_ms <= 0" @change="seekVideo" />
+      <el-slider :model-value="progress" :max="100" :disabled="!playback || playback.duration_ms <= 0" @input="updateSeekPreview" @change="seekVideo" />
       <div class="control-row">
         <el-button type="primary" :disabled="!isPaused" @click="resumeVideo">继续</el-button>
         <el-button :disabled="!isPlaying" @click="pauseVideo">暂停</el-button>
