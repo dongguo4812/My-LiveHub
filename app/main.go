@@ -108,9 +108,6 @@ func main() {
 	videoService := desktop.NewVideoService(musicService, music.NewMpvVideoEngine(""))
 	videoRequestService, err := desktop.NewVideoRequestService(videoService, bilibiliAuth, bilibiliEvents)
 	if err != nil { log.Fatalf("initialize Bilibili video request service: %v", err) }
-	if err := coreApp.Modules().Register("video-requests", desktop.NewVideoRequestModule(videoRequestService)); err != nil {
-		log.Fatalf("register video request module: %v", err)
-	}
 	cacheDir := ""
 	if environment == config.EnvironmentDevelopment {
 		if workingDir, getwdErr := os.Getwd(); getwdErr == nil {
@@ -161,6 +158,9 @@ func main() {
 	}
 	if err := coreApp.Modules().Register("music", desktop.NewMusicModule(musicService)); err != nil {
 		log.Fatalf("register music module: %v", err)
+	}
+	if err := coreApp.Modules().Register("video-requests", desktop.NewVideoRequestModule(videoRequestService)); err != nil {
+		log.Fatalf("register video request module: %v", err)
 	}
 	assetHandler := application.AssetFileServerFS(assets)
 	imageCache, cacheErr := imagecache.NewWithPolicies(filepath.Join(cacheDir, "media-images"), assetHandler, map[string]imagecache.URLPolicy{"bilibili":imagecache.BilibiliURLPolicy})
