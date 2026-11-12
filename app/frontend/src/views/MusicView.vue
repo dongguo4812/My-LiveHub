@@ -555,7 +555,7 @@ async function addToQueue(track: Track) {
   try {
     const selectedQuality = qualitySelections.value[trackRowKey(track)] ?? ''
     const queuedTrack = Object.assign({}, track, { selected_quality: selectedQuality })
-    await MusicService.Enqueue(queuedTrack, '')
+    await MusicService.Enqueue(queuedTrack, '__my_livehub_search_play__')
     success.value = `已加入队列：${track.title}${selectedQuality ? `（${selectedQuality}）` : '（自动选择最佳音质）'}`
     await refreshQueue()
   } catch (reason) {
@@ -674,7 +674,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
           <span class="current-lyric">{{ playback?.track ? currentLyric : '搜索歌曲并加入播放队列' }}</span>
           <small v-if="playback?.track">{{ sourceName(playback.track.source_id) }}</small>
           <el-tag v-if="queue?.current?.requested_by === '__my_livehub_host_playlist__'" type="success" size="small">主播歌单</el-tag>
-          <el-tag v-else-if="queue?.current" type="warning" size="small">观众点播</el-tag>
+          <el-tag v-else-if="queue?.current && queue.current.requested_by !== '__my_livehub_search_play__'" type="warning" size="small">观众点播</el-tag>
         </div>
       </div>
       <el-slider :model-value="progress" :min="0" :max="100" :step="0.1" :format-tooltip="formatSeekTooltip" :disabled="!playback?.track || !playback.duration_ms" @input="previewSeek" @change="seekTo" />
@@ -870,7 +870,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
             <strong>{{ item.track.title }}</strong>
             <span>{{ item.track.artist }} · {{ sourceName(item.track.source_id) }}</span>
           </div>
-          <span class="queue-requester">{{ item.requested_by || '观众' }}</span>
+          <span v-if="item.requested_by !== '__my_livehub_search_play__'" class="queue-requester">{{ item.requested_by || '观众' }}</span>
           <el-button link type="danger" @click.stop="removeQueueItem(item.id)">删除</el-button>
         </div>
       </div>
