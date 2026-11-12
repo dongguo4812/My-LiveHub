@@ -104,6 +104,7 @@ func main() {
 	eventBus := eventstream.NewBus()
 	bilibiliEvents := eventstream.NewBuffer(eventBus)
 	musicService := desktop.NewMusicService(configManager, musicConfig, bilibiliEvents)
+	musicLyricsWindowService := desktop.NewMusicLyricsWindowService(musicService)
 	videoService := desktop.NewVideoService(musicService, music.NewMpvVideoEngine(""))
 	cacheDir := ""
 	if environment == config.EnvironmentDevelopment {
@@ -176,14 +177,17 @@ func main() {
 			application.NewService(danmakuDisplayService),
 			application.NewService(voiceService),
 			application.NewService(musicService),
+			application.NewService(musicLyricsWindowService),
 			application.NewService(videoService),
 		},
 	})
 	wailsApp = app
 	desktop.AttachApplication(platformService, app, appConfig.Appearance.Theme == "light")
 	desktop.AttachDanmakuDisplayApplication(danmakuDisplayService, app)
+	desktop.AttachMusicLyricsWindowApplication(musicLyricsWindowService, app)
 	app.OnShutdown(func() {
 		danmakuDisplayService.CloseWindowForShutdown()
+		musicLyricsWindowService.CloseWindowForShutdown()
 		if err := videoService.Shutdown(); err != nil {
 			log.Printf("stop video playback engine: %v", err)
 		}
