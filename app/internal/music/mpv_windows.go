@@ -205,6 +205,28 @@ func (e *MpvEngine) captureStderr(reader io.ReadCloser) {
 	}
 }
 
+// openMpvIPC retries the transient ERROR_PIPE_BUSY condition returned by
+// Windows named pipes while mpv is handing off a just-closed client instance.
+func openMpvIPC(ctx context.Context, pipePath string) (*os.File, error) {
+	const errorPipeBusy syscall.Errno = 231
+	ticker := time.NewTicker(15 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		conn, err := os.OpenFile(pipePath, os.O_RDWR, 0)
+		if err == nil {
+			return conn, nil
+		}
+		if !errors.Is(err, errorPipeBusy) {
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
 func (e *MpvEngine) commandIPC(ctx context.Context, args ...any) (json.RawMessage, error) {
 	if e == nil { return nil, ErrPlaybackEngineUnavailable }
 	if ctx == nil { return nil, errors.New("mpv command context is required") }
@@ -217,7 +239,7 @@ func (e *MpvEngine) commandIPC(ctx context.Context, args ...any) (json.RawMessag
 	e.mu.RUnlock()
 	if pipePath == "" { return nil, ErrPlaybackEngineUnavailable }
 
-	conn, err := os.OpenFile(pipePath, os.O_RDWR, 0)
+	conn, err := openMpvIPC(ctx, pipePath)
 	if err != nil { return nil, fmt.Errorf("connect to mpv IPC: %w", err) }
 	defer conn.Close()
 	requestID := e.requestID.Add(1)
