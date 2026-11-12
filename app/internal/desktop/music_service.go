@@ -379,6 +379,10 @@ func (s *MusicService) searchPage(parent context.Context, keyword string, page i
 	return response, err
 }
 
+
+func shouldAutoStartSongRequest(current *music.QueueItem) bool {
+	return current == nil || current.RequestedBy == hostQueueMarker
+}
 func (s *MusicService) Enqueue(track music.Track, requestedBy string) (music.QueueItem, error) {
 	if s == nil || s.queue == nil { return music.QueueItem{}, errors.New("music queue is unavailable") }
 	s.mu.RLock(); enabled := s.value.Enabled; s.mu.RUnlock()
@@ -387,6 +391,10 @@ func (s *MusicService) Enqueue(track music.Track, requestedBy string) (music.Que
 	state.mu.Lock()
 	current := s.queue.Snapshot().Current
 	preempt := current != nil && current.RequestedBy == hostQueueMarker
+	// If playback is idle, the first accepted request must start immediately.
+	// Previously only requests interrupting the host playlist called PlayNext,
+	// leaving requests accepted while idle stranded in the pending queue.
+	startImmediately := current == nil
 	if preempt {
 		snapshot, err := s.engine.Snapshot(context.Background())
 		if err != nil { state.mu.Unlock(); return music.QueueItem{}, fmt.Errorf("保存主播歌曲播放进度失败：%w", err) }
@@ -410,10 +418,19 @@ func (s *MusicService) Enqueue(track music.Track, requestedBy string) (music.Que
 		if preempt { _ = s.resumeHostPlaylist() }
 		return music.QueueItem{}, err
 	}
-	if preempt {
+	if preempt || startImmediately {
 		if err := s.PlayNext(); err != nil {
-			s.queue.FinishCurrent()
-			_ = s.resumeHostPlaylist()
+			if preempt {
+				s.queue.FinishCurrent()
+				_ = s.resumeHostPlaylist()
+			} else {
+				// Keep the accepted request queued if playback cannot start yet,
+				// rather than silently losing it after TakeNext promoted it.
+				if failed := s.queue.Snapshot().Current; failed != nil && failed.ID == item.ID {
+					s.queue.FinishCurrent()
+					_ = s.queue.EnqueueFront(*failed)
+				}
+			}
 			return item, err
 		}
 	}

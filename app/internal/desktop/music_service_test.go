@@ -11,3 +11,9 @@ func TestNewMusicServiceRegistersFiveLXSearchPlatforms(t *testing.T){
  if len(got)!=len(want){t.Fatalf("got %d sources, want %d: %#v",len(got),len(want),got)}
  for i,id:=range want { if got[i].ID!=id { t.Errorf("source[%d]=%q, want %q",i,got[i].ID,id) }; if !got[i].Capabilities.Search { t.Errorf("source %q is not marked searchable",id) } }
 }
+
+func TestShouldAutoStartAcceptedSongRequest(t *testing.T) {
+	if !shouldAutoStartSongRequest(nil) { t.Fatal("an idle player must start the first accepted request") }
+	if shouldAutoStartSongRequest(&music.QueueItem{RequestedBy: "viewer"}) { t.Fatal("a request must not interrupt another viewer request") }
+	if !shouldAutoStartSongRequest(&music.QueueItem{RequestedBy: hostQueueMarker}) { t.Fatal("a viewer request must interrupt the host playlist") }
+}
