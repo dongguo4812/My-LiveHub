@@ -58,6 +58,10 @@ func MigrateMusicConfig(c MusicConfig) (MusicConfig, bool) {
 	n := DefaultMusicConfig()
 	n.Enabled = c.Enabled
 	n.CommandEnabled = c.CommandEnabled
+	if c.ConfigVersion >= 7 {
+		n.SkipCommandEnabled = c.SkipCommandEnabled
+		if strings.TrimSpace(c.SkipCommand) != "" { n.SkipCommand = c.SkipCommand }
+	}
 	if strings.TrimSpace(c.CommandPrefix) != "" {
 		n.CommandPrefix = c.CommandPrefix
 	}
