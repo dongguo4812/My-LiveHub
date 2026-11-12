@@ -13,14 +13,14 @@ func TestDefaultMusicConfigIsValid(t *testing.T) {
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if !c.Enabled || !c.CommandEnabled || c.QueueCapacity != 100 || c.Volume != 80 {
+	if !c.Enabled || !c.CommandEnabled || c.QueueCapacity != 100 || c.Volume != 80 || c.LoudnessNormalization {
 		t.Fatalf("defaults: %+v", c)
 	}
 }
 
 func TestMusicConfigMigrationDropsPlatformConfig(t *testing.T) {
 	c, changed := MigrateMusicConfig(MusicConfig{
-		ConfigVersion: 3, Enabled: true, CommandEnabled: true, Volume: 42,
+		ConfigVersion: 3, Enabled: true, CommandEnabled: true, Volume: 42, LoudnessNormalization: true,
 		CommandPrefix: "点歌", QueueCapacity: 80,
 	})
 	if !changed {
@@ -29,7 +29,7 @@ func TestMusicConfigMigrationDropsPlatformConfig(t *testing.T) {
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if c.ConfigVersion != CurrentMusicConfigVersion || c.QueueCapacity != 80 || c.Volume != 42 {
+	if c.ConfigVersion != CurrentMusicConfigVersion || c.QueueCapacity != 80 || c.Volume != 42 || !c.LoudnessNormalization {
 		t.Fatalf("migrated: %+v", c)
 	}
 }
