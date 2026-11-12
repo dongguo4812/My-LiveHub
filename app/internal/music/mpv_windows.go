@@ -387,7 +387,7 @@ func (e *MpvEngine) Stop(ctx context.Context) error {
 func (e *MpvEngine) Snapshot(ctx context.Context) (PlaybackSnapshot, error) {
 	if e == nil { return PlaybackSnapshot{}, ErrPlaybackEngineUnavailable }
 	e.mu.RLock()
-	pipePath, fallbackVolume := e.pipePath, e.volume
+	pipePath, fallbackVolume, videoOutput := e.pipePath, e.volume, e.videoOutput
 	e.mu.RUnlock()
 	if pipePath == "" { return PlaybackSnapshot{State:PlaybackIdle, Volume:fallbackVolume}, nil }
 	snapshot := PlaybackSnapshot{State:PlaybackIdle}
@@ -412,6 +412,28 @@ func (e *MpvEngine) Snapshot(ctx context.Context) (PlaybackSnapshot, error) {
 	if e.track != nil { copy := *e.track; snapshot.Track = &copy }
 	e.mu.RUnlock()
 	snapshot.PositionMS, snapshot.DurationMS, snapshot.Volume = position, duration, int(volume)
+	if videoOutput {
+		readInt := func(property string) int {
+			data, err := e.commandIPC(ctx, "get_property", property)
+			if err != nil { return 0 }
+			var value float64
+			if json.Unmarshal(data, &value) != nil { return 0 }
+			return int(value)
+		}
+		readString := func(property string) string {
+			data, err := e.commandIPC(ctx, "get_property", property)
+			if err != nil { return "" }
+			var value string
+			if json.Unmarshal(data, &value) != nil { return "" }
+			return value
+		}
+		// These are mpv's decoded video parameters, not Bilibili's requested
+		// qn value or the dimensions advertised by the playurl API.
+		snapshot.VideoWidth = readInt("video-params/w")
+		snapshot.VideoHeight = readInt("video-params/h")
+		snapshot.VideoCodec = readString("video-codec")
+		snapshot.AudioCodec = readString("audio-codec-name")
+	}
 	e.mu.RLock()
 	loadStartedAt := e.loadStartedAt
 	e.mu.RUnlock()
