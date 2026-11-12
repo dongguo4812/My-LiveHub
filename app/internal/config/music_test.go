@@ -105,3 +105,23 @@ func TestLXUserSourceProxyConfigValidation(t *testing.T) {
 		if err := value.Validate(); err == nil { t.Errorf("invalid proxy config accepted: %+v", value) }
 	}
 }
+
+func TestMusicConfigV8MigrationAddsIndependentFanMedalDefaults(t *testing.T) {
+	got, changed := MigrateMusicConfig(MusicConfig{
+		ConfigVersion: 8, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
+		SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100, Volume: 80,
+		RequireFanMedal: true, FanMedalLevel: 6,
+	})
+	if !changed { t.Fatal("expected v8 configuration migration") }
+	if err := got.Validate(); err != nil { t.Fatal(err) }
+	if !got.RequireFanMedal || got.FanMedalLevel != 6 { t.Fatalf("fan medal settings were not preserved: %+v", got) }
+}
+
+func TestMusicConfigFanMedalLevelValidation(t *testing.T) {
+	c := DefaultMusicConfig()
+	c.RequireFanMedal = true
+	c.FanMedalLevel = 0
+	if err := c.Validate(); err == nil { t.Fatal("expected invalid required medal level to be rejected") }
+	c.FanMedalLevel = 40
+	if err := c.Validate(); err != nil { t.Fatalf("valid medal level rejected: %v", err) }
+}
