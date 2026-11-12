@@ -59,6 +59,7 @@ async function loadScene() {
     const response = await fetch('/api/scenes/' + id, { cache: 'no-store' })
     if (!response.ok) throw new Error('场景不存在或浏览器源服务不可用')
     scene.value = await response.json() as Scene
+    error.value = ''
     document.title = scene.value.name + ' - My-LiveHub'
     document.documentElement.style.background = 'transparent'
     document.body.style.background = 'transparent'
@@ -68,6 +69,7 @@ async function loadScene() {
 }
 onMounted(() => {
   void loadScene()
+  sceneRefreshTimer = setInterval(() => { void loadScene() }, 1000)
   source = new EventSource('/api/events')
   source.onmessage = handleEvent
   source.onerror = () => { error.value = '直播事件连接中断，正在自动重连…' }
