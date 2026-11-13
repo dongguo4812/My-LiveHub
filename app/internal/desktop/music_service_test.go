@@ -1,5 +1,5 @@
 package desktop
-import ("testing"; "testing/fstest"; "github.com/dongguo4812/My-LiveHub/app/internal/config"
+import ("encoding/json"; "testing"; "testing/fstest"; "github.com/dongguo4812/My-LiveHub/app/internal/config"
  "github.com/dongguo4812/My-LiveHub/app/internal/events")
 func TestParseSongRequest(t *testing.T){
  tests:=[]struct{content,prefix,want string;ok bool}{{"点歌 稻香","点歌","稻香",true},{"点歌稻香","点歌","",false},{"点歌   稻香 ","点歌","稻香",true},{"闲聊点歌 稻香","点歌","",false},{"点歌","点歌","",false}}
@@ -26,7 +26,9 @@ func TestOnlyRoomOwnerAndModeratorsCanSkip(t *testing.T) {
 
 
 func TestIndependentSearchSourcePriorityPersistsThroughServiceReload(t *testing.T) {
-	manager, err := config.NewManager(fstest.MapFS{}, t.TempDir())
+	defaultJSON, err := json.Marshal(config.DefaultMusicConfig())
+	if err != nil { t.Fatal(err) }
+	manager, err := config.NewManager(fstest.MapFS{"music.json": &fstest.MapFile{Data: defaultJSON}}, t.TempDir())
 	if err != nil { t.Fatal(err) }
 	value := config.DefaultMusicConfig()
 	value.EnabledSearchSources = []string{"mg", "tx", "kw"}
