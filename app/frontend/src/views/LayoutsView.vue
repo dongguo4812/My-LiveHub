@@ -36,7 +36,7 @@ function addLayer(type: string) {
   const base = defaults[type]
   if (!base) return
   const layer = { id: makeID(type), type, name: base.name ?? type, x: 100, y: 120, width: base.width ?? 300, height: base.height ?? 100, z_index: scene.value.layers.length + 1, visible: true, opacity: 1, text: base.text ?? '', url: base.url ?? '', color: base.color ?? '#ffffff', font_size: base.font_size ?? 24 } as LayoutLayer
-  if (type === 'music_queue') (layer as LayoutLayer & { queue_display_count?: number }).queue_display_count = 5
+  if (type === 'music_queue') (layer as LayoutLayer & { queue_display_count?: number }).queue_display_count = 10
   scene.value.layers.push(layer)
   selectedLayerID.value = layer.id
 }
@@ -44,7 +44,7 @@ function selectLayer(layer: LayoutLayer) {
   selectedLayerID.value = layer.id
   if (layer.type === 'music_queue') {
     const queueLayer = layer as LayoutLayer & { queue_display_count?: number }
-    if (!queueLayer.queue_display_count || queueLayer.queue_display_count < 1) queueLayer.queue_display_count = 5
+    if (!queueLayer.queue_display_count || queueLayer.queue_display_count < 1) queueLayer.queue_display_count = 10
   }
 }
 function removeLayer() {
