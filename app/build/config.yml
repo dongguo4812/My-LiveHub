@@ -24,6 +24,10 @@ dev_mode:
       - "*_test.go"
     git_ignore: true
   executes:
+    - cmd: npm --prefix lx-runtime install --no-audit --no-fund
+      type: blocking
+    - cmd: npm --prefix lx-runtime run build
+      type: blocking
     - cmd: npm --prefix frontend run dev -- --host 127.0.0.1
       type: background
     - cmd: go run . dev
