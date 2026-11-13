@@ -107,6 +107,7 @@ func NewMusicServiceWithDependencies(manager *config.Manager, value config.Music
 func (s *MusicService) start(ctx context.Context) error {
 	if s == nil || ctx == nil { return errors.New("music service and startup context are required") }
 	if s.buffer == nil { return errors.New("music event buffer is required") }
+	if lifecycle, ok := s.engine.(music.PlaybackEngineLifecycle); ok { if err := lifecycle.Start(ctx); err != nil { return fmt.Errorf("启动音乐播放服务失败：%w", err) } }
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()
 	s.mu.Lock()
@@ -768,6 +769,7 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 	defer ticker.Stop()
 	startedAt := time.Now()
 	sawEndPosition := false
+	sawPlaying := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -775,6 +777,7 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 		case <-ticker.C:
 			snapshot, err := s.engine.Snapshot(ctx)
 			if err != nil { continue }
+			if snapshot.State == music.PlaybackPlaying { sawPlaying = true }
 			if snapshot.DurationMS > 0 {
 				threshold := snapshot.DurationMS - 1000
 				if threshold < snapshot.DurationMS/2 { threshold = snapshot.DurationMS/2 }
@@ -808,16 +811,10 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 				}
 				s.setLastError(errors.New(message))
 				s.queue.FinishCurrent()
-				if currentItem != nil && currentItem.RequestedBy == hostQueueMarker {
-					_ = s.advanceHostPlaylist()
-				} else if len(s.queue.Snapshot().Items) > 0 {
-					_ = s.PlayNext()
-				} else {
-					_ = s.resumeHostPlaylist()
-				}
+				if len(s.queue.Snapshot().Items) > 0 { _ = s.PlayNext() }
 				return
 			}
-			if snapshot.State != music.PlaybackStopped { continue }
+			if snapshot.State != music.PlaybackStopped || (!sawEndPosition && !sawPlaying) { continue }
 			s.mu.RLock()
 			current := s.playGeneration == generation
 			s.mu.RUnlock()
@@ -826,13 +823,7 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 				currentItem := s.queue.Snapshot().Current
 				if currentItem != nil { s.pushHistory(*currentItem) }
 				s.queue.FinishCurrent()
-				if currentItem != nil && currentItem.RequestedBy == hostQueueMarker {
-					_ = s.advanceHostPlaylist()
-				} else if len(s.queue.Snapshot().Items) == 0 {
-					if !s.resumeHostPlaylist() { _ = s.PlayNext() }
-				} else {
-					_ = s.PlayNext()
-				}
+				if len(s.queue.Snapshot().Items) > 0 { _ = s.PlayNext() }
 				return
 			}
 			if time.Since(startedAt) >= 20*time.Second {
