@@ -1,4 +1,5 @@
 <script setup lang="ts">
+defineOptions({ name: 'Live2DView' })
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getLive2DSettings, updateLive2DSettings, listLive2DModels, type Live2DConfig, type Live2DModel } from '../services/live2d'
