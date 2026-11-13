@@ -26,7 +26,8 @@
     "files": [
       "main.cjs",
       "dist/user-api-preload.cjs",
-      "package.json"
+      "package.json",
+      "src/main/modules/userApi/renderer/user-api.html"
     ],
     "asar": false,
     "win": {
@@ -39,5 +40,6 @@
         }
       ]
     }
-  }
+  },
+  "author": "My-LiveHub"
 }
