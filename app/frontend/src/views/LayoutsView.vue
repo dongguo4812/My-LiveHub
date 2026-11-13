@@ -216,7 +216,7 @@ onUnmounted(() => {
         <div class="panel-heading"><strong>图层</strong><span>{{ scene?.layers.length ?? 0 }} 个</span></div>
         <div class="layer-list">
           <button v-for="layer in sortedLayers" :key="layer.id" :class="{ selected: selectedLayerID === layer.id }" @click="selectLayer(layer)">
-            <span>{{ ['music_queue', 'video_queue'].includes(layer.type) ? layerLabel(layer.type) : (layer.name || layerLabel(layer.type)) }}</span><small>{{ layerLabel(layer.type) }}</small>
+            <span>{{ layer.type === 'music_queue' || layer.type === 'video_queue' ? layerLabel(layer.type) : (layer.name || layerLabel(layer.type)) }}</span><small>{{ layerLabel(layer.type) }}</small>
           </button>
           <el-empty v-if="!scene?.layers.length" description="添加组件开始设计" :image-size="64" />
         </div>
@@ -257,7 +257,7 @@ onUnmounted(() => {
             <el-form-item label="图层名称"><el-input v-model="selectedLayer!.name" /></el-form-item>
             <el-form-item v-if="selectedLayer.type === 'text'" label="文字内容"><el-input v-model="selectedLayer!.text" type="textarea" :rows="3" /></el-form-item>
             <el-form-item v-if="selectedLayer.type === 'image'" label="图片 URL"><el-input v-model="selectedLayer!.url" placeholder="https://..." /></el-form-item>
-            <el-form-item v-if="selectedLayer !== null && ['music_queue', 'video_queue'].includes(selectedLayer.type)" label="待播显示数量"><el-input-number v-model="selectedQueueLayer!.queue_display_count" :min="1" :max="1000" /><div class="el-form-item__description">仅控制此队列组件显示的待播条数；队列标题仍显示实际数量。</div></el-form-item>
+            <el-form-item v-if="selectedLayer !== null && (selectedLayer.type === 'music_queue' || selectedLayer.type === 'video_queue')" label="待播显示数量"><el-input-number v-model="selectedQueueLayer!.queue_display_count" :min="1" :max="1000" /><div class="el-form-item__description">仅控制此队列组件显示的待播条数；队列标题仍显示实际数量。</div></el-form-item>
             <div class="property-grid">
               <el-form-item label="X"><el-input-number v-model="selectedLayer!.x" :min="0" :max="scene?.width ?? 1920" controls-position="right" /></el-form-item>
               <el-form-item label="Y"><el-input-number v-model="selectedLayer!.y" :min="0" :max="scene?.height ?? 1080" controls-position="right" /></el-form-item>
