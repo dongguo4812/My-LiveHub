@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, onUpdated, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, onUpdated, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
 type Layer = { id: string; type: string; name: string; x: number; y: number; width: number; height: number; z_index: number; visible: boolean; opacity: number; text?: string; url?: string; color?: string; font_size?: number }
@@ -69,10 +69,10 @@ function measureLyricOverflow() {
   const translationViewport = lyricTranslationViewport.value
   const translationText = lyricTranslationText.value
   const original = originalViewport && originalText
-    ? Math.max(0, Math.ceil(originalText.getBoundingClientRect().width - originalViewport.getBoundingClientRect().width))
+    ? Math.max(0, originalText.scrollWidth - originalViewport.clientWidth, Math.ceil(originalText.getBoundingClientRect().width - originalViewport.clientWidth))
     : 0
   const translation = translationViewport && translationText
-    ? Math.max(0, Math.ceil(translationText.getBoundingClientRect().width - translationViewport.getBoundingClientRect().width))
+    ? Math.max(0, translationText.scrollWidth - translationViewport.clientWidth, Math.ceil(translationText.getBoundingClientRect().width - translationViewport.clientWidth))
     : 0
   if (original !== lyricOverflow.value.original || translation !== lyricOverflow.value.translation) {
     lyricOverflow.value = { original, translation }
@@ -232,7 +232,7 @@ onMounted(() => {
 })
 onUpdated(() => {
   observeLyricElements()
-  measureLyricOverflow()
+  void nextTick(measureLyricOverflow)
 })
 onUnmounted(() => {
   window.removeEventListener('resize', measureLyricOverflow)
@@ -333,7 +333,7 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-lyrics::before{content:"";position:absolute;inset:0;z-index:-2;background-image:var(--details-bg,none);background-position:center;background-size:cover;opacity:.45;filter:blur(5px) brightness(.55);transform:scale(1.04);pointer-events:none}
 .music-lyrics::after{content:"";position:absolute;inset:0;z-index:-1;background:rgba(0,0,0,.38);pointer-events:none}
 .music-lyric-viewport{position:relative;display:block;flex:0 0 auto;width:100%;min-width:0;box-sizing:border-box;overflow:hidden;white-space:nowrap;text-align:left}
-.music-lyric-text{position:relative;display:inline-block;width:max-content;max-width:none;white-space:nowrap;text-overflow:clip;will-change:transform;transition:transform .48s linear}
+.music-lyric-text{position:relative;display:inline-block;flex:none;width:max-content;max-width:none;white-space:nowrap;text-overflow:clip;will-change:transform;transition:transform .48s linear}
 .music-lyrics strong.music-lyric-text{font-size:14px;font-weight:700;line-height:1.35;color:var(--random-color)}
 .music-lyrics span.music-lyric-text{font-size:12px;line-height:1.3;color:#e7c89d;opacity:.9}
 @media(max-width:300px){.music-widget{gap:5px}.music-main{height:84px}.music-cover-wrap{height:84px;width:84px;flex-basis:84px}.music-song-title{font-size:14px}.music-song-author{font-size:12px}.music-song-time{height:56px;padding:0 7px}.music-time{width:34px;flex-basis:34px;font-size:10px}.music-lyrics{min-height:38px}.music-lyrics strong.music-lyric-text{font-size:12px}.music-lyrics span.music-lyric-text{font-size:10px}}
