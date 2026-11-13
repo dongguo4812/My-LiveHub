@@ -910,11 +910,20 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 				if snapshot.PositionMS >= threshold { sawEndPosition = true }
 			}
 			if snapshot.State == music.PlaybackError {
+				s.mu.RLock()
+				generationCurrent := s.playGeneration == generation
+				s.mu.RUnlock()
+				if !generationCurrent || ctx.Err() != nil {
+					return
+				}
 				message := strings.TrimSpace(snapshot.Error)
 				if message == "" { message = "mpv 加载音频失败" }
 				currentItem := s.queue.Snapshot().Current
 				if currentItem != nil {
 					if resolvedTrack, retryErr := s.resolveAndStartLXTrack(ctx, currentItem.Track, true); retryErr == nil {
+						if ctx.Err() != nil {
+							return
+						}
 						currentItem.Track = resolvedTrack
 						if updateErr := s.queue.SetCurrent(*currentItem); updateErr == nil {
 							s.startPlaybackWatcher()
