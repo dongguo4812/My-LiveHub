@@ -1291,14 +1291,19 @@ func (s *MusicService) SetActiveLXUserSource(id string) error {
 func (s *MusicService) setActiveLXUserSourceLocked(id string) error {
 	store, err := s.lxUserSourceStore()
 	if err != nil { return err }
+
+	// LX userApi.setApi() closes the currently loaded source window before
+	// creating the next one. Keep the same single-active-source lifecycle.
+	s.closeLXUserSourceSession()
+
 	var next *music.LXElectronUserSourceProcess
 	if id != "" {
 		script, err := store.ReadScript(id)
 		if err != nil { return err }
+		metadata, err := store.Get(id)
+		if err != nil { return err }
 		ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
 		defer cancel()
-		metadata, metadataErr := store.Get(id)
-		if metadataErr != nil { return metadataErr }
 		next, err = music.StartLXElectronUserSourceProcess(ctx, script, s.GetLXUserSourceProxy(), metadata)
 		if err != nil { return err }
 	}
@@ -1307,10 +1312,8 @@ func (s *MusicService) setActiveLXUserSourceLocked(id string) error {
 		return err
 	}
 	s.lxSessionMu.Lock()
-	previous := s.lxSession
 	s.lxSession, s.lxSessionID = next, id
 	s.lxSessionMu.Unlock()
-	if previous != nil { _ = previous.Close() }
 	if next != nil { go s.watchLXUserSourceUpdates(id, next) }
 	return nil
 }
