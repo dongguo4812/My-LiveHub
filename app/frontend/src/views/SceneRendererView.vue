@@ -9,6 +9,8 @@ type Track = { id: string; source_id: string; title: string; artist?: string; al
 type Playback = { state: string; track?: Track; position_ms: number; duration_ms: number }
 type MusicQueueItem = { id: string; track: Track; requested_by?: string }
 type MusicQueue = { current?: MusicQueueItem; items: MusicQueueItem[]; capacity: number }
+type VideoQueueItem = { id: number; bvid: string; title: string; duration_seconds: number; requester: string }
+type VideoQueue = { enabled: boolean; current?: VideoQueueItem; items: VideoQueueItem[]; queue_count: number }
 type MusicDisplayConfig = { enabled: boolean; command_enabled: boolean; command_prefix: string; skip_command_enabled: boolean; skip_command: string; require_fan_medal: boolean; fan_medal_level: number }
 type LyricLine = { time: number; text: string; translation?: string }
 type MusicLyricsResponse = { lyrics: string }
@@ -19,6 +21,7 @@ const now = ref(new Date())
 const error = ref('')
 const playback = ref<Playback | null>(null)
 const musicQueue = ref<MusicQueue>({ items: [], capacity: 0 })
+const videoQueue = ref<VideoQueue>({ enabled: false, items: [], queue_count: 0 })
 const musicDisplayConfig = ref<MusicDisplayConfig | null>(null)
 const lyricLines = ref<LyricLine[]>([])
 const lyricsLoading = ref(false)
@@ -32,6 +35,7 @@ let clockTimer: ReturnType<typeof setInterval> | undefined
 let sceneRefreshTimer: ReturnType<typeof setInterval> | undefined
 let musicRefreshTimer: ReturnType<typeof setInterval> | undefined
 let musicQueueRefreshTimer: ReturnType<typeof setInterval> | undefined
+let videoQueueRefreshTimer: ReturnType<typeof setInterval> | undefined
 let musicConfigRefreshTimer: ReturnType<typeof setInterval> | undefined
 let musicTrackKey = ''
 let musicRefreshing = false
@@ -195,6 +199,16 @@ async function loadMusicDisplayConfig() {
     musicDisplayConfig.value = await response.json() as MusicDisplayConfig
   } catch { /* Keep the last known command settings. */ }
 }
+function videoQueueDisplayItems(layer: Layer) {
+  return videoQueue.value.items.slice(0, Math.max(1, layer.queue_display_count || 10))
+}
+async function loadVideoQueue() {
+  try {
+    const response = await fetch('/api/video/queue', { cache: 'no-store' })
+    if (!response.ok) return
+    videoQueue.value = await response.json() as VideoQueue
+  } catch { /* Keep the last known video queue while the local source reconnects. */ }
+}
 async function loadMusicQueue() {
   try {
     const response = await fetch('/api/music/queue', { cache: 'no-store' })
@@ -233,10 +247,12 @@ onMounted(() => {
   void loadScene()
   void loadMusic()
   void loadMusicQueue()
+  void loadVideoQueue()
   void loadMusicDisplayConfig()
   sceneRefreshTimer = setInterval(() => { void loadScene() }, 1000)
   musicRefreshTimer = setInterval(() => { void loadMusic() }, 500)
   musicQueueRefreshTimer = setInterval(() => { void loadMusicQueue() }, 1000)
+  videoQueueRefreshTimer = setInterval(() => { void loadVideoQueue() }, 1000)
   musicConfigRefreshTimer = setInterval(() => { void loadMusicDisplayConfig() }, 3000)
   source = new EventSource('/api/events')
   source.onmessage = handleEvent
@@ -252,13 +268,14 @@ onUnmounted(() => {
   if (sceneRefreshTimer) clearInterval(sceneRefreshTimer)
   if (musicRefreshTimer) clearInterval(musicRefreshTimer)
   if (musicQueueRefreshTimer) clearInterval(musicQueueRefreshTimer)
+  if (videoQueueRefreshTimer) clearInterval(videoQueueRefreshTimer)
   if (musicConfigRefreshTimer) clearInterval(musicConfigRefreshTimer)
 })
 </script>
 
 <template>
   <main v-if="scene" class="scene-output" :style="{ aspectRatio: scene.width + ' / ' + scene.height, background: scene.background === 'transparent' ? 'transparent' : scene.background }">
-    <div v-for="layer in scene.layers.filter(item => item.visible && (item.type !== 'music_queue' || musicDisplayConfig?.command_enabled === true))" :key="layer.id" class="output-layer" :class="{ 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue' }" :style="layerStyle(layer)">
+    <div v-for="layer in scene.layers.filter(item => item.visible && (item.type !== 'music_queue' || musicDisplayConfig?.command_enabled === true) && (item.type !== 'video_queue' || videoQueue.value.enabled === true))" :key="layer.id" class="output-layer" :class="{ 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue', 'video-queue-output-layer': layer.type === 'video_queue' }" :style="layerStyle(layer)">
       <span v-if="layer.type === 'text'">{{ layer.text }}</span>
       <img v-else-if="layer.type === 'image' && layer.url" :src="layer.url" alt="" />
       <time v-else-if="layer.type === 'clock'">{{ formatClock() }}</time>
@@ -271,6 +288,36 @@ onUnmounted(() => {
       <div v-else-if="layer.type === 'super_chat'" class="event-stack">
         <div v-for="item in superChats" :key="item.id" class="event-line sc-line"><strong>{{ item.user_name }} · ¥{{ Number(item.amount || 0).toFixed(2) }}</strong><span>{{ item.content }}</span></div>
       </div>
+      <section v-else-if="layer.type === 'video_queue'" class="music-queue-widget video-queue-widget" :style="{ '--queue-accent': layer.color || '#9fc0ff', fontSize: ((layer.font_size || 22) / (scene?.height || 1080) * 100) + 'cqh' }">
+        <section class="music-queue-section music-queue-prompt">
+          <div class="music-queue-prompt-single">
+            <strong class="music-queue-prompt-title"><span class="music-queue-heading-mark">▸</span> 视频点播指令</strong>
+            <span><b>点播</b> BV号</span>
+          </div>
+        </section>
+        <section class="music-queue-section music-queue-current-section">
+          <div class="music-queue-item music-queue-current music-queue-current-inline">
+            <strong class="music-queue-current-label"><span class="music-queue-heading-mark">▶</span> 当前播放</strong>
+            <span v-if="videoQueue.current" class="music-queue-current-track">
+              <strong class="music-queue-current-title">{{ videoQueue.current.title || videoQueue.current.bvid }}</strong>
+              <span class="music-queue-current-artist">{{ videoQueue.current.bvid }}</span>
+            </span>
+            <span v-else class="music-queue-empty">暂无正在播放的视频</span>
+            <span v-if="videoQueue.current" class="music-queue-requester">{{ videoQueue.current.requester }}</span>
+          </div>
+        </section>
+        <section class="music-queue-section music-queue-pending">
+          <strong class="music-queue-heading"><span class="music-queue-heading-mark">Ⅱ</span> 待播队列 <span class="music-queue-count">{{ videoQueue.queue_count }} 个</span></strong>
+          <div v-if="videoQueue.items.length" class="music-queue-list">
+            <div v-for="(item, index) in videoQueueDisplayItems(layer)" :key="item.id" class="music-queue-item">
+              <span class="music-queue-index">{{ String(index + 1).padStart(2, '0') }}</span>
+              <span class="music-queue-track"><strong>{{ item.title || item.bvid }}</strong><small>{{ item.bvid }}</small></span>
+              <span class="music-queue-requester">{{ item.requester }}</span>
+            </div>
+          </div>
+          <div v-else class="music-queue-empty">暂无待播视频</div>
+        </section>
+      </section>
       <section v-else-if="layer.type === 'music_queue'" class="music-queue-widget" :style="{ '--queue-accent': layer.color || '#9fc0ff', fontSize: ((layer.font_size || 22) / (scene?.height || 1080) * 100) + 'cqh' }">
         <section v-if="musicDisplayConfig?.enabled && musicDisplayConfig.command_enabled" class="music-queue-section music-queue-prompt">
           <div class="music-queue-prompt-single">
@@ -355,7 +402,7 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .event-line span{min-width:0;overflow-wrap:anywhere}
 .gift-line{background:#382448dc}.sc-line{background:#603c1edc}
 .music-output-layer{padding:0;text-shadow:none;white-space:normal;overflow:visible;font-family:Arial,"Microsoft YaHei",sans-serif;color:#e7c89d}
-.music-queue-output-layer{padding:0;text-shadow:none;white-space:normal;overflow:hidden;font-family:Arial,"Microsoft YaHei",sans-serif}
+.music-queue-output-layer,.video-queue-output-layer{padding:0;text-shadow:none;white-space:normal;overflow:hidden;font-family:Arial,"Microsoft YaHei",sans-serif}
 .music-simple-widget{display:flex;flex-direction:column;gap:.45em;width:100%;height:100%;overflow:hidden;color:inherit;text-shadow:none;white-space:normal;font-family:Arial,"Microsoft YaHei",sans-serif}
 .music-simple-heading{flex:none;font-size:1.08em;line-height:1.35;padding:0 0 .3em;border-bottom:1px solid currentColor}
 .music-simple-list{display:flex;flex-direction:column;gap:.3em;min-height:0;overflow:hidden}
