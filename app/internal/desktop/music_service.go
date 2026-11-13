@@ -2,12 +2,8 @@ package desktop
 
 import (
 	"context"
-	"encoding/json"
 			"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"sort"
 	"strings"
 		"sync"
@@ -532,18 +528,7 @@ func (s *MusicService) Stop() error {
 	s.queue.FinishCurrent()
 	return err
 }
-type musicLyricsResponse struct {
-	SyncedLyrics string `json:"syncedLyrics"`
-	PlainLyrics string `json:"plainLyrics"`
-	TrackName string `json:"trackName"`
-	ArtistName string `json:"artistName"`
-	Duration float64 `json:"duration"`
-}
 
-// GetLyrics retrieves time-synchronized lyrics for the current track.
-// LRCLIB is used only for lyrics; audio playback remains on the selected LX source.
-// Successful results are cached so the main player and desktop lyrics window
-// reuse the same lyric response instead of issuing duplicate provider requests.
 func (s *MusicService) GetLyrics(track music.Track) (string, error) {
 	if s == nil || s.engine == nil { return "", errors.New("music lyrics service is unavailable") }
 	source := firstNonEmpty(track.LXSourceKey, track.SourceID)
@@ -571,42 +556,6 @@ func (s *MusicService) GetLyrics(track music.Track) (string, error) {
 	return lyrics, nil
 }
 
-func (s *MusicService) getLRCLIBLyrics(track music.Track) (string, error) {
-	if strings.TrimSpace(track.Title) == "" { return "", errors.New("歌曲名称不能为空") }
-	ctx, cancel := context.WithTimeout(context.Background(), 18*time.Second)
-	defer cancel()
-	client := &http.Client{Timeout: 18*time.Second}
-	// Search first: exact-match requires exact duration and album values, often
-	// unavailable or different in metadata returned by LX source providers.
-	query := url.Values{}
-	query.Set("track_name", strings.TrimSpace(track.Title))
-	// Do not constrain the remote search by artist metadata: LX providers may return aliases or multiple artists.
-	// The candidate scorer below prefers an exact artist match without hiding otherwise valid lyrics.
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://lrclib.net/api/search?"+query.Encode(), nil)
-	if err != nil { return "", err }
-	req.Header.Set("User-Agent", "My-LiveHub/1.0")
-	resp, err := client.Do(req)
-	if err != nil { return "", fmt.Errorf("搜索歌词失败：%w", err) }
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK { return "", fmt.Errorf("歌词服务返回 HTTP %d", resp.StatusCode) }
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-	if err != nil { return "", fmt.Errorf("读取歌词搜索结果失败：%w", err) }
-	var matches []musicLyricsResponse
-	if err := json.Unmarshal(raw, &matches); err != nil { return "", fmt.Errorf("解析歌词搜索结果失败：%w", err) }
-	normalize := func(value string) string { return strings.ToLower(strings.Join(strings.Fields(value), "")) }
-	title, artist := normalize(track.Title), normalize(track.Artist)
-	bestScore, bestLyrics := -1, ""
-	for _, match := range matches {
-		if strings.TrimSpace(match.SyncedLyrics) == "" { continue }
-		score := 0
-		if normalize(match.TrackName) == title { score += 2 }
-		if artist != "" && normalize(match.ArtistName) == artist { score += 2 }
-		if track.DurationMS > 0 && match.Duration > 0 && absFloat(match.Duration-float64(track.DurationMS)/1000) <= 3 { score++ }
-		if score > bestScore { bestScore, bestLyrics = score, strings.TrimSpace(match.SyncedLyrics) }
-	}
-	return bestLyrics, nil
-
-}
 func absFloat(value float64) float64 { if value < 0 { return -value }; return value }
 
 func (s *MusicService) GetPlaybackStatus() (music.PlaybackSnapshot, error) {
