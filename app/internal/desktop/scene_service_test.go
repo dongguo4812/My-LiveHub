@@ -12,12 +12,14 @@ import (
 
 type testSceneMusicProvider struct {
 	snapshot music.PlaybackSnapshot
+	queue music.QueueSnapshot
 	lyrics string
 }
 
 func (p testSceneMusicProvider) GetPlaybackStatus() (music.PlaybackSnapshot, error) {
 	return p.snapshot, nil
 }
+func (p testSceneMusicProvider) GetQueue() music.QueueSnapshot { return p.queue }
 func (p testSceneMusicProvider) GetLyrics(track music.Track) (string, error) {
 	return p.lyrics, nil
 }
@@ -29,6 +31,7 @@ func TestSceneMusicHandlers(t *testing.T) {
 			Track: &music.Track{ID: "track-1", SourceID: "netease", Title: "测试歌曲", Artist: "测试歌手", CoverURL: "https://example.com/cover.jpg"},
 			PositionMS: 12000, DurationMS: 180000,
 		},
+		queue: music.QueueSnapshot{Items: []music.QueueItem{{ID: "request-1", Track: music.Track{ID: "track-2", SourceID: "netease", Title: "下一首"}, RequestedBy: "观众甲"}}},
 		lyrics: "[00:12.00]测试歌词",
 	}
 	service := &SceneService{music: provider}
@@ -45,6 +48,20 @@ func TestSceneMusicHandlers(t *testing.T) {
 	}
 	if snapshot.Track == nil || snapshot.Track.Title != "测试歌曲" || snapshot.PositionMS != 12000 {
 		t.Fatalf("unexpected music snapshot: %#v", snapshot)
+	}
+
+	queueRequest := httptest.NewRequest(http.MethodGet, "/api/music/queue", nil)
+	queueResponse := httptest.NewRecorder()
+	service.handleMusicQueue(queueResponse, queueRequest)
+	if queueResponse.Code != http.StatusOK {
+		t.Fatalf("music queue returned %d: %s", queueResponse.Code, queueResponse.Body.String())
+	}
+	var queue music.QueueSnapshot
+	if err := json.Unmarshal(queueResponse.Body.Bytes(), &queue); err != nil {
+		t.Fatalf("decode music queue: %v", err)
+	}
+	if len(queue.Items) != 1 || queue.Items[0].Track.Title != "下一首" || queue.Items[0].RequestedBy != "观众甲" {
+		t.Fatalf("unexpected music queue: %#v", queue)
 	}
 
 	lyricsRequest := httptest.NewRequest(http.MethodPost, "/api/music/lyrics", strings.NewReader(`{"id":"track-1","source_id":"netease","title":"测试歌曲"}`))
