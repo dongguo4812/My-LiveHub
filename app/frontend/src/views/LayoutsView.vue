@@ -249,6 +249,8 @@ async function loadMusicCommandConfig() {
   } catch { /* Keep the last known command setting. */ }
 }
 onMounted(() => {
+  mouthSyncChannel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('my-livehub-live2d-mouth') : null
+  if (mouthSyncChannel) mouthSyncChannel.onmessage = handleMouthSyncMessage
   void load()
   void loadMusicCommandConfig()
   void loadVideoQueueSnapshot()
