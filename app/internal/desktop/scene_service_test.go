@@ -8,18 +8,21 @@ import (
 	"testing"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/music"
+	"github.com/dongguo4812/My-LiveHub/app/internal/config"
 )
 
 type testSceneMusicProvider struct {
 	snapshot music.PlaybackSnapshot
 	queue music.QueueSnapshot
 	lyrics string
+	config config.MusicConfig
 }
 
 func (p testSceneMusicProvider) GetPlaybackStatus() (music.PlaybackSnapshot, error) {
 	return p.snapshot, nil
 }
 func (p testSceneMusicProvider) GetQueue() music.QueueSnapshot { return p.queue }
+func (p testSceneMusicProvider) GetConfig() config.MusicConfig { return p.config }
 func (p testSceneMusicProvider) GetLyrics(track music.Track) (string, error) {
 	return p.lyrics, nil
 }
@@ -33,6 +36,7 @@ func TestSceneMusicHandlers(t *testing.T) {
 		},
 		queue: music.QueueSnapshot{Items: []music.QueueItem{{ID: "request-1", Track: music.Track{ID: "track-2", SourceID: "netease", Title: "下一首"}, RequestedBy: "观众甲"}}},
 		lyrics: "[00:12.00]测试歌词",
+		config: config.MusicConfig{Enabled: true, CommandEnabled: true, CommandPrefix: "点歌", SkipCommandEnabled: true, SkipCommand: "切歌", RequireFanMedal: true, FanMedalLevel: 5},
 	}
 	service := &SceneService{music: provider}
 
@@ -62,6 +66,20 @@ func TestSceneMusicHandlers(t *testing.T) {
 	}
 	if len(queue.Items) != 1 || queue.Items[0].Track.Title != "下一首" || queue.Items[0].RequestedBy != "观众甲" {
 		t.Fatalf("unexpected music queue: %#v", queue)
+	}
+
+	configRequest := httptest.NewRequest(http.MethodGet, "/api/music/config", nil)
+	configResponse := httptest.NewRecorder()
+	service.handleMusicConfig(configResponse, configRequest)
+	if configResponse.Code != http.StatusOK {
+		t.Fatalf("music config returned %d: %s", configResponse.Code, configResponse.Body.String())
+	}
+	var displayConfig map[string]any
+	if err := json.Unmarshal(configResponse.Body.Bytes(), &displayConfig); err != nil {
+		t.Fatalf("decode music config: %v", err)
+	}
+	if displayConfig["command_prefix"] != "点歌" || displayConfig["skip_command"] != "切歌" || displayConfig["fan_medal_level"] != float64(5) {
+		t.Fatalf("unexpected music display config: %#v", displayConfig)
 	}
 
 	lyricsRequest := httptest.NewRequest(http.MethodPost, "/api/music/lyrics", strings.NewReader(`{"id":"track-1","source_id":"netease","title":"测试歌曲"}`))
