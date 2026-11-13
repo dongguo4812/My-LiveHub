@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, onUpdated, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
-type Layer = { id: string; type: string; name: string; x: number; y: number; width: number; height: number; z_index: number; visible: boolean; opacity: number; text?: string; url?: string; color?: string; font_size?: number }
+type Layer = { id: string; type: string; name: string; x: number; y: number; width: number; height: number; z_index: number; visible: boolean; opacity: number; text?: string; url?: string; color?: string; font_size?: number ; queue_display_count?: number }
 type Scene = { id: string; name: string; width: number; height: number; background: string; layers: Layer[] }
 type LiveEvent = { id: number; type: string; user_name: string; content: string; gift_name?: string; gift_count?: number; amount?: number; timestamp: number }
 type Track = { id: string; source_id: string; title: string; artist?: string; album?: string; duration_ms: number; cover_url?: string }
@@ -185,7 +185,9 @@ function isAudienceRequest(value?: string) {
 }
 const audienceCurrent = computed(() => isAudienceRequest(musicQueue.value.current?.requested_by) ? musicQueue.value.current : null)
 const audienceQueueItems = computed(() => musicQueue.value.items.filter(item => isAudienceRequest(item.requested_by)))
-const audienceQueueDisplayItems = computed(() => audienceQueueItems.value.slice(0, Math.max(1, musicDisplayConfig.value?.queue_display_count || 5)))
+function audienceQueueDisplayItems(layer: Layer) {
+  return audienceQueueItems.value.slice(0, Math.max(1, layer.queue_display_count || 5))
+}
 async function loadMusicDisplayConfig() {
   try {
     const response = await fetch('/api/music/config', { cache: 'no-store' })
@@ -291,7 +293,7 @@ onUnmounted(() => {
         <section class="music-queue-section music-queue-pending">
           <strong class="music-queue-heading"><span class="music-queue-heading-mark">Ⅱ</span> 待播队列 <span class="music-queue-count">{{ audienceQueueItems.length }} 首</span></strong>
           <div v-if="audienceQueueItems.length" class="music-queue-list">
-            <div v-for="(item, index) in audienceQueueDisplayItems" :key="item.id" class="music-queue-item">
+            <div v-for="(item, index) in audienceQueueDisplayItems(layer)" :key="item.id" class="music-queue-item">
               <span class="music-queue-index">{{ String(index + 1).padStart(2, '0') }}</span>
               <span class="music-queue-track"><strong>{{ item.track.title }}</strong><small>{{ item.track.artist || '未知歌手' }}</small></span>
               <span class="music-queue-requester">{{ item.requested_by }}</span>
