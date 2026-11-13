@@ -51,6 +51,7 @@ function moveSearchSource(index: number, direction: -1 | 1) {
 }
 async function testLXAPIConnection() {
   if (!config.value) return
+  saving.value = true
   error.value = ''
   success.value = ''
   try {
@@ -60,6 +61,8 @@ async function testLXAPIConnection() {
     success.value = '已成功连接洛雪客户端 API'
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
+  } finally {
+    saving.value = false
   }
 }
 const queue = ref<QueueSnapshot | null>(null)
@@ -295,15 +298,6 @@ async function playSearchTrackNow(track: Track) {
     await MusicService.PlayTrackNow(immediateTrack)
     await Promise.all([refreshPlayback(), refreshQueue()])
     success.value = `正在播放：${track.title}（未加入观众点播队列）`
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
-  }
-}
-async function playNext() {
-  error.value = ''
-  try {
-    await MusicService.PlayNext()
-    await refreshPlayback()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
   }
