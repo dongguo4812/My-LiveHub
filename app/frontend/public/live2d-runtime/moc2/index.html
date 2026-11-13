@@ -25,10 +25,15 @@
         canvas.height=Math.max(1,Math.round(canvas.clientHeight*dpr));
         if(typeof window.loadlive2d!=='function'){console.error('MOC2 runtime API is unavailable');return;}
         window.loadlive2d(canvas.id,modelURL);
-        const scale=Number(params.get('scale')||0.65);
-        const offsetX=Number(params.get('x')||0);
-        const offsetY=Number(params.get('y')||0);
+        let scale=Number(params.get('scale')||0.65);
+        let offsetX=Number(params.get('x')||0);
+        let offsetY=Number(params.get('y')||0);
         let base=null;
+        window.live2dSetModelTransform=(nextScale,nextX,nextY)=>{
+          if(!Number.isFinite(nextScale)||nextScale<=0||!Number.isFinite(nextX)||!Number.isFinite(nextY))return false;
+          scale=nextScale;offsetX=nextX*100;offsetY=nextY*100;
+          return apply();
+        };
         const apply=()=>{
           const model=window.__live2dManager&&window.__live2dManager.getModel&&window.__live2dManager.getModel(0);
           const matrix=model&&model.modelMatrix;
