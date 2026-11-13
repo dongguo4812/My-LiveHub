@@ -4,6 +4,7 @@ $ErrorActionPreference = 'Stop'
 $runtimeRoot = Join-Path $PSScriptRoot '..\lx-runtime'
 $esbuildCommand = Join-Path $runtimeRoot 'node_modules\.bin\esbuild.cmd'
 $electronExecutable = Join-Path $runtimeRoot 'node_modules\electron\dist\electron.exe'
+$electronInstallCommand = Join-Path $runtimeRoot 'node_modules\.bin\install-electron.cmd'
 $needleRoot = Join-Path $runtimeRoot 'vendor\needle'
 $needleCommit = '93299ac841b7e9a9f82ca7279b88aaaeda404060'
 
@@ -35,9 +36,9 @@ if ($LASTEXITCODE -ne 0 -or $actualNeedleCommit -ne $needleCommit) {
     throw "Needle source revision mismatch. Expected $needleCommit, got $actualNeedleCommit."
 }
 
-if (-not (Test-Path $esbuildCommand) -or -not (Test-Path $electronExecutable)) {
+if (-not (Test-Path $esbuildCommand) -or -not (Test-Path $electronInstallCommand)) {
     Write-Host 'Installing LX Electron runtime dependencies...'
-    npm --prefix $runtimeRoot install --no-audit --no-fund
+    & npm.cmd --prefix $runtimeRoot install --no-audit --no-fund
     if ($LASTEXITCODE -ne 0) {
         throw "LX runtime dependency installation failed with exit code $LASTEXITCODE."
     }
@@ -45,8 +46,24 @@ if (-not (Test-Path $esbuildCommand) -or -not (Test-Path $electronExecutable)) {
     Write-Host 'LX Electron runtime dependencies are already installed.'
 }
 
+if (-not (Test-Path $electronExecutable)) {
+    Write-Host 'Downloading the Electron 42 runtime binary...'
+    if (-not (Test-Path $electronInstallCommand)) {
+        throw "Electron install command was not found: $electronInstallCommand"
+    }
+
+    & $electronInstallCommand --no
+    if ($LASTEXITCODE -ne 0) {
+        throw "Electron binary download failed with exit code $LASTEXITCODE."
+    }
+}
+
+if (-not (Test-Path $electronExecutable)) {
+    throw "Electron binary download reported success, but the executable is still missing: $electronExecutable"
+}
+
 Write-Host 'Building the original LX preload runtime...'
-npm --prefix $runtimeRoot run build
+& npm.cmd --prefix $runtimeRoot run build
 if ($LASTEXITCODE -ne 0) {
     throw "LX runtime build failed with exit code $LASTEXITCODE."
 }
