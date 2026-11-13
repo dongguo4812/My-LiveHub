@@ -1,5 +1,5 @@
 package desktop
-import ("encoding/json"; "testing"; "testing/fstest"; "github.com/dongguo4812/My-LiveHub/app/internal/config"
+import ("context"; "encoding/json"; "testing"; "testing/fstest"; "github.com/dongguo4812/My-LiveHub/app/internal/config"
  "github.com/dongguo4812/My-LiveHub/app/internal/events"; "github.com/dongguo4812/My-LiveHub/app/internal/music")
 func TestParseSongRequest(t *testing.T){
  tests:=[]struct{content,prefix,want string;ok bool}{{"点歌 稻香","点歌","稻香",true},{"点歌稻香","点歌","",false},{"点歌   稻香 ","点歌","稻香",true},{"闲聊点歌 稻香","点歌","",false},{"点歌","点歌","",false}}
