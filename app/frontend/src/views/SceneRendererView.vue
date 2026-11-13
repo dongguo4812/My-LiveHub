@@ -126,7 +126,8 @@ function parseLyrics(raw: string): LyricLine[] {
     const fraction = match[3] ?? '0'
     const time = Number(match[1]) * 60000 + Number(match[2]) * 1000 + Number(fraction.padEnd(3, '0').slice(0, 3))
     const text = match[4].trim()
-    if (text) parsed.push({ time, text })
+    const normalized = text.replace(/[\\s\\u200b\\ufeff]/g, '')
+    if (normalized && !/^\\/{2,}$/.test(normalized)) parsed.push({ time, text })
   }
   parsed.sort((a, b) => a.time - b.time)
   const result: LyricLine[] = []
@@ -197,8 +198,7 @@ async function loadTrackLyrics(track: Track, key: string) {
     const response = await fetch('/api/music/lyrics', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(track),
-      cache: 'no-store',
+      body: JSON.stringify(track),      cache: 'no-store',
     })
     if (!response.ok) throw new Error('歌词获取失败')
     const data = await response.json() as MusicLyricsResponse
@@ -397,8 +397,7 @@ onUnmounted(() => {
           <div v-else class="music-queue-empty">暂无待播视频</div>
         </section>
       </section>
-      <section v-else-if="layer.type === 'music_queue'" class="music-queue-widget" :style="{ '--queue-accent': layer.color || '#9fc0ff', fontSize: ((layer.font_size || 22) / (scene?.height || 1080) * 100) + 'cqh' }">
-        <section v-if="musicDisplayConfig?.enabled && musicDisplayConfig.command_enabled" class="music-queue-section music-queue-prompt">
+      <section v-else-if="layer.type === 'music_queue'" class="music-queue-widget" :style="{ '--queue-accent': layer.color || '#9fc0ff', fontSize: ((layer.font_size || 22) / (scene?.height || 1080) * 100) + 'cqh' }">        <section v-if="musicDisplayConfig?.enabled && musicDisplayConfig.command_enabled" class="music-queue-section music-queue-prompt">
           <div class="music-queue-prompt-single">
             <strong class="music-queue-prompt-title"><span class="music-queue-heading-mark">♪</span> 歌曲点播指令</strong>
             <span><b>{{ musicDisplayConfig.command_prefix }}</b> 歌曲名称</span>
