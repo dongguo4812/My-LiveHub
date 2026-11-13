@@ -567,6 +567,9 @@ func (s *MusicService) GetLyrics(track music.Track) (string, error) {
 	defer cancel()
 	lyrics, err := provider.GetCurrentLyrics(ctx)
 	if err != nil { return "", err }
+	// 洛雪切歌后歌词可能比播放状态晚几百毫秒才准备好。
+	// 空结果不能缓存，否则首次读取过早会导致这首歌后续一直显示无歌词。
+	if strings.TrimSpace(lyrics) == "" { return "", nil }
 	s.lyricsMu.Lock()
 	if s.lyricsCache == nil { s.lyricsCache = make(map[string]string) }
 	if len(s.lyricsCache) >= 128 { s.lyricsCache = make(map[string]string) }
