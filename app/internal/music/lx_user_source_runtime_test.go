@@ -609,11 +609,11 @@ const httpFetch = (url, options = { method: 'GET' }) => {
 }
 const handleGetMusicUrl = async (source, musicInfo, quality) => {
   const songId = musicInfo.hash ?? musicInfo.songmid
-  const request = await httpFetch(`${API_URL}/url/${source}/${songId}/${quality}`, {
+  const request = await httpFetch(API_URL + '/url/' + source + '/' + songId + '/' + quality, {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',
-      'User-Agent': `${env ? `lx-music-${env}/${version}` : `lx-usic-request/${version}`}`,
+      'User-Agent': (env ? 'lx-music-' + env + '/' + version : 'lx-usic-request/' + version),
       'X-Request-Key': API_KEY,
     },
   })
@@ -639,13 +639,13 @@ on(EVENT_NAMES.request, ({ action, source, info }) => {
   switch (action) {
     case 'musicUrl':
       if (env != 'mobile') {
-        console.group(`Handle Action(musicUrl)`)
+        console.group('Handle Action(musicUrl)')
         console.log('source', source)
         console.log('quality', info.type)
         console.log('musicInfo', info.musicInfo)
         console.groupEnd()
       } else {
-        console.log(`Handle Action(musicUrl)`)
+        console.log('Handle Action(musicUrl)')
         console.log('source', source)
         console.log('quality', info.type)
         console.log('musicInfo', info.musicInfo)
@@ -654,7 +654,7 @@ on(EVENT_NAMES.request, ({ action, source, info }) => {
         .then(data => Promise.resolve(data))
         .catch(err => Promise.reject(err))
     default:
-      console.error(`action(${action}) not support`)
+      console.error('action(' + action + ') not support')
       return Promise.reject('action not support')
   }
 })
