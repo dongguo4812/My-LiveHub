@@ -127,6 +127,27 @@ func (e *LXPlaybackEngine) Snapshot(ctx context.Context) (music.PlaybackSnapshot
 	return parseLXPlaybackSnapshot(value), nil
 }
 
+// GetCurrentLyrics reads the currently playing song lyrics from 洛雪's Open API.
+// Prefer /lyric-all so the existing frontend can align original and translated LRC lines.
+func (e *LXPlaybackEngine) GetCurrentLyrics(ctx context.Context) (string, error) {
+	if ctx == nil { ctx = context.Background() }
+	body, _, err := e.endpointRequest(ctx, []string{"/lyric-all"})
+	if err == nil {
+		var value map[string]any
+		if json.Unmarshal(body, &value) == nil {
+			original := strings.TrimSpace(lxString(value["lyric"]))
+			translated := strings.TrimSpace(lxString(value["tlyric"]))
+			if original != "" && translated != "" { return original + "\n" + translated, nil }
+			if original != "" { return original, nil }
+		}
+	}
+	// Older 洛雪 versions may not expose /lyric-all; fall back to plain LRC.
+	plain, _, plainErr := e.endpointRequest(ctx, []string{"/lyric"})
+	if plainErr == nil { return strings.TrimSpace(string(plain)), nil }
+	if err != nil { return "", fmt.Errorf("读取洛雪完整歌词失败：%v；读取普通歌词失败：%w", err, plainErr) }
+	return "", fmt.Errorf("解析洛雪完整歌词失败，且普通歌词不可用：%w", plainErr)
+}
+
 func (e *LXPlaybackEngine) Load(ctx context.Context, track music.Track) error {
 	if ctx == nil { ctx = context.Background() }
 	uri, err := buildLXPlayURI(track)
