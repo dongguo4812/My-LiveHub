@@ -6,6 +6,7 @@
   "skip_command": "切歌",
   "command_prefix": "点歌",
   "queue_capacity": 100,
+  "queue_display_count": 5,
   "volume": 80,
   "loudness_normalization": false,
   "require_fan_medal": false,
