@@ -305,9 +305,9 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-lyrics::before{content:"";position:absolute;inset:0;z-index:-2;background-image:var(--details-bg,none);background-position:center;background-size:cover;opacity:.45;filter:blur(5px) brightness(.55);transform:scale(1.04);pointer-events:none}
 .music-lyrics::after{content:"";position:absolute;inset:0;z-index:-1;background:rgba(0,0,0,.38);pointer-events:none}
 .music-lyric-viewport{position:relative;display:block;width:100%;min-width:0;overflow:hidden;white-space:nowrap}
-.music-lyric-text{position:relative;display:inline-block;max-width:none;white-space:nowrap;text-overflow:clip;will-change:transform}
+.music-lyric-text{position:relative;display:inline-block;max-width:none;white-space:nowrap;text-overflow:clip;will-change:transform;transition:transform .48s linear}
 .music-lyrics strong.music-lyric-text{font-size:14px;font-weight:700;line-height:1.35;color:var(--random-color)}
 .music-lyrics span.music-lyric-text{font-size:12px;line-height:1.3;color:#e7c89d;opacity:.9}
-@media(max-width:300px){.music-widget{gap:5px}.music-main{height:84px}.music-cover-wrap{height:84px;width:84px;flex-basis:84px}.music-song-title{font-size:14px}.music-song-author{font-size:12px}.music-song-time{height:56px;padding:0 7px}.music-time{width:34px;flex-basis:34px;font-size:10px}.music-lyrics{min-height:38px}.music-lyrics strong{font-size:12px}.music-lyrics span{font-size:10px}}
+@media(max-width:300px){.music-widget{gap:5px}.music-main{height:84px}.music-cover-wrap{height:84px;width:84px;flex-basis:84px}.music-song-title{font-size:14px}.music-song-author{font-size:12px}.music-song-time{height:56px;padding:0 7px}.music-time{width:34px;flex-basis:34px;font-size:10px}.music-lyrics{min-height:38px}.music-lyrics strong.music-lyric-text{font-size:12px}.music-lyrics span.music-lyric-text{font-size:10px}}
 .scene-error{display:grid;place-items:center;width:100vw;height:100vh;background:transparent;color:#fff;font:16px "Microsoft YaHei",sans-serif}
 </style>
