@@ -8,7 +8,7 @@ type LiveEvent = { id: number; type: string; user_name: string; content: string;
 type Track = { id: string; source_id: string; title: string; artist?: string; album?: string; duration_ms: number; cover_url?: string }
 type Playback = { state: string; track?: Track; position_ms: number; duration_ms: number }
 type LyricLine = { time: number; text: string; translation?: string }
-type MusicResponse = { snapshot: Playback; lyrics: string; lyrics_error?: string }
+type MusicLyricsResponse = { lyrics: string }
 const route = useRoute()
 const scene = ref<Scene | null>(null)
 const liveEvents = ref<LiveEvent[]>([])
@@ -23,6 +23,7 @@ let sceneRefreshTimer: ReturnType<typeof setInterval> | undefined
 let musicRefreshTimer: ReturnType<typeof setInterval> | undefined
 let musicTrackKey = ''
 let musicRefreshing = false
+let lyricsRequestID = 0
 
 const danmaku = computed(() => liveEvents.value.filter(item => item.type === 'danmaku').slice(-8).reverse())
 const gifts = computed(() => liveEvents.value.filter(item => item.type === 'gift').slice(-3).reverse())
@@ -112,22 +113,43 @@ async function loadScene() {
     if (root) root.style.background = 'transparent'
   } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) }
 }
+async function loadTrackLyrics(track: Track, key: string) {
+  const requestID = ++lyricsRequestID
+  try {
+    const response = await fetch('/api/music/lyrics', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(track),
+      cache: 'no-store',
+    })
+    if (!response.ok) throw new Error('歌词获取失败')
+    const data = await response.json() as MusicLyricsResponse
+    if (requestID !== lyricsRequestID || musicTrackKey !== key) return
+    lyricLines.value = parseLyrics(data.lyrics || '')
+    musicError.value = ''
+  } catch (cause) {
+    if (requestID === lyricsRequestID && musicTrackKey === key) {
+      lyricLines.value = []
+      musicError.value = cause instanceof Error ? cause.message : String(cause)
+    }
+  }
+}
 async function loadMusic() {
   if (musicRefreshing) return
   musicRefreshing = true
   try {
     const response = await fetch('/api/music', { cache: 'no-store' })
     if (!response.ok) throw new Error('音乐播放状态暂不可用')
-    const data = await response.json() as MusicResponse
-    playback.value = data.snapshot
-    musicError.value = data.lyrics_error || ''
-    const track = data.snapshot.track
+    const snapshot = await response.json() as Playback
+    playback.value = snapshot
+    const track = snapshot.track
     const key = track ? track.source_id + ':' + track.id : ''
     if (key !== musicTrackKey) {
       musicTrackKey = key
-      lyricLines.value = track ? parseLyrics(data.lyrics || '') : []
-    } else if (track && lyricLines.value.length === 0 && data.lyrics) {
-      lyricLines.value = parseLyrics(data.lyrics)
+      lyricsRequestID++
+      lyricLines.value = []
+      musicError.value = ''
+      if (track) void loadTrackLyrics(track, key)
     }
   } catch (cause) {
     musicError.value = cause instanceof Error ? cause.message : String(cause)
@@ -146,6 +168,7 @@ onMounted(() => {
 })
 onUnmounted(() => {
   source?.close()
+  lyricsRequestID++
   if (clockTimer) clearInterval(clockTimer)
   if (sceneRefreshTimer) clearInterval(sceneRefreshTimer)
   if (musicRefreshTimer) clearInterval(musicRefreshTimer)
