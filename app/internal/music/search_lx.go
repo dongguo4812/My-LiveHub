@@ -5,9 +5,6 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/md5"
-	"crypto/rand"
-	"crypto/sha1"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -74,7 +71,7 @@ func DefaultLXSearchEndpoints() LXSearchEndpoints {
 	return LXSearchEndpoints{
 		Kuwo: "http://search.kuwo.cn/r.s",
 		Kugou: "http://songsearch.kugou.com/song_search_v2",
-		QQ: "https://u.y.qq.com/cgi-bin/musics.fcg",
+		QQ: "https://u.y.qq.com/cgi-bin/musicu.fcg",
 		Netease: "http://interface.music.163.com/eapi/batch",
 		Migu: "https://jadeite.migu.cn/music_search/v3/search/searchAll",
 	}
@@ -409,66 +406,33 @@ type qqSearchProvider struct { client *http.Client; endpoint string }
 func (p qqSearchProvider) ID()string{return LXSearchTX}
 func (p qqSearchProvider) Name()string{return "QQ 音乐"}
 type qqSearchRequest struct {
-	Comm struct {
-		ChannelID string `json:"_channelid"`
-		OSVersion string `json:"_os_version"`
-		CT string `json:"ct"`
-		CV string `json:"cv"`
-		GUID string `json:"guid"`
-		Patch string `json:"patch"`
-		Expires int `json:"psrf_access_token_expiresAt"`
-		AccessToken string `json:"psrf_qqaccess_token"`
-		OpenID string `json:"psrf_qqopenid"`
-		UnionID string `json:"psrf_qqunionid"`
-		AppID string `json:"tmeAppID"`
-		LoginType int `json:"tmeLoginType"`
-		UIN string `json:"uin"`
-		WID string `json:"wid"`
-	} `json:"comm"`
 	Service struct {
 		Module string `json:"module"`
 		Method string `json:"method"`
 		Param struct {
-			Group int `json:"grp"`
+			Group int `json:"grp,omitempty"`
 			Limit int `json:"num_per_page"`
 			Page int `json:"page_num"`
 			Query string `json:"query"`
-			Remote string `json:"remoteplace"`
+			Remote string `json:"remoteplace,omitempty"`
 			Type int `json:"search_type"`
-			SearchID string `json:"searchid"`
+			SearchID string `json:"searchid,omitempty"`
 		} `json:"param"`
 	} `json:"music.search.SearchCgiService"`
 }
-func qqSignature(text string) string {
-	sum:=sha1.Sum([]byte(text));h:=hex.EncodeToString(sum[:])
-	p1:=[]int{23,14,6,36,16,40,7,19};p2:=[]int{16,1,32,12,19,27,8,5}
-	var a,b strings.Builder;for _,i:=range p1{if i>=0 && i<len(h){a.WriteByte(h[i])}};for _,i:=range p2{if i>=0 && i<len(h){b.WriteByte(h[i])}}
-	scramble:=[]byte{89,39,179,150,218,82,58,252,177,52,186,123,120,64,242,133,143,161,121,179}
-	raw:=make([]byte,len(scramble));for i,v:=range scramble{n,_:=strconv.ParseUint(h[i*2:i*2+2],16,8);raw[i]=v^byte(n)}
-	mid:=base64.StdEncoding.EncodeToString(raw);mid=strings.NewReplacer("/","","+","","=","").Replace(mid)
-	return strings.ToLower("zzc"+a.String()+mid+b.String())
-}
 func (p qqSearchProvider) Search(ctx context.Context,keyword string,page,limit int)(SearchPage,error){
 	if limit <= 0 { limit = lxSongSearchPageSize }
-	// LX desktop retries QQ's signed search request when the API returns a
-	// non-zero status. The production endpoint is musics.fcg (plural), not
-	// musicu.fcg; the latter is used by the lyric API.
+	// Use the current QQ Music search endpoint and its module-key request envelope.
 	var raw map[string]any
 	var lastStatus string
 	for attempt:=0;attempt<=5;attempt++ {
 		var payload qqSearchRequest
-		payload.Comm.ChannelID="0";payload.Comm.OSVersion="6.2.9200-2";payload.Comm.CT="19";payload.Comm.CV="2151"
-		payload.Comm.GUID="1F70E520B2EAA7D25E11760783C53CA9";payload.Comm.Patch="118";payload.Comm.AppID="qqmusic";payload.Comm.WID="7223299733393904640";payload.Comm.UIN="0"
 		payload.Service.Module="music.search.SearchCgiService";payload.Service.Method="DoSearchForQQMusicDesktop"
-		payload.Service.Param.Group=1;payload.Service.Param.Limit=limit;payload.Service.Param.Page=page;payload.Service.Param.Query=keyword;payload.Service.Param.Remote="txt.newclient.top";payload.Service.Param.Type=0
-		var random [16]byte
-		if _,err:=rand.Read(random[:]);err!=nil{return SearchPage{},fmt.Errorf("生成 QQ 搜索会话 ID 失败：%w",err)}
-		payload.Service.Param.SearchID=strings.ToUpper(hex.EncodeToString(random[:]))+fmt.Sprintf("%05d",time.Now().UnixNano()%100000)
+		payload.Service.Param.Limit=limit;payload.Service.Param.Page=page;payload.Service.Param.Query=keyword;payload.Service.Param.Type=0
 		body,err:=jsonBody(payload);if err!=nil{return SearchPage{},err}
-		sign:=qqSignature(string(body))
-		raw,err=doLXJSON(ctx,p.client,http.MethodPost,p.endpoint+"?sign="+url.QueryEscape(sign),map[string]string{"User-Agent":"QQMusic 14090508(android 12)","Content-Type":"application/json"},bytes.NewReader(body))
+		raw,err=doLXJSON(ctx,p.client,http.MethodPost,p.endpoint,map[string]string{"User-Agent":"Mozilla/5.0","Content-Type":"application/json","Referer":"https://y.qq.com/","Origin":"https://y.qq.com"},bytes.NewReader(body))
 		if err!=nil{return SearchPage{},err}
-		req:=mapValue(raw["music.search.SearchCgiService"]);if len(req)==0{req=mapValue(raw["req"])}
+		req:=mapValue(raw["music.search.SearchCgiService"]);if len(req)==0{req=mapValue(raw["req_1"])}
 		if len(req)>0&&intValue(raw["code"])==0&&intValue(req["code"])==0 {
 			data:=mapValue(req["data"]);resultBody:=mapValue(data["body"]);song:=mapValue(resultBody["song"]);meta:=mapValue(data["meta"])
 			items:=sliceValue(song["list"]);tracks:=make([]Track,0,len(items))
@@ -487,7 +451,7 @@ func (p qqSearchProvider) Search(ctx context.Context,keyword string,page,limit i
 			total:=intValue(meta["sum"]);if total==0{total=intValue(song["totalnum"])}
 			return SearchPage{Tracks:tracks,Total:total,Page:page,PageSize:limit,MaxPage:pageCount(total,limit),Source:"tx"},nil
 		}
-		lastStatus=fmt.Sprintf("top-level code=%v, provider code=%v",raw["code"],mapValue(raw["music.search.SearchCgiService"])["code"])
+		lastStatus=fmt.Sprintf("top-level code=%v, provider code=%v",raw["code"],req["code"])
 		if attempt<5 {
 			select { case <-ctx.Done(): return SearchPage{},ctx.Err(); case <-time.After(time.Duration(attempt+1)*150*time.Millisecond): }
 		}

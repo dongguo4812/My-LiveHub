@@ -1,7 +1,16 @@
 package desktop
-import ("context"; "errors"; "testing"; "testing/fstest"; "github.com/dongguo4812/My-LiveHub/app/internal/config"
- "github.com/dongguo4812/My-LiveHub/app/internal/events"
- "github.com/dongguo4812/My-LiveHub/app/internal/music")
+
+import (
+	"context"
+	"encoding/json"
+	"sync/atomic"
+	"testing"
+	"testing/fstest"
+
+	"github.com/dongguo4812/My-LiveHub/app/internal/config"
+	"github.com/dongguo4812/My-LiveHub/app/internal/events"
+	"github.com/dongguo4812/My-LiveHub/app/internal/music"
+)
 func TestParseSongRequest(t *testing.T){
  tests:=[]struct{content,prefix,want string;ok bool}{{"点歌 稻香","点歌","稻香",true},{"点歌稻香","点歌","",false},{"点歌   稻香 ","点歌","稻香",true},{"闲聊点歌 稻香","点歌","",false},{"点歌","点歌","",false}}
  for _,tt:=range tests{got,ok:=parseSongRequest(tt.content,tt.prefix);if got!=tt.want||ok!=tt.ok{t.Errorf("parseSongRequest(%q)=(%q,%v), want (%q,%v)",tt.content,got,ok,tt.want,tt.ok)}}
@@ -9,123 +18,9 @@ func TestParseSongRequest(t *testing.T){
 func TestNewMusicServiceRegistersFiveLXSearchPlatforms(t *testing.T){
  s:=NewMusicService(nil, config.DefaultMusicConfig());defer s.Shutdown()
  got:=s.GetSources()
- want:=[]string{"kg","kw","mg","tx","wy"}
+ want:=[]string{"tx","kw","kg","wy","mg"}
  if len(got)!=len(want){t.Fatalf("got %d sources, want %d: %#v",len(got),len(want),got)}
  for i,id:=range want { if got[i].ID!=id { t.Errorf("source[%d]=%q, want %q",i,got[i].ID,id) }; if !got[i].Capabilities.Search { t.Errorf("source %q is not marked searchable",id) } }
-}
-
-func TestShouldAutoStartAcceptedSongRequest(t *testing.T) {
-	if !shouldAutoStartSongRequest(nil) { t.Fatal("an idle player must start the first accepted request") }
-	if shouldAutoStartSongRequest(&music.QueueItem{RequestedBy: "viewer"}) { t.Fatal("a request must not interrupt another viewer request") }
-	if !shouldAutoStartSongRequest(&music.QueueItem{RequestedBy: hostQueueMarker}) { t.Fatal("a viewer request must interrupt the host playlist") }
-}
-
-
-type playbackStartTestEngine struct {
-	calls []string
-	loadErr error
-	resumeErr error
-}
-func (e *playbackStartTestEngine) Load(context.Context, music.PlaybackResource, music.Track) error {
-	e.calls = append(e.calls, "load")
-	return e.loadErr
-}
-func (e *playbackStartTestEngine) Pause(context.Context) error { return nil }
-func (e *playbackStartTestEngine) Resume(context.Context) error {
-	e.calls = append(e.calls, "resume")
-	return e.resumeErr
-}
-func (e *playbackStartTestEngine) Seek(context.Context, int64) error { return nil }
-func (e *playbackStartTestEngine) SetVolume(context.Context, int) error { return nil }
-func (e *playbackStartTestEngine) Stop(context.Context) error { return nil }
-func (e *playbackStartTestEngine) Snapshot(context.Context) (music.PlaybackSnapshot, error) {
-	return music.PlaybackSnapshot{}, nil
-}
-
-type audioProcessingTestEngine struct {
-	playbackStartTestEngine
-	normalization []bool
-	normalizationErr error
-}
-func (e *audioProcessingTestEngine) SetLoudnessNormalization(_ context.Context, enabled bool) error {
-	e.normalization = append(e.normalization, enabled)
-	return e.normalizationErr
-}
-
-func TestSaveConfigAppliesAndPersistsLoudnessNormalization(t *testing.T) {
-	manager, err := config.NewManager(fstest.MapFS{
-		"music.json": {Data: []byte(`{"config_version":8,"enabled":true,"command_enabled":true,"command_prefix":"点歌","skip_command_enabled":true,"skip_command":"切歌","queue_capacity":100,"volume":80,"loudness_normalization":false}`)},
-	}, t.TempDir())
-	if err != nil { t.Fatal(err) }
-	engine := &audioProcessingTestEngine{}
-	service := NewMusicServiceWithDependencies(manager, config.DefaultMusicConfig(), nil, engine)
-	next := service.GetConfig()
-	next.LoudnessNormalization = true
-	if err := service.SaveConfig(next); err != nil { t.Fatalf("SaveConfig: %v", err) }
-	if len(engine.normalization) != 1 || !engine.normalization[0] {
-		t.Fatalf("normalization was not applied to the engine: %#v", engine.normalization)
-	}
-	saved, err := config.LoadMusicConfig(manager)
-	if err != nil { t.Fatalf("reload saved music config: %v", err) }
-	if !saved.LoudnessNormalization { t.Fatalf("normalization preference was not persisted: %+v", saved) }
-}
-
-func TestLoadAndStartPlaybackAlwaysResumesAfterReplacingTrack(t *testing.T) {
-	engine := &playbackStartTestEngine{}
-	track := music.Track{ID: "tx_123", SourceID: "tx", LXSourceKey: "tx", Title: "晴天"}
-	if err := loadAndStartPlayback(context.Background(), engine, music.PlaybackResource{URL: "https://example.com/audio.mp3"}, track); err != nil {
-		t.Fatalf("loadAndStartPlayback returned error: %v", err)
-	}
-	if len(engine.calls) != 2 || engine.calls[0] != "load" || engine.calls[1] != "resume" {
-		t.Fatalf("expected load then resume, got %#v", engine.calls)
-	}
-}
-
-func TestLoadAndStartPlaybackDoesNotResumeWhenLoadFails(t *testing.T) {
-	engine := &playbackStartTestEngine{loadErr: errors.New("load failed")}
-	track := music.Track{ID: "tx_123", SourceID: "tx", LXSourceKey: "tx", Title: "晴天"}
-	if err := loadAndStartPlayback(context.Background(), engine, music.PlaybackResource{URL: "https://example.com/audio.mp3"}, track); err == nil {
-		t.Fatal("expected load error")
-	}
-	if len(engine.calls) != 1 || engine.calls[0] != "load" {
-		t.Fatalf("resume must not run after load failure, got %#v", engine.calls)
-	}
-}
-
-
-func TestMoveHostTrackBetweenPlaylists(t *testing.T) {
-	st := &hostPlaylistState{
-		loaded: true,
-		activeID: "a",
-		index: 1,
-		playlists: []HostPlaylistSnapshot{
-			{ID: "a", Name: "A", Tracks: []music.Track{
-				{ID: "one", SourceID: "tx", Title: "第一首"},
-				{ID: "two", SourceID: "tx", Title: "第二首"},
-				{ID: "three", SourceID: "tx", Title: "第三首"},
-			}},
-			{ID: "b", Name: "B", Tracks: []music.Track{{ID: "two", SourceID: "tx", Title: "第二首"}}},
-		},
-	}
-	if err := moveHostTrackBetweenPlaylists(st, "a", "b", "tx", "one"); err != nil { t.Fatal(err) }
-	if len(st.playlists[0].Tracks) != 2 || st.playlists[0].Tracks[0].ID != "two" { t.Fatalf("source playlist not updated: %#v", st.playlists[0].Tracks) }
-	if st.index != 0 { t.Fatalf("playback cursor should shift with removal before current track, got %d", st.index) }
-	if got := st.playlists[1].Tracks[1]; got.ID != "one" || got.Title != "第一首" { t.Fatalf("track metadata was not preserved: %#v", got) }
-	if err := moveHostTrackBetweenPlaylists(st, "a", "b", "tx", "two"); err == nil { t.Fatal("expected duplicate destination track error") }
-	if err := moveHostTrackBetweenPlaylists(st, "a", "missing", "tx", "two"); err == nil { t.Fatal("expected missing playlist error") }
-}
-
-func TestMovingCurrentlyPlayingHostTrackKeepsCursor(t *testing.T) {
-	st := &hostPlaylistState{
-		loaded: true, activeID: "a", index: 1,
-		playlists: []HostPlaylistSnapshot{
-			{ID: "a", Tracks: []music.Track{{ID:"one",SourceID:"tx"},{ID:"two",SourceID:"tx"},{ID:"three",SourceID:"tx"}}},
-			{ID: "b", Tracks: []music.Track{}},
-		},
-	}
-	if err := moveHostTrackBetweenPlaylists(st,"a","b","tx","two"); err != nil { t.Fatal(err) }
-	if st.index != 0 { t.Fatalf("moving current track must position cursor before the next queued track, got %d",st.index) }
-	if st.playlists[1].Tracks[0].ID != "two" { t.Fatal("current track was not moved to destination") }
 }
 
 func TestSkipCommandMatchingIsExact(t *testing.T) {
@@ -140,91 +35,188 @@ func TestOnlyRoomOwnerAndModeratorsCanSkip(t *testing.T) {
 }
 
 
-func TestLXSearchSourceSelectionPersistsThroughServiceReload(t *testing.T) {
-	dir := t.TempDir()
-	newService := func() *MusicService {
-		service := NewMusicService(nil, config.DefaultMusicConfig())
-		service.lxStoreOnce.Do(func() {})
-		store, err := music.NewLXUserSourceStore(dir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		service.lxStore = store
-		return service
+func TestIndependentSearchSourcePriorityPersistsThroughServiceReload(t *testing.T) {
+	defaultJSON, err := json.Marshal(config.DefaultMusicConfig())
+	if err != nil { t.Fatal(err) }
+	manager, err := config.NewManager(fstest.MapFS{"music.json": &fstest.MapFile{Data: defaultJSON}}, t.TempDir())
+	if err != nil { t.Fatal(err) }
+	value := config.DefaultMusicConfig()
+	value.EnabledSearchSources = []string{"mg", "tx", "kw"}
+	service := NewMusicService(manager, value)
+	if err := service.SaveConfig(value); err != nil { t.Fatal(err) }
+	if got := service.enabledSearchSourceIDs(); len(got) != 3 || got[0] != "mg" || got[1] != "tx" || got[2] != "kw" {
+		t.Fatalf("configured search order = %v", got)
 	}
+	reloaded, err := config.LoadMusicConfig(manager)
+	if err != nil { t.Fatal(err) }
+	restarted := NewMusicService(manager, reloaded)
+	defer restarted.Shutdown()
+	if got := restarted.enabledSearchSourceIDs(); len(got) != 3 || got[0] != "mg" || got[1] != "tx" || got[2] != "kw" {
+		t.Fatalf("search order after restart = %v", got)
+	}
+}
 
-	service := newService()
+func TestEmptySearchSourceSelectionDisablesAllPlatforms(t *testing.T) {
+	value := config.DefaultMusicConfig()
+	value.EnabledSearchSources = []string{}
+	service := NewMusicService(nil, value)
+	defer service.Shutdown()
+	if got := service.enabledSearchSourceIDs(); len(got) != 0 {
+		t.Fatalf("explicitly empty source selection should stay empty, got %v", got)
+	}
+}
+
+
+type nextTrackTestEngine struct {
+	stopCalls int
+	pauseCalls int
+}
+func (e *nextTrackTestEngine) Load(context.Context, music.Track) error { return nil }
+func (e *nextTrackTestEngine) Pause(context.Context) error { e.pauseCalls++; return nil }
+func (e *nextTrackTestEngine) Resume(context.Context) error { return nil }
+func (e *nextTrackTestEngine) Stop(context.Context) error { e.stopCalls++; return nil }
+func (e *nextTrackTestEngine) Snapshot(context.Context) (music.PlaybackSnapshot, error) {
+	return music.PlaybackSnapshot{State: music.PlaybackPlaying}, nil
+}
+
+func TestNextWithoutPendingTrackDoesNotPauseCurrentPlayback(t *testing.T) {
+	engine := &nextTrackTestEngine{}
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, engine)
+	current, err := service.queue.SetCurrentTrack(music.Track{
+		ID: "tx_current", SourceID: "tx", Title: "当前歌曲", Artist: "歌手",
+	}, searchPlayMarker)
+	if err != nil { t.Fatal(err) }
+
+	if err := service.Next(); err == nil {
+		t.Fatal("Next should report that there is no pending track")
+	}
+	snapshot := service.queue.Snapshot()
+	if snapshot.Current == nil || snapshot.Current.ID != current.ID {
+		t.Fatalf("current track changed despite empty queue: %#v", snapshot.Current)
+	}
+	if engine.stopCalls != 0 || engine.pauseCalls != 0 {
+		t.Fatalf("Next unexpectedly controlled playback: stop=%d pause=%d", engine.stopCalls, engine.pauseCalls)
+	}
+}
+
+func TestGetPlaybackStatusReportsActualResolvedProvider(t *testing.T) {
+	engine := &nextTrackTestEngine{}
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, engine)
+	_, err := service.queue.SetCurrentTrack(music.Track{
+		ID: "kg_hash123", SourceID: "kg", LXSourceKey: "kg", Title: "稻香", Artist: "周杰伦",
+	}, searchPlayMarker)
+	if err != nil { t.Fatal(err) }
+	snapshot, err := service.GetPlaybackStatus()
+	if err != nil { t.Fatal(err) }
+	if snapshot.Track == nil { t.Fatal("current queue track was not attached to playback status") }
+	if snapshot.Track.SourceID != "kg" || snapshot.Track.LXSourceKey != "kg" {
+		t.Fatalf("actual resolved source was not preserved: %#v", snapshot.Track)
+	}
+}
+
+
+type queueRecoveryTestEngine struct {
+	state music.PlaybackState
+	loadCalls atomic.Int32
+}
+func (e *queueRecoveryTestEngine) Load(context.Context, music.Track) error {
+	e.loadCalls.Add(1)
+	return nil
+}
+func (e *queueRecoveryTestEngine) Pause(context.Context) error { return nil }
+func (e *queueRecoveryTestEngine) Resume(context.Context) error { return nil }
+func (e *queueRecoveryTestEngine) Stop(context.Context) error { return nil }
+func (e *queueRecoveryTestEngine) Snapshot(context.Context) (music.PlaybackSnapshot, error) {
+	return music.PlaybackSnapshot{State: e.state}, nil
+}
+
+func TestEnqueueStartsNextWhenQueueCurrentIsStale(t *testing.T) {
+	value := config.DefaultMusicConfig()
+	engine := &queueRecoveryTestEngine{state: music.PlaybackStopped}
+	service := NewMusicServiceWithDependencies(nil, value, nil, engine)
 	defer service.Shutdown()
 
-	script := "/*\n * @name Huibq search source fixture\n * @version 1.2.0\n */\nvoid 0;"
-	metadata, err := service.lxStore.ImportScript(script, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	keys := []string{"kw", "kg", "tx", "wy", "mg"}
-	declared := make([]music.LXDeclaredSource, 0, len(keys))
-	for _, key := range keys {
-		declared = append(declared, music.LXDeclaredSource{
-			Key: key, Type: "music", Actions: []string{"musicUrl"},
-		})
-	}
-	result := music.LXSourceRuntimeResult{
-		Initialized: true,
-		Platforms: keys,
-		DeclaredSources: declared,
-	}
-	if err := service.lxStore.SetValidation(metadata.ID, result); err != nil {
-		t.Fatal(err)
-	}
+	priority := service.enabledSearchSourceIDs()
+	if len(priority) == 0 { t.Fatal("expected at least one enabled search source") }
+	source := priority[0]
+	oldTrack := music.Track{ID: source + "_old", SourceID: source, LXSourceKey: source, Title: "旧歌曲", Artist: "测试歌手"}
+	if _, err := service.queue.SetCurrentTrack(oldTrack, "previous"); err != nil { t.Fatal(err) }
 
-	// Save a non-default selection and a deliberately non-default priority.
-	wantEnabled := []string{"tx", "kw", "mg"}
-	if err := service.SetLXSearchSources(metadata.ID, wantEnabled); err != nil {
-		t.Fatal(err)
-	}
-	assertOptions := func(got []LXSearchSourceOption, want []string) {
-		t.Helper()
-		gotEnabled := make([]string, 0)
-		for _, option := range got {
-			if option.Enabled {
-				gotEnabled = append(gotEnabled, option.ID)
-			}
-		}
-		if len(gotEnabled) != len(want) {
-			t.Fatalf("enabled sources after reload = %v, want %v (all options: %#v)", gotEnabled, want, got)
-		}
-		for i := range want {
-			if gotEnabled[i] != want[i] {
-				t.Fatalf("enabled source priority after reload = %v, want %v", gotEnabled, want)
-			}
-		}
-	}
+	newTrack := music.Track{ID: source + "_new", SourceID: source, LXSourceKey: source, Title: "新歌曲", Artist: "测试歌手"}
+	item, err := service.Enqueue(newTrack, "viewer")
+	if err != nil { t.Fatalf("Enqueue returned error: %v", err) }
 
-	got, err := service.GetLXSearchSourceOptions(metadata.ID)
-	if err != nil {
-		t.Fatal(err)
+	snapshot := service.queue.Snapshot()
+	if snapshot.Current == nil || snapshot.Current.ID != item.ID {
+		t.Fatalf("new request was not promoted to current after stale playback: %#v", snapshot)
 	}
-	assertOptions(got, wantEnabled)
+	if len(snapshot.Items) != 0 { t.Fatalf("new request remained pending: %#v", snapshot.Items) }
+	if got := engine.loadCalls.Load(); got != 1 { t.Fatalf("playback Load calls = %d, want 1", got) }
+}
 
-	// A fresh service/store instance simulates closing and reopening the app.
-	restarted := newService()
-	defer restarted.Shutdown()
-	got, err = restarted.GetLXSearchSourceOptions(metadata.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertOptions(got, wantEnabled)
+func TestEnqueueDoesNotInterruptPausedCurrentTrack(t *testing.T) {
+	value := config.DefaultMusicConfig()
+	engine := &queueRecoveryTestEngine{state: music.PlaybackPaused}
+	service := NewMusicServiceWithDependencies(nil, value, nil, engine)
+	defer service.Shutdown()
 
-	// An explicit empty selection must remain empty after restart, not trigger
-	// the "nil means use all defaults" compatibility path.
-	if err := restarted.SetLXSearchSources(metadata.ID, []string{}); err != nil {
-		t.Fatal(err)
+	priority := service.enabledSearchSourceIDs()
+	if len(priority) == 0 { t.Fatal("expected at least one enabled search source") }
+	source := priority[0]
+	oldTrack := music.Track{ID: source + "_old", SourceID: source, LXSourceKey: source, Title: "暂停中的歌曲", Artist: "测试歌手"}
+	current, err := service.queue.SetCurrentTrack(oldTrack, "previous")
+	if err != nil { t.Fatal(err) }
+
+	newTrack := music.Track{ID: source + "_new", SourceID: source, LXSourceKey: source, Title: "待播歌曲", Artist: "测试歌手"}
+	if _, err := service.Enqueue(newTrack, "viewer"); err != nil { t.Fatalf("Enqueue returned error: %v", err) }
+
+	snapshot := service.queue.Snapshot()
+	if snapshot.Current == nil || snapshot.Current.ID != current.ID {
+		t.Fatalf("paused current track was interrupted: %#v", snapshot.Current)
 	}
-	restartedAgain := newService()
-	defer restartedAgain.Shutdown()
-	got, err = restartedAgain.GetLXSearchSourceOptions(metadata.ID)
-	if err != nil {
-		t.Fatal(err)
+	if len(snapshot.Items) != 1 { t.Fatalf("pending queue length = %d, want 1", len(snapshot.Items)) }
+	if got := engine.loadCalls.Load(); got != 0 { t.Fatalf("playback Load calls = %d, want 0", got) }
+}
+
+
+type verifiedLyricsTestEngine struct {
+	playback music.PlaybackSnapshot
+	lyrics string
+	lyricCalls int
+}
+func (e *verifiedLyricsTestEngine) Load(context.Context, music.Track) error { return nil }
+func (e *verifiedLyricsTestEngine) Pause(context.Context) error { return nil }
+func (e *verifiedLyricsTestEngine) Resume(context.Context) error { return nil }
+func (e *verifiedLyricsTestEngine) Stop(context.Context) error { return nil }
+func (e *verifiedLyricsTestEngine) Snapshot(context.Context) (music.PlaybackSnapshot, error) { return e.playback, nil }
+func (e *verifiedLyricsTestEngine) GetCurrentLyrics(context.Context) (string, error) {
+	e.lyricCalls++
+	return e.lyrics, nil
+}
+
+func TestGetLyricsRejectsLyricsWhenLXIsPlayingAnotherTrack(t *testing.T) {
+	engine := &verifiedLyricsTestEngine{
+		playback: music.PlaybackSnapshot{State: music.PlaybackPlaying, Track: &music.Track{Title:"晴天", Artist:"周杰伦"}},
+		lyrics: "[00:01.00]不应显示",
 	}
-	assertOptions(got, []string{})
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, engine)
+	requested := music.Track{ID:"tx_1", SourceID:"tx", Title:"稻香", Artist:"周杰伦"}
+	lyrics, err := service.GetLyrics(requested)
+	if err != nil { t.Fatal(err) }
+	if lyrics != "" { t.Fatalf("lyrics for another currently playing track were returned: %q", lyrics) }
+	if engine.lyricCalls != 0 { t.Fatalf("洛雪歌词 API called %d times before track identity was verified", engine.lyricCalls) }
+	if len(service.lyricsCache) != 0 { t.Fatalf("unverified lyrics were cached: %#v", service.lyricsCache) }
+}
+
+func TestGetLyricsCachesOnlyAfterLXTrackIdentityMatches(t *testing.T) {
+	engine := &verifiedLyricsTestEngine{
+		playback: music.PlaybackSnapshot{State: music.PlaybackPlaying, Track: &music.Track{Title:"稻香", Artist:"周杰伦"}},
+		lyrics: "[00:01.00]这是洛雪当前歌曲歌词",
+	}
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, engine)
+	requested := music.Track{ID:"tx_1", SourceID:"tx", Title:"稻香", Artist:"周杰伦"}
+	lyrics, err := service.GetLyrics(requested)
+	if err != nil { t.Fatal(err) }
+	if lyrics != engine.lyrics { t.Fatalf("lyrics = %q, want %q", lyrics, engine.lyrics) }
+	if len(service.lyricsCache) != 1 { t.Fatalf("verified lyrics cache size = %d, want 1", len(service.lyricsCache)) }
 }

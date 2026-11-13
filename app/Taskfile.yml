@@ -8,20 +8,12 @@ tasks:
     summary: 生成 Wails 前端绑定并启动 My-LiveHub 桌面开发环境
     cmds:
       - powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/dev-preflight.ps1 -Port {{.VITE_PORT}}
-      - powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/prepare-lx-runtime.ps1
       - wails3 generate bindings -ts
       - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
-  lx-runtime:install:
-    summary: 安装洛雪原版 Electron 音源运行环境
-    cmds:
-      - powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/prepare-lx-runtime.ps1
   build:
-    summary: 构建 My-LiveHub 并附带洛雪 Electron 音源运行环境
+    summary: 构建 My-LiveHub 桌面应用
     cmds:
-      - powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/prepare-lx-runtime.ps1
-      - npm.cmd --prefix lx-runtime run package
       - wails3 build
-      - powershell.exe -NoProfile -Command "New-Item -ItemType Directory -Force -Path ./bin/lx-runtime | Out-Null; Copy-Item -Path ./lx-runtime/release/win-unpacked/* -Destination ./bin/lx-runtime -Recurse -Force"
   frontend:install:
     summary: 安装管理端前端依赖
     cmds:

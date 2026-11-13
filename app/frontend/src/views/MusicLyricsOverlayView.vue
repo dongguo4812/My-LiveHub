@@ -43,6 +43,10 @@ function resetLyricsStyle() {
 }
 
 const playback = ref<PlaybackSnapshot | null>(null)
+const lyricPosition = ref(0)
+let lyricPositionAnchor = 0
+let lyricPositionAnchorAt = 0
+let lyricClockTimer: ReturnType<typeof setInterval> | undefined
 const syncedLyrics = ref<SyncedLyricLine[]>([])
 const lyricsStatus = ref<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle')
 let lyricsTrackKey = ''
@@ -55,7 +59,7 @@ const activeLyric = computed(() => {
   if (lyricsStatus.value === 'loading' || lyricsStatus.value === 'idle') return { text: '歌词加载中…', translation: '' }
   if (lyricsStatus.value === 'error') return { text: '歌词获取失败，稍后重试', translation: '' }
   if (lyricsStatus.value === 'empty' || syncedLyrics.value.length === 0) return { text: '暂无歌词', translation: '' }
-  return getActiveSyncedLyric(syncedLyrics.value, playback.value.position_ms) ?? { text: '歌词加载中…', translation: '' }
+  return getActiveSyncedLyric(syncedLyrics.value, lyricPosition.value) ?? { text: '歌词加载中…', translation: '' }
 })
 const trackTitle = computed(() => playback.value?.track
   ? `${playback.value.track.title} - ${playback.value.track.artist || '未知歌手'}`
@@ -87,6 +91,9 @@ async function refreshPlayback() {
   try {
     const next = await MusicService.GetPlaybackStatus()
     playback.value = next
+    lyricPositionAnchor = next.position_ms ?? 0
+    lyricPositionAnchorAt = Date.now()
+    lyricPosition.value = lyricPositionAnchor
     const track = next.track
     const key = track ? `${track.source_id}:${track.id}` : ''
     if (key !== lyricsTrackKey) {
@@ -119,9 +126,14 @@ onMounted(() => {
   loadLyricsStyle()
   void refreshPlayback()
   refreshTimer = setInterval(() => void refreshPlayback(), 500)
+  lyricClockTimer = setInterval(() => {
+    if (!playback.value) return
+    lyricPosition.value = lyricPositionAnchor + (playback.value.state === 'playing' ? Date.now() - lyricPositionAnchorAt : 0)
+  }, 30)
 })
 onUnmounted(() => {
   if (refreshTimer) clearInterval(refreshTimer)
+  if (lyricClockTimer) clearInterval(lyricClockTimer)
   lyricsRequestID++
 })
 </script>

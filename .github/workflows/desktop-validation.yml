@@ -5,6 +5,7 @@ on:
     branches:
       - dev
       - master
+      - 'feature/**'
   pull_request:
     branches:
       - dev
@@ -50,20 +51,6 @@ jobs:
           cache: npm
           cache-dependency-path: app/frontend/package-lock.json
 
-      - name: Build LX Electron source runtime
-        shell: pwsh
-        run: |
-          npm --prefix lx-runtime install --no-audit --no-fund
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm --prefix lx-runtime run package
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node lx-runtime/smoke.cjs "lx-runtime/release/win-unpacked/My-LiveHub LX Runtime.exe"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          New-Item -ItemType Directory -Force -Path bin/lx-runtime | Out-Null
-          Copy-Item -Path lx-runtime/release/win-unpacked/* -Destination bin/lx-runtime -Recurse -Force
-          $runtimePath = (Resolve-Path "bin/lx-runtime/My-LiveHub LX Runtime.exe").Path
-          "MY_LIVEHUB_LX_RUNTIME_EXE=$runtimePath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-
       - name: Add Go bin to PATH
         shell: pwsh
         run: |
@@ -101,60 +88,3 @@ jobs:
       - name: Build Windows executable
         shell: pwsh
         run: go build -o bin/My-LiveHub.exe .
-
-  mpv-runtime:
-    name: Validate pinned Windows x64 mpv runtime
-    runs-on: windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Go for mpv integration tests
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.27.x'
-          cache: true
-          cache-dependency-path: app/go.sum
-
-      - name: Download and install verified mpv runtime
-        shell: pwsh
-        run: |
-          $destination = Join-Path $env:RUNNER_TEMP "mpv-runtime"
-          & ".\\app\\scripts\\prepare-mpv-runtime.ps1" -Destination $destination
-          "MPV_EXECUTABLE=$(Join-Path $destination 'mpv.exe')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-
-      - name: Verify mpv starts
-        shell: pwsh
-        run: |
-          $stdout = Join-Path $env:RUNNER_TEMP "mpv-version.stdout.txt"
-          $stderr = Join-Path $env:RUNNER_TEMP "mpv-version.stderr.txt"
-          $workingDirectory = Split-Path -Parent $env:MPV_EXECUTABLE
-
-          try {
-            $process = Start-Process -FilePath $env:MPV_EXECUTABLE -ArgumentList @("--no-config", "--version") -WorkingDirectory $workingDirectory -Wait -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-          }
-          catch {
-            throw "Windows could not start the bundled mpv executable: $($_.Exception.Message)"
-          }
-
-          $output = @()
-          if (Test-Path $stdout) { $output += Get-Content $stdout }
-          if (Test-Path $stderr) { $output += Get-Content $stderr }
-          if ($process.ExitCode -ne 0) {
-            throw "mpv failed to start (exit code $($process.ExitCode)): $($output -join [Environment]::NewLine)"
-          }
-
-          $versionText = ($output -join [Environment]::NewLine).TrimStart([char]0xFEFF)
-          if ($versionText -notlike "*mpv v0.42.0*") {
-            throw "Unexpected mpv version output: $versionText"
-          }
-          $output | Select-Object -First 5 | ForEach-Object { Write-Host $_ }
-
-      - name: Verify decoded audio playback and JSON IPC controls
-        working-directory: app
-        shell: pwsh
-        run: |
-          if (!(Test-Path $env:MPV_EXECUTABLE)) {
-            throw "Pinned mpv executable is unavailable for playback integration testing"
-          }
-          go test ./internal/music -run TestMpvPlaybackIntegration -count=1 -v
