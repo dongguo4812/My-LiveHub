@@ -272,8 +272,7 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-wavebar{width:3px;min-width:2px;height:var(--h);border-radius:3px;background:var(--random-color);opacity:.92;transform:scaleY(.45);transform-origin:center;animation:music-wave var(--speed) ease-in-out infinite alternate;animation-delay:var(--delay)}
 @keyframes music-wave{from{transform:scaleY(.22)}to{transform:scaleY(1)}}
 .music-lyrics{position:relative;isolation:isolate;min-height:42px;display:flex;flex-direction:column;justify-content:center;gap:3px;overflow:hidden;padding:5px 9px;border-radius:5px;background:rgba(30,23,20,.5);text-align:center}
-.music-lyrics::before{content:"";position:absolute;inset:0;z-index:-2;background-image:var(--details-bg,none);background-position:center;background-size:cover;opacity:.45;filter:blur(5px) brightness(.55);transform:scale(1.04);pointer-events:none}
-.music-lyrics::after{content:"";position:absolute;inset:0;z-index:-1;background:rgba(0,0,0,.38);pointer-events:none}
+.music-lyrics::before,.music-lyrics::after{content:none}
 .music-lyrics strong,.music-lyrics span{position:relative;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .music-lyrics strong{font-size:14px;font-weight:700;line-height:1.35;color:var(--random-color)}
 .music-lyrics span{font-size:12px;line-height:1.3;color:#e7c89d;opacity:.9}
