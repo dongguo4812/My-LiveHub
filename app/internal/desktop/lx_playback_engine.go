@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"sync"
 	"math"
 	"net/http"
 	"net/url"
@@ -23,6 +25,7 @@ import (
 // the documented play/pause controls.
 type LXPlaybackEngine struct {
 	client *http.Client
+	mu sync.RWMutex
 	endpoints []string
 }
 
@@ -49,18 +52,22 @@ func normalizeLXAPIEndpoints(endpoints []string) []string {
 
 func (e *LXPlaybackEngine) SetEndpoints(endpoints []string) {
 	if e == nil { return }
+	e.mu.Lock()
 	e.endpoints = normalizeLXAPIEndpoints(endpoints)
+	e.mu.Unlock()
 }
 
 func (e *LXPlaybackEngine) Start(context.Context) error { return nil }
 func (e *LXPlaybackEngine) Close() error { return nil }
 
 func (e *LXPlaybackEngine) endpointRequest(ctx context.Context, paths []string) ([]byte, string, error) {
-	if e == nil || len(e.endpoints) == 0 {
-		return nil, "", errors.New("尚未配置洛雪 API 地址，请在音乐设置中添加地址")
-	}
+	if e == nil { return nil, "", errors.New("洛雪播放服务不可用") }
+	e.mu.RLock()
+	endpoints := append([]string(nil), e.endpoints...)
+	e.mu.RUnlock()
+	if len(endpoints) == 0 { return nil, "", errors.New("尚未配置洛雪 API 地址，请在音乐设置中添加地址") }
 	var failures []string
-	for _, base := range e.endpoints {
+	for _, base := range endpoints {
 		for _, path := range paths {
 			requestURL := base + path
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
@@ -87,18 +94,10 @@ func (e *LXPlaybackEngine) endpointRequest(ctx context.Context, paths []string) 
 
 func readLXResponse(resp *http.Response) ([]byte, error) {
 	if resp == nil || resp.Body == nil { return nil, errors.New("empty response") }
-	limited := make([]byte, 0, 4096)
-	buf := make([]byte, 4096)
-	for len(limited) <= 1<<20 {
-		n, err := resp.Body.Read(buf)
-		if n > 0 { limited = append(limited, buf[:n]...) }
-		if err != nil {
-			if len(limited) == 0 && err.Error() != "EOF" { return nil, err }
-			break
-		}
-	}
-	if len(limited) > 1<<20 { return nil, errors.New("洛雪 API 响应超过 1 MB") }
-	return limited, nil
+	body, err := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
+	if err != nil { return nil, err }
+	if len(body) > 1<<20 { return nil, errors.New("洛雪 API 响应超过 1 MB") }
+	return body, nil
 }
 
 func (e *LXPlaybackEngine) requestControl(ctx context.Context, path string) error {
