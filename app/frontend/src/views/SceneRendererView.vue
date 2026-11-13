@@ -12,7 +12,7 @@ type MusicQueue = { current?: MusicQueueItem; items: MusicQueueItem[]; capacity:
 type VideoQueueItem = { id: number; bvid: string; title: string; duration_seconds: number; requester: string }
 type VideoQueue = { enabled: boolean; current?: VideoQueueItem; items: VideoQueueItem[]; queue_count: number }
 type Live2DDisplay = { enabled: boolean; runtime_version: 'moc2' | 'moc3'; model_url: string; model_scale: number; model_offset_x: number; model_offset_y: number }
-type Live2DWindow = Window & { live2dSetModelTransform?: (scale: number, x: number, y: number) => boolean }
+type Live2DWindow = Window & { live2dSetModelTransform?: (scale: number, x: number, y: number) => boolean; live2dSetMouthOpen?: (value: number) => void }
 type MusicDisplayConfig = { enabled: boolean; command_enabled: boolean; command_prefix: string; skip_command_enabled: boolean; skip_command: string; require_fan_medal: boolean; fan_medal_level: number }
 type LyricLine = { time: number; text: string; translation?: string }
 type MusicLyricsResponse = { lyrics: string }
@@ -50,6 +50,15 @@ let live2DRefreshTimer: ReturnType<typeof setInterval> | undefined
 let musicTrackKey = ''
 let musicRefreshing = false
 let lyricsRequestID = 0
+let mouthSyncChannel: BroadcastChannel | null = null
+let currentMouthOpen = 0
+function handleMouthSyncMessage(event: MessageEvent) {
+  if (event.data?.type !== 'live2d-mouth-open') return
+  currentMouthOpen = Math.max(0, Math.min(1, Number(event.data.value) || 0))
+  document.querySelectorAll<HTMLIFrameElement>('.live2d-output-frame').forEach(frame => {
+    (frame.contentWindow as Live2DWindow | null)?.live2dSetMouthOpen?.(currentMouthOpen)
+  })
+}
 
 const danmaku = computed(() => liveEvents.value.filter(item => item.type === 'danmaku').slice(-8).reverse())
 const gifts = computed(() => liveEvents.value.filter(item => item.type === 'gift').slice(-3).reverse())
@@ -223,7 +232,11 @@ function applyLive2DFrameTransforms() {
   })
 }
 function handleLive2DMessage(event: MessageEvent) {
-  if (event.data?.type === 'moc3-model-loaded' || event.data?.type === 'moc2-model-loaded') applyLive2DFrameTransforms()
+  if (event.data?.type === 'moc3-model-loaded' || event.data?.type === 'moc2-model-loaded') {
+    applyLive2DFrameTransforms()
+    const frame = Array.from(document.querySelectorAll<HTMLIFrameElement>('.live2d-output-frame')).find(item => item.contentWindow === event.source)
+    ;(frame?.contentWindow as Live2DWindow | null)?.live2dSetMouthOpen?.(currentMouthOpen)
+  }
 }
 async function loadMusicDisplayConfig() {
   try {
@@ -283,6 +296,8 @@ async function loadMusic() {
   } finally { musicRefreshing = false }
 }
 onMounted(() => {
+  mouthSyncChannel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('my-livehub-live2d-mouth') : null
+  if (mouthSyncChannel) mouthSyncChannel.onmessage = handleMouthSyncMessage
   void loadScene()
   void loadMusic()
   void loadMusicQueue()
@@ -304,6 +319,8 @@ onMounted(() => {
 })
 onUpdated(() => { updateLyricScroll(); applyLive2DFrameTransforms() })
 onUnmounted(() => {
+  mouthSyncChannel?.close()
+  mouthSyncChannel = null
   source?.close()
   lyricsRequestID++
   if (clockTimer) clearInterval(clockTimer)
