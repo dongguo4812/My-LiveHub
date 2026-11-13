@@ -270,6 +270,10 @@ func lxString(value any) string {
 	switch v := value.(type) {
 	case string: return strings.TrimSpace(v)
 	case float64: return strconv.FormatFloat(v, 'f', -1, 64)
+	case float32: return strconv.FormatFloat(float64(v), 'f', -1, 32)
+	case int: return strconv.Itoa(v)
+	case int32: return strconv.FormatInt(int64(v), 10)
+	case int64: return strconv.FormatInt(v, 10)
 	case bool: return strconv.FormatBool(v)
 	default: return ""
 	}
