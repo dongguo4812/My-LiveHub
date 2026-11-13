@@ -32,7 +32,8 @@ func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original m
 		ordered = append(ordered, priority[currentIndex+1:]...)
 		ordered = append(ordered, priority[:currentIndex]...)
 	} else {
-		if !skipCurrent && currentSource != "" { ordered = append(ordered, currentSource) }
+		// A result from a platform that has since been disabled must not be
+		// played; only the currently enabled priority list is eligible.
 		ordered = append(ordered, priority...)
 	}
 
