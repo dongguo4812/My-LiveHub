@@ -8,6 +8,8 @@ const scenes = ref<LayoutScene[]>([])
 const activeSceneID = ref('')
 const selectedLayerID = ref('')
 const loading = ref(false)
+const musicCommandEnabled = ref<boolean | null>(null)
+let musicConfigRefreshTimer: ReturnType<typeof setInterval> | undefined
 const sourceURL = ref('')
 const canvas = ref<HTMLElement>()
 const scene = computed(() => scenes.value.find(item => item.id === activeSceneID.value) ?? scenes.value[0] ?? null)
@@ -140,8 +142,24 @@ async function removeScene() {
 function layerLabel(type: string) {
   return ({ text: '文字', image: '图片', clock: '时钟', danmaku: '弹幕', gift: '礼物', super_chat: 'SC', music: '音乐', music_queue: '歌曲点播队列' } as Record<string, string>)[type] ?? type
 }
-onMounted(() => { void load(); window.addEventListener('resize', refreshScale) })
-onUnmounted(() => { window.removeEventListener('resize', refreshScale) })
+async function loadMusicCommandConfig() {
+  try {
+    const response = await fetch('/api/music/config', { cache: 'no-store' })
+    if (!response.ok) return
+    const config = await response.json() as { command_enabled?: boolean }
+    musicCommandEnabled.value = config.command_enabled === true
+  } catch { /* Keep the last known command setting. */ }
+}
+onMounted(() => {
+  void load()
+  void loadMusicCommandConfig()
+  musicConfigRefreshTimer = setInterval(() => { void loadMusicCommandConfig() }, 3000)
+  window.addEventListener('resize', refreshScale)
+})
+onUnmounted(() => {
+  window.removeEventListener('resize', refreshScale)
+  if (musicConfigRefreshTimer) clearInterval(musicConfigRefreshTimer)
+})
 </script>
 
 <template>
@@ -191,7 +209,7 @@ onUnmounted(() => { window.removeEventListener('resize', refreshScale) })
         <div class="canvas-caption"><span>画布预览</span><span>{{ scene?.width }} × {{ scene?.height }} · 16:9</span></div>
         <div ref="canvas" class="scene-canvas" :style="{ background: scene?.background === 'transparent' ? 'transparent' : scene?.background }" @click.self="selectedLayerID=''">
           <div class="checkerboard"></div>
-          <div v-for="layer in scene?.layers.filter(item => item.visible)" :key="layer.id" class="canvas-layer" :class="{ active: selectedLayerID === layer.id }"
+          <div v-for="layer in scene?.layers.filter(item => item.visible && (item.type !== 'music_queue' || musicCommandEnabled === true))" :key="layer.id" class="canvas-layer" :class="{ active: selectedLayerID === layer.id }"
             :style="{ left: (layer.x / (scene?.width ?? 1920) * 100) + '%', top: (layer.y / (scene?.height ?? 1080) * 100) + '%', width: (layer.width / (scene?.width ?? 1920) * 100) + '%', height: (layer.height / (scene?.height ?? 1080) * 100) + '%', zIndex: layer.z_index, opacity: layer.opacity, color: layer.color || '#fff', fontSize: ((layer.font_size || 24) / (scene?.height ?? 1080) * 100) + 'cqh' }"
             @pointerdown="startDrag($event, layer)">
             <span v-if="layer.type === 'text'">{{ layer.text }}</span>
