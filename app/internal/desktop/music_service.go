@@ -82,7 +82,7 @@ type MusicService struct {
 
 func NewMusicService(manager *config.Manager, value config.MusicConfig, buffers ...*events.Buffer) *MusicService {
 	sources := music.NewSourceRegistry()
-	return NewMusicServiceWithDependencies(manager, value, sources, music.NewMpvEngine(""), buffers...)
+	return NewMusicServiceWithDependencies(manager, value, sources, NewLXPlaybackEngine(value.LXAPIEndpoints), buffers...)
 }
 
 // NewMusicServiceWithFanMedalChecker wires the medal checker as an internal dependency.
@@ -94,7 +94,7 @@ func NewMusicServiceWithFanMedalChecker(manager *config.Manager, value config.Mu
 
 func NewMusicServiceWithDependencies(manager *config.Manager, value config.MusicConfig, sources *music.SourceRegistry, engine music.PlaybackEngine, buffers ...*events.Buffer) *MusicService {
 	if sources == nil { sources = music.NewSourceRegistry() }
-	if engine == nil { engine = music.NewMpvEngine("") }
+	if engine == nil { engine = NewLXPlaybackEngine(value.LXAPIEndpoints) }
 	var buffer *events.Buffer
 	if len(buffers) > 0 { buffer = buffers[0] }
 	return &MusicService{
@@ -107,22 +107,6 @@ func NewMusicServiceWithDependencies(manager *config.Manager, value config.Music
 func (s *MusicService) start(ctx context.Context) error {
 	if s == nil || ctx == nil { return errors.New("music service and startup context are required") }
 	if s.buffer == nil { return errors.New("music event buffer is required") }
-	// The mpv engine owns a separate process and IPC pipe. Starting the music
-	// service without starting that lifecycle leaves Load() with no IPC pipe,
-	// which is reported as ErrPlaybackEngineUnavailable on the first track.
-	if lifecycle, ok := s.engine.(music.PlaybackEngineLifecycle); ok {
-		if err := lifecycle.Start(ctx); err != nil {
-			return fmt.Errorf("启动 mpv 播放引擎失败：%w", err)
-		}
-	}
-	if err := s.engine.SetVolume(ctx, s.value.Volume); err != nil { return fmt.Errorf("恢复音乐音量失败：%w", err) }
-	if processor, ok := s.engine.(music.PlaybackEngineAudioProcessing); ok {
-		if err := processor.SetLoudnessNormalization(ctx, s.value.LoudnessNormalization); err != nil {
-			return fmt.Errorf("恢复响度标准化设置失败：%w", err)
-		}
-	} else if s.value.LoudnessNormalization {
-		return errors.New("当前播放引擎不支持响度标准化")
-	}
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()
 	s.mu.Lock()
@@ -137,11 +121,6 @@ func (s *MusicService) start(ctx context.Context) error {
 	s.unsubscribe = s.buffer.Subscribe(s.handleEvent)
 	s.mu.Unlock()
 	go s.worker()
-	if store, err := s.lxUserSourceStore(); err == nil {
-		if activeID, activeErr := store.GetActiveID(); activeErr == nil && activeID != "" {
-			if err := s.SetActiveLXUserSource(activeID); err != nil { s.setLastError(err) }
-		} else if activeErr != nil { s.setLastError(activeErr) }
-	}
 	return nil
 }
 
@@ -307,60 +286,28 @@ func (s *MusicService) SaveConfig(value config.MusicConfig) error {
 		if rollbackErr := rollbackNormalization(); rollbackErr != nil { return fmt.Errorf("保存音乐配置失败：%v；恢复原响度标准化设置失败：%w", err, rollbackErr) }
 		return err
 	}
-	s.mu.Lock(); wasEnabled := s.value.Enabled; s.value = cloneMusicConfig(value); s.mu.Unlock()
+	s.mu.Lock(); wasEnabled := s.value.Enabled; s.value = cloneMusicConfig(value); s.mu.Unlock(); if player, ok := s.engine.(*LXPlaybackEngine); ok { player.SetEndpoints(value.LXAPIEndpoints) }
 	if wasEnabled && !value.Enabled { s.cancelPlaybackWatcher(); _ = s.engine.Stop(context.Background()); s.queue.Clear(); s.queue.FinishCurrent(); s.mu.Lock(); s.history = nil; s.mu.Unlock() }
 	return nil
 }
 
 func (s *MusicService) GetSources() []music.SourceSnapshot {
-	if s == nil { return []music.SourceSnapshot{} }
-	result := []music.SourceSnapshot{}
-	if s.searcher != nil { result = append(result, s.searcher.Sources()...) }
-	if s.sources != nil {
-		result = append(result, s.sources.List(nil)...)
-		for i := range result { result[i].Enabled = true }
+	if s == nil || s.searcher == nil { return []music.SourceSnapshot{} }
+	priority := s.activeLXSearchSourceIDs()
+	rank := make(map[string]int, len(priority))
+	for i, id := range priority { rank[id] = i }
+	result := s.searcher.Sources()
+	for i := range result {
+		result[i].Enabled = false
+		for _, id := range priority { if id == result[i].ID { result[i].Enabled = true; break } }
 	}
-	s.lxSessionMu.Lock()
-	session := s.lxSession
-	s.lxSessionMu.Unlock()
-	if session != nil && session.IsRunning() {
-		state := session.Snapshot()
-		for _, declared := range state.DeclaredSources {
-			index := -1
-			for i := range result { if result[i].ID == declared.Key { index = i; break } }
-			canResolve := false
-			for _, action := range declared.Actions { if action == "musicUrl" { canResolve = true; break } }
-			if index >= 0 {
-				result[index].Capabilities.Resolve = result[index].Capabilities.Resolve || canResolve
-				result[index].Actions = append([]string(nil), declared.Actions...)
-				result[index].Qualitys = append([]string(nil), declared.Qualitys...)
-				result[index].Available = state.Initialized
-				result[index].Enabled = true
-				continue
-			}
-			result = append(result, music.SourceSnapshot{
-				ID: declared.Key, Name: lxPlatformDisplayName(declared.Key),
-				Capabilities: music.SourceCapabilities{Resolve: canResolve},
-				Actions: append([]string(nil), declared.Actions...),
-				Qualitys: append([]string(nil), declared.Qualitys...),
-				Enabled: true, Available: state.Initialized, Error: state.Message,
-			})
-		}
-	}
-	sort.Slice(result, func(i,j int) bool { return result[i].ID < result[j].ID })
+	sort.SliceStable(result, func(i, j int) bool {
+		ri, iok := rank[result[i].ID]; rj, jok := rank[result[j].ID]
+		if iok != jok { return iok }
+		if iok { return ri < rj }
+		return result[i].ID < result[j].ID
+	})
 	return result
-}
-
-func lxPlatformDisplayName(key string) string {
-	switch key {
-	case "kw": return "酷我音乐"
-	case "kg": return "酷狗音乐"
-	case "tx": return "QQ 音乐"
-	case "wy": return "网易云音乐"
-	case "mg": return "咪咕音乐"
-	case "local": return "本地音乐"
-	default: return key
-	}
 }
 
 func (s *MusicService) Search(keyword string) (MusicSearchResponse, error) {
@@ -386,7 +333,7 @@ func (s *MusicService) SearchSourcePage(keyword, source string, page int) (Music
 		if id == source { declaredSource = true; break }
 	}
 	if !declaredSource {
-		return MusicSearchResponse{}, fmt.Errorf("当前启用的音源脚本未声明 %s 的 musicUrl 能力，或该来源暂不支持搜索", source)
+		return MusicSearchResponse{}, fmt.Errorf("当前未启用 %s 搜索来源，或该来源暂不支持搜索", source)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 18*time.Second)
 	defer cancel()
@@ -400,38 +347,21 @@ func (s *MusicService) SearchSourcePage(keyword, source string, page int) (Music
 	}, nil
 }
 
-// activeLXSearchSourceIDs returns only searchable platform keys declared by
-// the currently enabled and initialized LX user script with musicUrl support.
+// activeLXSearchSourceIDs reads the independent platform selection from music.json.
 func (s *MusicService) activeLXSearchSourceIDs() []string {
 	if s == nil || s.searcher == nil { return []string{} }
-	s.lxSessionMu.Lock()
-	session := s.lxSession
-	sessionID := s.lxSessionID
-	s.lxSessionMu.Unlock()
-	if session == nil || !session.IsRunning() { return []string{} }
-	state := session.Snapshot()
-	store, err := s.lxUserSourceStore()
-	if err != nil { return []string{} }
-	metadata, err := store.Get(sessionID)
-	if err != nil { return []string{} }
-	declared := make(map[string]bool)
-	for _, item := range state.DeclaredSources {
-		if !containsLXAction(item.Actions, "musicUrl") { continue }
-		declared[item.Key] = true
+	s.mu.RLock()
+	configured := append([]string(nil), s.value.EnabledSearchSources...)
+	s.mu.RUnlock()
+	if configured == nil {
+		for _, item := range s.searcher.Sources() { configured = append(configured, item.ID) }
 	}
-	priority := metadata.EnabledSearchSources
-	if priority == nil {
-		priority = make([]string, 0, len(s.searcher.Sources()))
-		for _, item := range s.searcher.Sources() { priority = append(priority, item.ID) }
-	}
-	searchable := make(map[string]bool)
-	for _, item := range s.searcher.Sources() { searchable[item.ID] = true }
-	result := make([]string, 0, len(priority))
+	available := make(map[string]bool)
+	for _, item := range s.searcher.Sources() { available[item.ID] = true }
+	result := make([]string, 0, len(configured))
 	seen := make(map[string]bool)
-	for _, id := range priority {
-		if !declared[id] || !searchable[id] || seen[id] { continue }
-		result = append(result, id)
-		seen[id] = true
+	for _, id := range configured {
+		if available[id] && !seen[id] { result = append(result, id); seen[id] = true }
 	}
 	return result
 }
