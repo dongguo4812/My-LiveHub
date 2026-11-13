@@ -270,19 +270,22 @@ onUnmounted(() => {
       </div>
       <section v-else-if="layer.type === 'music_queue'" class="music-queue-widget" :style="{ '--queue-accent': layer.color || '#9fc0ff', fontSize: ((layer.font_size || 22) / (scene?.height || 1080) * 100) + 'cqh' }">
         <section class="music-queue-section music-queue-prompt">
-          <strong class="music-queue-heading"><span class="music-queue-heading-mark">✦</span> 点歌提示</strong>
-          <template v-if="musicDisplayConfig?.enabled">
-            <div v-if="musicDisplayConfig.command_enabled" class="music-queue-prompt-line"><span class="music-queue-prompt-label">点歌</span><strong>{{ musicDisplayConfig.command_prefix }} 歌曲名称</strong></div>
-            <div v-if="musicDisplayConfig.skip_command_enabled" class="music-queue-prompt-line"><span class="music-queue-prompt-label">切歌</span><strong>{{ musicDisplayConfig.skip_command }} <small>主播 / 房管</small></strong></div>
-            <div v-if="musicDisplayConfig.require_fan_medal" class="music-queue-prompt-note">需拥有主播粉丝勋章，等级达到 {{ musicDisplayConfig.fan_medal_level }} 级</div>
-            <div v-if="!musicDisplayConfig.command_enabled && !musicDisplayConfig.skip_command_enabled" class="music-queue-empty">当前未启用点歌指令</div>
-          </template>
-          <div v-else class="music-queue-empty">{{ musicDisplayConfig ? '音乐点歌功能未启用' : '正在读取点歌指令…' }}</div>
+          <div class="music-queue-prompt-single">
+            <strong class="music-queue-prompt-title"><span class="music-queue-heading-mark">✦</span> 点歌提示</strong>
+            <template v-if="musicDisplayConfig?.enabled">
+              <span v-if="musicDisplayConfig.command_enabled"><b>点歌</b> {{ musicDisplayConfig.command_prefix }} 歌曲名称</span>
+              <span v-if="musicDisplayConfig.skip_command_enabled"><b>切歌</b> {{ musicDisplayConfig.skip_command }}（主播 / 房管）</span>
+              <span v-if="musicDisplayConfig.require_fan_medal">需拥有主播粉丝勋章，等级达到 {{ musicDisplayConfig.fan_medal_level }} 级</span>
+              <span v-if="!musicDisplayConfig.command_enabled && !musicDisplayConfig.skip_command_enabled">当前未启用点歌指令</span>
+            </template>
+            <span v-else>{{ musicDisplayConfig ? '音乐点歌功能未启用' : '正在读取点歌指令…' }}</span>
+          </div>
         </section>
         <section class="music-queue-section">
           <strong class="music-queue-heading"><span class="music-queue-heading-mark">♫</span> 当前播放</strong>
-          <div v-if="audienceCurrent" class="music-queue-item music-queue-current">
-            <span class="music-queue-track"><strong>{{ audienceCurrent.track.title }}</strong><small>{{ audienceCurrent.track.artist || '未知歌手' }}</small></span>
+          <div v-if="audienceCurrent" class="music-queue-item music-queue-current music-queue-current-inline">
+            <strong class="music-queue-current-title">{{ audienceCurrent.track.title }}</strong>
+            <span class="music-queue-current-artist">{{ audienceCurrent.track.artist || '未知歌手' }}</span>
             <span class="music-queue-requester">{{ audienceCurrent.requested_by }}</span>
           </div>
           <div v-else class="music-queue-empty">当前播放歌曲非观众点播</div>
@@ -379,11 +382,16 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-queue-count{margin-left:auto;color:#aebbd0;font-size:.72em;font-weight:600}
 .music-queue-pending{flex:1;min-height:0}.music-queue-prompt{border-color:rgba(255,214,107,.2);background:linear-gradient(135deg,rgba(48,39,25,.88),rgba(22,23,29,.82))}
 .music-queue-prompt .music-queue-heading{color:#ffd66b;border-bottom-color:rgba(255,214,107,.24)}
-.music-queue-prompt-line{display:flex;align-items:center;gap:.65em;min-width:0;padding:.32em .48em;border-radius:.32em;background:rgba(255,255,255,.055);font-size:.82em;line-height:1.35}
-.music-queue-prompt-label{flex:none;min-width:2.5em;color:#ffd66b;font-weight:800}
-.music-queue-prompt-line strong{min-width:0;overflow-wrap:anywhere;color:#f5f6fa;font-weight:700}
-.music-queue-prompt-line small{color:#aebbd0;font-size:.82em;font-weight:500}
-.music-queue-prompt-note{padding:.25em .48em;color:#c4cddd;font-size:.72em;line-height:1.35}
+.music-queue-prompt-single{display:flex;align-items:center;flex-wrap:nowrap;gap:.8em;min-width:0;overflow:hidden;white-space:nowrap;font-size:.78em;line-height:1.35}
+.music-queue-prompt-title{display:flex;align-items:center;gap:.3em;flex:none;color:#ffd66b;font-size:1.05em}
+.music-queue-prompt-single span{flex:none;color:#d7deea}
+.music-queue-prompt-single b{color:#ffd66b;font-weight:800}
+.music-queue-current-inline{flex-wrap:nowrap;gap:.65em;padding:.34em .5em}
+.music-queue-current-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f7f8fc;font-size:.88em}
+.music-queue-current-artist{flex:none;max-width:28%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#aeb9ca;font-size:.76em}
+.music-queue-current-inline .music-queue-requester{max-width:26%}
+.music-queue-list{gap:.12em}
+.music-queue-list .music-queue-item{padding-top:.22em;padding-bottom:.22em}
 .music-queue-list{display:flex;flex:1;flex-direction:column;gap:.28em;min-height:0;overflow:hidden}
 .music-queue-item{display:flex;align-items:center;gap:.58em;min-width:0;padding:.38em .5em;border:1px solid rgba(255,255,255,.055);border-radius:.36em;background:rgba(255,255,255,.055);line-height:1.3}
 .music-queue-current{border-color:rgba(255,214,107,.2);background:rgba(255,214,107,.075)}
