@@ -14,7 +14,7 @@ import (
 	"github.com/dongguo4812/My-LiveHub/app/internal/music"
 )
 
-// This opt-in CI integration test exercises the exact live source script URL
+// This opt-in Windows CI integration test exercises the exact live source script URL
 // supplied for My-LiveHub, through the original LX Electron preload runtime.
 func TestLXRealSourceIntegration(t *testing.T) {
 	sourceURL := strings.TrimSpace(os.Getenv("MY_LIVEHUB_LX_SOURCE_URL"))
