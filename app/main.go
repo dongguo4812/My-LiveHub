@@ -188,7 +188,7 @@ func main() {
 		}
 		sceneAssets = httputil.NewSingleHostReverseProxy(viteURL)
 	}
-	sceneService, err := desktop.NewSceneService(configManager, bilibiliEvents, sceneAssets, musicService, videoQueueService)
+	sceneService, err := desktop.NewSceneService(configManager, bilibiliEvents, sceneAssets, musicService, videoQueueService, live2dService)
 	if err != nil { log.Fatalf("initialize scene browser source service: %v", err) }
 	app := application.New(application.Options{
 		Name:        "My-LiveHub",
