@@ -10,22 +10,6 @@ import (
 
 const CurrentMusicConfigVersion = 11
 
-type LXUserSourceProxyConfig struct {
-	Enabled bool `json:"enabled"`
-	Host string `json:"host"`
-	Port string `json:"port"`
-}
-
-func (c LXUserSourceProxyConfig) Validate() error {
-	if !c.Enabled { return nil }
-	host := strings.TrimSpace(c.Host)
-	if host == "" || strings.Contains(host, "://") || strings.ContainsAny(host, "/?#@ ") { return fmt.Errorf("LX 音源代理主机地址无效") }
-	port, err := strconv.Atoi(strings.TrimSpace(c.Port))
-	if err != nil || port < 1 || port > 65535 { return fmt.Errorf("LX 音源代理端口必须为 1 到 65535 之间的数字") }
-	if net.ParseIP(host) == nil && strings.Contains(host, ":") { return fmt.Errorf("LX 音源代理主机地址无效") }
-	return nil
-}
-
 type MusicConfig struct {
 	ConfigVersion  int    `json:"config_version"`
 	Enabled        bool   `json:"enabled"`
@@ -37,7 +21,6 @@ type MusicConfig struct {
 	QueueDisplayCount int `json:"queue_display_count"`
 	Volume int `json:"volume"`
 	LoudnessNormalization bool `json:"loudness_normalization"`
-	LXUserSourceProxy LXUserSourceProxyConfig `json:"lx_user_source_proxy"`
 	LXAPIEndpoints []string `json:"lx_api_endpoints"`
 	EnabledSearchSources []string `json:"enabled_search_sources"`
 	RequireFanMedal bool `json:"require_fan_medal"`
@@ -81,7 +64,6 @@ func MigrateMusicConfig(c MusicConfig) (MusicConfig, bool) {
 	if c.QueueDisplayCount >= 1 && c.QueueDisplayCount <= 1000 {
 		n.QueueDisplayCount = c.QueueDisplayCount
 	}
-	n.LXUserSourceProxy = c.LXUserSourceProxy
 	if len(c.LXAPIEndpoints) > 0 { n.LXAPIEndpoints = append([]string(nil), c.LXAPIEndpoints...) }
 	if len(c.EnabledSearchSources) > 0 { n.EnabledSearchSources = append([]string(nil), c.EnabledSearchSources...) }
 	n.RequireFanMedal = c.RequireFanMedal
@@ -111,7 +93,6 @@ func (c MusicConfig) Validate() error {
 	if c.QueueDisplayCount < 1 || c.QueueDisplayCount > 1000 {
 		return fmt.Errorf("music queue display count must be between 1 and 1000")
 	}
-	if err := c.LXUserSourceProxy.Validate(); err != nil { return err }
 	if len(c.LXAPIEndpoints) > 10 { return fmt.Errorf("洛雪 API 地址最多允许配置 10 个") }
 	seenEndpoints := make(map[string]bool, len(c.LXAPIEndpoints))
 	for _, endpoint := range c.LXAPIEndpoints {
@@ -155,7 +136,6 @@ func LoadMusicConfig(m *Manager) (MusicConfig, error) {
 			"queue_display_count": true,
 			"volume": true,
 			"loudness_normalization": true,
-			"lx_user_source_proxy": true,
 			"lx_api_endpoints": true,
 			"enabled_search_sources": true,
 			"require_fan_medal": true,
