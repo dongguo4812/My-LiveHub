@@ -434,7 +434,6 @@ html,body,#app{width:100%;height:100%;margin:0;overflow:hidden;background:transp
 body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .scene-output{position:relative;width:100vw;height:100vh;overflow:hidden;container-type:size;background:transparent}
 .output-layer{position:absolute;display:flex;align-items:flex-start;justify-content:flex-start;overflow:hidden;white-space:pre-wrap;word-break:break-word;font-weight:600;text-shadow:0 2px 6px #000b}
-.output-layer img,.output-layer iframe.live2d-output-frame{display:block;width:100%;height:100%;border:0;background:transparent;object-fit:contain}
 .output-layer img{width:100%;height:100%;object-fit:contain}
 .event-stack{display:flex;flex-direction:column;gap:.35em;width:100%;height:100%;overflow:hidden}
 .event-line{display:flex;gap:.5em;align-items:baseline;padding:.2em .4em;border-radius:.3em;background:#10131ac9;font-size:1em;line-height:1.35}
