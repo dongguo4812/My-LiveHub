@@ -14,6 +14,16 @@ func TestChooseLXTrackQualityUsesLXDefault128k(t *testing.T) {
 	if got.Type != "128k" { t.Fatalf("selected %q, want LX default 128k", got.Type) }
 }
 
+func TestChooseLXTrackQualityFallsBackLikeLX(t *testing.T) {
+	track := music.Track{
+		SelectedQuality: "flac24bit",
+		Qualities: []music.TrackQuality{{Type:"320k"},{Type:"128k"}},
+	}
+	got, err := chooseLXTrackQuality(track, music.LXDeclaredSource{Qualitys:[]string{"320k","128k"}})
+	if err != nil { t.Fatal(err) }
+	if got.Type != "320k" { t.Fatalf("selected %q, want LX fallback 320k", got.Type) }
+}
+
 func TestChooseLXTrackQualityHonorsExplicitSelection(t *testing.T) {
 	track := music.Track{SelectedQuality:"128k", Qualities:[]music.TrackQuality{{Type:"128k"},{Type:"flac"}}}
 	got, err := chooseLXTrackQuality(track, music.LXDeclaredSource{Qualitys:[]string{"128k","flac"}})
