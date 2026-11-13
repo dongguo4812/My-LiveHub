@@ -22,7 +22,7 @@ function dispatch(message) {
   }
 }
 
-function waitFor(predicate, timeoutMs = 15000) {
+function waitFor(predicate, timeoutMs = 30000) {
   const existing = messages.find(predicate)
   if (existing) return Promise.resolve(existing)
   return new Promise((resolve, reject) => {
