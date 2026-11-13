@@ -14,7 +14,8 @@ type MusicTab = 'now-playing' | 'search' | 'visitor-requests' | 'settings'
 const activeTab = ref<MusicTab>('now-playing')
 
 const config = ref<MusicConfig | null>(null)
-const musicSourceOptions = [
+type MusicSourceOption = { id: string; name: string }
+const musicSourceOptions: MusicSourceOption[] = [
   { id: 'tx', name: 'QQ 音乐' },
   { id: 'kw', name: '酷我音乐' },
   { id: 'kg', name: '酷狗音乐' },
@@ -40,6 +41,9 @@ function setLXEndpoint(index: number, value: string) {
 function swapLXEndpoints() {
   if (!config.value || config.value.lx_api_endpoints.length < 2) return
   ;[config.value.lx_api_endpoints[0], config.value.lx_api_endpoints[1]] = [config.value.lx_api_endpoints[1], config.value.lx_api_endpoints[0]]
+}
+function getSourceName(id: string): string {
+  return musicSourceOptions.find((item: MusicSourceOption) => item.id === id)?.name ?? id
 }
 function setSearchSourceEnabled(id: string, enabled: boolean) {
   if (!config.value) return
@@ -482,7 +486,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
       <p class="section-description">勾选参与搜索和自动换源的平台；上方平台优先尝试。QQ 音乐默认排在第一位。</p>
       <div v-if="config" class="setting-list">
         <div v-for="(source, index) in config.enabled_search_sources" :key="source" class="setting-row">
-          <div><strong>{{ index + 1 }}. {{ musicSourceOptions.find(item => item.id === source)?.name ?? source }}</strong></div>
+          <div><strong>{{ index + 1 }}. {{ getSourceName(source) }}</strong></div>
           <div style="display:flex;gap:6px">
             <el-button link :disabled="index === 0" @click="moveSearchSource(index, -1)">上移</el-button>
             <el-button link :disabled="index === config.enabled_search_sources.length - 1" @click="moveSearchSource(index, 1)">下移</el-button>
