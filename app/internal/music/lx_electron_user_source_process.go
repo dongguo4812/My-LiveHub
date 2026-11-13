@@ -3,10 +3,14 @@ package music
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -81,7 +85,7 @@ type lxElectronPending struct {
 
 type LXElectronUserSourceProcess struct {
 	command *exec.Cmd
-	stdin io.WriteCloser
+	conn net.Conn
 	writeMu sync.Mutex
 	pendingMu sync.Mutex
 	pending map[string]chan lxElectronPending
@@ -130,18 +134,51 @@ func StartLXElectronUserSourceProcess(ctx context.Context, script string, proxy 
 	if err := proxy.Validate(); err != nil { return nil, err }
 	executable, args, err := findLXElectronRuntime()
 	if err != nil { return nil, err }
-	command := exec.Command(executable, args...)
-	stdin, err := command.StdinPipe()
-	if err != nil { return nil, fmt.Errorf("创建洛雪 Electron 输入管道失败：%w", err) }
-	stdout, err := command.StdoutPipe()
-	if err != nil { _ = stdin.Close(); return nil, fmt.Errorf("创建洛雪 Electron 输出管道失败：%w", err) }
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil { return nil, fmt.Errorf("创建洛雪 Electron 本机 IPC 监听失败：%w", err) }
+	defer listener.Close()
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil { return nil, fmt.Errorf("生成洛雪 Electron IPC 验证令牌失败：%w", err) }
+	token := hex.EncodeToString(tokenBytes)
+
+	commandArgs := append([]string{}, args...)
+	commandArgs = append(commandArgs, "--lx-runtime-ipc", listener.Addr().String(), "--lx-runtime-token", token)
+	command := exec.Command(executable, commandArgs...)
+	command.Stdout = io.Discard
 	command.Stderr = io.Discard
+	if err := command.Start(); err != nil { return nil, fmt.Errorf("启动洛雪 Electron 音源运行环境失败：%w", err) }
+
+	if tcpListener, ok := listener.(*net.TCPListener); ok {
+		_ = tcpListener.SetDeadline(time.Now().Add(lxElectronReadyTimeout))
+	}
+	conn, err := listener.Accept()
+	if err != nil {
+		if command.Process != nil { _ = command.Process.Kill() }
+		_ = command.Wait()
+		return nil, fmt.Errorf("等待洛雪 Electron 本机 IPC 连接失败：%w", err)
+	}
+	reader := bufio.NewReader(conn)
+	helloLine, err := reader.ReadString('\n')
+	if err != nil {
+		_ = conn.Close()
+		if command.Process != nil { _ = command.Process.Kill() }
+		_ = command.Wait()
+		return nil, fmt.Errorf("读取洛雪 Electron IPC 握手失败：%w", err)
+	}
+	var hello struct { Type string `json:"type"`; Token string `json:"token"` }
+	if err := json.Unmarshal([]byte(helloLine), &hello); err != nil || hello.Type != "hello" || subtle.ConstantTimeCompare([]byte(hello.Token), []byte(token)) != 1 {
+		_ = conn.Close()
+		if command.Process != nil { _ = command.Process.Kill() }
+		_ = command.Wait()
+		return nil, errors.New("洛雪 Electron IPC 握手验证失败")
+	}
+
 	process := &LXElectronUserSourceProcess{
-		command: command, stdin: stdin, pending: make(map[string]chan lxElectronPending),
+		command: command, conn: conn, pending: make(map[string]chan lxElectronPending),
 		ready: make(chan error, 1), updates: make(chan LXUserSourceUpdate, 8), done: make(chan struct{}),
 	}
-	if err := command.Start(); err != nil { _ = stdin.Close(); return nil, fmt.Errorf("启动洛雪 Electron 音源运行环境失败：%w", err) }
-	go process.readLoop(stdout)
+	go process.readLoop(reader)
 	proxyValue := lxElectronProxy{}
 	if proxy.Enabled { proxyValue = lxElectronProxy{Host: proxy.Host, Port: proxy.Port} }
 	init := lxElectronInput{
@@ -170,7 +207,7 @@ func (p *LXElectronUserSourceProcess) write(message lxElectronInput) error {
 	p.writeMu.Lock()
 	defer p.writeMu.Unlock()
 	select { case <-p.done: return errors.New("洛雪 Electron 音源运行环境已关闭"); default: }
-	if _, err := p.stdin.Write(append(data, '\n')); err != nil { return fmt.Errorf("发送洛雪音源消息失败：%w", err) }
+	if p.conn == nil { return errors.New("洛雪 Electron IPC 连接不可用") }; if _, err := p.conn.Write(append(data, '\n')); err != nil { return fmt.Errorf("发送洛雪音源消息失败：%w", err) }
 	return nil
 }
 
@@ -278,7 +315,7 @@ func (p *LXElectronUserSourceProcess) Close() error {
 	if p==nil{return nil}
 	p.closeOnce.Do(func(){
 		_ = p.write(lxElectronInput{Operation:"close"})
-		_ = p.stdin.Close()
+		if p.conn != nil { _ = p.conn.Close() }
 		select{case <-p.done:case <-time.After(5*time.Second):
 			if p.command.Process!=nil{_ = p.command.Process.Kill()}
 			<-p.done
