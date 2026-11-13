@@ -2,6 +2,7 @@ package music
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -120,6 +121,78 @@ func TestLXRequestPromiseCanResolveFromResponseBody(t *testing.T) {
 	if got, want := result.String(), "https://cdn.example.test/song.mp3"; got != want {
 		t.Fatalf("LX request Promise result = %q, want %q", got, want)
 	}
+}
+
+func TestLXRequestAsyncPromiseResolvesFullResponse(t *testing.T) {
+	client := &http.Client{Transport: lxRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status: "200 OK",
+			Header: http.Header{"Content-Type": []string{"application/json"}, "X-Test": []string{"present"}},
+			Body: io.NopCloser(strings.NewReader(`{"url":"https://cdn.example.test/song.mp3"}`)),
+			Request: request,
+		}, nil
+	})}
+	vm := goja.New()
+	lx := vm.NewObject()
+	loop := newLXRuntimeEventLoop(vm)
+	defer loop.stop()
+	if err := installLXRequestAsync(vm, lx, client, loop, nil); err != nil { t.Fatal(err) }
+	if err := vm.Set("lx", lx); err != nil { t.Fatal(err) }
+	_, err := vm.RunString(`
+		var promiseResult;
+		var promiseError = "";
+		var promiseFinished = false;
+		(async function () {
+			try { promiseResult = await lx.request("https://music.example.test/resolve", {}); }
+			catch (error) { promiseError = String(error); }
+			promiseFinished = true;
+		})();
+	`)
+	if err != nil { t.Fatal(err) }
+	if err := loop.pumpUntil(func() bool {
+		value, runErr := vm.RunString("promiseFinished")
+		return runErr == nil && value.ToBoolean()
+	}, time.Second); err != nil { t.Fatal(err) }
+	value, err := vm.RunString(`promiseError === "" &&
+		promiseResult.statusCode === 200 &&
+		promiseResult.statusMessage === "OK" &&
+		promiseResult.headers["content-type"] === "application/json" &&
+		promiseResult.body.url === "https://cdn.example.test/song.mp3" &&
+		promiseResult.bytes > 0 &&
+		promiseResult.raw !== undefined`)
+	if err != nil { t.Fatal(err) }
+	if !value.ToBoolean() { t.Fatal("await lx.request() did not resolve the complete LX response object") }
+}
+
+func TestLXRequestAsyncPromiseRejectsOnTransportError(t *testing.T) {
+	client := &http.Client{Transport: lxRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("test transport failure")
+	})}
+	vm := goja.New()
+	lx := vm.NewObject()
+	loop := newLXRuntimeEventLoop(vm)
+	defer loop.stop()
+	if err := installLXRequestAsync(vm, lx, client, loop, nil); err != nil { t.Fatal(err) }
+	if err := vm.Set("lx", lx); err != nil { t.Fatal(err) }
+	_, err := vm.RunString(`
+		var rejected = false;
+		var rejectionMessage = "";
+		var promiseFinished = false;
+		(async function () {
+			try { await lx.request("https://music.example.test/fail", {}); }
+			catch (error) { rejected = true; rejectionMessage = String(error); }
+			promiseFinished = true;
+		})();
+	`)
+	if err != nil { t.Fatal(err) }
+	if err := loop.pumpUntil(func() bool {
+		value, runErr := vm.RunString("promiseFinished")
+		return runErr == nil && value.ToBoolean()
+	}, time.Second); err != nil { t.Fatal(err) }
+	value, err := vm.RunString("rejected && rejectionMessage !== ''")
+	if err != nil { t.Fatal(err) }
+	if !value.ToBoolean() { t.Fatal("await lx.request() must reject when the HTTP request fails") }
 }
 
 func TestLXRequestSupportsFormDataAndReturnsCancelFunction(t *testing.T) {
