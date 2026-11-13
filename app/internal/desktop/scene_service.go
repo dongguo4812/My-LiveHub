@@ -72,17 +72,14 @@ type SceneService struct {
 	baseURL  string
 }
 
-func NewSceneService(manager *config.Manager, events *eventstream.Buffer, assets http.Handler, musicProviders ...sceneMusicProvider) (*SceneService, error) {
+func NewSceneService(manager *config.Manager, events *eventstream.Buffer, assets http.Handler, musicProvider sceneMusicProvider, videoProvider sceneVideoProvider) (*SceneService, error) {
 	if manager == nil || events == nil || assets == nil {
 		return nil, errors.New("scene service requires config, event buffer and asset handler")
 	}
 	if _, err := config.LoadTyped[LayoutConfig](manager, layoutConfigName, validateLayoutConfig); err != nil {
 		return nil, fmt.Errorf("load layout configuration: %w", err)
 	}
-	service := &SceneService{manager: manager, events: events}
-	if len(musicProviders) > 0 {
-		service.music = musicProviders[0]
-	}
+	service := &SceneService{manager: manager, events: events, music: musicProvider, video: videoProvider}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/scenes/", service.handleScene)
 	mux.HandleFunc("/api/music", service.handleMusic)
@@ -118,12 +115,6 @@ func NewSceneService(manager *config.Manager, events *eventstream.Buffer, assets
 	return service, nil
 }
 
-func (s *SceneService) setVideoProvider(provider sceneVideoProvider) {
-	if s == nil { return }
-	s.mu.Lock()
-	s.video = provider
-	s.mu.Unlock()
-}
 
 func defaultLayoutConfig() LayoutConfig {
 	return LayoutConfig{Scenes: []LayoutScene{{
