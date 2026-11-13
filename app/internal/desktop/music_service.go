@@ -550,26 +550,44 @@ func (s *MusicService) Stop() error {
 
 func (s *MusicService) GetLyrics(track music.Track) (string, error) {
 	if s == nil || s.engine == nil { return "", errors.New("music lyrics service is unavailable") }
-	source := firstNonEmpty(track.LXSourceKey, track.SourceID)
-	cacheKey := strings.Join([]string{source, track.ID, track.Title, track.Artist}, "\x00")
-	s.lyricsMu.Lock()
-	if cached, ok := s.lyricsCache[cacheKey]; ok {
-		s.lyricsMu.Unlock()
-		return cached, nil
-	}
-	s.lyricsMu.Unlock()
-
 	provider, ok := s.engine.(interface {
 		GetCurrentLyrics(context.Context) (string, error)
 	})
 	if !ok { return "", errors.New("当前播放引擎不支持读取洛雪歌词 API") }
+	if normalizeLXTrackIdentity(track.Title) == "" || normalizeLXTrackIdentity(track.Artist) == "" {
+		return "", errors.New("请求歌曲缺少歌名或歌手，无法核对洛雪当前播放歌曲")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
+	// 先确认洛雪当前播放的歌曲，不能直接把 /lyric-all 的结果归属给请求歌曲。
+	before, err := s.engine.Snapshot(ctx)
+	if err != nil { return "", fmt.Errorf("读取洛雪当前播放状态失败，暂不显示歌词：%w", err) }
+	if before.Track == nil || !sameLXTrackIdentity(track, *before.Track) {
+		return "", nil
+	}
+
+	source := firstNonEmpty(track.LXSourceKey, track.SourceID)
+	cacheKey := strings.Join([]string{source, track.ID, track.Title, track.Artist}, "\x00")
+	s.lyricsMu.Lock()
+	cached, cachedOK := s.lyricsCache[cacheKey]
+	s.lyricsMu.Unlock()
+	if cachedOK {
+		// 缓存也必须以本次已核对的洛雪播放状态为前提。
+		return cached, nil
+	}
+
 	lyrics, err := provider.GetCurrentLyrics(ctx)
 	if err != nil { return "", err }
-	// 洛雪切歌后歌词可能比播放状态晚几百毫秒才准备好。
-	// 空结果不能缓存，否则首次读取过早会导致这首歌后续一直显示无歌词。
 	if strings.TrimSpace(lyrics) == "" { return "", nil }
+
+	// 歌词读取期间可能刚好切歌；再次核对，避免把上一首/下一首歌词写入当前歌曲缓存。
+	after, err := s.engine.Snapshot(ctx)
+	if err != nil { return "", fmt.Errorf("读取洛雪歌词后无法再次确认当前歌曲：%w", err) }
+	if after.Track == nil || !sameLXTrackIdentity(track, *after.Track) || !sameLXTrackIdentity(*before.Track, *after.Track) {
+		return "", nil
+	}
+
 	s.lyricsMu.Lock()
 	if s.lyricsCache == nil { s.lyricsCache = make(map[string]string) }
 	if len(s.lyricsCache) >= 128 { s.lyricsCache = make(map[string]string) }
