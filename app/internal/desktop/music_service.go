@@ -474,16 +474,6 @@ func (s *MusicService) Resume() error {
 	if s == nil || s.engine == nil { return music.ErrPlaybackEngineUnavailable }
 	return s.engine.Resume(context.Background())
 }
-func (s *MusicService) Seek(positionMS int64) error {
-	if s == nil || s.engine == nil { return music.ErrPlaybackEngineUnavailable }
-	return s.engine.Seek(context.Background(), positionMS)
-}
-func (s *MusicService) SetVolume(volume int) error {
-	if s == nil || s.engine == nil { return music.ErrPlaybackEngineUnavailable }
-	if volume < 0 || volume > 100 { return fmt.Errorf("音量必须在 0 到 100 之间") }
-	return s.engine.SetVolume(context.Background(), volume)
-}
-
 func (s *MusicService) Next() error {
 	if s == nil || s.engine == nil || s.queue == nil { return errors.New("music playback service is unavailable") }
 	s.cancelPlaybackWatcher()
