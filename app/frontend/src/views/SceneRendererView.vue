@@ -381,7 +381,7 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-queue-list .music-queue-item{padding-top:.08em;padding-bottom:.08em;border-radius:0;border-bottom:1px solid rgba(255,255,255,.045)}
 .music-queue-list{display:flex;flex:1;flex-direction:column;gap:0;min-height:0;overflow:hidden}
 .music-queue-item{display:flex;align-items:center;gap:.58em;min-width:0;padding:.38em .5em;border:1px solid rgba(255,255,255,.055);border-radius:.36em;background:rgba(255,255,255,.055);line-height:1.3}
-.music-queue-current{border-color:rgba(255,214,107,.2);background:rgba(255,214,107,.075)}
+.music-queue-current{border-color:rgba(255,214,107,.2);background:rgba(255,214,107,.075)}.music-queue-item.music-queue-current-inline{border:0;border-radius:0;background:transparent;box-shadow:none}
 .music-queue-index{flex:none;min-width:1.7em;color:#9fc0ff;font-size:.78em;font-weight:800;font-variant-numeric:tabular-nums}
 .music-queue-track{display:flex;flex:1;flex-direction:column;gap:.12em;min-width:0;overflow:hidden}
 .music-queue-track strong,.music-queue-track small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
