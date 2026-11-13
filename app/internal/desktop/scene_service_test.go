@@ -111,6 +111,21 @@ func TestValidateLayoutConfig(t *testing.T) {
 	}
 }
 
+func TestLayoutLayerQueueDisplayCountJSON(t *testing.T) {
+	layer := LayoutLayer{ID: "queue", Type: "music_queue", Name: "点播队列", QueueDisplayCount: 8}
+	data, err := json.Marshal(layer)
+	if err != nil {
+		t.Fatalf("marshal layout layer: %v", err)
+	}
+	var decoded LayoutLayer
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal layout layer: %v", err)
+	}
+	if decoded.QueueDisplayCount != 8 {
+		t.Fatalf("queue display count was not persisted: got %d", decoded.QueueDisplayCount)
+	}
+}
+
 func TestValidateLayoutConfigRejectsInvalidScenes(t *testing.T) {
 	tests := []struct {
 		name  string
