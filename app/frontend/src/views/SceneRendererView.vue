@@ -271,7 +271,7 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-wave{height:36px;flex:1;display:flex;align-items:center;justify-content:center;gap:3px;overflow:hidden}
 .music-wavebar{width:3px;min-width:2px;height:var(--h);border-radius:3px;background:var(--random-color);opacity:.92;transform:scaleY(.45);transform-origin:center;animation:music-wave var(--speed) ease-in-out infinite alternate;animation-delay:var(--delay)}
 @keyframes music-wave{from{transform:scaleY(.22)}to{transform:scaleY(1)}}
-.music-lyrics{position:relative;isolation:isolate;min-height:42px;display:flex;flex-direction:column;justify-content:center;gap:3px;overflow:hidden;padding:5px 9px;border-radius:5px;background:rgba(30,23,20,.5);text-align:center}
+.music-lyrics{position:relative;min-height:42px;display:flex;flex-direction:column;justify-content:center;gap:3px;overflow:hidden;padding:5px 9px;border-radius:5px;background:transparent;text-align:center}
 .music-lyrics::before,.music-lyrics::after{content:none}
 .music-lyrics strong,.music-lyrics span{position:relative;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .music-lyrics strong{font-size:14px;font-weight:700;line-height:1.35;color:var(--random-color)}
