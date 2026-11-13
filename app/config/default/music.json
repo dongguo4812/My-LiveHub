@@ -1,5 +1,5 @@
 {
-  "config_version": 12,
+  "config_version": 13,
   "enabled": true,
   "command_enabled": true,
   "skip_command_enabled": true,
@@ -10,8 +10,7 @@
   "require_fan_medal": false,
   "fan_medal_level": 1,
   "lx_api_endpoints": [
-    "http://127.0.0.1:23330",
-    "http://192.168.1.3:23330"
+    "http://127.0.0.1:23330"
   ],
   "enabled_search_sources": [
     "tx",
