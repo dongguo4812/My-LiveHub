@@ -48,8 +48,8 @@ func installLXRequestAsyncWithProxyProvider(vm *goja.Runtime, lx *goja.Object, c
 		ctx,cancel:=context.WithCancel(loop.ctx)
 		id:=requestID.Add(1)
 		thisArg:=call.This
-		var resolve func(goja.Value) error
-		var reject func(goja.Value) error
+		var resolve func(interface{}) error
+		var reject func(interface{}) error
 		var promise *goja.Promise
 		if !hasCallback {
 			promise, resolve, reject = vm.NewPromise()
