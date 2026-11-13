@@ -30,6 +30,7 @@ function addLayer(type: string) {
     gift: { name: '礼物展示', width: 520, height: 180, font_size: 28, color: '#ffffff' },
     super_chat: { name: 'SC 展示', width: 520, height: 180, font_size: 28, color: '#ffffff' },
     music: { name: '音乐展示', width: 620, height: 190, font_size: 24, color: '#ffffff' },
+    music_queue: { name: '点播队列', width: 500, height: 300, font_size: 22, color: '#ffffff' },
   }
   const base = defaults[type]
   if (!base) return
@@ -127,7 +128,7 @@ async function removeScene() {
   }
 }
 function layerLabel(type: string) {
-  return ({ text: '文字', image: '图片', clock: '时钟', danmaku: '弹幕', gift: '礼物', super_chat: 'SC', music: '音乐' } as Record<string, string>)[type] ?? type
+  return ({ text: '文字', image: '图片', clock: '时钟', danmaku: '弹幕', gift: '礼物', super_chat: 'SC', music: '音乐', music_queue: '点播队列' } as Record<string, string>)[type] ?? type
 }
 onMounted(() => { void load(); window.addEventListener('resize', refreshScale) })
 onUnmounted(() => { window.removeEventListener('resize', refreshScale) })
@@ -165,6 +166,7 @@ onUnmounted(() => { window.removeEventListener('resize', refreshScale) })
           <button @click="addLayer('gift')"><el-icon><Present /></el-icon>礼物</button>
           <button @click="addLayer('super_chat')"><el-icon><ChatDotRound /></el-icon>SC 留言</button>
           <button @click="addLayer('music')"><el-icon><Headset /></el-icon>音乐展示</button>
+          <button @click="addLayer('music_queue')">点播队列</button>
         </div>
         <el-divider />
         <div class="panel-heading"><strong>图层</strong><span>{{ scene?.layers.length ?? 0 }} 个</span></div>
@@ -186,6 +188,7 @@ onUnmounted(() => { window.removeEventListener('resize', refreshScale) })
             <span v-else-if="layer.type === 'clock'">12:34:56</span>
             <img v-else-if="layer.type === 'image' && layer.url && layer.url !== 'https://'" :src="layer.url" alt="" />
             <div v-else-if="layer.type === 'music'" class="music-layer-preview"><div class="music-cover-preview">♫</div><div><strong>歌曲名称 · 歌手</strong><span>━━━━━━━●━━━━  01:23 / 04:12</span><p>当前歌词 · 歌词翻译</p></div></div>
+            <div v-else-if="layer.type === 'music_queue'" class="music-queue-layer-preview"><strong>观众点播队列</strong><span>1　歌曲名称 · 歌手</span><span>2　歌曲名称 · 歌手</span><span>3　歌曲名称 · 歌手</span></div>
             <span v-else>{{ layerLabel(layer.type) }}组件</span>
           </div>
         </div>
