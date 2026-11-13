@@ -280,7 +280,7 @@ onUnmounted(() => {
         <template v-if="musicDisplayConfig?.enabled">
           <div v-if="musicDisplayConfig.command_enabled" class="music-prompt-line">点歌：{{ musicDisplayConfig.command_prefix }} 歌曲名称</div>
           <div v-if="musicDisplayConfig.skip_command_enabled" class="music-prompt-line">切歌：{{ musicDisplayConfig.skip_command }}（主播 / 房管）</div>
-          <div v-if="musicDisplayConfig.require_fan_medal" class="music-prompt-note">需拥有本直播间粉丝牌，等级达到 {{ musicDisplayConfig.fan_medal_level }} 级</div>
+          <div v-if="musicDisplayConfig.require_fan_medal" class="music-prompt-note">需拥有主播粉丝勋章，等级达到 {{ musicDisplayConfig.fan_medal_level }} 级</div>
           <div v-if="!musicDisplayConfig.command_enabled && !musicDisplayConfig.skip_command_enabled" class="music-simple-empty">当前未启用点歌指令</div>
         </template>
         <div v-else class="music-simple-empty">音乐点歌功能未启用</div>
