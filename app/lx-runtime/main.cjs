@@ -72,6 +72,7 @@ function onRendererEvent(name, handler) {
 }
 
 async function initialize(message) {
+  await app.whenReady()
   if (initialized) throw new Error('LX runtime already initialized')
   currentProxy = message.proxy || currentProxy
   await createWindow()
