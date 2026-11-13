@@ -16,6 +16,7 @@ const now = ref(new Date())
 const error = ref('')
 const playback = ref<Playback | null>(null)
 const lyricLines = ref<LyricLine[]>([])
+const lyricStatus = ref<'loading' | 'available' | 'not-found' | 'error'>('loading')
 const lyricOriginalViewport = ref<HTMLElement | null>(null)
 const lyricOriginalText = ref<HTMLElement | null>(null)
 const lyricTranslationViewport = ref<HTMLElement | null>(null)
@@ -165,10 +166,12 @@ async function loadTrackLyrics(track: Track, key: string) {
     const data = await response.json() as MusicLyricsResponse
     if (requestID !== lyricsRequestID || musicTrackKey !== key) return
     lyricLines.value = parseLyrics(data.lyrics || '')
+    lyricStatus.value = lyricLines.value.length > 0 ? 'available' : 'not-found'
     musicError.value = ''
   } catch (cause) {
     if (requestID === lyricsRequestID && musicTrackKey === key) {
       lyricLines.value = []
+      lyricStatus.value = 'error'
       musicError.value = cause instanceof Error ? cause.message : String(cause)
     }
   }
@@ -191,6 +194,7 @@ async function loadMusic() {
       }
       lyricsRequestID++
       lyricLines.value = []
+      lyricStatus.value = track ? 'loading' : 'not-found'
       musicError.value = ''
       if (track) void loadTrackLyrics(track, key)
     }
@@ -258,11 +262,14 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="music-lyrics">
-          <div ref="lyricOriginalViewport" class="music-lyric-viewport">
-            <strong :key="activeLyric?.time ?? 'empty'" ref="lyricOriginalText" class="music-lyric-text" :style="{ transform: 'translateX(' + lyricOriginalOffset + 'px)' }">{{ activeLyric?.text || '暂无同步歌词' }}</strong>
+          <div v-if="activeLyric?.text" ref="lyricOriginalViewport" class="music-lyric-viewport">
+            <strong :key="activeLyric.time" ref="lyricOriginalText" class="music-lyric-text" :style="{ transform: 'translateX(' + lyricOriginalOffset + 'px)' }">{{ activeLyric.text }}</strong>
+          </div>
+          <div v-else-if="lyricStatus === 'not-found'" class="music-lyric-viewport">
+            <strong class="music-lyric-text">暂无同步歌词</strong>
           </div>
           <div v-if="activeLyric?.translation" ref="lyricTranslationViewport" class="music-lyric-viewport">
-            <span :key="activeLyric?.time ?? 'empty'" ref="lyricTranslationText" class="music-lyric-text" :style="{ transform: 'translateX(' + lyricTranslationOffset + 'px)' }">{{ activeLyric.translation }}</span>
+            <span :key="activeLyric.time" ref="lyricTranslationText" class="music-lyric-text" :style="{ transform: 'translateX(' + lyricTranslationOffset + 'px)' }">{{ activeLyric.translation }}</span>
           </div>
         </div>
       </section>
