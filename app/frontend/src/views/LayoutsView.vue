@@ -43,6 +43,7 @@ function addLayer(type: string) {
 function selectLayer(layer: LayoutLayer) {
   selectedLayerID.value = layer.id
   if (layer.type === 'music_queue') {
+    layer.name = '歌曲点播队列'
     const queueLayer = layer as LayoutLayer & { queue_display_count?: number }
     if (!queueLayer.queue_display_count || queueLayer.queue_display_count < 1) queueLayer.queue_display_count = 10
   }
@@ -181,7 +182,7 @@ onUnmounted(() => { window.removeEventListener('resize', refreshScale) })
         <div class="panel-heading"><strong>图层</strong><span>{{ scene?.layers.length ?? 0 }} 个</span></div>
         <div class="layer-list">
           <button v-for="layer in sortedLayers" :key="layer.id" :class="{ selected: selectedLayerID === layer.id }" @click="selectLayer(layer)">
-            <span>{{ layer.name || layerLabel(layer.type) }}</span><small>{{ layerLabel(layer.type) }}</small>
+            <span>{{ layer.type === 'music_queue' ? '歌曲点播队列' : (layer.name || layerLabel(layer.type)) }}</span><small>{{ layerLabel(layer.type) }}</small>
           </button>
           <el-empty v-if="!scene?.layers.length" description="添加组件开始设计" :image-size="64" />
         </div>
