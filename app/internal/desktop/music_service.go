@@ -70,7 +70,7 @@ type MusicService struct {
 	lxStoreErr error
 	lxLifecycleMu sync.Mutex
 	lxSessionMu sync.Mutex
-	lxSession *music.LXUserSourceProcess
+	lxSession *music.LXElectronUserSourceProcess
 	lxSessionID string
 	lxUpdateMu sync.Mutex
 	lxUpdates []music.LXUserSourceUpdate
@@ -1291,13 +1291,15 @@ func (s *MusicService) SetActiveLXUserSource(id string) error {
 func (s *MusicService) setActiveLXUserSourceLocked(id string) error {
 	store, err := s.lxUserSourceStore()
 	if err != nil { return err }
-	var next *music.LXUserSourceProcess
+	var next *music.LXElectronUserSourceProcess
 	if id != "" {
 		script, err := store.ReadScript(id)
 		if err != nil { return err }
 		ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
 		defer cancel()
-		next, err = music.StartLXUserSourceProcess(ctx, script, s.GetLXUserSourceProxy())
+		metadata, metadataErr := store.Get(id)
+		if metadataErr != nil { return metadataErr }
+		next, err = music.StartLXElectronUserSourceProcess(ctx, script, s.GetLXUserSourceProxy(), metadata)
 		if err != nil { return err }
 	}
 	if err := store.SetActiveID(id); err != nil {
