@@ -29,12 +29,6 @@ type PlaybackSnapshot struct {
 	AudioCodec string `json:"audio_codec,omitempty"`
 }
 
-// PlaybackEngineAudioProcessing exposes optional audio processing controls
-// without requiring every test or alternate engine implementation to support them.
-type PlaybackEngineAudioProcessing interface {
-	SetLoudnessNormalization(context.Context, bool) error
-}
-
 type PlaybackEngine interface {
 	Load(context.Context, PlaybackResource, Track) error
 	Pause(context.Context) error
