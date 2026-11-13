@@ -1110,7 +1110,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
           <el-button type="danger" plain size="small" :disabled="!queue?.items.length" @click="clearQueue">清空待播</el-button>
         </div>
       </template>
-      <div v-if="queue?.current" class="queue-current">当前播放：{{ queue.current.track.title }} · {{ queue.current.track.artist }}（{{ queue.current.requested_by || '观众点播' }}）</div>
+      <div v-if="queue?.current" class="queue-current">当前播放：{{ queue.current.track.title }} - {{ queue.current.track.artist || '未知歌手' }}（{{ queue.current.requested_by || '观众点播' }}）</div>
       <div v-if="queue?.items.length" class="queue-list">
         <div
           v-for="(item, index) in queue.items"
@@ -1126,8 +1126,8 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
           <span class="queue-drag-handle" title="拖动调整顺序">⠿</span>
           <span class="queue-index">{{ index + 1 }}</span>
           <div class="queue-track">
-            <strong>{{ item.track.title }}</strong>
-            <span>{{ item.track.artist }} · {{ sourceName(item.track.source_id) }}</span>
+            <strong>{{ item.track.title }} - {{ item.track.artist || '未知歌手' }}</strong>
+            <span>{{ sourceName(item.track.source_id) }}</span>
           </div>
           <span v-if="item.requested_by !== '__my_livehub_search_play__'" class="queue-requester">{{ item.requested_by || '观众' }}</span>
           <el-button link type="danger" @click.stop="removeQueueItem(item.id)">删除</el-button>
