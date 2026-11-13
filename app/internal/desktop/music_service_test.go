@@ -43,3 +43,13 @@ func TestIndependentSearchSourcePriorityPersistsThroughServiceReload(t *testing.
 		t.Fatalf("search order after restart = %v", got)
 	}
 }
+
+func TestEmptySearchSourceSelectionDisablesAllPlatforms(t *testing.T) {
+	value := config.DefaultMusicConfig()
+	value.EnabledSearchSources = []string{}
+	service := NewMusicService(nil, value)
+	defer service.Shutdown()
+	if got := service.enabledSearchSourceIDs(); len(got) != 0 {
+		t.Fatalf("explicitly empty source selection should stay empty, got %v", got)
+	}
+}
