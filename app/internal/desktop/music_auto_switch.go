@@ -135,6 +135,9 @@ func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original m
 			failures = append(failures, source+": 播放地址无效："+parseErr.Error())
 			continue
 		}
+		if err := ctx.Err(); err != nil {
+			return music.Track{}, err
+		}
 		if loadErr := loadAndStartPlayback(ctx, s.engine, music.PlaybackResource{URL: playbackURL}, candidate); loadErr != nil {
 			failures = append(failures, source+": 播放器加载失败："+loadErr.Error())
 			continue
