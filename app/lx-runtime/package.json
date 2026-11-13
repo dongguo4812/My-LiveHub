@@ -9,7 +9,7 @@
     "package": "npm run build && electron-builder --dir --win --x64"
   },
   "dependencies": {
-    "needle": "git+https://github.com/lyswhut/needle.git#93299ac841b7e9a9f82ca7279b88aaaeda404060",
+    "needle": "file:vendor/needle",
     "tunnel": "^0.0.6"
   },
   "devDependencies": {
