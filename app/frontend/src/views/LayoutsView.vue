@@ -12,6 +12,7 @@ const sourceURL = ref('')
 const canvas = ref<HTMLElement>()
 const scene = computed(() => scenes.value.find(item => item.id === activeSceneID.value) ?? scenes.value[0] ?? null)
 const selectedLayer = computed(() => scene.value?.layers.find(item => item.id === selectedLayerID.value) ?? null)
+const selectedQueueLayer = computed(() => selectedLayer.value as (LayoutLayer & { queue_display_count?: number }) | null)
 const sortedLayers = computed(() => [...(scene.value?.layers ?? [])].sort((a, b) => b.z_index - a.z_index))
 const scale = ref(1)
 let drag: { x: number; y: number; layerX: number; layerY: number } | null = null
@@ -35,8 +36,16 @@ function addLayer(type: string) {
   const base = defaults[type]
   if (!base) return
   const layer = { id: makeID(type), type, name: base.name ?? type, x: 100, y: 120, width: base.width ?? 300, height: base.height ?? 100, z_index: scene.value.layers.length + 1, visible: true, opacity: 1, text: base.text ?? '', url: base.url ?? '', color: base.color ?? '#ffffff', font_size: base.font_size ?? 24 } as LayoutLayer
+  if (type === 'music_queue') (layer as LayoutLayer & { queue_display_count?: number }).queue_display_count = 5
   scene.value.layers.push(layer)
   selectedLayerID.value = layer.id
+}
+function selectLayer(layer: LayoutLayer) {
+  selectedLayerID.value = layer.id
+  if (layer.type === 'music_queue') {
+    const queueLayer = layer as LayoutLayer & { queue_display_count?: number }
+    if (!queueLayer.queue_display_count || queueLayer.queue_display_count < 1) queueLayer.queue_display_count = 5
+  }
 }
 function removeLayer() {
   if (!scene.value || !selectedLayer.value) return
@@ -171,7 +180,7 @@ onUnmounted(() => { window.removeEventListener('resize', refreshScale) })
         <el-divider />
         <div class="panel-heading"><strong>图层</strong><span>{{ scene?.layers.length ?? 0 }} 个</span></div>
         <div class="layer-list">
-          <button v-for="layer in sortedLayers" :key="layer.id" :class="{ selected: selectedLayerID === layer.id }" @click="selectedLayerID=layer.id">
+          <button v-for="layer in sortedLayers" :key="layer.id" :class="{ selected: selectedLayerID === layer.id }" @click="selectLayer(layer)">
             <span>{{ layer.name || layerLabel(layer.type) }}</span><small>{{ layerLabel(layer.type) }}</small>
           </button>
           <el-empty v-if="!scene?.layers.length" description="添加组件开始设计" :image-size="64" />
@@ -205,6 +214,7 @@ onUnmounted(() => { window.removeEventListener('resize', refreshScale) })
             <el-form-item label="图层名称"><el-input v-model="selectedLayer.name" /></el-form-item>
             <el-form-item v-if="selectedLayer.type === 'text'" label="文字内容"><el-input v-model="selectedLayer.text" type="textarea" :rows="3" /></el-form-item>
             <el-form-item v-if="selectedLayer.type === 'image'" label="图片 URL"><el-input v-model="selectedLayer.url" placeholder="https://..." /></el-form-item>
+            <el-form-item v-if="selectedLayer.type === 'music_queue'" label="待播显示数量"><el-input-number v-model="selectedQueueLayer!.queue_display_count" :min="1" :max="1000" /><div class="el-form-item__description">仅控制此点播队列组件显示的歌曲条数；待播队列标题仍显示实际歌曲总数。</div></el-form-item>
             <div class="property-grid">
               <el-form-item label="X"><el-input-number v-model="selectedLayer.x" :min="0" :max="scene?.width ?? 1920" controls-position="right" /></el-form-item>
               <el-form-item label="Y"><el-input-number v-model="selectedLayer.y" :min="0" :max="scene?.height ?? 1080" controls-position="right" /></el-form-item>
