@@ -10,6 +10,9 @@ type Track = Awaited<ReturnType<typeof MusicService.Search>>['tracks'][number]
 type QueueSnapshot = Awaited<ReturnType<typeof MusicService.GetQueue>>
 type PlaybackSnapshot = Awaited<ReturnType<typeof MusicService.GetPlaybackStatus>>
 
+type MusicTab = 'now-playing' | 'search' | 'visitor-requests' | 'settings'
+const activeTab = ref<MusicTab>('now-playing')
+
 const config = ref<MusicConfig | null>(null)
 const musicSourceOptions = [
   { id: 'tx', name: 'QQ 音乐' },
@@ -21,6 +24,10 @@ const musicSourceOptions = [
 const searchableSources = computed(() => {
   const enabled = config.value?.enabled_search_sources ?? []
   return musicSourceOptions.filter(item => enabled.includes(item.id))
+})
+const availableSearchSources = computed(() => {
+  const enabled = config.value?.enabled_search_sources ?? []
+  return musicSourceOptions.filter(item => !enabled.includes(item.id))
 })
 function addLXAPIEndpoint() {
   if (config.value && config.value.lx_api_endpoints.length < 10) config.value.lx_api_endpoints.push('')
@@ -457,15 +464,15 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
       <template #header><strong>洛雪客户端连接与搜索音源</strong></template>
       <p class="section-description">洛雪客户端需运行在本机。地址按从上到下的顺序尝试，前一个不可用时自动切换到下一个；播放通过 lxmusic:// 协议发起。</p>
       <div v-if="config" class="setting-list">
-        <div v-for="(endpoint, index) in config.lx_api_endpoints" :key="index" class="setting-row">
+        <div v-for="(endpoint, endpointIndex) in config.lx_api_endpoints" :key="index" class="setting-row">
           <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">
-            <strong style="white-space:nowrap">API {{ index + 1 }}</strong>
-            <el-input v-model="config.lx_api_endpoints[index]" placeholder="http://127.0.0.1:23330" />
+            <strong style="white-space:nowrap">API {{ endpointIndex + 1 }}</strong>
+            <el-input v-model="config.lx_api_endpoints[endpointIndex]" placeholder="http://127.0.0.1:23330" />
           </div>
           <div style="display:flex;gap:6px">
-            <el-button link :disabled="index === 0" @click="moveLXAPIEndpoint(index, -1)">上移</el-button>
-            <el-button link :disabled="index === config.lx_api_endpoints.length - 1" @click="moveLXAPIEndpoint(index, 1)">下移</el-button>
-            <el-button link type="danger" @click="removeLXAPIEndpoint(index)">删除</el-button>
+            <el-button link :disabled="endpointIndex === 0" @click="moveLXAPIEndpoint(endpointIndex, -1)">上移</el-button>
+            <el-button link :disabled="endpointIndex === config.lx_api_endpoints.length - 1" @click="moveLXAPIEndpoint(endpointIndex, 1)">下移</el-button>
+            <el-button link type="danger" @click="removeLXAPIEndpoint(endpointIndex)">删除</el-button>
           </div>
         </div>
       </div>
@@ -485,7 +492,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
             <el-button link type="danger" @click="setSearchSourceEnabled(source, false)">禁用</el-button>
           </div>
         </div>
-        <div v-for="source in musicSourceOptions.filter(item => !config.enabled_search_sources.includes(item.id))" :key="source.id" class="setting-row">
+        <div v-for="source in availableSearchSources" :key="source.id" class="setting-row">
           <strong>{{ source.name }}</strong>
           <el-button link type="primary" @click="setSearchSourceEnabled(source.id, true)">启用</el-button>
         </div>
