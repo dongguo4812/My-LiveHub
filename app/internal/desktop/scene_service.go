@@ -48,6 +48,9 @@ type LayoutLayer struct {
 	Color    string  `json:"color,omitempty"`
 	FontSize int     `json:"font_size,omitempty"`
 	QueueDisplayCount int `json:"queue_display_count,omitempty"`
+	Live2DScale float64 `json:"live2d_scale,omitempty"`
+	Live2DX float64 `json:"live2d_x,omitempty"`
+	Live2DY float64 `json:"live2d_y,omitempty"`
 }
 
 type sceneVideoProvider interface {
