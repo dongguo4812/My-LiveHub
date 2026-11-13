@@ -476,11 +476,14 @@ func (s *MusicService) Resume() error {
 }
 func (s *MusicService) Next() error {
 	if s == nil || s.engine == nil || s.queue == nil { return errors.New("music playback service is unavailable") }
+	// 洛雪没有独立的 Stop/Next HTTP API。Stop() 会回退到 /pause，
+	// 因此必须先确认队列中确实有下一首，且不能在切歌前调用 Stop。
+	if len(s.queue.Snapshot().Items) == 0 {
+		return errors.New("没有下一首待播歌曲")
+	}
 	s.cancelPlaybackWatcher()
 	if current := s.queue.Snapshot().Current; current != nil { s.pushHistory(*current) }
-	_ = s.engine.Stop(context.Background())
 	s.queue.FinishCurrent()
-	if len(s.queue.Snapshot().Items) == 0 { return nil }
 	return s.PlayNext()
 }
 
@@ -506,7 +509,8 @@ func (s *MusicService) Previous() error {
 		s.history = s.history[:len(s.history)-1]
 	}
 	s.mu.Unlock()
-	_ = s.engine.Stop(context.Background())
+	// lxmusic:// 播放协议会直接切换歌曲；不要调用 Stop，因为洛雪的
+	// Stop 兼容实现实际会调用 /pause。
 	if err := s.queue.SetCurrent(previous); err != nil { return err }
 	return s.PlayNext()
 }
