@@ -33,6 +33,7 @@ let musicRefreshTimer: ReturnType<typeof setInterval> | undefined
 let musicTrackKey = ''
 let musicRefreshing = false
 let lyricsRequestID = 0
+let lyricResizeObserver: ResizeObserver | undefined
 
 const danmaku = computed(() => liveEvents.value.filter(item => item.type === 'danmaku').slice(-8).reverse())
 const gifts = computed(() => liveEvents.value.filter(item => item.type === 'gift').slice(-3).reverse())
@@ -68,13 +69,27 @@ function measureLyricOverflow() {
   const translationViewport = lyricTranslationViewport.value
   const translationText = lyricTranslationText.value
   const original = originalViewport && originalText
-    ? Math.max(0, originalText.scrollWidth - originalViewport.clientWidth)
+    ? Math.max(0, Math.ceil(originalText.getBoundingClientRect().width - originalViewport.getBoundingClientRect().width))
     : 0
   const translation = translationViewport && translationText
-    ? Math.max(0, translationText.scrollWidth - translationViewport.clientWidth)
+    ? Math.max(0, Math.ceil(translationText.getBoundingClientRect().width - translationViewport.getBoundingClientRect().width))
     : 0
   if (original !== lyricOverflow.value.original || translation !== lyricOverflow.value.translation) {
     lyricOverflow.value = { original, translation }
+  }
+}
+function observeLyricElements() {
+  if (!lyricResizeObserver) return
+  lyricResizeObserver.disconnect()
+  const elements = [
+    lyricOriginalViewport.value,
+    lyricOriginalText.value,
+    lyricTranslationViewport.value,
+    lyricTranslationText.value,
+    document.querySelector('.music-widget'),
+  ]
+  for (const element of elements) {
+    if (element) lyricResizeObserver.observe(element)
   }
 }
 const progress = computed(() => {
@@ -203,6 +218,7 @@ async function loadMusic() {
   } finally { musicRefreshing = false }
 }
 onMounted(() => {
+  lyricResizeObserver = new ResizeObserver(() => measureLyricOverflow())
   window.addEventListener('resize', measureLyricOverflow)
   void loadScene()
   void loadMusic()
@@ -214,9 +230,14 @@ onMounted(() => {
   source.onopen = () => { error.value = ''; void loadRecentEvents() }
   clockTimer = setInterval(() => { now.value = new Date() }, 500)
 })
-onUpdated(measureLyricOverflow)
+onUpdated(() => {
+  observeLyricElements()
+  measureLyricOverflow()
+})
 onUnmounted(() => {
   window.removeEventListener('resize', measureLyricOverflow)
+  lyricResizeObserver?.disconnect()
+  lyricResizeObserver = undefined
   source?.close()
   lyricsRequestID++
   if (clockTimer) clearInterval(clockTimer)
@@ -290,7 +311,7 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .event-line span{min-width:0;overflow-wrap:anywhere}
 .gift-line{background:#382448dc}.sc-line{background:#603c1edc}
 .music-output-layer{padding:0;text-shadow:none;white-space:normal;overflow:visible;font-family:Arial,"Microsoft YaHei",sans-serif;color:#e7c89d}
-.music-widget{width:100%;max-width:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;position:relative;overflow:hidden;border-radius:9px;user-select:none;color:#e7c89d}
+.music-widget{display:block;width:100%;min-width:0;max-width:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;position:relative;overflow:hidden;border-radius:9px;user-select:none;color:#e7c89d}
 .music-main{height:112px;display:flex;gap:8px;min-width:0;position:relative}
 .music-cover-wrap{height:112px;width:112px;flex:0 0 112px;position:relative;overflow:hidden;border-radius:5px;background:rgba(102,76,60,.35)}
 .music-cover-blur{position:absolute;inset:-20px;background-position:center;background-size:cover;filter:blur(20px) brightness(.8);opacity:.55;transform:scale(1.2)}
@@ -311,8 +332,8 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-lyrics{position:relative;isolation:isolate;min-height:42px;display:flex;flex-direction:column;justify-content:center;gap:3px;overflow:hidden;padding:5px 9px;border-radius:5px;background:rgba(30,23,20,.5);text-align:center}
 .music-lyrics::before{content:"";position:absolute;inset:0;z-index:-2;background-image:var(--details-bg,none);background-position:center;background-size:cover;opacity:.45;filter:blur(5px) brightness(.55);transform:scale(1.04);pointer-events:none}
 .music-lyrics::after{content:"";position:absolute;inset:0;z-index:-1;background:rgba(0,0,0,.38);pointer-events:none}
-.music-lyric-viewport{position:relative;display:block;width:100%;min-width:0;overflow:hidden;white-space:nowrap;text-align:left}
-.music-lyric-text{position:relative;display:inline-block;max-width:none;white-space:nowrap;text-overflow:clip;will-change:transform;transition:transform .48s linear}
+.music-lyric-viewport{position:relative;display:block;flex:0 0 auto;width:100%;min-width:0;box-sizing:border-box;overflow:hidden;white-space:nowrap;text-align:left}
+.music-lyric-text{position:relative;display:inline-block;width:max-content;max-width:none;white-space:nowrap;text-overflow:clip;will-change:transform;transition:transform .48s linear}
 .music-lyrics strong.music-lyric-text{font-size:14px;font-weight:700;line-height:1.35;color:var(--random-color)}
 .music-lyrics span.music-lyric-text{font-size:12px;line-height:1.3;color:#e7c89d;opacity:.9}
 @media(max-width:300px){.music-widget{gap:5px}.music-main{height:84px}.music-cover-wrap{height:84px;width:84px;flex-basis:84px}.music-song-title{font-size:14px}.music-song-author{font-size:12px}.music-song-time{height:56px;padding:0 7px}.music-time{width:34px;flex-basis:34px;font-size:10px}.music-lyrics{min-height:38px}.music-lyrics strong.music-lyric-text{font-size:12px}.music-lyrics span.music-lyric-text{font-size:10px}}
