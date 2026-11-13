@@ -148,3 +148,35 @@ func TestMusicConfigFanMedalLevelValidation(t *testing.T) {
 	c.FanMedalLevel = 121
 	if err := c.Validate(); err == nil { t.Fatal("expected medal level above 120 to be rejected") }
 }
+
+
+func TestMusicConfigV10MigrationAddsLXConnectionDefaults(t *testing.T) {
+	got, changed := MigrateMusicConfig(MusicConfig{
+		ConfigVersion: 10, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
+		SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100, QueueDisplayCount: 5, Volume: 80,
+	})
+	if !changed { t.Fatal("expected v10 configuration migration") }
+	if err := got.Validate(); err != nil { t.Fatal(err) }
+	if len(got.LXAPIEndpoints) != 2 || got.LXAPIEndpoints[0] != "http://127.0.0.1:23330" || got.LXAPIEndpoints[1] != "http://192.168.1.3:23330" {
+		t.Fatalf("unexpected 洛雪 API defaults: %#v", got.LXAPIEndpoints)
+	}
+	if len(got.EnabledSearchSources) != 5 || got.EnabledSearchSources[0] != "tx" {
+		t.Fatalf("unexpected search source priority: %#v", got.EnabledSearchSources)
+	}
+}
+
+func TestMusicConfigValidatesLXAPIEndpointsAndSearchSources(t *testing.T) {
+	c := DefaultMusicConfig()
+	if err := c.Validate(); err != nil { t.Fatalf("defaults should validate: %v", err) }
+	c.LXAPIEndpoints = []string{"ftp://127.0.0.1:23330"}
+	if err := c.Validate(); err == nil { t.Fatal("expected invalid API scheme to be rejected") }
+	c = DefaultMusicConfig()
+	c.LXAPIEndpoints = []string{"http://127.0.0.1:23330", "http://127.0.0.1:23330/"}
+	if err := c.Validate(); err == nil { t.Fatal("expected duplicate API endpoints to be rejected") }
+	c = DefaultMusicConfig()
+	c.EnabledSearchSources = []string{"tx", "unknown"}
+	if err := c.Validate(); err == nil { t.Fatal("expected unknown search source to be rejected") }
+	c = DefaultMusicConfig()
+	c.EnabledSearchSources = []string{"tx", "tx"}
+	if err := c.Validate(); err == nil { t.Fatal("expected duplicate search source to be rejected") }
+}
