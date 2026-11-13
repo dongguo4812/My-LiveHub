@@ -104,3 +104,32 @@ func TestLXPlaybackEngineUsesDocumentedPauseAndResumeEndpoints(t *testing.T) {
 		t.Fatalf("unexpected control API calls: %#v", calls)
 	}
 }
+
+func TestLXPlaybackEngineReadsOriginalAndTranslatedLyrics(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/lyric-all" { http.NotFound(w, r); return }
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"lyric":"[00:01.00]原文","tlyric":"[00:01.00]翻译","rlyric":"","lxlyric":""}`))
+	}))
+	defer server.Close()
+	engine := NewLXPlaybackEngine([]string{server.URL})
+	got, err := engine.GetCurrentLyrics(context.Background())
+	if err != nil { t.Fatal(err) }
+	if !strings.Contains(got, "[00:01.00]原文") || !strings.Contains(got, "[00:01.00]翻译") {
+		t.Fatalf("lyrics did not preserve original and translation: %q", got)
+	}
+}
+
+func TestLXPlaybackEngineFallsBackToPlainLyrics(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/lyric-all" { http.NotFound(w, r); return }
+		if r.URL.Path == "/lyric" { _, _ = w.Write([]byte("[00:02.00]普通歌词")); return }
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+	engine := NewLXPlaybackEngine([]string{server.URL})
+	got, err := engine.GetCurrentLyrics(context.Background())
+	if err != nil { t.Fatal(err) }
+	if got != "[00:02.00]普通歌词" { t.Fatalf("plain lyric fallback = %q", got) }
+}
+
