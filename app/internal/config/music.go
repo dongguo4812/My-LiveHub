@@ -2,9 +2,7 @@ package config
 
 import (
 	"fmt"
-	"net"
 	"net/url"
-	"strconv"
 	"strings"
 )
 
