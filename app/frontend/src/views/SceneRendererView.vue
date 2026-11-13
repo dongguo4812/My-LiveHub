@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, onUpdated, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
 type Layer = { id: string; type: string; name: string; x: number; y: number; width: number; height: number; z_index: number; visible: boolean; opacity: number; text?: string; url?: string; color?: string; font_size?: number }
@@ -16,12 +16,6 @@ const now = ref(new Date())
 const error = ref('')
 const playback = ref<Playback | null>(null)
 const lyricLines = ref<LyricLine[]>([])
-const lyricStatus = ref<'loading' | 'available' | 'not-found' | 'error'>('loading')
-const lyricOriginalViewport = ref<HTMLElement | null>(null)
-const lyricOriginalText = ref<HTMLElement | null>(null)
-const lyricTranslationViewport = ref<HTMLElement | null>(null)
-const lyricTranslationText = ref<HTMLElement | null>(null)
-const lyricOverflow = ref({ original: 0, translation: 0 })
 const musicError = ref('')
 const musicAccentColor = ref('#A83232')
 const waveBars = Array.from({ length: 31 }, (_, index) => ({ height: 7 + Math.abs(Math.sin(index * 1.71) * 24), speed: 0.45 + (index % 7) * 0.13, delay: -(Math.random() * 1.8) }))
@@ -46,37 +40,6 @@ const activeLyric = computed(() => {
   }
   return active
 })
-const activeLyricIndex = computed(() => {
-  if (!activeLyric.value) return -1
-  return lyricLines.value.findIndex(line => line.time === activeLyric.value?.time)
-})
-const activeLyricProgress = computed(() => {
-  const index = activeLyricIndex.value
-  const line = index >= 0 ? lyricLines.value[index] : null
-  if (!line || !playback.value) return 0
-  const nextLine = lyricLines.value[index + 1]
-  const trackDuration = playback.value.duration_ms || playback.value.track?.duration_ms || line.time
-  const endTime = nextLine?.time ?? trackDuration
-  const span = Math.max(1, endTime - line.time)
-  return Math.max(0, Math.min(1, (playback.value.position_ms - line.time) / span))
-})
-const lyricOriginalOffset = computed(() => -lyricOverflow.value.original * activeLyricProgress.value)
-const lyricTranslationOffset = computed(() => -lyricOverflow.value.translation * activeLyricProgress.value)
-function measureLyricOverflow() {
-  const originalViewport = lyricOriginalViewport.value
-  const originalText = lyricOriginalText.value
-  const translationViewport = lyricTranslationViewport.value
-  const translationText = lyricTranslationText.value
-  const original = originalViewport && originalText
-    ? Math.max(0, originalText.scrollWidth - originalViewport.clientWidth, Math.ceil(originalText.getBoundingClientRect().width - originalViewport.clientWidth))
-    : 0
-  const translation = translationViewport && translationText
-    ? Math.max(0, translationText.scrollWidth - translationViewport.clientWidth, Math.ceil(translationText.getBoundingClientRect().width - translationViewport.clientWidth))
-    : 0
-  if (original !== lyricOverflow.value.original || translation !== lyricOverflow.value.translation) {
-    lyricOverflow.value = { original, translation }
-  }
-}
 const progress = computed(() => {
   const duration = playback.value?.duration_ms || playback.value?.track?.duration_ms || 0
   if (!duration) return 0
@@ -166,12 +129,10 @@ async function loadTrackLyrics(track: Track, key: string) {
     const data = await response.json() as MusicLyricsResponse
     if (requestID !== lyricsRequestID || musicTrackKey !== key) return
     lyricLines.value = parseLyrics(data.lyrics || '')
-    lyricStatus.value = lyricLines.value.length > 0 ? 'available' : 'not-found'
     musicError.value = ''
   } catch (cause) {
     if (requestID === lyricsRequestID && musicTrackKey === key) {
       lyricLines.value = []
-      lyricStatus.value = 'error'
       musicError.value = cause instanceof Error ? cause.message : String(cause)
     }
   }
@@ -194,7 +155,6 @@ async function loadMusic() {
       }
       lyricsRequestID++
       lyricLines.value = []
-      lyricStatus.value = track ? 'loading' : 'not-found'
       musicError.value = ''
       if (track) void loadTrackLyrics(track, key)
     }
@@ -203,7 +163,6 @@ async function loadMusic() {
   } finally { musicRefreshing = false }
 }
 onMounted(() => {
-  window.addEventListener('resize', measureLyricOverflow)
   void loadScene()
   void loadMusic()
   sceneRefreshTimer = setInterval(() => { void loadScene() }, 1000)
@@ -214,9 +173,7 @@ onMounted(() => {
   source.onopen = () => { error.value = ''; void loadRecentEvents() }
   clockTimer = setInterval(() => { now.value = new Date() }, 500)
 })
-onUpdated(measureLyricOverflow)
 onUnmounted(() => {
-  window.removeEventListener('resize', measureLyricOverflow)
   source?.close()
   lyricsRequestID++
   if (clockTimer) clearInterval(clockTimer)
@@ -262,15 +219,8 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="music-lyrics">
-          <div v-if="activeLyric?.text" ref="lyricOriginalViewport" class="music-lyric-viewport">
-            <strong :key="activeLyric.time" ref="lyricOriginalText" class="music-lyric-text" :style="{ transform: 'translateX(' + lyricOriginalOffset + 'px)' }">{{ activeLyric.text }}</strong>
-          </div>
-          <div v-else-if="lyricStatus === 'not-found'" class="music-lyric-viewport">
-            <strong class="music-lyric-text">暂无同步歌词</strong>
-          </div>
-          <div v-if="activeLyric?.translation" ref="lyricTranslationViewport" class="music-lyric-viewport">
-            <span :key="activeLyric.time" ref="lyricTranslationText" class="music-lyric-text" :style="{ transform: 'translateX(' + lyricTranslationOffset + 'px)' }">{{ activeLyric.translation }}</span>
-          </div>
+          <strong>{{ activeLyric?.text || '暂无同步歌词' }}</strong>
+          <span v-if="activeLyric?.translation">{{ activeLyric.translation }}</span>
         </div>
       </section>
     </div>
@@ -290,7 +240,7 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .event-line span{min-width:0;overflow-wrap:anywhere}
 .gift-line{background:#382448dc}.sc-line{background:#603c1edc}
 .music-output-layer{padding:0;text-shadow:none;white-space:normal;overflow:visible;font-family:Arial,"Microsoft YaHei",sans-serif;color:#e7c89d}
-.music-widget{width:100%;min-width:0;max-width:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;position:relative;overflow:hidden;border-radius:9px;user-select:none;color:#e7c89d}
+.music-widget{width:min(405px,100%);display:flex;flex-direction:column;gap:8px;position:relative;overflow:hidden;border-radius:9px;user-select:none;color:#e7c89d}
 .music-main{height:112px;display:flex;gap:8px;min-width:0;position:relative}
 .music-cover-wrap{height:112px;width:112px;flex:0 0 112px;position:relative;overflow:hidden;border-radius:5px;background:rgba(102,76,60,.35)}
 .music-cover-blur{position:absolute;inset:-20px;background-position:center;background-size:cover;filter:blur(20px) brightness(.8);opacity:.55;transform:scale(1.2)}
@@ -311,10 +261,9 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-lyrics{position:relative;isolation:isolate;min-height:42px;display:flex;flex-direction:column;justify-content:center;gap:3px;overflow:hidden;padding:5px 9px;border-radius:5px;background:rgba(30,23,20,.5);text-align:center}
 .music-lyrics::before{content:"";position:absolute;inset:0;z-index:-2;background-image:var(--details-bg,none);background-position:center;background-size:cover;opacity:.45;filter:blur(5px) brightness(.55);transform:scale(1.04);pointer-events:none}
 .music-lyrics::after{content:"";position:absolute;inset:0;z-index:-1;background:rgba(0,0,0,.38);pointer-events:none}
-.music-lyric-viewport{position:relative;display:block;flex:0 0 auto;width:100%;min-width:0;box-sizing:border-box;overflow:hidden;white-space:nowrap;text-align:left}
-.music-lyric-text{position:relative;display:inline-block;flex:none;width:max-content;max-width:none;white-space:nowrap;text-overflow:clip;will-change:transform;transition:transform .48s linear}
-.music-lyrics strong.music-lyric-text{font-size:14px;font-weight:700;line-height:1.35;color:var(--random-color)}
-.music-lyrics span.music-lyric-text{font-size:12px;line-height:1.3;color:#e7c89d;opacity:.9}
-@media(max-width:300px){.music-widget{gap:5px}.music-main{height:84px}.music-cover-wrap{height:84px;width:84px;flex-basis:84px}.music-song-title{font-size:14px}.music-song-author{font-size:12px}.music-song-time{height:56px;padding:0 7px}.music-time{width:34px;flex-basis:34px;font-size:10px}.music-lyrics{min-height:38px}.music-lyrics strong.music-lyric-text{font-size:12px}.music-lyrics span.music-lyric-text{font-size:10px}}
+.music-lyrics strong,.music-lyrics span{position:relative;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.music-lyrics strong{font-size:14px;font-weight:700;line-height:1.35;color:var(--random-color)}
+.music-lyrics span{font-size:12px;line-height:1.3;color:#e7c89d;opacity:.9}
+@media(max-width:300px){.music-widget{gap:5px}.music-main{height:84px}.music-cover-wrap{height:84px;width:84px;flex-basis:84px}.music-song-title{font-size:14px}.music-song-author{font-size:12px}.music-song-time{height:56px;padding:0 7px}.music-time{width:34px;flex-basis:34px;font-size:10px}.music-lyrics{min-height:38px}.music-lyrics strong{font-size:12px}.music-lyrics span{font-size:10px}}
 .scene-error{display:grid;place-items:center;width:100vw;height:100vh;background:transparent;color:#fff;font:16px "Microsoft YaHei",sans-serif}
 </style>
