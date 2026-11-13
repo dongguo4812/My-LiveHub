@@ -373,7 +373,7 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-queue-prompt-title{display:flex;align-items:center;gap:.3em;flex:none;color:#ffd66b;font-size:1.05em}
 .music-queue-prompt-single span{flex:none;color:#d7deea}
 .music-queue-prompt-single b{color:#ffd66b;font-weight:800}
-.music-queue-current-inline{flex-wrap:nowrap;gap:.55em;padding:.34em .5em;white-space:nowrap}
+.music-queue-current-inline{flex-wrap:nowrap;gap:.55em;padding:.34em .5em;border:0;border-radius:0;background:transparent;box-shadow:none;white-space:nowrap}
 .music-queue-current-label{flex:none;color:#ffd66b;font-size:.78em;white-space:nowrap}.music-queue-current-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f7f8fc;font-size:.88em}
 .music-queue-current-artist{flex:none;max-width:28%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#aeb9ca;font-size:.76em}
 .music-queue-current-inline .music-queue-requester{max-width:24%}.music-queue-current-inline .music-queue-empty{padding:0;white-space:nowrap}
