@@ -412,7 +412,7 @@ onUnmounted(() => {
             </span>
             <span class="music-queue-requester">{{ audienceCurrent.requested_by }}</span>
           </div>
-          <div v-else class="music-queue-item music-queue-current music-queue-current-inline">
+          <div v-else class="music-queue-item music-queue-current music-queue-current-inline music-queue-current-stacked">
             <strong class="music-queue-current-label"><span class="music-queue-heading-mark">♫</span> 当前播放</strong>
             <span class="music-queue-empty">暂无点播歌曲</span>
           </div>
