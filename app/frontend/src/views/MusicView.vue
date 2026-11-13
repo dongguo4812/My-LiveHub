@@ -29,18 +29,17 @@ const availableSearchSources = computed(() => {
   const enabled = config.value?.enabled_search_sources ?? []
   return musicSourceOptions.filter(item => !enabled.includes(item.id))
 })
-const endpointRows = computed(() => (config.value?.lx_api_endpoints ?? []).map((value, index) => ({ value, index })))
-function addLXAPIEndpoint() {
-  if (config.value && config.value.lx_api_endpoints.length < 10) config.value.lx_api_endpoints.push('')
+function getLXEndpoint(index: number) {
+  return config.value?.lx_api_endpoints[index] ?? ''
 }
-function removeLXAPIEndpoint(index: number) {
-  config.value?.lx_api_endpoints.splice(index, 1)
+function setLXEndpoint(index: number, value: string) {
+  if (!config.value) return
+  while (config.value.lx_api_endpoints.length <= index) config.value.lx_api_endpoints.push('')
+  config.value.lx_api_endpoints[index] = value
 }
-function moveLXAPIEndpoint(index: number, direction: -1 | 1) {
-  const endpoints = config.value?.lx_api_endpoints
-  const target = index + direction
-  if (!endpoints || target < 0 || target >= endpoints.length) return
-  ;[endpoints[index], endpoints[target]] = [endpoints[target], endpoints[index]]
+function swapLXEndpoints() {
+  if (!config.value || config.value.lx_api_endpoints.length < 2) return
+  ;[config.value.lx_api_endpoints[0], config.value.lx_api_endpoints[1]] = [config.value.lx_api_endpoints[1], config.value.lx_api_endpoints[0]]
 }
 function setSearchSourceEnabled(id: string, enabled: boolean) {
   if (!config.value) return
@@ -465,22 +464,17 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
       <template #header><strong>洛雪客户端连接与搜索音源</strong></template>
       <p class="section-description">洛雪客户端需运行在本机。地址按从上到下的顺序尝试，前一个不可用时自动切换到下一个；播放通过 lxmusic:// 协议发起。</p>
       <div v-if="config" class="setting-list">
-        <template v-for="row in endpointRows" :key="row.index">
-          <div class="setting-row">
-            <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">
-              <strong style="white-space:nowrap">API {{ row.index + 1 }}</strong>
-              <el-input v-model="config.lx_api_endpoints[row.index]" placeholder="http://127.0.0.1:23330" />
-            </div>
-            <div style="display:flex;gap:6px">
-              <el-button link :disabled="row.index === 0" @click="moveLXAPIEndpoint(row.index, -1)">上移</el-button>
-              <el-button link :disabled="row.index === config.lx_api_endpoints.length - 1" @click="moveLXAPIEndpoint(row.index, 1)">下移</el-button>
-              <el-button link type="danger" @click="removeLXAPIEndpoint(row.index)">删除</el-button>
-            </div>
-          </div>
-        </template>
+        <div class="setting-row">
+          <strong>主 API 地址</strong>
+          <el-input :model-value="getLXEndpoint(0)" placeholder="http://127.0.0.1:23330" @update:model-value="setLXEndpoint(0, $event)" />
+        </div>
+        <div class="setting-row">
+          <strong>备用 API 地址</strong>
+          <el-input :model-value="getLXEndpoint(1)" placeholder="http://192.168.1.3:23330" @update:model-value="setLXEndpoint(1, $event)" />
+        </div>
       </div>
       <div class="card-actions">
-        <el-button plain :disabled="!config || config.lx_api_endpoints.length >= 10" @click="addLXAPIEndpoint">添加 API 地址</el-button>
+        <el-button plain :disabled="!config || config.lx_api_endpoints.length < 2" @click="swapLXEndpoints">交换主备地址</el-button>
         <el-button type="primary" :loading="saving" :disabled="!config" @click="testLXAPIConnection">保存并测试连接</el-button>
       </div>
       <el-divider />
