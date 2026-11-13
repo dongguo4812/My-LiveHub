@@ -74,7 +74,7 @@ func DefaultLXSearchEndpoints() LXSearchEndpoints {
 	return LXSearchEndpoints{
 		Kuwo: "http://search.kuwo.cn/r.s",
 		Kugou: "http://songsearch.kugou.com/song_search_v2",
-		QQ: "https://u.y.qq.com/cgi-bin/musics.fcg",
+		QQ: "https://u.y.qq.com/cgi-bin/musicu.fcg",
 		Netease: "http://interface.music.163.com/eapi/batch",
 		Migu: "https://jadeite.migu.cn/music_search/v3/search/searchAll",
 	}
@@ -409,22 +409,6 @@ type qqSearchProvider struct { client *http.Client; endpoint string }
 func (p qqSearchProvider) ID()string{return LXSearchTX}
 func (p qqSearchProvider) Name()string{return "QQ 音乐"}
 type qqSearchRequest struct {
-	Comm struct {
-		ChannelID string `json:"_channelid"`
-		OSVersion string `json:"_os_version"`
-		CT string `json:"ct"`
-		CV string `json:"cv"`
-		GUID string `json:"guid"`
-		Patch string `json:"patch"`
-		Expires int `json:"psrf_access_token_expiresAt"`
-		AccessToken string `json:"psrf_qqaccess_token"`
-		OpenID string `json:"psrf_qqopenid"`
-		UnionID string `json:"psrf_qqunionid"`
-		AppID string `json:"tmeAppID"`
-		LoginType int `json:"tmeLoginType"`
-		UIN string `json:"uin"`
-		WID string `json:"wid"`
-	} `json:"comm"`
 	Service struct {
 		Module string `json:"module"`
 		Method string `json:"method"`
@@ -466,7 +450,7 @@ func (p qqSearchProvider) Search(ctx context.Context,keyword string,page,limit i
 		payload.Service.Param.SearchID=strings.ToUpper(hex.EncodeToString(random[:]))+fmt.Sprintf("%05d",time.Now().UnixNano()%100000)
 		body,err:=jsonBody(payload);if err!=nil{return SearchPage{},err}
 		sign:=qqSignature(string(body))
-		raw,err=doLXJSON(ctx,p.client,http.MethodPost,p.endpoint+"?sign="+url.QueryEscape(sign),map[string]string{"User-Agent":"QQMusic 14090508(android 12)","Content-Type":"application/json"},bytes.NewReader(body))
+		raw,err=doLXJSON(ctx,p.client,http.MethodPost,p.endpoint,map[string]string{"User-Agent":"Mozilla/5.0","Content-Type":"application/json","Referer":"https://y.qq.com/","Origin":"https://y.qq.com"},bytes.NewReader(body))
 		if err!=nil{return SearchPage{},err}
 		req:=mapValue(raw["music.search.SearchCgiService"]);if len(req)==0{req=mapValue(raw["req"])}
 		if len(req)>0&&intValue(raw["code"])==0&&intValue(req["code"])==0 {
