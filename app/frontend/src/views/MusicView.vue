@@ -474,7 +474,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         </div>
         <div class="setting-row">
           <strong>备用 API 地址</strong>
-          <el-input :model-value="getLXEndpoint(1)" placeholder="http://192.168.1.3:23330" @update:model-value="setLXEndpoint(1, $event)" />
+          <el-input :model-value="getLXEndpoint(1)" placeholder="备用地址（可留空）" @update:model-value="setLXEndpoint(1, $event)" />
         </div>
       </div>
       <div class="card-actions">
