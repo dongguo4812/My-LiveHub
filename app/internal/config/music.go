@@ -59,8 +59,8 @@ func MigrateMusicConfig(c MusicConfig) (MusicConfig, bool) {
 	if c.QueueDisplayCount >= 1 && c.QueueDisplayCount <= 1000 {
 		n.QueueDisplayCount = c.QueueDisplayCount
 	}
-	if len(c.LXAPIEndpoints) > 0 { n.LXAPIEndpoints = append([]string(nil), c.LXAPIEndpoints...) }
-	if len(c.EnabledSearchSources) > 0 { n.EnabledSearchSources = append([]string(nil), c.EnabledSearchSources...) }
+	if c.LXAPIEndpoints != nil { n.LXAPIEndpoints = append([]string{}, c.LXAPIEndpoints...) }
+	if c.EnabledSearchSources != nil { n.EnabledSearchSources = append([]string{}, c.EnabledSearchSources...) }
 	n.RequireFanMedal = c.RequireFanMedal
 	if c.FanMedalLevel >= 1 && c.FanMedalLevel <= 120 { n.FanMedalLevel = c.FanMedalLevel }
 	return n, true
