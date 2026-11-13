@@ -91,9 +91,9 @@ func NewLXSearchClientWithEndpoints(client *http.Client, endpoints LXSearchEndpo
 	return &LXSearchClient{
 		httpClient: client,
 		providers: []SearchProvider{
+			qqSearchProvider{client: client, endpoint: endpoints.QQ},
 			kuwoSearchProvider{client: client, endpoint: endpoints.Kuwo},
 			kugouSearchProvider{client: client, endpoint: endpoints.Kugou},
-			qqSearchProvider{client: client, endpoint: endpoints.QQ},
 			neteaseSearchProvider{client: client, endpoint: endpoints.Netease},
 			miguSearchProvider{client: client, endpoint: endpoints.Migu},
 		},
