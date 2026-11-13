@@ -103,6 +103,10 @@ type LXElectronUserSourceProcess struct {
 }
 
 func findLXElectronRuntime() (string, []string, error) {
+	if override := strings.TrimSpace(os.Getenv("MY_LIVEHUB_LX_RUNTIME_EXE")); override != "" {
+		if info, err := os.Stat(override); err == nil && !info.IsDir() { return override, nil, nil }
+		return "", nil, fmt.Errorf("指定的洛雪 Electron 运行程序不存在：%s", override)
+	}
 	exe, err := os.Executable()
 	if err != nil { return "", nil, fmt.Errorf("定位 My-LiveHub 可执行文件失败：%w", err) }
 	exeDir := filepath.Dir(exe)
