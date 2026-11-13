@@ -32,14 +32,14 @@ func TestIndependentSearchSourcePriorityPersistsThroughServiceReload(t *testing.
 	value.EnabledSearchSources = []string{"mg", "tx", "kw"}
 	service := NewMusicService(manager, value)
 	if err := service.SaveConfig(value); err != nil { t.Fatal(err) }
-	if got := service.activeLXSearchSourceIDs(); len(got) != 3 || got[0] != "mg" || got[1] != "tx" || got[2] != "kw" {
+	if got := service.enabledSearchSourceIDs(); len(got) != 3 || got[0] != "mg" || got[1] != "tx" || got[2] != "kw" {
 		t.Fatalf("configured search order = %v", got)
 	}
 	reloaded, err := config.LoadMusicConfig(manager)
 	if err != nil { t.Fatal(err) }
 	restarted := NewMusicService(manager, reloaded)
 	defer restarted.Shutdown()
-	if got := restarted.activeLXSearchSourceIDs(); len(got) != 3 || got[0] != "mg" || got[1] != "tx" || got[2] != "kw" {
+	if got := restarted.enabledSearchSourceIDs(); len(got) != 3 || got[0] != "mg" || got[1] != "tx" || got[2] != "kw" {
 		t.Fatalf("search order after restart = %v", got)
 	}
 }
