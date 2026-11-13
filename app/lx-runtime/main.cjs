@@ -64,7 +64,10 @@ function createWindow() {
   windowRef.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   windowRef.on('closed', () => { windowRef = null })
   const html = '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body></body></html>'
-  return windowRef.loadURL('data:text/html;charset=UTF-8,' + encodeURIComponent(html))
+  return new Promise((resolve, reject) => {
+    windowRef.once('ready-to-show', resolve)
+    windowRef.loadURL('data:text/html;charset=UTF-8,' + encodeURIComponent(html)).catch(reject)
+  })
 }
 
 function onRendererEvent(name, handler) {
