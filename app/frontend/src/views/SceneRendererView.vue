@@ -186,7 +186,7 @@ function isAudienceRequest(value?: string) {
 const audienceCurrent = computed(() => isAudienceRequest(musicQueue.value.current?.requested_by) ? musicQueue.value.current : null)
 const audienceQueueItems = computed(() => musicQueue.value.items.filter(item => isAudienceRequest(item.requested_by)))
 function audienceQueueDisplayItems(layer: Layer) {
-  return audienceQueueItems.value.slice(0, Math.max(1, layer.queue_display_count || 5))
+  return audienceQueueItems.value.slice(0, Math.max(1, layer.queue_display_count || 10))
 }
 async function loadMusicDisplayConfig() {
   try {
