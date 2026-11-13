@@ -147,6 +147,10 @@ async function removeScene() {
 function layerLabel(type: string) {
   return ({ text: '文字', image: '图片', clock: '时钟', danmaku: '弹幕', gift: '礼物', super_chat: 'SC', music: '音乐', music_queue: '歌曲点播队列', video_queue: '视频点播队列' } as Record<string, string>)[type] ?? type
 }
+function videoQueuePreviewItems(layer: LayoutLayer) {
+  const count = (layer as LayoutLayer & { queue_display_count?: number }).queue_display_count || 10
+  return (videoQueueSnapshot.value?.items ?? []).slice(0, count)
+}
 async function loadVideoQueueSnapshot() {
   try {
     videoQueueSnapshot.value = await VideoQueueService.GetSnapshot() as typeof videoQueueSnapshot.value
@@ -232,7 +236,7 @@ onUnmounted(() => {
               <div class="queue-preview-prompt"><strong>▸ 视频点播指令</strong><span>点播 BV号</span></div>
               <div class="queue-preview-current"><strong>▶ 当前播放</strong><span>{{ videoQueueSnapshot?.current?.title || '暂无正在播放的视频' }} <small v-if="videoQueueSnapshot?.current">{{ videoQueueSnapshot.current.requester }}</small></span></div>
               <div class="queue-preview-pending"><strong>Ⅱ 待播队列 <small>{{ videoQueueSnapshot?.queue_count ?? 0 }} 个</small></strong>
-                <span v-for="(item, index) in (videoQueueSnapshot?.items ?? []).slice(0, (layer as any).queue_display_count || 10)" :key="item.id">{{ String(index + 1).padStart(2, '0') }}　{{ item.title }} <small>{{ item.requester }}</small></span>
+                <span v-for="(item, index) in videoQueuePreviewItems(layer)" :key="item.id">{{ String(index + 1).padStart(2, '0') }}　{{ item.title }} <small>{{ item.requester }}</small></span>
                 <span v-if="!videoQueueSnapshot?.items.length">暂无待播视频</span>
               </div>
             </div>
