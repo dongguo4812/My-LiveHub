@@ -69,3 +69,38 @@ func TestLXPlaybackEngineFallsBackAcrossStatusPaths(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	if got.State != music.PlaybackPlaying || got.Track == nil || got.Track.Title != "晴天" { t.Fatalf("unexpected snapshot: %#v", got) }
 }
+
+
+func TestLXPlaybackEngineFallsBackToNextConfiguredAddress(t *testing.T) {
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	defer first.Close()
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/status" && r.URL.Path != "/api/status" { http.NotFound(w, r); return }
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"playing","name":"稻香","singer":"周杰伦"}`))
+	}))
+	defer second.Close()
+	engine := NewLXPlaybackEngine([]string{first.URL, second.URL})
+	got, err := engine.Snapshot(context.Background())
+	if err != nil { t.Fatal(err) }
+	if got.State != music.PlaybackPlaying || got.Track == nil || got.Track.Title != "稻香" {
+		t.Fatalf("fallback endpoint returned unexpected status: %#v", got)
+	}
+}
+
+func TestLXPlaybackEngineUsesDocumentedPauseAndResumeEndpoints(t *testing.T) {
+	var calls []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.URL.Path)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	engine := NewLXPlaybackEngine([]string{server.URL})
+	if err := engine.Pause(context.Background()); err != nil { t.Fatal(err) }
+	if err := engine.Resume(context.Background()); err != nil { t.Fatal(err) }
+	if len(calls) != 2 || calls[0] != "/pause" || calls[1] != "/play" {
+		t.Fatalf("unexpected control API calls: %#v", calls)
+	}
+}
