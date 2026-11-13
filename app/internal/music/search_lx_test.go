@@ -201,22 +201,22 @@ func TestLXSearchSingleProviderPreservesNativeOrder(t *testing.T) {
 }
 
 
-func TestQQSearchRetriesRejectedResponsesLikeLXDesktop(t *testing.T) {
+func TestQQSearchUsesCurrentUnsignedModuleEnvelope(t *testing.T) {
 	attempts := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts++
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil { t.Errorf("decode QQ request: %v", err) }
 		if r.URL.Query().Get("sign") != "" { t.Error("legacy QQ sign query should be omitted") }
 		if _, ok := request["comm"]; ok { t.Error("legacy QQ comm envelope should be omitted") }
-		if attempts < 3 {
-			_, _ = w.Write([]byte(`{"code":-1,"music.search.SearchCgiService":{"code":-1,"message":"temporary rejection"}}`))
-			return
-		}
+		service := mapValue(request["music.search.SearchCgiService"])
+		if stringValue(service["method"]) != "DoSearchForQQMusicDesktop" { t.Errorf("unexpected QQ method: %#v", service) }
 		_, _ = w.Write([]byte(`{"code":0,"music.search.SearchCgiService":{"code":0,"data":{"body":{"song":{"list":[]}},"meta":{"sum":0}}}}`))
 	}))
 	defer server.Close()
 	provider := qqSearchProvider{client:server.Client(), endpoint:server.URL}
-	if _, err := provider.Search(context.Background(), "test", 1, 30); err != nil { t.Fatalf("QQ Search() failed after transient rejections: %v", err) }
-	if attempts != 3 { t.Fatalf("QQ request attempts = %d, want 3", attempts) }
+	if _, err := provider.Search(context.Background(), "test", 1, 30); err != nil { t.Fatalf("QQ Search() failed: %v", err) }
+	if attempts != 1 { t.Fatalf("QQ request attempts = %d, want 1", attempts) }
 }
 
 func TestDefaultLXSearchQQEndpointMatchesLXDesktop(t *testing.T) {
