@@ -51,6 +51,7 @@ type LayoutLayer struct {
 
 type sceneMusicProvider interface {
 	GetPlaybackStatus() (music.PlaybackSnapshot, error)
+	GetQueue() music.QueueSnapshot
 	GetLyrics(music.Track) (string, error)
 }
 
@@ -78,6 +79,7 @@ func NewSceneService(manager *config.Manager, events *eventstream.Buffer, assets
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/scenes/", service.handleScene)
 	mux.HandleFunc("/api/music", service.handleMusic)
+	mux.HandleFunc("/api/music/queue", service.handleMusicQueue)
 	mux.HandleFunc("/api/music/lyrics", service.handleMusicLyrics)
 	mux.HandleFunc("/api/events", service.handleEvents)
 	mux.HandleFunc("/api/events/recent", service.handleRecentEvents)
@@ -141,7 +143,7 @@ func validateLayoutConfig(value LayoutConfig) error {
 			}
 			layerIDs[layer.ID] = true
 			switch layer.Type {
-			case "text", "image", "clock", "danmaku", "gift", "super_chat", "music":
+			case "text", "image", "clock", "danmaku", "gift", "super_chat", "music", "music_queue":
 			default:
 				return fmt.Errorf("不支持的图层类型：%s", layer.Type)
 			}
@@ -257,6 +259,18 @@ func (s *SceneService) handleMusic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeSceneJSON(w, snapshot)
+}
+
+func (s *SceneService) handleMusicQueue(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.music == nil {
+		http.Error(w, "music service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	writeSceneJSON(w, s.music.GetQueue())
 }
 
 func (s *SceneService) handleMusicLyrics(w http.ResponseWriter, r *http.Request) {
