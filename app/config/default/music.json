@@ -1,5 +1,5 @@
 {
-  "config_version": 11,
+  "config_version": 12,
   "enabled": true,
   "command_enabled": true,
   "skip_command_enabled": true,
@@ -7,8 +7,6 @@
   "command_prefix": "点歌",
   "queue_capacity": 100,
   "queue_display_count": 5,
-  "volume": 80,
-  "loudness_normalization": false,
   "require_fan_medal": false,
   "fan_medal_level": 1,
   "lx_api_endpoints": [
