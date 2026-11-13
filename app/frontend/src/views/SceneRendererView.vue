@@ -178,9 +178,13 @@ async function loadTrackLyrics(track: Track, key: string) {
     if (requestID === lyricsRequestID && musicTrackKey === key) lyricsLoading.value = false
   }
 }
-function displayRequester(value?: string, fallback = '观众') {
-  return !value || value === '__my_livehub_search_play__' ? fallback : value
+function isAudienceRequest(value?: string) {
+  return Boolean(value?.trim())
+    && value !== '__my_livehub_search_play__'
+    && value !== '__my_livehub_host_playlist__'
 }
+const audienceCurrent = computed(() => isAudienceRequest(musicQueue.value.current?.requested_by) ? musicQueue.value.current : null)
+const audienceQueueItems = computed(() => musicQueue.value.items.filter(item => isAudienceRequest(item.requested_by)))
 async function loadMusicDisplayConfig() {
   try {
     const response = await fetch('/api/music/config', { cache: 'no-store' })
@@ -264,24 +268,36 @@ onUnmounted(() => {
       <div v-else-if="layer.type === 'super_chat'" class="event-stack">
         <div v-for="item in superChats" :key="item.id" class="event-line sc-line"><strong>{{ item.user_name }} · ¥{{ Number(item.amount || 0).toFixed(2) }}</strong><span>{{ item.content }}</span></div>
       </div>
-      <section v-else-if="layer.type === 'music_queue'" class="music-queue-widget" :style="{ fontSize: ((layer.font_size || 22) / (scene?.height || 1080) * 100) + 'cqh' }">
-        <strong class="music-queue-heading">当前播放</strong>
-        <div v-if="playback?.state === 'playing' && playback?.track" class="music-queue-list">
-          <div class="music-queue-item">
-            <span class="music-queue-track"><strong>{{ playback.track.title }}</strong><small>{{ playback.track.artist || '未知歌手' }}</small></span>
-            <span class="music-queue-requester">{{ displayRequester(musicQueue.current?.requested_by, '主播') }}</span>
+      <section v-else-if="layer.type === 'music_queue'" class="music-queue-widget" :style="{ '--queue-accent': layer.color || '#9fc0ff', fontSize: ((layer.font_size || 22) / (scene?.height || 1080) * 100) + 'cqh' }">
+        <section class="music-queue-section music-queue-prompt">
+          <strong class="music-queue-heading"><span class="music-queue-heading-mark">✦</span> 点歌提示</strong>
+          <template v-if="musicDisplayConfig?.enabled">
+            <div v-if="musicDisplayConfig.command_enabled" class="music-queue-prompt-line"><span class="music-queue-prompt-label">点歌</span><strong>{{ musicDisplayConfig.command_prefix }} 歌曲名称</strong></div>
+            <div v-if="musicDisplayConfig.skip_command_enabled" class="music-queue-prompt-line"><span class="music-queue-prompt-label">切歌</span><strong>{{ musicDisplayConfig.skip_command }} <small>主播 / 房管</small></strong></div>
+            <div v-if="musicDisplayConfig.require_fan_medal" class="music-queue-prompt-note">需拥有主播粉丝勋章，等级达到 {{ musicDisplayConfig.fan_medal_level }} 级</div>
+            <div v-if="!musicDisplayConfig.command_enabled && !musicDisplayConfig.skip_command_enabled" class="music-queue-empty">当前未启用点歌指令</div>
+          </template>
+          <div v-else class="music-queue-empty">{{ musicDisplayConfig ? '音乐点歌功能未启用' : '正在读取点歌指令…' }}</div>
+        </section>
+        <section class="music-queue-section">
+          <strong class="music-queue-heading"><span class="music-queue-heading-mark">♫</span> 当前播放</strong>
+          <div v-if="audienceCurrent" class="music-queue-item music-queue-current">
+            <span class="music-queue-track"><strong>{{ audienceCurrent.track.title }}</strong><small>{{ audienceCurrent.track.artist || '未知歌手' }}</small></span>
+            <span class="music-queue-requester">{{ audienceCurrent.requested_by }}</span>
           </div>
-        </div>
-        <div v-else class="music-queue-empty">当前没有正在播放的歌曲</div>
-        <strong class="music-queue-heading">待播队列</strong>
-        <div v-if="musicQueue.items.length" class="music-queue-list">
-          <div v-for="(item, index) in musicQueue.items" :key="item.id" class="music-queue-item">
-            <span class="music-queue-index">{{ index + 1 }}</span>
-            <span class="music-queue-track"><strong>{{ item.track.title }}</strong><small>{{ item.track.artist || '未知歌手' }}</small></span>
-            <span v-if="item.requested_by !== '__my_livehub_search_play__'" class="music-queue-requester">{{ item.requested_by || '观众' }}</span>
+          <div v-else class="music-queue-empty">当前没有观众点播歌曲</div>
+        </section>
+        <section class="music-queue-section music-queue-pending">
+          <strong class="music-queue-heading"><span class="music-queue-heading-mark">Ⅱ</span> 待播队列 <span class="music-queue-count">{{ audienceQueueItems.length }} 首</span></strong>
+          <div v-if="audienceQueueItems.length" class="music-queue-list">
+            <div v-for="(item, index) in audienceQueueItems" :key="item.id" class="music-queue-item">
+              <span class="music-queue-index">{{ String(index + 1).padStart(2, '0') }}</span>
+              <span class="music-queue-track"><strong>{{ item.track.title }}</strong><small>{{ item.track.artist || '未知歌手' }}</small></span>
+              <span class="music-queue-requester">{{ item.requested_by }}</span>
+            </div>
           </div>
-        </div>
-        <div v-else class="music-queue-empty">暂无待播点播歌曲</div>
+          <div v-else class="music-queue-empty">暂无观众待播歌曲</div>
+        </section>
       </section>
       <section v-else-if="layer.type === 'music_prompt'" class="music-simple-widget music-prompt-widget" :style="{ fontSize: ((layer.font_size || 22) / (scene?.height || 1080) * 100) + 'cqh' }">
         <strong class="music-simple-heading">点歌提示</strong>
@@ -355,17 +371,29 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-simple-empty,.music-prompt-note{padding:.4em .5em;border-radius:.3em;background:rgba(16,19,26,.45);font-size:.86em;opacity:.82}
 .music-prompt-line{padding:.42em .5em;border-radius:.3em;background:rgba(16,19,26,.62);line-height:1.35}
 .music-prompt-widget{align-items:stretch}
-.music-queue-widget{display:flex;flex-direction:column;gap:.45em;width:100%;height:100%;overflow:hidden}
-.music-queue-heading{font-size:1.08em;line-height:1.35;padding:0 0 .3em;border-bottom:1px solid currentColor}
-.music-queue-list{display:flex;flex-direction:column;gap:.35em;min-height:0;overflow:hidden}
-.music-queue-item{display:flex;align-items:center;gap:.55em;min-width:0;padding:.35em .5em;border-radius:.35em;background:rgba(16,19,26,.72);line-height:1.3}
-.music-queue-index{flex:none;min-width:1.4em;text-align:center;opacity:.78;font-variant-numeric:tabular-nums}
+.music-queue-output-layer{padding:0;text-shadow:none;white-space:normal;overflow:hidden;font-family:Arial,"Microsoft YaHei",sans-serif}
+.music-queue-widget{display:flex;flex-direction:column;gap:.62em;width:100%;height:100%;overflow:hidden;color:#f4f6fb;text-shadow:0 2px 5px rgba(0,0,0,.5)}
+.music-queue-section{display:flex;flex-direction:column;gap:.35em;min-width:0;padding:.55em .68em;border:1px solid rgba(159,192,255,.16);border-radius:.55em;background:linear-gradient(135deg,rgba(20,26,38,.88),rgba(13,17,26,.78));box-shadow:0 4px 14px rgba(0,0,0,.16)}
+.music-queue-heading{display:flex;align-items:center;gap:.42em;min-width:0;padding-bottom:.32em;border-bottom:1px solid rgba(159,192,255,.22);color:#9fc0ff;font-size:1.02em;font-weight:800;line-height:1.35}
+.music-queue-heading-mark{flex:none;color:#ffd66b}
+.music-queue-count{margin-left:auto;color:#aebbd0;font-size:.72em;font-weight:600}
+.music-queue-prompt{border-color:rgba(255,214,107,.2);background:linear-gradient(135deg,rgba(48,39,25,.88),rgba(22,23,29,.82))}
+.music-queue-prompt .music-queue-heading{color:#ffd66b;border-bottom-color:rgba(255,214,107,.24)}
+.music-queue-prompt-line{display:flex;align-items:center;gap:.65em;min-width:0;padding:.32em .48em;border-radius:.32em;background:rgba(255,255,255,.055);font-size:.82em;line-height:1.35}
+.music-queue-prompt-label{flex:none;min-width:2.5em;color:#ffd66b;font-weight:800}
+.music-queue-prompt-line strong{min-width:0;overflow-wrap:anywhere;color:#f5f6fa;font-weight:700}
+.music-queue-prompt-line small{color:#aebbd0;font-size:.82em;font-weight:500}
+.music-queue-prompt-note{padding:.25em .48em;color:#c4cddd;font-size:.72em;line-height:1.35}
+.music-queue-list{display:flex;flex-direction:column;gap:.28em;min-height:0;overflow:hidden}
+.music-queue-item{display:flex;align-items:center;gap:.58em;min-width:0;padding:.38em .5em;border:1px solid rgba(255,255,255,.055);border-radius:.36em;background:rgba(255,255,255,.055);line-height:1.3}
+.music-queue-current{border-color:rgba(255,214,107,.2);background:rgba(255,214,107,.075)}
+.music-queue-index{flex:none;min-width:1.7em;color:#9fc0ff;font-size:.78em;font-weight:800;font-variant-numeric:tabular-nums}
 .music-queue-track{display:flex;flex:1;flex-direction:column;gap:.12em;min-width:0;overflow:hidden}
 .music-queue-track strong,.music-queue-track small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.music-queue-track strong{font-size:1em}
-.music-queue-track small{font-size:.78em;opacity:.78}
-.music-queue-requester{flex:none;max-width:28%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.78em;opacity:.82}
-.music-queue-empty{padding:.55em .6em;border-radius:.35em;background:rgba(16,19,26,.6);font-size:.85em;opacity:.8}
+.music-queue-track strong{color:#f7f8fc;font-size:.88em;font-weight:750}
+.music-queue-track small{color:#aeb9ca;font-size:.7em}
+.music-queue-requester{flex:none;max-width:30%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#65b8ff;font-size:.72em;font-weight:700}
+.music-queue-empty{padding:.38em .5em;color:#aeb9ca;font-size:.76em;line-height:1.4}
 .music-widget{width:min(405px,100%);display:flex;flex-direction:column;gap:8px;position:relative;overflow:hidden;border-radius:9px;user-select:none;color:#e7c89d}
 .music-main{height:112px;display:flex;gap:8px;min-width:0;position:relative}
 .music-cover-wrap{height:112px;width:112px;flex:0 0 112px;position:relative;overflow:hidden;border-radius:5px;background:rgba(102,76,60,.35)}
