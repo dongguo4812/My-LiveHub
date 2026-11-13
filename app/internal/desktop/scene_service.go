@@ -47,6 +47,7 @@ type LayoutLayer struct {
 	URL      string  `json:"url,omitempty"`
 	Color    string  `json:"color,omitempty"`
 	FontSize int     `json:"font_size,omitempty"`
+	QueueDisplayCount int `json:"queue_display_count,omitempty"`
 }
 
 type sceneMusicProvider interface {
