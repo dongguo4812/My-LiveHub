@@ -10,7 +10,10 @@ type LXDeclaredSource struct {
 	Qualitys []string `json:"qualitys,omitempty"`
 }
 
+const LXUserSourceRuntimeVersion = "lx-electron-2.12.6"
+
 type LXSourceRuntimeResult struct {
+	Runtime string `json:"runtime,omitempty"`
 	Initialized bool `json:"initialized"`
 	Message string `json:"message,omitempty"`
 	Platforms []string `json:"platforms"`
