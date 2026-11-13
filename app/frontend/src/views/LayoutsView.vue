@@ -5,6 +5,7 @@ import { CopyDocument, Plus, Delete, Picture, ChatLineRound, Clock, Present, Cha
 import { getScenes, saveScene, deleteScene, getBrowserSourceURL, type LayoutScene, type LayoutLayer } from '../services/layouts'
 import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
 import * as VideoQueueService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/videoqueueservice.js'
+import { getLive2DSettings, listLive2DModels } from '../services/live2d'
 
 type Live2DDisplay = { enabled: boolean; runtime_version: 'moc2' | 'moc3'; model_url: string; model_scale: number; model_offset_x: number; model_offset_y: number }
 const live2DDisplay = ref<Live2DDisplay | null>(null)
@@ -27,8 +28,17 @@ function handleLive2DMessage(event: MessageEvent) {
 }
 async function loadLive2DDisplay() {
   try {
-    const response = await fetch('/api/live2d', { cache: 'no-store' })
-    if (response.ok) live2DDisplay.value = await response.json() as Live2DDisplay
+    const [settings, models] = await Promise.all([getLive2DSettings(), listLive2DModels()])
+    const modelID = settings.runtime_version === 'moc2' ? settings.default_model_moc2 : settings.default_model_moc3
+    const model = models.find(item => item.format === settings.runtime_version && item.id === modelID)
+    live2DDisplay.value = {
+      enabled: settings.enabled,
+      runtime_version: settings.runtime_version,
+      model_url: model?.model_url ?? '',
+      model_scale: settings.runtime_version === 'moc2' ? settings.model_scale_moc2 : settings.model_scale_moc3,
+      model_offset_x: settings.runtime_version === 'moc2' ? settings.model_offset_x_moc2 : settings.model_offset_x_moc3,
+      model_offset_y: settings.runtime_version === 'moc2' ? settings.model_offset_y_moc2 : settings.model_offset_y_moc3,
+    }
   } catch { /* Keep the last known Live2D configuration. */ }
 }
 
