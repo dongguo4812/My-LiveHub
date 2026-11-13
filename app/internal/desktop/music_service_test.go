@@ -9,7 +9,7 @@ func TestParseSongRequest(t *testing.T){
 func TestNewMusicServiceRegistersFiveLXSearchPlatforms(t *testing.T){
  s:=NewMusicService(nil, config.DefaultMusicConfig());defer s.Shutdown()
  got:=s.GetSources()
- want:=[]string{"kg","kw","mg","tx","wy"}
+ want:=[]string{"tx","kw","kg","wy","mg"}
  if len(got)!=len(want){t.Fatalf("got %d sources, want %d: %#v",len(got),len(want),got)}
  for i,id:=range want { if got[i].ID!=id { t.Errorf("source[%d]=%q, want %q",i,got[i].ID,id) }; if !got[i].Capabilities.Search { t.Errorf("source %q is not marked searchable",id) } }
 }
@@ -140,91 +140,21 @@ func TestOnlyRoomOwnerAndModeratorsCanSkip(t *testing.T) {
 }
 
 
-func TestLXSearchSourceSelectionPersistsThroughServiceReload(t *testing.T) {
-	dir := t.TempDir()
-	newService := func() *MusicService {
-		service := NewMusicService(nil, config.DefaultMusicConfig())
-		service.lxStoreOnce.Do(func() {})
-		store, err := music.NewLXUserSourceStore(dir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		service.lxStore = store
-		return service
+func TestIndependentSearchSourcePriorityPersistsThroughServiceReload(t *testing.T) {
+	manager, err := config.NewManager(fstest.MapFS{}, t.TempDir())
+	if err != nil { t.Fatal(err) }
+	value := config.DefaultMusicConfig()
+	value.EnabledSearchSources = []string{"mg", "tx", "kw"}
+	service := NewMusicService(manager, value)
+	if err := service.SaveConfig(value); err != nil { t.Fatal(err) }
+	if got := service.activeLXSearchSourceIDs(); len(got) != 3 || got[0] != "mg" || got[1] != "tx" || got[2] != "kw" {
+		t.Fatalf("configured search order = %v", got)
 	}
-
-	service := newService()
-	defer service.Shutdown()
-
-	script := "/*\n * @name Huibq search source fixture\n * @version 1.2.0\n */\nvoid 0;"
-	metadata, err := service.lxStore.ImportScript(script, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	keys := []string{"kw", "kg", "tx", "wy", "mg"}
-	declared := make([]music.LXDeclaredSource, 0, len(keys))
-	for _, key := range keys {
-		declared = append(declared, music.LXDeclaredSource{
-			Key: key, Type: "music", Actions: []string{"musicUrl"},
-		})
-	}
-	result := music.LXSourceRuntimeResult{
-		Initialized: true,
-		Platforms: keys,
-		DeclaredSources: declared,
-	}
-	if err := service.lxStore.SetValidation(metadata.ID, result); err != nil {
-		t.Fatal(err)
-	}
-
-	// Save a non-default selection and a deliberately non-default priority.
-	wantEnabled := []string{"tx", "kw", "mg"}
-	if err := service.SetLXSearchSources(metadata.ID, wantEnabled); err != nil {
-		t.Fatal(err)
-	}
-	assertOptions := func(got []LXSearchSourceOption, want []string) {
-		t.Helper()
-		gotEnabled := make([]string, 0)
-		for _, option := range got {
-			if option.Enabled {
-				gotEnabled = append(gotEnabled, option.ID)
-			}
-		}
-		if len(gotEnabled) != len(want) {
-			t.Fatalf("enabled sources after reload = %v, want %v (all options: %#v)", gotEnabled, want, got)
-		}
-		for i := range want {
-			if gotEnabled[i] != want[i] {
-				t.Fatalf("enabled source priority after reload = %v, want %v", gotEnabled, want)
-			}
-		}
-	}
-
-	got, err := service.GetLXSearchSourceOptions(metadata.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertOptions(got, wantEnabled)
-
-	// A fresh service/store instance simulates closing and reopening the app.
-	restarted := newService()
+	reloaded, err := config.LoadMusicConfig(manager)
+	if err != nil { t.Fatal(err) }
+	restarted := NewMusicService(manager, reloaded)
 	defer restarted.Shutdown()
-	got, err = restarted.GetLXSearchSourceOptions(metadata.ID)
-	if err != nil {
-		t.Fatal(err)
+	if got := restarted.activeLXSearchSourceIDs(); len(got) != 3 || got[0] != "mg" || got[1] != "tx" || got[2] != "kw" {
+		t.Fatalf("search order after restart = %v", got)
 	}
-	assertOptions(got, wantEnabled)
-
-	// An explicit empty selection must remain empty after restart, not trigger
-	// the "nil means use all defaults" compatibility path.
-	if err := restarted.SetLXSearchSources(metadata.ID, []string{}); err != nil {
-		t.Fatal(err)
-	}
-	restartedAgain := newService()
-	defer restartedAgain.Shutdown()
-	got, err = restartedAgain.GetLXSearchSourceOptions(metadata.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertOptions(got, []string{})
 }
