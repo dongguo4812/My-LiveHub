@@ -13,6 +13,15 @@ function live2DLayer(layer: LayoutLayer) { return layer as Live2DLayer }
 function live2DScale(layer: LayoutLayer) { return live2DLayer(layer).live2d_scale || 100 }
 const live2DDisplay = ref<Live2DDisplay | null>(null)
 let live2DRefreshTimer: ReturnType<typeof setInterval> | undefined
+let mouthSyncChannel: BroadcastChannel | null = null
+let currentMouthOpen = 0
+function handleMouthSyncMessage(event: MessageEvent) {
+  if (event.data?.type !== 'live2d-mouth-open') return
+  currentMouthOpen = Math.max(0, Math.min(1, Number(event.data.value) || 0))
+  document.querySelectorAll<HTMLIFrameElement>('.live2d-layer-frame').forEach(frame => {
+    ;(frame.contentWindow as (Window & { live2dSetMouthOpen?: (value: number) => void }) | null)?.live2dSetMouthOpen?.(currentMouthOpen)
+  })
+}
 const live2DFrameURL = computed(() => {
   const value = live2DDisplay.value
   if (!value?.enabled || !value.model_url) return ''
@@ -29,7 +38,11 @@ function applyLive2DFrameTransform() {
   })
 }
 function handleLive2DMessage(event: MessageEvent) {
-  if (event.data?.type === 'moc3-model-loaded' || event.data?.type === 'moc2-model-loaded') applyLive2DFrameTransform()
+  if (event.data?.type === 'moc3-model-loaded' || event.data?.type === 'moc2-model-loaded') {
+    applyLive2DFrameTransform()
+    const frame = Array.from(document.querySelectorAll<HTMLIFrameElement>('.live2d-layer-frame')).find(item => item.contentWindow === event.source)
+    ;(frame?.contentWindow as (Window & { live2dSetMouthOpen?: (value: number) => void }) | null)?.live2dSetMouthOpen?.(currentMouthOpen)
+  }
 }
 async function loadLive2DDisplay() {
   try {
@@ -247,6 +260,8 @@ onMounted(() => {
   window.addEventListener('resize', refreshScale)
 })
 onUnmounted(() => {
+  mouthSyncChannel?.close()
+  mouthSyncChannel = null
   window.removeEventListener('resize', refreshScale)
   if (musicConfigRefreshTimer) clearInterval(musicConfigRefreshTimer)
   if (videoQueueRefreshTimer) clearInterval(videoQueueRefreshTimer)
