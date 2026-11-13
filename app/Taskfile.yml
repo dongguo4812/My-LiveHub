@@ -14,13 +14,12 @@ tasks:
   lx-runtime:install:
     summary: 安装洛雪原版 Electron 音源运行环境
     cmds:
-      - npm --prefix lx-runtime install --no-audit --no-fund
-      - npm --prefix lx-runtime run build
+      - powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/prepare-lx-runtime.ps1
   build:
     summary: 构建 My-LiveHub 并附带洛雪 Electron 音源运行环境
     cmds:
-      - npm --prefix lx-runtime install --no-audit --no-fund
-      - npm --prefix lx-runtime run package
+      - powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/prepare-lx-runtime.ps1
+      - npm.cmd --prefix lx-runtime run package
       - wails3 build
       - powershell.exe -NoProfile -Command "New-Item -ItemType Directory -Force -Path ./bin/lx-runtime | Out-Null; Copy-Item -Path ./lx-runtime/release/win-unpacked/* -Destination ./bin/lx-runtime -Recurse -Force"
   frontend:install:
