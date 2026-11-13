@@ -29,6 +29,7 @@ function addLayer(type: string) {
     danmaku: { name: '弹幕列表', width: 760, height: 260, font_size: 24, color: '#ffffff' },
     gift: { name: '礼物展示', width: 520, height: 180, font_size: 28, color: '#ffffff' },
     super_chat: { name: 'SC 展示', width: 520, height: 180, font_size: 28, color: '#ffffff' },
+    music: { name: '音乐展示', width: 620, height: 190, font_size: 24, color: '#ffffff' },
   }
   const base = defaults[type]
   if (!base) return
