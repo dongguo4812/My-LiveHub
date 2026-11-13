@@ -65,7 +65,7 @@ func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original m
 
 		for _, candidate := range candidates {
 			if err := ctx.Err(); err != nil { return music.Track{}, err }
-			if loadErr := s.engine.Load(ctx, music.PlaybackResource{}, candidate); loadErr != nil {
+			if loadErr := s.engine.Load(ctx, candidate); loadErr != nil {
 				failures = append(failures, source+": 洛雪未能确认播放："+loadErr.Error())
 				continue
 			}
