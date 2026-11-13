@@ -151,7 +151,10 @@ async function loadTrackLyrics() {
 }
 function sourceName(id?: string) {
   const names: Record<string, string> = { kw: '酷我音乐', kg: '酷狗音乐', tx: 'QQ 音乐', wy: '网易云音乐', mg: '咪咕音乐' }
-  return id ? (names[id] ?? id) : '洛雪音源'
+  return id ? (names[id] ?? id) : '来源未知'
+}
+function playbackSourceName(track?: Track | null) {
+  return sourceName(track?.lx_source_key || track?.source_id)
 }
 function qualityNames(track: Track) {
   return (track.qualities ?? []).map(item => item.type).join(' / ') || '未知'
@@ -358,7 +361,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
           <strong>{{ playback?.track ? `${playback.track.title} - ${playback.track.artist || '未知歌手'}` : '尚未播放歌曲' }}</strong>
           <span class="current-lyric">{{ playback?.track ? currentLyric : '搜索歌曲并加入播放队列' }}</span>
           <span v-if="playback?.track && currentLyricTranslation" class="current-lyric-translation">{{ currentLyricTranslation }}</span>
-          <small v-if="playback?.track">{{ sourceName(playback.track.source_id) }}</small>
+          <small v-if="playback?.track">{{ playbackSourceName(playback.track) }}</small>
           <el-tag v-else-if="queue?.current && queue.current.requested_by !== '__my_livehub_search_play__'" type="warning" size="small">观众点播</el-tag>
         </div>
       </div>
