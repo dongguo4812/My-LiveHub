@@ -25,7 +25,9 @@ func TestLXSearchClientCallsAllFiveProvidersAndKeepsPartialResults(t *testing.T)
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil { t.Errorf("decode QQ request: %v", err) }
 		service := mapValue(request["music.search.SearchCgiService"]); param := mapValue(service["param"])
 		if intValue(param["num_per_page"]) != 30 { t.Errorf("QQ page size = %v", param["num_per_page"]) }
-		if !strings.HasPrefix(r.URL.Query().Get("sign"), "zzc") { t.Errorf("QQ request missing LX signature") }
+		if r.URL.Query().Get("sign") != "" { t.Errorf("legacy QQ sign query should be omitted") }
+		if r.Header.Get("Referer") != "https://y.qq.com/" { t.Errorf("QQ Referer = %q", r.Header.Get("Referer")) }
+		if _, ok := request["comm"]; ok { t.Errorf("legacy QQ comm envelope should be omitted") }
 		_, _ = w.Write([]byte(`{"code":0,"music.search.SearchCgiService":{"code":0,"data":{"body":{"song":{"list":[{"id":303,"mid":"TX303","title":"QQ Song","interval":182,"singer":[{"name":"Singer"}],"album":{"mid":"ALB","name":"Album"},"file":{"media_mid":"MEDIA","size_128mp3":1000,"size_320mp3":2000}}]}},"meta":{"sum":1}}}}`))
 	})
 	mux.HandleFunc("/wy", func(w http.ResponseWriter, r *http.Request) {
@@ -203,7 +205,8 @@ func TestQQSearchRetriesRejectedResponsesLikeLXDesktop(t *testing.T) {
 	attempts := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts++
-		if r.URL.Query().Get("sign") == "" { t.Error("QQ request missing signature") }
+		if r.URL.Query().Get("sign") != "" { t.Error("legacy QQ sign query should be omitted") }
+		if _, ok := request["comm"]; ok { t.Error("legacy QQ comm envelope should be omitted") }
 		if attempts < 3 {
 			_, _ = w.Write([]byte(`{"code":-1,"music.search.SearchCgiService":{"code":-1,"message":"temporary rejection"}}`))
 			return
@@ -217,7 +220,7 @@ func TestQQSearchRetriesRejectedResponsesLikeLXDesktop(t *testing.T) {
 }
 
 func TestDefaultLXSearchQQEndpointMatchesLXDesktop(t *testing.T) {
-	if got := DefaultLXSearchEndpoints().QQ; got != "https://u.y.qq.com/cgi-bin/musics.fcg" {
-		t.Fatalf("QQ search endpoint = %q, want LX desktop endpoint musics.fcg", got)
+	if got := DefaultLXSearchEndpoints().QQ; got != "https://u.y.qq.com/cgi-bin/musicu.fcg" {
+		t.Fatalf("QQ search endpoint = %q, want current musicu.fcg endpoint", got)
 	}
 }
