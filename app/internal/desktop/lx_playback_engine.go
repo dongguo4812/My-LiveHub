@@ -15,7 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/music"
 )
@@ -286,15 +285,6 @@ func lxTimeMS(object map[string]any, keys []string) int64 {
 		return int64(number * 1000)
 	}
 	return 0
-}
-
-func normalizeLXIdentity(value string) string {
-	var builder strings.Builder
-	for _, r := range strings.ToLower(strings.TrimSpace(value)) {
-		if unicode.IsSpace(r) || unicode.IsPunct(r) || unicode.IsSymbol(r) { continue }
-		builder.WriteRune(r)
-	}
-	return builder.String()
 }
 
 func firstNonEmpty(values ...string) string {
