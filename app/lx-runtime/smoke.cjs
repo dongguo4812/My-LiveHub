@@ -1,14 +1,20 @@
 'use strict'
 
 const { spawn } = require('node:child_process')
+const { createServer } = require('node:net')
+const { randomBytes } = require('node:crypto')
+const readline = require('node:readline')
 const path = require('node:path')
 
 const executable = process.argv[2]
 if (!executable) throw new Error('Pass the packaged LX runtime executable path')
 
-const child = spawn(path.resolve(executable), [], { stdio: ['pipe', 'pipe', 'pipe'] })
-let pending = ''
+const token = randomBytes(32).toString('hex')
+const server = createServer()
+let child
+let socket
 let stderr = ''
+let pending = ''
 const messages = []
 const waiters = []
 
@@ -40,30 +46,50 @@ function waitFor(predicate, timeoutMs = 30000, label = 'LX runtime IPC response'
   })
 }
 
-child.stderr.setEncoding('utf8')
-child.stderr.on('data', chunk => { stderr += chunk })
-
-child.stdout.setEncoding('utf8')
-child.stdout.on('data', chunk => {
-  pending += chunk
-  for (;;) {
-    const index = pending.indexOf('\n')
-    if (index < 0) break
-    const line = pending.slice(0, index).trim()
-    pending = pending.slice(index + 1)
-    if (!line) continue
-    try { dispatch(JSON.parse(line)) } catch (_) {}
-  }
-})
-
-child.on('error', error => {
-  for (const waiter of waiters.splice(0)) {
-    clearTimeout(waiter.timer)
-    waiter.reject(error)
-  }
-})
+function send(message) {
+  if (!socket || socket.destroyed) throw new Error('LX Electron IPC socket is closed')
+  socket.write(JSON.stringify(message) + '\n')
+}
 
 async function run() {
+  await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  const address = server.address()
+  child = spawn(path.resolve(executable), [
+    '--lx-runtime-ipc', '127.0.0.1:' + address.port,
+    '--lx-runtime-token', token,
+  ], { stdio: ['ignore', 'ignore', 'pipe'] })
+  child.stderr.setEncoding('utf8')
+  child.stderr.on('data', chunk => { stderr += chunk })
+
+  const connection = await new Promise((resolve, reject) => {
+    server.once('connection', resolve)
+    child.once('error', reject)
+    child.once('exit', code => reject(new Error('LX runtime exited before IPC connection: ' + code + '; stderr: ' + stderr)))
+  })
+  socket = connection
+  const input = readline.createInterface({ input: socket, crlfDelay: Infinity })
+  const hello = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Timed out waiting for LX IPC handshake; stderr: ' + stderr)), 15000)
+    input.once('line', line => {
+      clearTimeout(timer)
+      try { resolve(JSON.parse(line)) } catch (error) { reject(error) }
+    })
+  })
+  if (hello.type !== 'hello' || hello.token !== token) throw new Error('Invalid LX runtime IPC handshake')
+
+  input.on('line', line => {
+    try { dispatch(JSON.parse(line)) } catch (_) {}
+  })
+  socket.on('close', () => {
+    for (const waiter of waiters.splice(0)) {
+      clearTimeout(waiter.timer)
+      waiter.reject(new Error('LX runtime IPC socket closed; stderr: ' + stderr))
+    }
+  })
+
   const script = [
     'lx.on(lx.EVENT_NAMES.request, function (request) {',
     '  return Promise.resolve("https://cdn.example.test/" + request.info.songmid + ".mp3");',
@@ -73,7 +99,7 @@ async function run() {
     '});',
   ].join('\n')
 
-  child.stdin.write(JSON.stringify({
+  send({
     operation: 'init',
     script,
     id: 'smoke',
@@ -83,10 +109,7 @@ async function run() {
     author: '',
     homepage: '',
     proxy: { host: '', port: '' },
-  }) + '\n')
-
-  const ready = await waitFor(message => message.type === 'ready' || message.type === 'error', 30000, 'Electron BrowserWindow ready')
-  if (ready.type === 'error') throw new Error('Electron host initialization failed: ' + JSON.stringify(ready.params))
+  })
 
   const initialized = await waitFor(message =>
     message.type === 'event' &&
@@ -98,7 +121,7 @@ async function run() {
   )
   if (!initialized.params.data.sources.wy) throw new Error('LX preload did not register the test source')
 
-  child.stdin.write(JSON.stringify({
+  send({
     operation: 'request',
     requestKey: 'smoke-request-1',
     data: {
@@ -106,7 +129,7 @@ async function run() {
       action: 'musicUrl',
       info: { type: '320k', songmid: 'smoke-track' },
     },
-  }) + '\n')
+  })
 
   const response = await waitFor(message =>
     message.type === 'event' &&
@@ -121,13 +144,17 @@ async function run() {
     throw new Error('Unexpected musicUrl result: ' + String(url))
   }
 
-  child.stdin.write(JSON.stringify({ operation: 'close' }) + '\n')
-  child.stdin.end()
+  send({ operation: 'close' })
+  socket.end()
+  await new Promise(resolve => child.once('exit', resolve))
   process.stdout.write('LX Electron preload initialization and musicUrl IPC smoke test passed\n')
 }
 
 run().catch(error => {
-  child.kill()
+  if (socket && !socket.destroyed) socket.destroy()
+  if (child && !child.killed) child.kill()
   process.stderr.write((error && error.stack) || String(error))
   process.exitCode = 1
+}).finally(() => {
+  server.close()
 })
