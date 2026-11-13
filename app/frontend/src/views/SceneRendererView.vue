@@ -8,7 +8,8 @@ type LiveEvent = { id: number; type: string; user_name: string; content: string;
 type Track = { id: string; source_id: string; title: string; artist?: string; album?: string; duration_ms: number; cover_url?: string }
 type Playback = { state: string; track?: Track; position_ms: number; duration_ms: number }
 type MusicQueueItem = { id: string; track: Track; requested_by?: string }
-type MusicQueue = { items: MusicQueueItem[]; capacity: number }
+type MusicQueue = { current?: MusicQueueItem; items: MusicQueueItem[]; capacity: number }
+type MusicDisplayConfig = { enabled: boolean; command_enabled: boolean; command_prefix: string; skip_command_enabled: boolean; skip_command: string; require_fan_medal: boolean; fan_medal_level: number }
 type LyricLine = { time: number; text: string; translation?: string }
 type MusicLyricsResponse = { lyrics: string }
 const route = useRoute()
@@ -18,6 +19,7 @@ const now = ref(new Date())
 const error = ref('')
 const playback = ref<Playback | null>(null)
 const musicQueue = ref<MusicQueue>({ items: [], capacity: 0 })
+const musicDisplayConfig = ref<MusicDisplayConfig | null>(null)
 const lyricLines = ref<LyricLine[]>([])
 const lyricsLoading = ref(false)
 const lyricsFailed = ref(false)
@@ -175,6 +177,16 @@ async function loadTrackLyrics(track: Track, key: string) {
     if (requestID === lyricsRequestID && musicTrackKey === key) lyricsLoading.value = false
   }
 }
+function displayRequester(value?: string, fallback = '观众') {
+  return !value || value === '__my_livehub_search_play__' ? fallback : value
+}
+async function loadMusicDisplayConfig() {
+  try {
+    const response = await fetch('/api/music/config', { cache: 'no-store' })
+    if (!response.ok) return
+    musicDisplayConfig.value = await response.json() as MusicDisplayConfig
+  } catch { /* Keep the last known command settings. */ }
+}
 async function loadMusicQueue() {
   try {
     const response = await fetch('/api/music/queue', { cache: 'no-store' })
@@ -213,9 +225,11 @@ onMounted(() => {
   void loadScene()
   void loadMusic()
   void loadMusicQueue()
+  void loadMusicDisplayConfig()
   sceneRefreshTimer = setInterval(() => { void loadScene() }, 1000)
   musicRefreshTimer = setInterval(() => { void loadMusic() }, 500)
   musicQueueRefreshTimer = setInterval(() => { void loadMusicQueue() }, 1000)
+  setInterval(() => { void loadMusicDisplayConfig() }, 3000)
   source = new EventSource('/api/events')
   source.onmessage = handleEvent
   source.onerror = () => { error.value = '直播事件连接中断，正在自动重连…' }
@@ -235,7 +249,7 @@ onUnmounted(() => {
 
 <template>
   <main v-if="scene" class="scene-output" :style="{ aspectRatio: scene.width + ' / ' + scene.height, background: scene.background === 'transparent' ? 'transparent' : scene.background }">
-    <div v-for="layer in scene.layers.filter(item => item.visible)" :key="layer.id" class="output-layer" :class="{ 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue' }" :style="layerStyle(layer)">
+    <div v-for="layer in scene.layers.filter(item => item.visible)" :key="layer.id" class="output-layer" :class="{ 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue', 'music-prompt-output-layer': layer.type === 'music_prompt' }" :style="layerStyle(layer)">
       <span v-if="layer.type === 'text'">{{ layer.text }}</span>
       <img v-else-if="layer.type === 'image' && layer.url" :src="layer.url" alt="" />
       <time v-else-if="layer.type === 'clock'">{{ formatClock() }}</time>
@@ -248,50 +262,34 @@ onUnmounted(() => {
       <div v-else-if="layer.type === 'super_chat'" class="event-stack">
         <div v-for="item in superChats" :key="item.id" class="event-line sc-line"><strong>{{ item.user_name }} · ¥{{ Number(item.amount || 0).toFixed(2) }}</strong><span>{{ item.content }}</span></div>
       </div>
-      <section v-else-if="layer.type === 'music_queue'" class="music-queue-widget" :style="{ fontSize: ((layer.font_size || 22) / (scene?.height || 1080) * 100) + 'cqh' }">
-        <strong class="music-queue-heading">观众点播队列</strong>
-        <div v-if="musicQueue.items.length" class="music-queue-list">
-          <div v-for="(item, index) in musicQueue.items" :key="item.id" class="music-queue-item">
-            <span class="music-queue-index">{{ index + 1 }}</span>
-            <span class="music-queue-track"><strong>{{ item.track.title }}</strong><small>{{ item.track.artist || '未知歌手' }}</small></span>
-            <span v-if="item.requested_by !== '__my_livehub_search_play__'" class="music-queue-requester">{{ item.requested_by || '观众' }}</span>
+      <section v-else-if="layer.type === 'music_queue'" class="music-simple-widget" :style="{ fontSize: ((layer.font_size || 22) / (scene?.height || 1080) * 100) + 'cqh' }">
+        <strong class="music-simple-heading">待播队列</strong>
+        <div v-if="musicQueue.items.length" class="music-simple-list">
+          <div v-for="(item, index) in musicQueue.items" :key="item.id" class="music-simple-row">
+            <span class="music-simple-index">{{ index + 1 }}.</span>
+            <span class="music-simple-song">{{ item.track.title }} - {{ item.track.artist || '未知歌手' }}</span>
+            <span class="music-simple-requester">{{ displayRequester(item.requested_by) }}</span>
           </div>
         </div>
-        <div v-else class="music-queue-empty">暂无待播点播歌曲</div>
+        <div v-else class="music-simple-empty">暂无待播歌曲</div>
       </section>
-      <section v-else-if="layer.type === 'music' && playback?.state === 'playing' && playback?.track" class="music-widget" :style="{ '--random-color': musicAccentColor, '--details-bg': playback.track.cover_url ? 'url(' + JSON.stringify(playback.track.cover_url) + ')' : 'none', '--music-lyric-size': ((layer.font_size || 24) * 14 / 24) + 'px', '--music-translation-size': ((layer.font_size || 24) * 12 / 24) + 'px', '--music-status-size': ((layer.font_size || 24) * 14 / 24) + 'px' }">
-        <div class="music-main">
-          <div class="music-cover-wrap">
-            <div class="music-cover-blur" :style="{ backgroundImage: playback.track.cover_url ? 'url(' + JSON.stringify(playback.track.cover_url) + ')' : 'none' }"></div>
-            <div v-if="!playback.track.cover_url" class="music-cover-fallback">♫</div>
-            <img v-if="playback.track.cover_url" class="music-cover" :src="playback.track.cover_url" alt="" referrerpolicy="no-referrer" />
-          </div>
-          <div class="music-details">
-            <div class="music-song-info">
-              <div class="music-song-title">{{ playback.track.title }}</div>
-              <div class="music-song-author">{{ playback.track.artist || '未知歌手' }}</div>
-            </div>
-            <div class="music-song-time">
-              <span class="music-time">{{ formatTime(playback.position_ms) }}</span>
-              <div class="music-wave" aria-hidden="true">
-                <i v-for="(bar, index) in waveBars" :key="index" class="music-wavebar" :style="{ '--h': bar.height + 'px', '--speed': bar.speed + 's', '--delay': bar.delay + 's' }"></i>
-              </div>
-              <span class="music-time">{{ formatTime(playback.duration_ms || playback.track.duration_ms) }}</span>
-            </div>
-          </div>
+      <section v-else-if="layer.type === 'music_prompt'" class="music-simple-widget music-prompt-widget" :style="{ fontSize: ((layer.font_size || 22) / (scene?.height || 1080) * 100) + 'cqh' }">
+        <strong class="music-simple-heading">点歌提示</strong>
+        <template v-if="musicDisplayConfig?.enabled">
+          <div v-if="musicDisplayConfig.command_enabled" class="music-prompt-line">点歌：{{ musicDisplayConfig.command_prefix }} 歌曲名称</div>
+          <div v-if="musicDisplayConfig.skip_command_enabled" class="music-prompt-line">切歌：{{ musicDisplayConfig.skip_command }}（主播 / 房管）</div>
+          <div v-if="musicDisplayConfig.require_fan_medal" class="music-prompt-note">需拥有本直播间粉丝牌，等级达到 {{ musicDisplayConfig.fan_medal_level }} 级</div>
+          <div v-if="!musicDisplayConfig.command_enabled && !musicDisplayConfig.skip_command_enabled" class="music-simple-empty">当前未启用点歌指令</div>
+        </template>
+        <div v-else class="music-simple-empty">音乐点歌功能未启用</div>
+      </section>
+      <section v-else-if="layer.type === 'music'" class="music-simple-widget music-current-widget" :style="{ fontSize: ((layer.font_size || 22) / (scene?.height || 1080) * 100) + 'cqh' }">
+        <strong class="music-simple-heading">当前播放</strong>
+        <div v-if="playback?.state === 'playing' && playback?.track" class="music-simple-row">
+          <span class="music-simple-song">{{ playback.track.title }} - {{ playback.track.artist || '未知歌手' }}</span>
+          <span class="music-simple-requester">{{ displayRequester(musicQueue.current?.requested_by, '主播') }}</span>
         </div>
-        <div class="music-lyrics" :data-lyric-index="activeLyricIndex">
-          <template v-if="activeLyric">
-            <div class="music-lyric-viewport">
-              <strong class="music-lyric-text">{{ activeLyric.text }}</strong>
-            </div>
-            <div v-if="activeLyric.translation" class="music-lyric-viewport">
-              <span class="music-lyric-text">{{ activeLyric.translation }}</span>
-            </div>
-          </template>
-          <div v-else-if="!lyricsLoading && !lyricLines.length && !lyricsFailed" class="music-lyric-status">暂无同步歌词</div>
-          <div v-else-if="lyricsFailed" class="music-lyric-status">歌词获取失败</div>
-        </div>
+        <div v-else class="music-simple-empty">当前没有正在播放的歌曲</div>
       </section>
     </div>
   </main>
@@ -311,6 +309,16 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .gift-line{background:#382448dc}.sc-line{background:#603c1edc}
 .music-output-layer{padding:0;text-shadow:none;white-space:normal;overflow:visible;font-family:Arial,"Microsoft YaHei",sans-serif;color:#e7c89d}
 .music-queue-output-layer{padding:0;text-shadow:none;white-space:normal;overflow:hidden;font-family:Arial,"Microsoft YaHei",sans-serif}
+.music-simple-widget{display:flex;flex-direction:column;gap:.45em;width:100%;height:100%;overflow:hidden;color:inherit;text-shadow:none;white-space:normal;font-family:Arial,"Microsoft YaHei",sans-serif}
+.music-simple-heading{flex:none;font-size:1.08em;line-height:1.35;padding:0 0 .3em;border-bottom:1px solid currentColor}
+.music-simple-list{display:flex;flex-direction:column;gap:.3em;min-height:0;overflow:hidden}
+.music-simple-row{display:flex;align-items:center;gap:.55em;min-width:0;padding:.32em .45em;border-radius:.3em;background:rgba(16,19,26,.62);line-height:1.35}
+.music-simple-index{flex:none;opacity:.78;font-variant-numeric:tabular-nums}
+.music-simple-song{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.music-simple-requester{flex:none;max-width:30%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.82em;opacity:.82}
+.music-simple-empty,.music-prompt-note{padding:.4em .5em;border-radius:.3em;background:rgba(16,19,26,.45);font-size:.86em;opacity:.82}
+.music-prompt-line{padding:.42em .5em;border-radius:.3em;background:rgba(16,19,26,.62);line-height:1.35}
+.music-prompt-widget{align-items:stretch}
 .music-queue-widget{display:flex;flex-direction:column;gap:.45em;width:100%;height:100%;overflow:hidden}
 .music-queue-heading{font-size:1.08em;line-height:1.35;padding:0 0 .3em;border-bottom:1px solid currentColor}
 .music-queue-list{display:flex;flex-direction:column;gap:.35em;min-height:0;overflow:hidden}
