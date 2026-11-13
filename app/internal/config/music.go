@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const CurrentMusicConfigVersion = 11
+const CurrentMusicConfigVersion = 12
 
 type MusicConfig struct {
 	ConfigVersion  int    `json:"config_version"`
@@ -19,8 +19,6 @@ type MusicConfig struct {
 	SkipCommand string `json:"skip_command"`
 	QueueCapacity  int    `json:"queue_capacity"`
 	QueueDisplayCount int `json:"queue_display_count"`
-	Volume int `json:"volume"`
-	LoudnessNormalization bool `json:"loudness_normalization"`
 	LXAPIEndpoints []string `json:"lx_api_endpoints"`
 	EnabledSearchSources []string `json:"enabled_search_sources"`
 	RequireFanMedal bool `json:"require_fan_medal"`
@@ -37,7 +35,6 @@ func DefaultMusicConfig() MusicConfig {
 		SkipCommand: "切歌",
 		QueueCapacity: 100,
 		QueueDisplayCount: 5,
-		Volume: 80,
 		FanMedalLevel: 1,
 		LXAPIEndpoints: []string{"http://127.0.0.1:23330", "http://192.168.1.3:23330"},
 		EnabledSearchSources: []string{"tx", "kw", "kg", "wy", "mg"},
@@ -68,8 +65,6 @@ func MigrateMusicConfig(c MusicConfig) (MusicConfig, bool) {
 	if len(c.EnabledSearchSources) > 0 { n.EnabledSearchSources = append([]string(nil), c.EnabledSearchSources...) }
 	n.RequireFanMedal = c.RequireFanMedal
 	if c.FanMedalLevel >= 1 && c.FanMedalLevel <= 120 { n.FanMedalLevel = c.FanMedalLevel }
-	n.LoudnessNormalization = c.LoudnessNormalization
-	if c.Volume > 0 && c.Volume <= 100 { n.Volume = c.Volume }
 	return n, true
 }
 
@@ -134,8 +129,6 @@ func LoadMusicConfig(m *Manager) (MusicConfig, error) {
 			"skip_command": true,
 			"queue_capacity": true,
 			"queue_display_count": true,
-			"volume": true,
-			"loudness_normalization": true,
 			"lx_api_endpoints": true,
 			"enabled_search_sources": true,
 			"require_fan_medal": true,
