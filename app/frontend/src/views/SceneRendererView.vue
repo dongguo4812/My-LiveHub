@@ -55,12 +55,16 @@ const lyricScrollProgress = computed(() => {
 function updateLyricScroll() {
   const progress = lyricScrollProgress.value
   document.querySelectorAll<HTMLElement>('.music-lyrics').forEach(container => {
+    const lyricIndex = container.dataset.lyricIndex ?? ''
+    const lineChanged = container.dataset.lastLyricIndex !== lyricIndex
+    container.dataset.lastLyricIndex = lyricIndex
     container.querySelectorAll<HTMLElement>('.music-lyric-text').forEach(text => {
       const viewport = text.parentElement
       if (!(viewport instanceof HTMLElement)) return
       const overflow = Math.max(0, text.scrollWidth - viewport.clientWidth)
       viewport.dataset.scrolling = overflow > 1 ? 'true' : 'false'
       viewport.style.justifyContent = overflow > 1 ? 'flex-start' : 'center'
+      text.style.transition = lineChanged ? 'none' : ''
       text.style.transform = overflow > 1 ? `translate3d(-${overflow * progress}px, 0, 0)` : 'translate3d(0, 0, 0)'
     })
   })
@@ -251,7 +255,7 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
-        <div class="music-lyrics">
+        <div class="music-lyrics" :data-lyric-index="activeLyricIndex">
           <template v-if="activeLyric">
             <div class="music-lyric-viewport">
               <strong class="music-lyric-text">{{ activeLyric.text }}</strong>
