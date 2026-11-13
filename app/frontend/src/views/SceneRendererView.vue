@@ -126,8 +126,8 @@ function parseLyrics(raw: string): LyricLine[] {
     const fraction = match[3] ?? '0'
     const time = Number(match[1]) * 60000 + Number(match[2]) * 1000 + Number(fraction.padEnd(3, '0').slice(0, 3))
     const text = match[4].trim()
-    const normalized = text.replace(/[\\s\\u200b\\ufeff]/g, '')
-    if (normalized && !/^\\/{2,}$/.test(normalized)) parsed.push({ time, text })
+    const normalized = text.replace(/[\s\u200b\ufeff]/g, '')
+    if (normalized && !/^\/{2,}$/.test(normalized)) parsed.push({ time, text })
   }
   parsed.sort((a, b) => a.time - b.time)
   const result: LyricLine[] = []
