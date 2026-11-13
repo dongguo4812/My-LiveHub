@@ -353,22 +353,22 @@ onUnmounted(() => {
         <template v-if="selectedLayer !== null">
           <el-form label-position="top" size="small">
             <el-form-item label="图层名称"><el-input v-model="selectedLayer!.name" /></el-form-item>
-            <el-form-item v-if="selectedLayer.type === 'text'" label="文字内容"><el-input v-model="selectedLayer!.text" type="textarea" :rows="3" /></el-form-item>
-            <el-form-item v-if="selectedLayer.type === 'image'" label="图片 URL"><el-input v-model="selectedLayer!.url" placeholder="https://..." /></el-form-item>
-            <el-form-item v-if="selectedLayer !== null && (selectedLayer.type === 'music_queue' || selectedLayer.type === 'video_queue')" label="待播显示数量"><el-input-number v-model="selectedQueueLayer!.queue_display_count" :min="1" :max="1000" /><div class="el-form-item__description">仅控制此队列组件显示的待播条数；队列标题仍显示实际数量。</div></el-form-item>
+            <el-form-item v-if="selectedLayer!.type === 'text'" label="文字内容"><el-input v-model="selectedLayer!.text" type="textarea" :rows="3" /></el-form-item>
+            <el-form-item v-if="selectedLayer!.type === 'image'" label="图片 URL"><el-input v-model="selectedLayer!.url" placeholder="https://..." /></el-form-item>
+            <el-form-item v-if="selectedLayer !== null && (selectedLayer!.type === 'music_queue' || selectedLayer!.type === 'video_queue')" label="待播显示数量"><el-input-number v-model="selectedQueueLayer!.queue_display_count" :min="1" :max="1000" /><div class="el-form-item__description">仅控制此队列组件显示的待播条数；队列标题仍显示实际数量。</div></el-form-item>
             <div class="property-grid">
               <el-form-item label="X"><el-input-number v-model="selectedLayer!.x" :min="0" :max="scene?.width ?? 1920" controls-position="right" /></el-form-item>
               <el-form-item label="Y"><el-input-number v-model="selectedLayer!.y" :min="0" :max="scene?.height ?? 1080" controls-position="right" /></el-form-item>
               <el-form-item label="宽度"><el-input-number v-model="selectedLayer!.width" :min="20" :max="scene?.width ?? 1920" controls-position="right" /></el-form-item>
               <el-form-item label="高度"><el-input-number v-model="selectedLayer!.height" :min="20" :max="scene?.height ?? 1080" controls-position="right" /></el-form-item>
             </div>
-            <template v-if="selectedLayer.type === 'live2d'">
+            <template v-if="selectedLayer!.type === 'live2d'">
               <el-form-item label="模型大小"><div class="live2d-adjustment"><strong>{{ live2DScale(selectedLayer!) }}%</strong><el-slider v-model="live2DLayer(selectedLayer!).live2d_scale" :min="10" :max="500" :step="5" @input="applyLive2DFrameTransform" @change="persistLive2DLayer(selectedLayer!)" /></div></el-form-item>
               <el-form-item label="水平位置"><div class="live2d-adjustment"><strong>{{ live2DLayer(selectedLayer!).live2d_x ?? 0 }}%</strong><el-slider v-model="live2DLayer(selectedLayer!).live2d_x" :min="-200" :max="200" :step="1" @input="applyLive2DFrameTransform" @change="persistLive2DLayer(selectedLayer!)" /></div></el-form-item>
               <el-form-item label="垂直位置"><div class="live2d-adjustment"><strong>{{ live2DLayer(selectedLayer!).live2d_y ?? 0 }}%</strong><el-slider v-model="live2DLayer(selectedLayer!).live2d_y" :min="-200" :max="200" :step="1" @input="applyLive2DFrameTransform" @change="persistLive2DLayer(selectedLayer!)" /></div></el-form-item>
             </template>
-            <el-form-item v-if="selectedLayer.type !== 'live2d'" label="字体大小"><el-input-number v-model="selectedLayer!.font_size" :min="10" :max="160" /></el-form-item>
-            <el-form-item v-if="selectedLayer.type !== 'live2d'" label="文字颜色"><el-color-picker v-model="selectedLayer!.color" show-alpha /></el-form-item>
+            <el-form-item v-if="selectedLayer!.type !== 'live2d'" label="字体大小"><el-input-number v-model="selectedLayer!.font_size" :min="10" :max="160" /></el-form-item>
+            <el-form-item v-if="selectedLayer!.type !== 'live2d'" label="文字颜色"><el-color-picker v-model="selectedLayer!.color" show-alpha /></el-form-item>
             <el-form-item label="透明度"><el-slider v-model="selectedLayer!.opacity" :min="0" :max="1" :step="0.05" /></el-form-item>
             <el-form-item label="显示图层"><el-switch v-model="selectedLayer!.visible" /></el-form-item>
           </el-form>
