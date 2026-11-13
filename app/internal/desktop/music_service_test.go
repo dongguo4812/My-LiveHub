@@ -88,3 +88,18 @@ func TestNextWithoutPendingTrackDoesNotPauseCurrentPlayback(t *testing.T) {
 		t.Fatalf("Next unexpectedly controlled playback: stop=%d pause=%d", engine.stopCalls, engine.pauseCalls)
 	}
 }
+
+func TestGetPlaybackStatusReportsActualResolvedProvider(t *testing.T) {
+	engine := &nextTrackTestEngine{}
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, engine)
+	_, err := service.queue.SetCurrentTrack(music.Track{
+		ID: "kg_hash123", SourceID: "kg", LXSourceKey: "kg", Title: "稻香", Artist: "周杰伦",
+	}, searchPlayMarker)
+	if err != nil { t.Fatal(err) }
+	snapshot, err := service.GetPlaybackStatus()
+	if err != nil { t.Fatal(err) }
+	if snapshot.Track == nil { t.Fatal("current queue track was not attached to playback status") }
+	if snapshot.Track.SourceID != "kg" || snapshot.Track.LXSourceKey != "kg" {
+		t.Fatalf("actual resolved source was not preserved: %#v", snapshot.Track)
+	}
+}
