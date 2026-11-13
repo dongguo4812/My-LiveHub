@@ -177,3 +177,46 @@ func TestEnqueueDoesNotInterruptPausedCurrentTrack(t *testing.T) {
 	if len(snapshot.Items) != 1 { t.Fatalf("pending queue length = %d, want 1", len(snapshot.Items)) }
 	if got := engine.loadCalls.Load(); got != 0 { t.Fatalf("playback Load calls = %d, want 0", got) }
 }
+
+
+type verifiedLyricsTestEngine struct {
+	playback music.PlaybackSnapshot
+	lyrics string
+	lyricCalls int
+}
+func (e *verifiedLyricsTestEngine) Load(context.Context, music.Track) error { return nil }
+func (e *verifiedLyricsTestEngine) Pause(context.Context) error { return nil }
+func (e *verifiedLyricsTestEngine) Resume(context.Context) error { return nil }
+func (e *verifiedLyricsTestEngine) Stop(context.Context) error { return nil }
+func (e *verifiedLyricsTestEngine) Snapshot(context.Context) (music.PlaybackSnapshot, error) { return e.playback, nil }
+func (e *verifiedLyricsTestEngine) GetCurrentLyrics(context.Context) (string, error) {
+	e.lyricCalls++
+	return e.lyrics, nil
+}
+
+func TestGetLyricsRejectsLyricsWhenLXIsPlayingAnotherTrack(t *testing.T) {
+	engine := &verifiedLyricsTestEngine{
+		playback: music.PlaybackSnapshot{State: music.PlaybackPlaying, Track: &music.Track{Title:"晴天", Artist:"周杰伦"}},
+		lyrics: "[00:01.00]不应显示",
+	}
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, engine)
+	requested := music.Track{ID:"tx_1", SourceID:"tx", Title:"稻香", Artist:"周杰伦"}
+	lyrics, err := service.GetLyrics(requested)
+	if err != nil { t.Fatal(err) }
+	if lyrics != "" { t.Fatalf("lyrics for another currently playing track were returned: %q", lyrics) }
+	if engine.lyricCalls != 0 { t.Fatalf("洛雪歌词 API called %d times before track identity was verified", engine.lyricCalls) }
+	if len(service.lyricsCache) != 0 { t.Fatalf("unverified lyrics were cached: %#v", service.lyricsCache) }
+}
+
+func TestGetLyricsCachesOnlyAfterLXTrackIdentityMatches(t *testing.T) {
+	engine := &verifiedLyricsTestEngine{
+		playback: music.PlaybackSnapshot{State: music.PlaybackPlaying, Track: &music.Track{Title:"稻香", Artist:"周杰伦"}},
+		lyrics: "[00:01.00]这是洛雪当前歌曲歌词",
+	}
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, engine)
+	requested := music.Track{ID:"tx_1", SourceID:"tx", Title:"稻香", Artist:"周杰伦"}
+	lyrics, err := service.GetLyrics(requested)
+	if err != nil { t.Fatal(err) }
+	if lyrics != engine.lyrics { t.Fatalf("lyrics = %q, want %q", lyrics, engine.lyrics) }
+	if len(service.lyricsCache) != 1 { t.Fatalf("verified lyrics cache size = %d, want 1", len(service.lyricsCache)) }
+}
