@@ -504,7 +504,7 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-queue-prompt-single span{flex:none;color:#d7deea}
 .music-queue-prompt-single b{color:#ffd66b;font-weight:800}
 .music-queue-current-inline{flex-wrap:nowrap;gap:.55em;padding:.34em 0;border:0;border-radius:0;background:transparent;box-shadow:none;white-space:nowrap}
-.music-queue-current-stacked{display:flex;flex-wrap:wrap;align-items:flex-start;gap:.28em .55em;white-space:normal}.music-queue-current-stacked .music-queue-current-track,.music-queue-current-stacked .music-queue-empty{flex:0 0 100%;width:100%;max-width:100%;white-space:normal}.music-queue-current-stacked .music-queue-requester{flex:0 0 100%;max-width:100%;white-space:normal}
+.music-queue-current-stacked{display:flex;flex-wrap:wrap;align-items:flex-start;gap:.28em .55em;white-space:normal}.music-queue-current-stacked .music-queue-current-track,.music-queue-current-stacked .music-queue-empty{box-sizing:border-box;flex:0 0 100%;width:100%;max-width:100%;padding-left:calc(.5em + 1.7em + .58em);white-space:normal}.music-queue-current-stacked .music-queue-requester{box-sizing:border-box;flex:0 0 100%;max-width:100%;padding-left:calc(.5em + 1.7em + .58em);white-space:normal}
 .music-queue-current-label{flex:none;color:#ffd66b;font-size:.82em;white-space:nowrap}
 .music-queue-current-track{display:flex;flex:1;align-items:baseline;gap:.35em;min-width:0;overflow:hidden;white-space:nowrap}
 .music-queue-current-title{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f7f8fc;font-size:.88em}
