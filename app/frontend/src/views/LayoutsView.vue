@@ -86,11 +86,18 @@ function addLayer(type: string) {
   if (!base) return
   const layer = { id: makeID(type), type, name: base.name ?? type, x: 100, y: 120, width: base.width ?? 300, height: base.height ?? 100, z_index: scene.value.layers.length + 1, visible: true, opacity: 1, text: base.text ?? '', url: base.url ?? '', color: base.color ?? '#ffffff', font_size: base.font_size ?? 24 } as LayoutLayer
   if (type === 'music_queue' || type === 'video_queue') (layer as LayoutLayer & { queue_display_count?: number }).queue_display_count = 10
+  if (type === 'live2d') Object.assign(layer, { live2d_scale: 1, live2d_x: 0, live2d_y: 0 })
   scene.value.layers.push(layer)
   selectedLayerID.value = layer.id
 }
 function selectLayer(layer: LayoutLayer) {
   selectedLayerID.value = layer.id
+  if (layer.type === 'live2d') {
+    const value = live2DLayer(layer)
+    value.live2d_scale ??= 1
+    value.live2d_x ??= 0
+    value.live2d_y ??= 0
+  }
   if (layer.type === 'music_queue' || layer.type === 'video_queue') {
     layer.name = layer.type === 'music_queue' ? '歌曲点播队列' : '视频点播队列'
     const queueLayer = layer as LayoutLayer & { queue_display_count?: number }
@@ -105,6 +112,7 @@ function removeLayer() {
 async function persistLive2DLayer(layer: LayoutLayer) {
   if (!scene.value || layer.type !== 'live2d') return
   try {
+    applyLive2DFrameTransform()
     const snapshot = JSON.parse(JSON.stringify(scene.value)) as LayoutScene
     const saved = await saveScene(snapshot)
     const index = scenes.value.findIndex(item => item.id === saved.id)
@@ -116,6 +124,12 @@ async function persistLive2DLayer(layer: LayoutLayer) {
 function startDrag(event: PointerEvent, layer: LayoutLayer) {
   if (!canvas.value || event.button !== 0) return
   selectedLayerID.value = layer.id
+  if (layer.type === 'live2d') {
+    const value = live2DLayer(layer)
+    value.live2d_scale ??= 1
+    value.live2d_x ??= 0
+    value.live2d_y ??= 0
+  }
   drag = { x: event.clientX, y: event.clientY, layerX: layer.x, layerY: layer.y }
   const move = (next: PointerEvent) => {
     if (!drag || !scene.value) return
