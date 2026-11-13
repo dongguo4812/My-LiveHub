@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, onUpdated, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
 type Layer = { id: string; type: string; name: string; x: number; y: number; width: number; height: number; z_index: number; visible: boolean; opacity: number; text?: string; url?: string; color?: string; font_size?: number }
@@ -33,15 +33,38 @@ let lyricsRequestID = 0
 const danmaku = computed(() => liveEvents.value.filter(item => item.type === 'danmaku').slice(-8).reverse())
 const gifts = computed(() => liveEvents.value.filter(item => item.type === 'gift').slice(-3).reverse())
 const superChats = computed(() => liveEvents.value.filter(item => item.type === 'super_chat').slice(-3).reverse())
-const activeLyric = computed(() => {
-  if (!playback.value?.track) return null
-  let active: LyricLine | null = null
-  for (const line of lyricLines.value) {
-    if (line.time > playback.value.position_ms) break
-    active = line
+const activeLyricIndex = computed(() => {
+  if (!playback.value?.track) return -1
+  let activeIndex = -1
+  for (let index = 0; index < lyricLines.value.length; index++) {
+    if (lyricLines.value[index].time > playback.value.position_ms) break
+    activeIndex = index
   }
-  return active
+  return activeIndex
 })
+const activeLyric = computed(() => activeLyricIndex.value >= 0 ? lyricLines.value[activeLyricIndex.value] : null)
+const lyricScrollProgress = computed(() => {
+  const index = activeLyricIndex.value
+  const current = playback.value
+  if (index < 0 || !current) return 0
+  const start = lyricLines.value[index].time
+  const end = lyricLines.value[index + 1]?.time ?? current.duration_ms ?? current.track?.duration_ms ?? start
+  if (end <= start) return 0
+  return Math.max(0, Math.min(1, (current.position_ms - start) / (end - start)))
+})
+function updateLyricScroll() {
+  const progress = lyricScrollProgress.value
+  document.querySelectorAll<HTMLElement>('.music-lyrics').forEach(container => {
+    container.querySelectorAll<HTMLElement>('.music-lyric-text').forEach(text => {
+      const viewport = text.parentElement
+      if (!(viewport instanceof HTMLElement)) return
+      const overflow = Math.max(0, text.scrollWidth - viewport.clientWidth)
+      viewport.dataset.scrolling = overflow > 1 ? 'true' : 'false'
+      viewport.style.justifyContent = overflow > 1 ? 'flex-start' : 'center'
+      text.style.transform = overflow > 1 ? `translate3d(-${overflow * progress}px, 0, 0)` : 'translate3d(0, 0, 0)'
+    })
+  })
+}
 const progress = computed(() => {
   const duration = playback.value?.duration_ms || playback.value?.track?.duration_ms || 0
   if (!duration) return 0
@@ -182,6 +205,7 @@ onMounted(() => {
   source.onopen = () => { error.value = ''; void loadRecentEvents() }
   clockTimer = setInterval(() => { now.value = new Date() }, 500)
 })
+onUpdated(updateLyricScroll)
 onUnmounted(() => {
   source?.close()
   lyricsRequestID++
@@ -229,11 +253,15 @@ onUnmounted(() => {
         </div>
         <div class="music-lyrics">
           <template v-if="activeLyric">
-            <strong>{{ activeLyric.text }}</strong>
-            <span v-if="activeLyric.translation">{{ activeLyric.translation }}</span>
+            <div class="music-lyric-viewport">
+              <strong class="music-lyric-text">{{ activeLyric.text }}</strong>
+            </div>
+            <div v-if="activeLyric.translation" class="music-lyric-viewport">
+              <span class="music-lyric-text">{{ activeLyric.translation }}</span>
+            </div>
           </template>
-          <strong v-else-if="!lyricsLoading && !lyricLines.length && !lyricsFailed">暂无同步歌词</strong>
-          <strong v-else-if="lyricsFailed">歌词获取失败</strong>
+          <div v-else-if="!lyricsLoading && !lyricLines.length && !lyricsFailed" class="music-lyric-status">暂无同步歌词</div>
+          <div v-else-if="lyricsFailed" class="music-lyric-status">歌词获取失败</div>
         </div>
       </section>
     </div>
@@ -273,9 +301,11 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 @keyframes music-wave{from{transform:scaleY(.22)}to{transform:scaleY(1)}}
 .music-lyrics{position:relative;min-height:42px;display:flex;flex-direction:column;justify-content:center;gap:3px;overflow:hidden;padding:5px 9px;border-radius:5px;background:transparent;text-align:center}
 .music-lyrics::before,.music-lyrics::after{content:none}
-.music-lyrics strong,.music-lyrics span{position:relative;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.music-lyrics strong{font-size:14px;font-weight:700;line-height:1.35;color:var(--random-color)}
-.music-lyrics span{font-size:12px;line-height:1.3;color:#e7c89d;opacity:.9}
+.music-lyric-viewport{width:100%;min-width:0;overflow:hidden;display:flex;justify-content:center}
+.music-lyric-text{position:relative;display:block;flex:none;width:max-content;max-width:none;overflow:visible;white-space:nowrap;transform:translate3d(0,0,0);transition:transform .48s linear;will-change:transform}
+.music-lyrics strong.music-lyric-text{font-size:14px;font-weight:700;line-height:1.35;color:var(--random-color)}
+.music-lyrics span.music-lyric-text{font-size:12px;line-height:1.3;color:#e7c89d;opacity:.9}
+.music-lyric-status{width:100%;text-align:center;font-size:14px;line-height:1.35;color:var(--random-color)}
 @media(max-width:300px){.music-widget{gap:5px}.music-main{height:84px}.music-cover-wrap{height:84px;width:84px;flex-basis:84px}.music-song-title{font-size:14px}.music-song-author{font-size:12px}.music-song-time{height:56px;padding:0 7px}.music-time{width:34px;flex-basis:34px;font-size:10px}.music-lyrics{min-height:38px}.music-lyrics strong{font-size:12px}.music-lyrics span{font-size:10px}}
 .scene-error{display:grid;place-items:center;width:100vw;height:100vh;background:transparent;color:#fff;font:16px "Microsoft YaHei",sans-serif}
 </style>
