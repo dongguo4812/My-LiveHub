@@ -630,6 +630,9 @@ func (s *MusicService) playNext(parent context.Context) error {
 		s.lxSessionMu.Unlock()
 	}
 	if session == nil || sessionID != activeID { return errors.New("当前洛雪自定义源未能启动") }
+	initCtx, initCancel := context.WithTimeout(parent, 90*time.Second)
+	defer initCancel()
+	if err := session.WaitInitialized(initCtx); err != nil { return fmt.Errorf("等待洛雪音源初始化失败：%w", err) }
 
 	var declared *music.LXDeclaredSource
 	for _, item := range session.Snapshot().DeclaredSources {
@@ -1156,6 +1159,7 @@ func (s *MusicService) ValidateLXUserSource(id string) (music.LXSourceRuntimeRes
 	process, err := music.StartLXElectronUserSourceProcess(ctx, script, s.GetLXUserSourceProxy(), metadata)
 	if err != nil { return music.LXSourceRuntimeResult{}, err }
 	defer process.Close()
+	if err := process.WaitInitialized(ctx); err != nil { return music.LXSourceRuntimeResult{}, err }
 	result := process.Snapshot()
 	if !result.Initialized || len(result.DeclaredSources) == 0 {
 		return music.LXSourceRuntimeResult{}, errors.New("洛雪音源未成功声明可用的平台")
