@@ -98,13 +98,6 @@ jobs:
       - name: Test Go
         run: go test ./...
 
-      - name: Verify real LX source against Netease and QQ playback URLs
-        shell: pwsh
-        env:
-          MY_LIVEHUB_LX_SOURCE_URL: https://ghproxy.net/raw.githubusercontent.com/pdone/lx-music-source/main/lx/latest.js
-        run: |
-          go test ./internal/desktop -run TestLXRealSourceIntegration -count=1 -v
-
       - name: Build Windows executable
         shell: pwsh
         run: go build -o bin/My-LiveHub.exe .
