@@ -274,7 +274,7 @@ func (s *MusicService) SaveConfig(value config.MusicConfig) error {
 
 func (s *MusicService) GetSources() []music.SourceSnapshot {
 	if s == nil || s.searcher == nil { return []music.SourceSnapshot{} }
-	priority := s.activeLXSearchSourceIDs()
+	priority := s.enabledSearchSourceIDs()
 	rank := make(map[string]int, len(priority))
 	for i, id := range priority { rank[id] = i }
 	result := s.searcher.Sources()
@@ -310,7 +310,7 @@ func (s *MusicService) SearchSourcePage(keyword, source string, page int) (Music
 		return MusicSearchResponse{}, errors.New("搜索页码必须大于 0")
 	}
 	declaredSource := false
-	for _, id := range s.activeLXSearchSourceIDs() {
+	for _, id := range s.enabledSearchSourceIDs() {
 		if id == source { declaredSource = true; break }
 	}
 	if !declaredSource {
@@ -328,8 +328,8 @@ func (s *MusicService) SearchSourcePage(keyword, source string, page int) (Music
 	}, nil
 }
 
-// activeLXSearchSourceIDs reads the independent platform selection from music.json.
-func (s *MusicService) activeLXSearchSourceIDs() []string {
+// enabledSearchSourceIDs reads the independent platform selection from music.json.
+func (s *MusicService) enabledSearchSourceIDs() []string {
 	if s == nil || s.searcher == nil { return []string{} }
 	s.mu.RLock()
 	configured := append([]string(nil), s.value.EnabledSearchSources...)
@@ -347,11 +347,6 @@ func (s *MusicService) activeLXSearchSourceIDs() []string {
 	return result
 }
 
-func containsLXAction(actions []string, target string) bool {
-	for _, action := range actions { if action == target { return true } }
-	return false
-}
-
 func (s *MusicService) search(parent context.Context, keyword string) (MusicSearchResponse, error) {
 	return s.searchPage(parent, keyword, 1)
 }
@@ -359,7 +354,7 @@ func (s *MusicService) search(parent context.Context, keyword string) (MusicSear
 func (s *MusicService) searchPage(parent context.Context, keyword string, page int) (MusicSearchResponse, error) {
 	if s == nil || s.searcher == nil { return MusicSearchResponse{}, errors.New("洛雪搜索 SDK 未初始化") }
 	if parent == nil { parent = context.Background() }
-	sourceIDs := s.activeLXSearchSourceIDs()
+	sourceIDs := s.enabledSearchSourceIDs()
 	if len(sourceIDs) == 0 {
 		return MusicSearchResponse{Tracks: []music.Track{}, Errors: map[string]string{}, Page: page, PageSize: 30, MaxPage: 1}, nil
 	}
