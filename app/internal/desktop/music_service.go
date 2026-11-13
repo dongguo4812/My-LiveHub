@@ -401,49 +401,14 @@ func (s *MusicService) Enqueue(track music.Track, requestedBy string) (music.Que
 	if s == nil || s.queue == nil { return music.QueueItem{}, errors.New("music queue is unavailable") }
 	s.mu.RLock(); enabled := s.value.Enabled; s.mu.RUnlock()
 	if !enabled { return music.QueueItem{}, errors.New("music module is disabled") }
-	state := hostStateFor(s)
-	state.mu.Lock()
-	current := s.queue.Snapshot().Current
-	preempt := current != nil && current.RequestedBy == hostQueueMarker
-	// If playback is idle, the first accepted request must start immediately.
-	// Previously only requests interrupting the host playlist called PlayNext,
-	// leaving requests accepted while idle stranded in the pending queue.
-	startImmediately := current == nil
-	if preempt {
-		snapshot, err := s.engine.Snapshot(context.Background())
-		if err != nil { state.mu.Unlock(); return music.QueueItem{}, fmt.Errorf("保存主播歌曲播放进度失败：%w", err) }
-		state.resumeItem = current
-		state.resumePosition = snapshot.PositionMS
-		state.resumeWasPaused = snapshot.State == music.PlaybackPaused
-		state.resumePending = true
-		if err := s.engine.Pause(context.Background()); err != nil {
-			state.resumePending = false
-			state.resumeItem = nil
-			state.resumeWasPaused = false
-			state.mu.Unlock()
-			return music.QueueItem{}, fmt.Errorf("暂停主播歌曲失败：%w", err)
-		}
-		s.cancelPlaybackWatcher()
-		s.queue.FinishCurrent()
-	}
-	state.mu.Unlock()
+	startImmediately := s.queue.Snapshot().Current == nil
 	item, err := s.queue.Enqueue(track, requestedBy)
-	if err != nil {
-		if preempt { _ = s.resumeHostPlaylist() }
-		return music.QueueItem{}, err
-	}
-	if preempt || startImmediately {
+	if err != nil { return music.QueueItem{}, err }
+	if startImmediately {
 		if err := s.PlayNext(); err != nil {
-			if preempt {
+			if failed := s.queue.Snapshot().Current; failed != nil && failed.ID == item.ID {
 				s.queue.FinishCurrent()
-				_ = s.resumeHostPlaylist()
-			} else {
-				// Keep the accepted request queued if playback cannot start yet,
-				// rather than silently losing it after TakeNext promoted it.
-				if failed := s.queue.Snapshot().Current; failed != nil && failed.ID == item.ID {
-					s.queue.FinishCurrent()
-					_ = s.queue.EnqueueFront(*failed)
-				}
+				_ = s.queue.EnqueueFront(*failed)
 			}
 			return item, err
 		}
@@ -451,47 +416,17 @@ func (s *MusicService) Enqueue(track music.Track, requestedBy string) (music.Que
 	return item, nil
 }
 
-// PlayTrackNow starts a search result immediately without inserting it into
-// the pending audience-request queue. Pending audience requests keep their order.
 func (s *MusicService) PlayTrackNow(track music.Track) error {
 	if s == nil || s.queue == nil || s.engine == nil { return errors.New("music playback service is unavailable") }
-	s.mu.RLock()
-	enabled := s.value.Enabled
-	s.mu.RUnlock()
+	s.mu.RLock(); enabled := s.value.Enabled; s.mu.RUnlock()
 	if !enabled { return errors.New("music module is disabled") }
-
-	state := hostStateFor(s)
-	state.mu.Lock()
 	current := s.queue.Snapshot().Current
-	preemptHost := current != nil && current.RequestedBy == hostQueueMarker
-	if preemptHost {
-		snapshot, err := s.engine.Snapshot(context.Background())
-		if err != nil { state.mu.Unlock(); return fmt.Errorf("保存主播歌曲播放进度失败：%w", err) }
-		state.resumeItem = current
-		state.resumePosition = snapshot.PositionMS
-		state.resumeWasPaused = snapshot.State == music.PlaybackPaused
-		state.resumePending = true
-		if err := s.engine.Pause(context.Background()); err != nil {
-			state.resumePending = false
-			state.resumeItem = nil
-			state.resumeWasPaused = false
-			state.mu.Unlock()
-			return fmt.Errorf("暂停主播歌曲失败：%w", err)
-		}
-	}
-	state.mu.Unlock()
-
 	if current != nil { s.pushHistory(*current) }
 	s.cancelPlaybackWatcher()
-	if _, err := s.queue.SetCurrentTrack(track, searchPlayMarker); err != nil {
-		if preemptHost { _ = s.resumeHostPlaylist() }
-		return err
-	}
+	if _, err := s.queue.SetCurrentTrack(track, searchPlayMarker); err != nil { return err }
 	if err := s.PlayNext(); err != nil {
 		s.queue.FinishCurrent()
-		if preemptHost {
-			_ = s.resumeHostPlaylist()
-		} else if current != nil {
+		if current != nil {
 			_ = s.queue.SetCurrent(*current)
 			if restoreErr := s.PlayNext(); restoreErr != nil { s.setLastError(restoreErr) }
 		}
@@ -600,13 +535,10 @@ func (s *MusicService) SetVolume(volume int) error {
 func (s *MusicService) Next() error {
 	if s == nil || s.engine == nil || s.queue == nil { return errors.New("music playback service is unavailable") }
 	s.cancelPlaybackWatcher()
-	current := s.queue.Snapshot().Current
-	if current != nil { s.pushHistory(*current) }
+	if current := s.queue.Snapshot().Current; current != nil { s.pushHistory(*current) }
 	_ = s.engine.Stop(context.Background())
 	s.queue.FinishCurrent()
-	if current != nil && current.RequestedBy == hostQueueMarker { return s.advanceHostPlaylist() }
-	if pending := s.queue.Snapshot().Items; len(pending) > 0 { return s.PlayNext() }
-	if s.resumeHostPlaylist() { return nil }
+	if len(s.queue.Snapshot().Items) == 0 { return nil }
 	return s.PlayNext()
 }
 
@@ -745,8 +677,17 @@ func absFloat(value float64) float64 { if value < 0 { return -value }; return va
 
 func (s *MusicService) GetPlaybackStatus() (music.PlaybackSnapshot, error) {
 	if s == nil || s.engine == nil { return music.PlaybackSnapshot{}, music.ErrPlaybackEngineUnavailable }
-	return s.engine.Snapshot(context.Background())
+	snapshot, err := s.engine.Snapshot(context.Background())
+	if err != nil { return snapshot, err }
+	if current := s.queue.Snapshot().Current; current != nil {
+		if snapshot.Track == nil || sameLXTrackIdentity(current.Track, *snapshot.Track) {
+			track := current.Track
+			snapshot.Track = &track
+		}
+	}
+	return snapshot, nil
 }
+
 func (s *MusicService) GetLXUserSourceProxy() config.LXUserSourceProxyConfig {
 	if s == nil { return config.LXUserSourceProxyConfig{} }
 	s.mu.RLock()
