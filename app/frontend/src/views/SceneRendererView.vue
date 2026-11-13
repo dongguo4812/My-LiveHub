@@ -11,6 +11,8 @@ type MusicQueueItem = { id: string; track: Track; requested_by?: string }
 type MusicQueue = { current?: MusicQueueItem; items: MusicQueueItem[]; capacity: number }
 type VideoQueueItem = { id: number; bvid: string; title: string; duration_seconds: number; requester: string }
 type VideoQueue = { enabled: boolean; current?: VideoQueueItem; items: VideoQueueItem[]; queue_count: number }
+type Live2DDisplay = { enabled: boolean; runtime_version: 'moc2' | 'moc3'; model_url: string; model_scale: number; model_offset_x: number; model_offset_y: number }
+type Live2DWindow = Window & { live2dSetModelTransform?: (scale: number, x: number, y: number) => boolean }
 type MusicDisplayConfig = { enabled: boolean; command_enabled: boolean; command_prefix: string; skip_command_enabled: boolean; skip_command: string; require_fan_medal: boolean; fan_medal_level: number }
 type LyricLine = { time: number; text: string; translation?: string }
 type MusicLyricsResponse = { lyrics: string }
@@ -22,6 +24,13 @@ const error = ref('')
 const playback = ref<Playback | null>(null)
 const musicQueue = ref<MusicQueue>({ items: [], capacity: 0 })
 const videoQueue = ref<VideoQueue>({ enabled: false, items: [], queue_count: 0 })
+const live2DDisplay = ref<Live2DDisplay | null>(null)
+const live2DFrameURL = computed(() => {
+  const value = live2DDisplay.value
+  if (!value?.enabled || !value.model_url) return ''
+  const params = new URLSearchParams({ model: value.model_url, scale: String(value.model_scale), x: String(value.model_offset_x), y: String(value.model_offset_y) })
+  return value.runtime_version === 'moc2' ? '/live2d-runtime/moc2/index.html?' + params : '/live2d-runtime/moc3/index.html?model=' + encodeURIComponent(value.model_url)
+})
 const musicDisplayConfig = ref<MusicDisplayConfig | null>(null)
 const lyricLines = ref<LyricLine[]>([])
 const lyricsLoading = ref(false)
@@ -37,6 +46,7 @@ let musicRefreshTimer: ReturnType<typeof setInterval> | undefined
 let musicQueueRefreshTimer: ReturnType<typeof setInterval> | undefined
 let videoQueueRefreshTimer: ReturnType<typeof setInterval> | undefined
 let musicConfigRefreshTimer: ReturnType<typeof setInterval> | undefined
+let live2DRefreshTimer: ReturnType<typeof setInterval> | undefined
 let musicTrackKey = ''
 let musicRefreshing = false
 let lyricsRequestID = 0
@@ -192,6 +202,23 @@ const audienceQueueItems = computed(() => musicQueue.value.items.filter(item => 
 function audienceQueueDisplayItems(layer: Layer) {
   return audienceQueueItems.value.slice(0, Math.max(1, layer.queue_display_count || 10))
 }
+async function loadLive2DDisplay() {
+  try {
+    const response = await fetch('/api/live2d', { cache: 'no-store' })
+    if (response.ok) live2DDisplay.value = await response.json() as Live2DDisplay
+  } catch { /* Keep the last known Live2D configuration. */ }
+}
+function applyLive2DFrameTransforms() {
+  const value = live2DDisplay.value
+  if (!value || value.runtime_version !== 'moc3') return
+  document.querySelectorAll<HTMLIFrameElement>('.live2d-output-frame').forEach(frame => {
+    const target = frame.contentWindow as Live2DWindow | null
+    target?.live2dSetModelTransform?.(value.model_scale, value.model_offset_x / 100, value.model_offset_y / 100)
+  })
+}
+function handleLive2DMessage(event: MessageEvent) {
+  if (event.data?.type === 'moc3-model-loaded') applyLive2DFrameTransforms()
+}
 async function loadMusicDisplayConfig() {
   try {
     const response = await fetch('/api/music/config', { cache: 'no-store' })
@@ -255,6 +282,9 @@ onMounted(() => {
   void loadMusicQueue()
   void loadVideoQueue()
   void loadMusicDisplayConfig()
+  void loadLive2DDisplay()
+  live2DRefreshTimer = setInterval(() => { void loadLive2DDisplay() }, 3000)
+  window.addEventListener('message', handleLive2DMessage)
   sceneRefreshTimer = setInterval(() => { void loadScene() }, 1000)
   musicRefreshTimer = setInterval(() => { void loadMusic() }, 500)
   musicQueueRefreshTimer = setInterval(() => { void loadMusicQueue() }, 1000)
@@ -276,15 +306,18 @@ onUnmounted(() => {
   if (musicQueueRefreshTimer) clearInterval(musicQueueRefreshTimer)
   if (videoQueueRefreshTimer) clearInterval(videoQueueRefreshTimer)
   if (musicConfigRefreshTimer) clearInterval(musicConfigRefreshTimer)
+  if (live2DRefreshTimer) clearInterval(live2DRefreshTimer)
+  window.removeEventListener('message', handleLive2DMessage)
 })
 </script>
 
 <template>
   <main v-if="scene" class="scene-output" :style="{ aspectRatio: scene.width + ' / ' + scene.height, background: scene.background === 'transparent' ? 'transparent' : scene.background }">
-    <div v-for="layer in scene.layers.filter(item => item.visible && (item.type !== 'music_queue' || musicDisplayConfig?.command_enabled === true) && (item.type !== 'video_queue' || videoQueue.enabled === true))" :key="layer.id" class="output-layer" :class="{ 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue', 'video-queue-output-layer': layer.type === 'video_queue' }" :style="layerStyle(layer)">
+    <div v-for="layer in scene.layers.filter(item => item.visible && (item.type !== 'music_queue' || musicDisplayConfig?.command_enabled === true) && (item.type !== 'video_queue' || videoQueue.enabled === true) && (item.type !== 'live2d' || Boolean(live2DFrameURL)))" :key="layer.id" class="output-layer" :class="{ 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue', 'video-queue-output-layer': layer.type === 'video_queue' }" :style="layerStyle(layer)">
       <span v-if="layer.type === 'text'">{{ layer.text }}</span>
       <img v-else-if="layer.type === 'image' && layer.url" :src="layer.url" alt="" />
       <time v-else-if="layer.type === 'clock'">{{ formatClock() }}</time>
+      <iframe v-else-if="layer.type === 'live2d' && live2DFrameURL" class="live2d-output-frame" :src="live2DFrameURL" title="Live2D" />
       <div v-else-if="layer.type === 'danmaku'" class="event-stack">
         <div v-for="item in danmaku" :key="item.id" class="event-line"><strong>{{ item.user_name }}</strong><span>{{ item.content }}</span></div>
       </div>
@@ -401,6 +434,7 @@ html,body,#app{width:100%;height:100%;margin:0;overflow:hidden;background:transp
 body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .scene-output{position:relative;width:100vw;height:100vh;overflow:hidden;container-type:size;background:transparent}
 .output-layer{position:absolute;display:flex;align-items:flex-start;justify-content:flex-start;overflow:hidden;white-space:pre-wrap;word-break:break-word;font-weight:600;text-shadow:0 2px 6px #000b}
+.output-layer img,.output-layer iframe.live2d-output-frame{display:block;width:100%;height:100%;border:0;background:transparent;object-fit:contain}
 .output-layer img{width:100%;height:100%;object-fit:contain}
 .event-stack{display:flex;flex-direction:column;gap:.35em;width:100%;height:100%;overflow:hidden}
 .event-line{display:flex;gap:.5em;align-items:baseline;padding:.2em .4em;border-radius:.3em;background:#10131ac9;font-size:1em;line-height:1.35}
