@@ -1,5 +1,5 @@
 package desktop
-import ("context"; "encoding/json"; "testing"; "testing/fstest"; "github.com/dongguo4812/My-LiveHub/app/internal/config"
+import ("context"; "encoding/json"; "testing"; "testing/fstest"; "sync/atomic"; "github.com/dongguo4812/My-LiveHub/app/internal/config"
  "github.com/dongguo4812/My-LiveHub/app/internal/events"; "github.com/dongguo4812/My-LiveHub/app/internal/music")
 func TestParseSongRequest(t *testing.T){
  tests:=[]struct{content,prefix,want string;ok bool}{{"点歌 稻香","点歌","稻香",true},{"点歌稻香","点歌","",false},{"点歌   稻香 ","点歌","稻香",true},{"闲聊点歌 稻香","点歌","",false},{"点歌","点歌","",false}}
@@ -102,4 +102,68 @@ func TestGetPlaybackStatusReportsActualResolvedProvider(t *testing.T) {
 	if snapshot.Track.SourceID != "kg" || snapshot.Track.LXSourceKey != "kg" {
 		t.Fatalf("actual resolved source was not preserved: %#v", snapshot.Track)
 	}
+}
+
+
+type queueRecoveryTestEngine struct {
+	state music.PlaybackState
+	loadCalls atomic.Int32
+}
+func (e *queueRecoveryTestEngine) Load(context.Context, music.Track) error {
+	e.loadCalls.Add(1)
+	return nil
+}
+func (e *queueRecoveryTestEngine) Pause(context.Context) error { return nil }
+func (e *queueRecoveryTestEngine) Resume(context.Context) error { return nil }
+func (e *queueRecoveryTestEngine) Stop(context.Context) error { return nil }
+func (e *queueRecoveryTestEngine) Snapshot(context.Context) (music.PlaybackSnapshot, error) {
+	return music.PlaybackSnapshot{State: e.state}, nil
+}
+
+func TestEnqueueStartsNextWhenQueueCurrentIsStale(t *testing.T) {
+	value := config.DefaultMusicConfig()
+	engine := &queueRecoveryTestEngine{state: music.PlaybackStopped}
+	service := NewMusicServiceWithDependencies(nil, value, nil, engine)
+	defer service.Shutdown()
+
+	priority := service.enabledSearchSourceIDs()
+	if len(priority) == 0 { t.Fatal("expected at least one enabled search source") }
+	source := priority[0]
+	oldTrack := music.Track{ID: source + "_old", SourceID: source, LXSourceKey: source, Title: "旧歌曲", Artist: "测试歌手"}
+	if _, err := service.queue.SetCurrentTrack(oldTrack, "previous"); err != nil { t.Fatal(err) }
+
+	newTrack := music.Track{ID: source + "_new", SourceID: source, LXSourceKey: source, Title: "新歌曲", Artist: "测试歌手"}
+	item, err := service.Enqueue(newTrack, "viewer")
+	if err != nil { t.Fatalf("Enqueue returned error: %v", err) }
+
+	snapshot := service.queue.Snapshot()
+	if snapshot.Current == nil || snapshot.Current.ID != item.ID {
+		t.Fatalf("new request was not promoted to current after stale playback: %#v", snapshot)
+	}
+	if len(snapshot.Items) != 0 { t.Fatalf("new request remained pending: %#v", snapshot.Items) }
+	if got := engine.loadCalls.Load(); got != 1 { t.Fatalf("playback Load calls = %d, want 1", got) }
+}
+
+func TestEnqueueDoesNotInterruptPausedCurrentTrack(t *testing.T) {
+	value := config.DefaultMusicConfig()
+	engine := &queueRecoveryTestEngine{state: music.PlaybackPaused}
+	service := NewMusicServiceWithDependencies(nil, value, nil, engine)
+	defer service.Shutdown()
+
+	priority := service.enabledSearchSourceIDs()
+	if len(priority) == 0 { t.Fatal("expected at least one enabled search source") }
+	source := priority[0]
+	oldTrack := music.Track{ID: source + "_old", SourceID: source, LXSourceKey: source, Title: "暂停中的歌曲", Artist: "测试歌手"}
+	current, err := service.queue.SetCurrentTrack(oldTrack, "previous")
+	if err != nil { t.Fatal(err) }
+
+	newTrack := music.Track{ID: source + "_new", SourceID: source, LXSourceKey: source, Title: "待播歌曲", Artist: "测试歌手"}
+	if _, err := service.Enqueue(newTrack, "viewer"); err != nil { t.Fatalf("Enqueue returned error: %v", err) }
+
+	snapshot := service.queue.Snapshot()
+	if snapshot.Current == nil || snapshot.Current.ID != current.ID {
+		t.Fatalf("paused current track was interrupted: %#v", snapshot.Current)
+	}
+	if len(snapshot.Items) != 1 { t.Fatalf("pending queue length = %d, want 1", len(snapshot.Items)) }
+	if got := engine.loadCalls.Load(); got != 0 { t.Fatalf("playback Load calls = %d, want 0", got) }
 }
