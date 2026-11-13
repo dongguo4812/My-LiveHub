@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const CurrentMusicConfigVersion = 12
+const CurrentMusicConfigVersion = 13
 
 type MusicConfig struct {
 	ConfigVersion  int    `json:"config_version"`
@@ -34,7 +34,7 @@ func DefaultMusicConfig() MusicConfig {
 		QueueCapacity: 100,
 		QueueDisplayCount: 5,
 		FanMedalLevel: 1,
-		LXAPIEndpoints: []string{"http://127.0.0.1:23330", "http://192.168.1.3:23330"},
+		LXAPIEndpoints: []string{"http://127.0.0.1:23330"},
 		EnabledSearchSources: []string{"tx", "kw", "kg", "wy", "mg"},
 	}
 }
@@ -59,7 +59,12 @@ func MigrateMusicConfig(c MusicConfig) (MusicConfig, bool) {
 	if c.QueueDisplayCount >= 1 && c.QueueDisplayCount <= 1000 {
 		n.QueueDisplayCount = c.QueueDisplayCount
 	}
-	if c.LXAPIEndpoints != nil { n.LXAPIEndpoints = append([]string{}, c.LXAPIEndpoints...) }
+	if c.LXAPIEndpoints != nil {
+		n.LXAPIEndpoints = append([]string{}, c.LXAPIEndpoints...)
+		if c.ConfigVersion < 13 && len(n.LXAPIEndpoints) > 1 {
+			n.LXAPIEndpoints = n.LXAPIEndpoints[:1]
+		}
+	}
 	if c.EnabledSearchSources != nil { n.EnabledSearchSources = append([]string{}, c.EnabledSearchSources...) }
 	n.RequireFanMedal = c.RequireFanMedal
 	if c.FanMedalLevel >= 1 && c.FanMedalLevel <= 120 { n.FanMedalLevel = c.FanMedalLevel }
