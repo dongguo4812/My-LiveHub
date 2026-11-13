@@ -271,7 +271,7 @@ onUnmounted(() => {
       <section v-else-if="layer.type === 'music_queue'" class="music-queue-widget" :style="{ '--queue-accent': layer.color || '#9fc0ff', fontSize: ((layer.font_size || 22) / (scene?.height || 1080) * 100) + 'cqh' }">
         <section v-if="musicDisplayConfig?.enabled && musicDisplayConfig.command_enabled" class="music-queue-section music-queue-prompt">
           <div class="music-queue-prompt-single">
-            <strong class="music-queue-prompt-title"><span class="music-queue-heading-mark">♫</span> 点歌指令</strong>
+            <strong class="music-queue-prompt-title"><span class="music-queue-heading-mark">♪</span> 点歌指令</strong>
             <span><b>{{ musicDisplayConfig.command_prefix }}</b> 歌曲名称</span>
           </div>
         </section>
@@ -284,7 +284,7 @@ onUnmounted(() => {
           </div>
           <div v-else class="music-queue-item music-queue-current music-queue-current-inline">
             <strong class="music-queue-current-label"><span class="music-queue-heading-mark">♫</span> 当前播放</strong>
-            <span class="music-queue-empty">当前播放歌曲非观众点播</span>
+            <span class="music-queue-empty">暂无点播歌曲</span>
           </div>
         </section>
         <section class="music-queue-section music-queue-pending">
@@ -296,7 +296,7 @@ onUnmounted(() => {
               <span class="music-queue-requester">{{ item.requested_by }}</span>
             </div>
           </div>
-          <div v-else class="music-queue-empty">暂无观众待播歌曲</div>
+          <div v-else class="music-queue-empty">暂无待播歌曲</div>
         </section>
       </section>
       <section v-else-if="layer.type === 'music' && playback?.state === 'playing' && playback?.track" class="music-widget" :style="{ '--random-color': musicAccentColor, '--details-bg': playback.track.cover_url ? 'url(' + JSON.stringify(playback.track.cover_url) + ')' : 'none', '--music-lyric-size': ((layer.font_size || 24) * 14 / 24) + 'px', '--music-translation-size': ((layer.font_size || 24) * 12 / 24) + 'px', '--music-status-size': ((layer.font_size || 24) * 14 / 24) + 'px' }">
