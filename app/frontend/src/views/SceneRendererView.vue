@@ -269,16 +269,10 @@ onUnmounted(() => {
         <div v-for="item in superChats" :key="item.id" class="event-line sc-line"><strong>{{ item.user_name }} · ¥{{ Number(item.amount || 0).toFixed(2) }}</strong><span>{{ item.content }}</span></div>
       </div>
       <section v-else-if="layer.type === 'music_queue'" class="music-queue-widget" :style="{ '--queue-accent': layer.color || '#9fc0ff', fontSize: ((layer.font_size || 22) / (scene?.height || 1080) * 100) + 'cqh' }">
-        <section class="music-queue-section music-queue-prompt">
+        <section v-if="musicDisplayConfig?.enabled && musicDisplayConfig.command_enabled" class="music-queue-section music-queue-prompt">
           <div class="music-queue-prompt-single">
-            <strong class="music-queue-prompt-title"><span class="music-queue-heading-mark">✦</span> 点歌提示</strong>
-            <template v-if="musicDisplayConfig?.enabled">
-              <span v-if="musicDisplayConfig.command_enabled"><b>点歌</b> {{ musicDisplayConfig.command_prefix }} 歌曲名称</span>
-              <span v-if="musicDisplayConfig.skip_command_enabled"><b>切歌</b> {{ musicDisplayConfig.skip_command }}（主播 / 房管）</span>
-              <span v-if="musicDisplayConfig.require_fan_medal">需拥有主播粉丝勋章，等级达到 {{ musicDisplayConfig.fan_medal_level }} 级</span>
-              <span v-if="!musicDisplayConfig.command_enabled && !musicDisplayConfig.skip_command_enabled">当前未启用点歌指令</span>
-            </template>
-            <span v-else>{{ musicDisplayConfig ? '音乐点歌功能未启用' : '正在读取点歌指令…' }}</span>
+            <strong class="music-queue-prompt-title">点歌指令</strong>
+            <span><b>{{ musicDisplayConfig.command_prefix }}</b> 歌曲名称</span>
           </div>
         </section>
         <section class="music-queue-section music-queue-current-section">
