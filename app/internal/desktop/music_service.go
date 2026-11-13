@@ -1186,8 +1186,9 @@ func (s *MusicService) TestLXUserSource(id string) ([]LXSourcePlatformTest, erro
 	searchNames := map[string]string{"kw":"酷我音乐","kg":"酷狗音乐","tx":"QQ 音乐","wy":"网易云音乐","mg":"咪咕音乐"}
 	declared := make(map[string]music.LXDeclaredSource, len(validation.DeclaredSources))
 	for _, item := range validation.DeclaredSources { declared[item.Key] = item }
-	results := make([]LXSourcePlatformTest, 0, len(validation.DeclaredSources))
-	for _, platform := range validation.Platforms {
+	platforms := []string{"tx", "wy", "kg", "kw", "mg"}
+	results := make([]LXSourcePlatformTest, 0, len(platforms))
+	for _, platform := range platforms {
 		item, exists := declared[platform]
 		result := LXSourcePlatformTest{Platform:platform, Name:searchNames[platform], Status:"unsupported", Message:"脚本未声明 musicUrl 动作"}
 		if result.Name == "" { result.Name = platform }
