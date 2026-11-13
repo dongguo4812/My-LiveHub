@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, onUpdated, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
-type Layer = { id: string; type: string; name: string; x: number; y: number; width: number; height: number; z_index: number; visible: boolean; opacity: number; text?: string; url?: string; color?: string; font_size?: number; queue_display_count?: number }
+type Layer = { id: string; type: string; name: string; x: number; y: number; width: number; height: number; z_index: number; visible: boolean; opacity: number; text?: string; url?: string; color?: string; font_size?: number; queue_display_count?: number; live2d_scale?: number; live2d_x?: number; live2d_y?: number }
 type Scene = { id: string; name: string; width: number; height: number; background: string; layers: Layer[] }
 type LiveEvent = { id: number; type: string; user_name: string; content: string; gift_name?: string; gift_count?: number; amount?: number; timestamp: number }
 type Track = { id: string; source_id: string; title: string; artist?: string; album?: string; duration_ms: number; cover_url?: string }
@@ -210,10 +210,16 @@ async function loadLive2DDisplay() {
 }
 function applyLive2DFrameTransforms() {
   const value = live2DDisplay.value
-  if (!value || value.runtime_version !== 'moc3') return
+  if (!value) return
   document.querySelectorAll<HTMLIFrameElement>('.live2d-output-frame').forEach(frame => {
+    const layer = scene.value?.layers.find(item => item.id === frame.dataset.layerId)
+    if (!layer) return
     const target = frame.contentWindow as Live2DWindow | null
-    target?.live2dSetModelTransform?.(value.model_scale, value.model_offset_x / 100, value.model_offset_y / 100)
+    target?.live2dSetModelTransform?.(
+      value.model_scale * (layer.live2d_scale || 1),
+      value.model_offset_x / 100 + (layer.live2d_x || 0),
+      value.model_offset_y / 100 + (layer.live2d_y || 0),
+    )
   })
 }
 function handleLive2DMessage(event: MessageEvent) {
@@ -317,7 +323,7 @@ onUnmounted(() => {
       <span v-if="layer.type === 'text'">{{ layer.text }}</span>
       <img v-else-if="layer.type === 'image' && layer.url" :src="layer.url" alt="" />
       <time v-else-if="layer.type === 'clock'">{{ formatClock() }}</time>
-      <iframe v-else-if="layer.type === 'live2d' && live2DFrameURL" class="live2d-output-frame" :src="live2DFrameURL" title="Live2D" allowtransparency="true" :style="{ backgroundColor: 'transparent' }" />
+      <iframe v-else-if="layer.type === 'live2d' && live2DFrameURL" class="live2d-output-frame" :data-layer-id="layer.id" :src="live2DFrameURL" title="Live2D" allowtransparency="true" :style="{ backgroundColor: 'transparent' }" />
       <div v-else-if="layer.type === 'danmaku'" class="event-stack">
         <div v-for="item in danmaku" :key="item.id" class="event-line"><strong>{{ item.user_name }}</strong><span>{{ item.content }}</span></div>
       </div>
@@ -434,7 +440,7 @@ html,body,#app{width:100%;height:100%;margin:0;overflow:hidden;background:transp
 body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .scene-output{position:relative;width:100vw;height:100vh;overflow:hidden;container-type:size;background:transparent}
 .output-layer{position:absolute;display:flex;align-items:flex-start;justify-content:flex-start;overflow:hidden;white-space:pre-wrap;word-break:break-word;font-weight:600;text-shadow:0 2px 6px #000b}
-.output-layer img{width:100%;height:100%;object-fit:contain}
+.output-layer img{width:100%;height:100%;object-fit:contain}.output-layer iframe.live2d-output-frame{display:block;width:100%;height:100%;border:0;background:transparent!important;background-color:transparent!important;pointer-events:none}
 .event-stack{display:flex;flex-direction:column;gap:.35em;width:100%;height:100%;overflow:hidden}
 .event-line{display:flex;gap:.5em;align-items:baseline;padding:.2em .4em;border-radius:.3em;background:#10131ac9;font-size:1em;line-height:1.35}
 .event-line strong{color:#ffe08a;flex:none}
