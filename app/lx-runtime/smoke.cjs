@@ -131,7 +131,7 @@ async function run() {
     data: {
       source: 'wy',
       action: 'musicUrl',
-      info: { type: '320k', songmid: 'smoke-track' },
+      info: { type: '320k', musicInfo: { songmid: 'smoke-track' } },
     },
   })
 
