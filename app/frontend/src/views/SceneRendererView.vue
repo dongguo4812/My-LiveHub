@@ -48,7 +48,7 @@ const lyricScrollProgress = computed(() => {
   const current = playback.value
   if (index < 0 || !current) return 0
   const start = lyricLines.value[index].time
-  const end = lyricLines.value[index + 1]?.time ?? current.duration_ms ?? current.track?.duration_ms ?? start
+  const end = lyricLines.value[index + 1]?.time ?? (current.duration_ms || current.track?.duration_ms || start)
   if (end <= start) return 0
   return Math.max(0, Math.min(1, (current.position_ms - start) / (end - start)))
 })
