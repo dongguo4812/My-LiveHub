@@ -16,6 +16,8 @@ const now = ref(new Date())
 const error = ref('')
 const playback = ref<Playback | null>(null)
 const lyricLines = ref<LyricLine[]>([])
+const lyricsLoading = ref(false)
+const lyricsFailed = ref(false)
 const musicError = ref('')
 const musicAccentColor = ref('#A83232')
 const waveBars = Array.from({ length: 31 }, (_, index) => ({ height: 7 + Math.abs(Math.sin(index * 1.71) * 24), speed: 0.45 + (index % 7) * 0.13, delay: -(Math.random() * 1.8) }))
@@ -118,6 +120,8 @@ async function loadScene() {
 }
 async function loadTrackLyrics(track: Track, key: string) {
   const requestID = ++lyricsRequestID
+  lyricsLoading.value = true
+  lyricsFailed.value = false
   try {
     const response = await fetch('/api/music/lyrics', {
       method: 'POST',
@@ -133,8 +137,11 @@ async function loadTrackLyrics(track: Track, key: string) {
   } catch (cause) {
     if (requestID === lyricsRequestID && musicTrackKey === key) {
       lyricLines.value = []
+      lyricsFailed.value = true
       musicError.value = cause instanceof Error ? cause.message : String(cause)
     }
+  } finally {
+    if (requestID === lyricsRequestID && musicTrackKey === key) lyricsLoading.value = false
   }
 }
 async function loadMusic() {
@@ -155,6 +162,8 @@ async function loadMusic() {
       }
       lyricsRequestID++
       lyricLines.value = []
+      lyricsLoading.value = Boolean(track)
+      lyricsFailed.value = false
       musicError.value = ''
       if (track) void loadTrackLyrics(track, key)
     }
@@ -219,8 +228,12 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="music-lyrics">
-          <strong>{{ activeLyric?.text || '暂无同步歌词' }}</strong>
-          <span v-if="activeLyric?.translation">{{ activeLyric.translation }}</span>
+          <template v-if="activeLyric">
+            <strong>{{ activeLyric.text }}</strong>
+            <span v-if="activeLyric.translation">{{ activeLyric.translation }}</span>
+          </template>
+          <strong v-else-if="!lyricsLoading && !lyricLines.length && !lyricsFailed">暂无同步歌词</strong>
+          <strong v-else-if="lyricsFailed">歌词获取失败</strong>
         </div>
       </section>
     </div>
