@@ -256,7 +256,7 @@ func (p *LXElectronUserSourceProcess) readLoop(reader io.Reader) {
 					p.finishInitialization(fmt.Errorf("解析洛雪音源初始化结果失败：%w",err))
 					continue
 				}
-				result := LXSourceRuntimeResult{Initialized:true, Sources:append(json.RawMessage(nil), envelope.Data...)}
+				result := LXSourceRuntimeResult{Runtime:LXUserSourceRuntimeVersion, Initialized:true, Sources:append(json.RawMessage(nil), envelope.Data...)}
 				for key, source := range data.Sources {
 					if source.Type != "music" { continue }
 					result.Platforms = append(result.Platforms,key)
