@@ -259,10 +259,10 @@ onUnmounted(() => {
         </div>
         <div class="music-lyrics">
           <div ref="lyricOriginalViewport" class="music-lyric-viewport">
-            <strong ref="lyricOriginalText" class="music-lyric-text" :style="{ transform: 'translateX(' + lyricOriginalOffset + 'px)' }">{{ activeLyric?.text || '暂无同步歌词' }}</strong>
+            <strong :key="activeLyric?.time ?? 'empty'" ref="lyricOriginalText" class="music-lyric-text" :style="{ transform: 'translateX(' + lyricOriginalOffset + 'px)' }">{{ activeLyric?.text || '暂无同步歌词' }}</strong>
           </div>
           <div v-if="activeLyric?.translation" ref="lyricTranslationViewport" class="music-lyric-viewport">
-            <span ref="lyricTranslationText" class="music-lyric-text" :style="{ transform: 'translateX(' + lyricTranslationOffset + 'px)' }">{{ activeLyric.translation }}</span>
+            <span :key="activeLyric?.time ?? 'empty'" ref="lyricTranslationText" class="music-lyric-text" :style="{ transform: 'translateX(' + lyricTranslationOffset + 'px)' }">{{ activeLyric.translation }}</span>
           </div>
         </div>
       </section>
@@ -304,7 +304,7 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-lyrics{position:relative;isolation:isolate;min-height:42px;display:flex;flex-direction:column;justify-content:center;gap:3px;overflow:hidden;padding:5px 9px;border-radius:5px;background:rgba(30,23,20,.5);text-align:center}
 .music-lyrics::before{content:"";position:absolute;inset:0;z-index:-2;background-image:var(--details-bg,none);background-position:center;background-size:cover;opacity:.45;filter:blur(5px) brightness(.55);transform:scale(1.04);pointer-events:none}
 .music-lyrics::after{content:"";position:absolute;inset:0;z-index:-1;background:rgba(0,0,0,.38);pointer-events:none}
-.music-lyric-viewport{position:relative;display:block;width:100%;min-width:0;overflow:hidden;white-space:nowrap}
+.music-lyric-viewport{position:relative;display:block;width:100%;min-width:0;overflow:hidden;white-space:nowrap;text-align:left}
 .music-lyric-text{position:relative;display:inline-block;max-width:none;white-space:nowrap;text-overflow:clip;will-change:transform;transition:transform .48s linear}
 .music-lyrics strong.music-lyric-text{font-size:14px;font-weight:700;line-height:1.35;color:var(--random-color)}
 .music-lyrics span.music-lyric-text{font-size:12px;line-height:1.3;color:#e7c89d;opacity:.9}
