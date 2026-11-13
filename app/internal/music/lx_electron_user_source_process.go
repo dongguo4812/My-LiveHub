@@ -90,7 +90,11 @@ type LXElectronUserSourceProcess struct {
 	pendingMu sync.Mutex
 	pending map[string]chan lxElectronPending
 	counter atomic.Uint64
-	ready chan error
+	windowReady chan error
+	initDone chan struct{}
+	initOnce sync.Once
+	initMu sync.RWMutex
+	initErr error
 	updates chan LXUserSourceUpdate
 	done chan struct{}
 	closeOnce sync.Once
@@ -176,7 +180,7 @@ func StartLXElectronUserSourceProcess(ctx context.Context, script string, proxy 
 
 	process := &LXElectronUserSourceProcess{
 		command: command, conn: conn, pending: make(map[string]chan lxElectronPending),
-		ready: make(chan error, 1), updates: make(chan LXUserSourceUpdate, 8), done: make(chan struct{}),
+		windowReady: make(chan error, 1), initDone: make(chan struct{}), updates: make(chan LXUserSourceUpdate, 8), done: make(chan struct{}),
 	}
 	go process.readLoop(reader)
 	proxyValue := lxElectronProxy{}
@@ -188,15 +192,15 @@ func StartLXElectronUserSourceProcess(ctx context.Context, script string, proxy 
 	}
 	if err := process.write(init); err != nil { _ = process.Close(); return nil, err }
 	select {
-	case err := <-process.ready:
+	case err := <-process.windowReady:
 		if err != nil { _ = process.Close(); return nil, err }
 		return process, nil
 	case <-ctx.Done():
 		_ = process.Close(); return nil, ctx.Err()
-	case <-time.After(lxElectronInitTimeout):
-		_ = process.Close(); return nil, errors.New("洛雪音源初始化超时")
+	case <-time.After(lxElectronReadyTimeout):
+		_ = process.Close(); return nil, errors.New("洛雪 Electron 音源窗口启动超时")
 	case <-process.done:
-		return nil, errors.New("洛雪 Electron 音源运行环境在初始化前退出")
+		return nil, errors.New("洛雪 Electron 音源运行环境在窗口启动前退出")
 	}
 }
 
@@ -213,6 +217,8 @@ func (p *LXElectronUserSourceProcess) write(message lxElectronInput) error {
 
 func (p *LXElectronUserSourceProcess) readLoop(reader io.Reader) {
 	defer func() {
+		p.finishInitialization(errors.New("洛雪 Electron 音源运行环境已退出"))
+		select { case p.windowReady <- errors.New("洛雪 Electron 音源运行环境已退出"): default: }
 		_ = p.command.Wait()
 		p.pendingMu.Lock()
 		for key, ch := range p.pending { delete(p.pending,key); ch <- lxElectronPending{err:errors.New("洛雪 Electron 音源运行环境已退出")} }
@@ -227,22 +233,23 @@ func (p *LXElectronUserSourceProcess) readLoop(reader io.Reader) {
 		if err := json.Unmarshal(scanner.Bytes(), &message); err != nil { continue }
 		switch message.Type {
 		case "ready":
-			// The renderer sends userApi_init only after the original LX preload
-			// has executed the complete source script and accepted inited().
+			select { case p.windowReady <- nil: default: }
 		case "error":
-			select { case p.ready <- errors.New(message.Message): default: }
+			err := errors.New(message.Message)
+			select { case p.windowReady <- err: default: }
+			p.finishInitialization(err)
 		case "event":
 			var envelope lxElectronEnvelope
 			if err := json.Unmarshal(message.Params, &envelope); err != nil { continue }
 			switch message.Name {
 			case "userApi_init":
 				if !envelope.Status {
-					select { case p.ready <- errors.New(envelope.Message): default: }
+					p.finishInitialization(errors.New(envelope.Message))
 					continue
 				}
 				var data lxElectronInitData
 				if err := json.Unmarshal(envelope.Data, &data); err != nil {
-					select { case p.ready <- fmt.Errorf("解析洛雪音源初始化结果失败：%w",err): default: }
+					p.finishInitialization(fmt.Errorf("解析洛雪音源初始化结果失败：%w",err))
 					continue
 				}
 				result := LXSourceRuntimeResult{Initialized:true, Sources:append(json.RawMessage(nil), envelope.Data...)}
@@ -252,7 +259,7 @@ func (p *LXElectronUserSourceProcess) readLoop(reader io.Reader) {
 					result.DeclaredSources = append(result.DeclaredSources,LXDeclaredSource{Key:key,Type:source.Type,Actions:append([]string(nil),source.Actions...),Qualitys:append([]string(nil),source.Qualitys...)})
 				}
 				p.resultMu.Lock(); p.result=result; p.resultMu.Unlock()
-				select { case p.ready <- nil: default: }
+				p.finishInitialization(nil)
 			case "userApi_response":
 				var data lxElectronResponseData
 				if err := json.Unmarshal(envelope.Data,&data); err != nil { continue }
@@ -270,6 +277,37 @@ func (p *LXElectronUserSourceProcess) readLoop(reader io.Reader) {
 	}
 	if err := scanner.Err(); err != nil {
 		select { case p.ready <- fmt.Errorf("读取洛雪 Electron 音源进程输出失败：%w",err): default: }
+	}
+}
+
+func (p *LXElectronUserSourceProcess) finishInitialization(err error) {
+	if p == nil { return }
+	p.initOnce.Do(func() {
+		p.initMu.Lock()
+		p.initErr = err
+		p.initMu.Unlock()
+		if err != nil {
+			p.resultMu.Lock()
+			p.result.Message = err.Error()
+			p.resultMu.Unlock()
+		}
+		close(p.initDone)
+	})
+}
+
+func (p *LXElectronUserSourceProcess) WaitInitialized(ctx context.Context) error {
+	if p == nil { return errors.New("洛雪 Electron 音源运行环境不可用") }
+	if ctx == nil { ctx = context.Background() }
+	select {
+	case <-p.initDone:
+		p.initMu.RLock()
+		err := p.initErr
+		p.initMu.RUnlock()
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-p.done:
+		return errors.New("洛雪 Electron 音源运行环境已退出")
 	}
 }
 
@@ -295,6 +333,7 @@ func (p *LXElectronUserSourceProcess) Request(ctx context.Context, payload json.
 	if ctx==nil{ctx=context.Background()}
 	if len(payload)==0 || len(payload)>64<<10{return nil,errors.New("LX 音源请求数据为空或超过 64 KB 限制")}
 	if err:=ctx.Err();err!=nil{return nil,lxRequestContextError(err)}
+	if err:=p.WaitInitialized(ctx);err!=nil{return nil,err}
 	key:=fmt.Sprintf("request__%d",p.counter.Add(1))
 	ch:=make(chan lxElectronPending,1)
 	p.pendingMu.Lock();p.pending[key]=ch;p.pendingMu.Unlock()
