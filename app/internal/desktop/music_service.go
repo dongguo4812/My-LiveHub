@@ -395,9 +395,6 @@ func (s *MusicService) searchPage(parent context.Context, keyword string, page i
 }
 
 
-func shouldAutoStartSongRequest(current *music.QueueItem) bool {
-	return current == nil || current.RequestedBy == hostQueueMarker
-}
 func (s *MusicService) Enqueue(track music.Track, requestedBy string) (music.QueueItem, error) {
 	if s == nil || s.queue == nil { return music.QueueItem{}, errors.New("music queue is unavailable") }
 	s.mu.RLock(); enabled := s.value.Enabled; s.mu.RUnlock()
