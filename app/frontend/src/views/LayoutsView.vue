@@ -211,20 +211,20 @@ onUnmounted(() => { window.removeEventListener('resize', refreshScale) })
         <div class="panel-heading"><strong>属性</strong><el-button v-if="selectedLayer" text type="danger" @click="removeLayer">删除图层</el-button></div>
         <template v-if="selectedLayer !== null">
           <el-form label-position="top" size="small">
-            <el-form-item label="图层名称"><el-input v-model="selectedLayer.name" /></el-form-item>
-            <el-form-item v-if="selectedLayer.type === 'text'" label="文字内容"><el-input v-model="selectedLayer.text" type="textarea" :rows="3" /></el-form-item>
-            <el-form-item v-if="selectedLayer.type === 'image'" label="图片 URL"><el-input v-model="selectedLayer.url" placeholder="https://..." /></el-form-item>
+            <el-form-item label="图层名称"><el-input v-model="selectedLayer!.name" /></el-form-item>
+            <el-form-item v-if="selectedLayer.type === 'text'" label="文字内容"><el-input v-model="selectedLayer!.text" type="textarea" :rows="3" /></el-form-item>
+            <el-form-item v-if="selectedLayer.type === 'image'" label="图片 URL"><el-input v-model="selectedLayer!.url" placeholder="https://..." /></el-form-item>
             <el-form-item v-if="selectedLayer !== null && selectedLayer.type === 'music_queue'" label="待播显示数量"><el-input-number v-model="selectedQueueLayer!.queue_display_count" :min="1" :max="1000" /><div class="el-form-item__description">仅控制此点播队列组件显示的歌曲条数；待播队列标题仍显示实际歌曲总数。</div></el-form-item>
             <div class="property-grid">
-              <el-form-item label="X"><el-input-number v-model="selectedLayer.x" :min="0" :max="scene?.width ?? 1920" controls-position="right" /></el-form-item>
-              <el-form-item label="Y"><el-input-number v-model="selectedLayer.y" :min="0" :max="scene?.height ?? 1080" controls-position="right" /></el-form-item>
-              <el-form-item label="宽度"><el-input-number v-model="selectedLayer.width" :min="20" :max="scene?.width ?? 1920" controls-position="right" /></el-form-item>
-              <el-form-item label="高度"><el-input-number v-model="selectedLayer.height" :min="20" :max="scene?.height ?? 1080" controls-position="right" /></el-form-item>
+              <el-form-item label="X"><el-input-number v-model="selectedLayer!.x" :min="0" :max="scene?.width ?? 1920" controls-position="right" /></el-form-item>
+              <el-form-item label="Y"><el-input-number v-model="selectedLayer!.y" :min="0" :max="scene?.height ?? 1080" controls-position="right" /></el-form-item>
+              <el-form-item label="宽度"><el-input-number v-model="selectedLayer!.width" :min="20" :max="scene?.width ?? 1920" controls-position="right" /></el-form-item>
+              <el-form-item label="高度"><el-input-number v-model="selectedLayer!.height" :min="20" :max="scene?.height ?? 1080" controls-position="right" /></el-form-item>
             </div>
-            <el-form-item label="字体大小"><el-input-number v-model="selectedLayer.font_size" :min="10" :max="160" /></el-form-item>
-            <el-form-item label="文字颜色"><el-color-picker v-model="selectedLayer.color" show-alpha /></el-form-item>
-            <el-form-item label="透明度"><el-slider v-model="selectedLayer.opacity" :min="0" :max="1" :step="0.05" /></el-form-item>
-            <el-form-item label="显示图层"><el-switch v-model="selectedLayer.visible" /></el-form-item>
+            <el-form-item label="字体大小"><el-input-number v-model="selectedLayer!.font_size" :min="10" :max="160" /></el-form-item>
+            <el-form-item label="文字颜色"><el-color-picker v-model="selectedLayer!.color" show-alpha /></el-form-item>
+            <el-form-item label="透明度"><el-slider v-model="selectedLayer!.opacity" :min="0" :max="1" :step="0.05" /></el-form-item>
+            <el-form-item label="显示图层"><el-switch v-model="selectedLayer!.visible" /></el-form-item>
           </el-form>
         </template>
         <el-empty v-else description="选择一个图层编辑属性" :image-size="72" />
