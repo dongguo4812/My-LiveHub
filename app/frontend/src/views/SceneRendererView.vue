@@ -255,7 +255,7 @@ onUnmounted(() => {
 
 <template>
   <main v-if="scene" class="scene-output" :style="{ aspectRatio: scene.width + ' / ' + scene.height, background: scene.background === 'transparent' ? 'transparent' : scene.background }">
-    <div v-for="layer in scene.layers.filter(item => item.visible)" :key="layer.id" class="output-layer" :class="{ 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue', 'music-prompt-output-layer': layer.type === 'music_prompt' }" :style="layerStyle(layer)">
+    <div v-for="layer in scene.layers.filter(item => item.visible)" :key="layer.id" class="output-layer" :class="{ 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue' }" :style="layerStyle(layer)">
       <span v-if="layer.type === 'text'">{{ layer.text }}</span>
       <img v-else-if="layer.type === 'image' && layer.url" :src="layer.url" alt="" />
       <time v-else-if="layer.type === 'clock'">{{ formatClock() }}</time>
@@ -281,14 +281,17 @@ onUnmounted(() => {
             <span v-else>{{ musicDisplayConfig ? '音乐点歌功能未启用' : '正在读取点歌指令…' }}</span>
           </div>
         </section>
-        <section class="music-queue-section">
-          <strong class="music-queue-heading"><span class="music-queue-heading-mark">♫</span> 当前播放</strong>
+        <section class="music-queue-section music-queue-current-section">
           <div v-if="audienceCurrent" class="music-queue-item music-queue-current music-queue-current-inline">
+            <strong class="music-queue-current-label"><span class="music-queue-heading-mark">♫</span> 当前播放</strong>
             <strong class="music-queue-current-title">{{ audienceCurrent.track.title }}</strong>
             <span class="music-queue-current-artist">{{ audienceCurrent.track.artist || '未知歌手' }}</span>
             <span class="music-queue-requester">{{ audienceCurrent.requested_by }}</span>
           </div>
-          <div v-else class="music-queue-empty">当前播放歌曲非观众点播</div>
+          <div v-else class="music-queue-item music-queue-current music-queue-current-inline">
+            <strong class="music-queue-current-label"><span class="music-queue-heading-mark">♫</span> 当前播放</strong>
+            <span class="music-queue-empty">当前播放歌曲非观众点播</span>
+          </div>
         </section>
         <section class="music-queue-section music-queue-pending">
           <strong class="music-queue-heading"><span class="music-queue-heading-mark">Ⅱ</span> 待播队列 <span class="music-queue-count">{{ audienceQueueItems.length }} 首</span></strong>
@@ -301,16 +304,6 @@ onUnmounted(() => {
           </div>
           <div v-else class="music-queue-empty">暂无观众待播歌曲</div>
         </section>
-      </section>
-      <section v-else-if="layer.type === 'music_prompt'" class="music-simple-widget music-prompt-widget" :style="{ fontSize: ((layer.font_size || 22) / (scene?.height || 1080) * 100) + 'cqh' }">
-        <strong class="music-simple-heading">点歌提示</strong>
-        <template v-if="musicDisplayConfig?.enabled">
-          <div v-if="musicDisplayConfig.command_enabled" class="music-prompt-line">点歌：{{ musicDisplayConfig.command_prefix }} 歌曲名称</div>
-          <div v-if="musicDisplayConfig.skip_command_enabled" class="music-prompt-line">切歌：{{ musicDisplayConfig.skip_command }}（主播 / 房管）</div>
-          <div v-if="musicDisplayConfig.require_fan_medal" class="music-prompt-note">需拥有主播粉丝勋章，等级达到 {{ musicDisplayConfig.fan_medal_level }} 级</div>
-          <div v-if="!musicDisplayConfig.command_enabled && !musicDisplayConfig.skip_command_enabled" class="music-simple-empty">当前未启用点歌指令</div>
-        </template>
-        <div v-else class="music-simple-empty">音乐点歌功能未启用</div>
       </section>
       <section v-else-if="layer.type === 'music' && playback?.state === 'playing' && playback?.track" class="music-widget" :style="{ '--random-color': musicAccentColor, '--details-bg': playback.track.cover_url ? 'url(' + JSON.stringify(playback.track.cover_url) + ')' : 'none', '--music-lyric-size': ((layer.font_size || 24) * 14 / 24) + 'px', '--music-translation-size': ((layer.font_size || 24) * 12 / 24) + 'px', '--music-status-size': ((layer.font_size || 24) * 14 / 24) + 'px' }">
         <div class="music-main">
@@ -386,12 +379,12 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-queue-prompt-title{display:flex;align-items:center;gap:.3em;flex:none;color:#ffd66b;font-size:1.05em}
 .music-queue-prompt-single span{flex:none;color:#d7deea}
 .music-queue-prompt-single b{color:#ffd66b;font-weight:800}
-.music-queue-current-inline{flex-wrap:nowrap;gap:.65em;padding:.34em .5em}
-.music-queue-current-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f7f8fc;font-size:.88em}
+.music-queue-current-inline{flex-wrap:nowrap;gap:.55em;padding:.34em .5em;white-space:nowrap}
+.music-queue-current-label{flex:none;color:#ffd66b;font-size:.78em;white-space:nowrap}.music-queue-current-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f7f8fc;font-size:.88em}
 .music-queue-current-artist{flex:none;max-width:28%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#aeb9ca;font-size:.76em}
-.music-queue-current-inline .music-queue-requester{max-width:26%}
-.music-queue-list{gap:.12em}
-.music-queue-list .music-queue-item{padding-top:.22em;padding-bottom:.22em}
+.music-queue-current-inline .music-queue-requester{max-width:24%}.music-queue-current-inline .music-queue-empty{padding:0;white-space:nowrap}
+.music-queue-list{gap:0}
+.music-queue-list .music-queue-item{padding-top:.08em;padding-bottom:.08em;border-radius:0;border-bottom:1px solid rgba(255,255,255,.045)}
 .music-queue-list{display:flex;flex:1;flex-direction:column;gap:.28em;min-height:0;overflow:hidden}
 .music-queue-item{display:flex;align-items:center;gap:.58em;min-width:0;padding:.38em .5em;border:1px solid rgba(255,255,255,.055);border-radius:.36em;background:rgba(255,255,255,.055);line-height:1.3}
 .music-queue-current{border-color:rgba(255,214,107,.2);background:rgba(255,214,107,.075)}
