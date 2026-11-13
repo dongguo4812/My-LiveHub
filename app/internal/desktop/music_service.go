@@ -371,9 +371,28 @@ func (s *MusicService) Enqueue(track music.Track, requestedBy string) (music.Que
 	if s == nil || s.queue == nil { return music.QueueItem{}, errors.New("music queue is unavailable") }
 	s.mu.RLock(); enabled := s.value.Enabled; s.mu.RUnlock()
 	if !enabled { return music.QueueItem{}, errors.New("music module is disabled") }
-	startImmediately := s.queue.Snapshot().Current == nil
+
+	// A stale queue.Current must not strand new requests after 洛雪 was stopped
+	// outside My-LiveHub. Keep the current item only while playback is actually
+	// playing or intentionally paused.
+	queueBefore := s.queue.Snapshot()
+	startImmediately := queueBefore.Current == nil
+	staleCurrent := false
+	if queueBefore.Current != nil && s.engine != nil {
+		if playback, statusErr := s.engine.Snapshot(context.Background()); statusErr == nil {
+			staleCurrent = playback.State == music.PlaybackIdle ||
+				playback.State == music.PlaybackStopped ||
+				playback.State == music.PlaybackError
+		}
+	}
+
 	item, err := s.queue.Enqueue(track, requestedBy)
 	if err != nil { return music.QueueItem{}, err }
+	if staleCurrent {
+		s.cancelPlaybackWatcher()
+		s.queue.FinishCurrent()
+		startImmediately = true
+	}
 	if startImmediately {
 		if err := s.PlayNext(); err != nil {
 			if failed := s.queue.Snapshot().Current; failed != nil && failed.ID == item.ID {
