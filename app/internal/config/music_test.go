@@ -34,7 +34,7 @@ func TestMusicConfigMigrationDropsPlatformConfig(t *testing.T) {
 	}
 }
 
-func TestMusicConfigV7MigrationPreservesSkipCommandAndNormalization(t *testing.T) {
+func TestMusicConfigV7MigrationPreservesSkipCommand(t *testing.T) {
 	got, changed := MigrateMusicConfig(MusicConfig{
 		ConfigVersion: 7, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
 		SkipCommandEnabled: false, SkipCommand: "下一首", QueueCapacity: 100,
@@ -111,7 +111,7 @@ func TestMusicConfigV8MigrationAddsIndependentFanMedalDefaults(t *testing.T) {
 func TestMusicConfigV9MigrationAddsQueueDisplayCount(t *testing.T) {
 	got, changed := MigrateMusicConfig(MusicConfig{
 		ConfigVersion: 9, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
-		SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100, Volume: 80,
+		SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100,
 	})
 	if !changed { t.Fatal("expected v9 configuration migration") }
 	if err := got.Validate(); err != nil { t.Fatal(err) }
@@ -145,7 +145,7 @@ func TestMusicConfigV11MigrationAddsLXConnectionDefaults(t *testing.T) {
 		ConfigVersion: 11, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
 		SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100, QueueDisplayCount: 5,
 	})
-	if !changed { t.Fatal("expected v10 configuration migration") }
+	if !changed { t.Fatal("expected v11 configuration migration") }
 	if err := got.Validate(); err != nil { t.Fatal(err) }
 	if len(got.LXAPIEndpoints) != 2 || got.LXAPIEndpoints[0] != "http://127.0.0.1:23330" || got.LXAPIEndpoints[1] != "http://192.168.1.3:23330" {
 		t.Fatalf("unexpected 洛雪 API defaults: %#v", got.LXAPIEndpoints)
