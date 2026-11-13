@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -236,6 +237,8 @@ func (p *LXElectronUserSourceProcess) readLoop(reader io.Reader) {
 		var message lxElectronOutput
 		if err := json.Unmarshal(scanner.Bytes(), &message); err != nil { continue }
 		switch message.Type {
+		case "console":
+			log.Printf("[LX source console] %s", string(message.Params))
 		case "ready":
 			select { case p.windowReady <- nil: default: }
 		case "error":
@@ -343,11 +346,18 @@ func (p *LXElectronUserSourceProcess) Request(ctx context.Context, payload json.
 	key:=fmt.Sprintf("request__%d",p.counter.Add(1))
 	ch:=make(chan lxElectronPending,1)
 	p.pendingMu.Lock();p.pending[key]=ch;p.pendingMu.Unlock()
+	log.Printf("[LX musicUrl] request payload: %s", string(payload))
 	if err:=p.write(lxElectronInput{Operation:"request",RequestKey:key,Data:payload});err!=nil{
 		p.pendingMu.Lock();delete(p.pending,key);p.pendingMu.Unlock();return nil,err
 	}
 	select{
-	case result:=<-ch:return result.value,result.err
+	case result:=<-ch:
+		if result.err != nil {
+			log.Printf("[LX musicUrl] response error: %v", result.err)
+			return nil, result.err
+		}
+		log.Printf("[LX musicUrl] response payload: %s", string(result.value))
+		return result.value,nil
 	case <-ctx.Done():
 		p.pendingMu.Lock();delete(p.pending,key);p.pendingMu.Unlock()
 		return nil,lxRequestContextError(ctx.Err())
