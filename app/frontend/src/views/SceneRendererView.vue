@@ -367,12 +367,12 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-prompt-line{padding:.42em .5em;border-radius:.3em;background:rgba(16,19,26,.62);line-height:1.35}
 .music-prompt-widget{align-items:stretch}
 .music-queue-output-layer{padding:0;text-shadow:none;white-space:normal;overflow:hidden;font-family:Arial,"Microsoft YaHei",sans-serif}
-.music-queue-widget{display:flex;flex-direction:column;gap:0;width:100%;height:100%;overflow:hidden;color:#f4f6fb;text-shadow:0 2px 5px rgba(0,0,0,.5)}
+.music-queue-widget{display:flex;flex-direction:column;gap:0;width:100%;height:auto;max-height:100%;overflow:hidden;color:#f4f6fb;text-shadow:0 2px 5px rgba(0,0,0,.5)}
 .music-queue-section{display:flex;flex-direction:column;gap:0;min-width:0;padding:.55em .68em;border:1px solid rgba(159,192,255,.16);border-radius:.55em;background:linear-gradient(135deg,rgba(20,26,38,.88),rgba(13,17,26,.78));box-shadow:0 4px 14px rgba(0,0,0,.16)}
 .music-queue-heading{display:flex;align-items:center;gap:.42em;min-width:0;padding-bottom:.32em;border-bottom:1px solid rgba(159,192,255,.22);color:#9fc0ff;font-size:.82em;font-weight:800;line-height:1.35}
 .music-queue-heading-mark{flex:none;color:#ffd66b}
 .music-queue-count{margin-left:auto;color:#aebbd0;font-size:.72em;font-weight:600}
-.music-queue-pending{flex:1;min-height:0}.music-queue-prompt{border-color:rgba(255,214,107,.2);background:linear-gradient(135deg,rgba(48,39,25,.88),rgba(22,23,29,.82))}
+.music-queue-pending{flex:none;min-height:0;max-height:100%;overflow:hidden}.music-queue-prompt{border-color:rgba(255,214,107,.2);background:linear-gradient(135deg,rgba(48,39,25,.88),rgba(22,23,29,.82))}
 .music-queue-prompt .music-queue-heading{color:#ffd66b;border-bottom-color:rgba(255,214,107,.24)}
 .music-queue-prompt-single{display:flex;align-items:center;flex-wrap:nowrap;gap:.8em;min-width:0;overflow:hidden;white-space:nowrap;font-size:.82em;line-height:1.35}
 .music-queue-prompt-title{display:flex;align-items:center;gap:.3em;flex:none;color:#ffd66b;font-size:1em}.music-queue-prompt-title .music-queue-heading-mark{color:#ffd66b;font-size:1.2em;text-shadow:0 0 7px rgba(255,214,107,.55)}
@@ -386,7 +386,7 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-queue-current-inline .music-queue-requester{max-width:24%}.music-queue-current-inline .music-queue-empty{padding:0;white-space:nowrap}
 .music-queue-list{gap:0}
 .music-queue-list .music-queue-item{padding-top:.08em;padding-bottom:.08em;border-radius:0;border-bottom:1px solid rgba(255,255,255,.045)}
-.music-queue-list{display:flex;flex:1;flex-direction:column;gap:0;min-height:0;overflow:hidden}
+.music-queue-list{display:flex;flex:none;flex-direction:column;gap:0;min-height:0;overflow:hidden}
 .music-queue-item{display:flex;align-items:center;gap:.58em;min-width:0;padding:.38em .5em;border:1px solid rgba(255,255,255,.055);border-radius:.36em;background:rgba(255,255,255,.055);line-height:1.3}
 .music-queue-current{border-color:rgba(255,214,107,.2);background:rgba(255,214,107,.075)}.music-queue-item.music-queue-current-inline{padding:.34em 0;border:0;border-radius:0;background:transparent;box-shadow:none}
 .music-queue-index{flex:none;min-width:1.7em;color:#9fc0ff;font-size:.78em;font-weight:800;font-variant-numeric:tabular-nums}
