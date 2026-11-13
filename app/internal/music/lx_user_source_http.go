@@ -43,12 +43,17 @@ func installLXRequestAsyncWithProxyProvider(vm *goja.Runtime, lx *goja.Object, c
 	return lx.Set("request", func(call goja.FunctionCall) goja.Value {
 		rawURL:=strings.TrimSpace(call.Argument(0).String())
 		options:=call.Argument(1)
-		callback,ok:=goja.AssertFunction(call.Argument(2))
-		if !ok { return vm.ToValue(func(goja.FunctionCall) goja.Value { return goja.Undefined() }) }
+		callback,hasCallback:=goja.AssertFunction(call.Argument(2))
 		optionsMap := lxObjectMap(lxExportRequestValue(options))
 		ctx,cancel:=context.WithCancel(loop.ctx)
 		id:=requestID.Add(1)
 		thisArg:=call.This
+		var resolve func(goja.Value) error
+		var reject func(goja.Value) error
+		var promise *goja.Promise
+		if !hasCallback {
+			promise, resolve, reject = vm.NewPromise()
+		}
 		go func() {
 			defer cancel()
 			proxyConfig := config.LXUserSourceProxyConfig{}
@@ -56,19 +61,30 @@ func installLXRequestAsyncWithProxyProvider(vm *goja.Runtime, lx *goja.Object, c
 			response,raw,err:=performLXRequestWithProxyConfigContext(ctx,rawURL,optionsMap,client,proxyConfig)
 			loop.enqueue(func() {
 				if onResult != nil { onResult(id, rawURL, response, err) }
-				var errValue goja.Value=goja.Null()
-				var responseValue goja.Value=goja.Null()
-				var bodyValue goja.Value=goja.Null()
-				if err!=nil { errValue=vm.NewGoError(err) } else {
+				if err==nil {
 					response["bytes"]=len(raw)
 					response["raw"]=newLXBuffer(vm,[]byte(raw))
-					responseValue=vm.ToValue(response)
-					bodyValue=vm.ToValue(response["body"])
 				}
-				if _,callbackErr:=callback(thisArg,errValue,responseValue,bodyValue); callbackErr!=nil { loop.recordAsyncError(callbackErr) }
+				if hasCallback {
+					var errValue goja.Value=goja.Null()
+					var responseValue goja.Value=goja.Null()
+					var bodyValue goja.Value=goja.Null()
+					if err!=nil { errValue=vm.NewGoError(err) } else {
+						responseValue=vm.ToValue(response)
+						bodyValue=vm.ToValue(response["body"])
+					}
+					if _,callbackErr:=callback(thisArg,errValue,responseValue,bodyValue); callbackErr!=nil { loop.recordAsyncError(callbackErr) }
+					return
+				}
+				if err!=nil {
+					if rejectErr:=reject(vm.NewGoError(err)); rejectErr!=nil { loop.recordAsyncError(rejectErr) }
+					return
+				}
+				if resolveErr:=resolve(vm.ToValue(response)); resolveErr!=nil { loop.recordAsyncError(resolveErr) }
 			})
 		}()
-		return vm.ToValue(func(goja.FunctionCall) goja.Value { cancel(); return goja.Undefined() })
+		if hasCallback { return vm.ToValue(func(goja.FunctionCall) goja.Value { cancel(); return goja.Undefined() }) }
+		return vm.ToValue(promise)
 	})
 }
 
