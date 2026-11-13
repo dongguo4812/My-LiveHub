@@ -50,6 +50,10 @@ type LayoutLayer struct {
 	QueueDisplayCount int `json:"queue_display_count,omitempty"`
 }
 
+type sceneVideoProvider interface {
+	GetSnapshot() VideoQueueSnapshot
+}
+
 type sceneMusicProvider interface {
 	GetPlaybackStatus() (music.PlaybackSnapshot, error)
 	GetQueue() music.QueueSnapshot
@@ -58,6 +62,8 @@ type sceneMusicProvider interface {
 }
 
 type SceneService struct {
+	music sceneMusicProvider
+	video sceneVideoProvider
 	music sceneMusicProvider
 	mu       sync.RWMutex
 	manager  *config.Manager
@@ -82,6 +88,7 @@ func NewSceneService(manager *config.Manager, events *eventstream.Buffer, assets
 	mux.HandleFunc("/api/scenes/", service.handleScene)
 	mux.HandleFunc("/api/music", service.handleMusic)
 	mux.HandleFunc("/api/music/queue", service.handleMusicQueue)
+	mux.HandleFunc("/api/video/queue", service.handleVideoQueue)
 	mux.HandleFunc("/api/music/config", service.handleMusicConfig)
 	mux.HandleFunc("/api/music/lyrics", service.handleMusicLyrics)
 	mux.HandleFunc("/api/events", service.handleEvents)
@@ -110,6 +117,13 @@ func NewSceneService(manager *config.Manager, events *eventstream.Buffer, assets
 		}
 	}()
 	return service, nil
+}
+
+func (s *SceneService) SetVideoProvider(provider sceneVideoProvider) {
+	if s == nil { return }
+	s.mu.Lock()
+	s.video = provider
+	s.mu.Unlock()
 }
 
 func defaultLayoutConfig() LayoutConfig {
@@ -298,6 +312,21 @@ func (s *SceneService) handleMusicQueue(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeSceneJSON(w, s.music.GetQueue())
+}
+
+func (s *SceneService) handleVideoQueue(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.mu.RLock()
+	provider := s.video
+	s.mu.RUnlock()
+	if provider == nil {
+		http.Error(w, "video service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	writeSceneJSON(w, provider.GetSnapshot())
 }
 
 func (s *SceneService) handleMusicLyrics(w http.ResponseWriter, r *http.Request) {
