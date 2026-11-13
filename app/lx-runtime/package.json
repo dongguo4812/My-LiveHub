@@ -1,0 +1,45 @@
+{
+  "name": "my-livehub-lx-user-api-runtime",
+  "version": "2.12.6",
+  "private": true,
+  "description": "LX Music 2.12.6 user API runtime host for My-LiveHub",
+  "main": "main.cjs",
+  "scripts": {
+    "build": "esbuild src/main/modules/userApi/renderer/preload.js --bundle --platform=node --format=cjs --external:electron --outfile=dist/user-api-preload.cjs",
+    "package": "npm run build && electron-builder --dir --win --x64"
+  },
+  "dependencies": {
+    "needle": "git+https://github.com/lyswhut/needle.git#93299ac841b7e9a9f82ca7279b88aaaeda404060",
+    "tunnel": "^0.0.6"
+  },
+  "devDependencies": {
+    "electron": "42.11.6",
+    "electron-builder": "^26.15.7",
+    "esbuild": "^0.25.0"
+  },
+  "build": {
+    "appId": "com.dongguo4812.mylivehub.lxruntime",
+    "productName": "My-LiveHub LX Runtime",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.cjs",
+      "dist/user-api-preload.cjs",
+      "package.json",
+      "src/main/modules/userApi/renderer/user-api.html"
+    ],
+    "asar": false,
+    "win": {
+      "target": [
+        {
+          "target": "dir",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    }
+  },
+  "author": "My-LiveHub"
+}

@@ -7,11 +7,21 @@ import (
 	"github.com/dongguo4812/My-LiveHub/app/internal/music"
 )
 
-func TestChooseLXTrackQualityPrefersBestMutuallySupported(t *testing.T) {
+func TestChooseLXTrackQualityUsesLXDefault128k(t *testing.T) {
 	track := music.Track{Qualities: []music.TrackQuality{{Type:"128k"},{Type:"320k"},{Type:"flac"}}}
 	got, err := chooseLXTrackQuality(track, music.LXDeclaredSource{Qualitys:[]string{"128k","320k"}})
 	if err != nil { t.Fatal(err) }
-	if got.Type != "320k" { t.Fatalf("selected %q, want 320k", got.Type) }
+	if got.Type != "128k" { t.Fatalf("selected %q, want LX default 128k", got.Type) }
+}
+
+func TestChooseLXTrackQualityFallsBackLikeLX(t *testing.T) {
+	track := music.Track{
+		SelectedQuality: "flac24bit",
+		Qualities: []music.TrackQuality{{Type:"320k"},{Type:"128k"}},
+	}
+	got, err := chooseLXTrackQuality(track, music.LXDeclaredSource{Qualitys:[]string{"320k","128k"}})
+	if err != nil { t.Fatal(err) }
+	if got.Type != "320k" { t.Fatalf("selected %q, want LX fallback 320k", got.Type) }
 }
 
 func TestChooseLXTrackQualityHonorsExplicitSelection(t *testing.T) {
