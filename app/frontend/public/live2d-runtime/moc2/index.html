@@ -25,6 +25,17 @@
         canvas.height=Math.max(1,Math.round(canvas.clientHeight*dpr));
         if(typeof window.loadlive2d!=='function'){console.error('MOC2 runtime API is unavailable');return;}
         window.loadlive2d(canvas.id,modelURL);
+        window.live2dSetMouthOpen=(value)=>{
+          const model=window.__live2dManager&&window.__live2dManager.getModel&&window.__live2dManager.getModel(0);
+          const liveModel=model&&model.getLive2DModel&&model.getLive2DModel();
+          if(!model||!model.initialized||!liveModel)return;
+          const candidates=['PARAM_MOUTH_OPEN_Y','ParamMouthOpenY','MouthOpenY','ParamMouthOpen','MouthOpen'];
+          const parameter=candidates.find(id=>liveModel.getParamIndex&&liveModel.getParamIndex(id)>=0);
+          if(!parameter)return;
+          model.lipSyncParameterID=parameter;
+          model.lipSync=null;
+          model.lipSyncValue=Math.max(0,Math.min(1,Number(value)||0));
+        };
         let scale=Number(params.get('scale')||0.65);
         let offsetX=Number(params.get('x')||0);
         let offsetY=Number(params.get('y')||0);
