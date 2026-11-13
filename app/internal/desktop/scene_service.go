@@ -79,6 +79,7 @@ type SceneService struct {
 	server   *http.Server
 	listener net.Listener
 	baseURL  string
+	mouthOpen float64
 }
 
 func NewSceneService(manager *config.Manager, events *eventstream.Buffer, assets http.Handler, musicProvider sceneMusicProvider, videoProvider sceneVideoProvider, live2dProvider sceneLive2DProvider) (*SceneService, error) {
@@ -95,6 +96,7 @@ func NewSceneService(manager *config.Manager, events *eventstream.Buffer, assets
 	mux.HandleFunc("/api/music/queue", service.handleMusicQueue)
 	mux.HandleFunc("/api/video/queue", service.handleVideoQueue)
 	mux.HandleFunc("/api/live2d", service.handleLive2D)
+	mux.HandleFunc("/api/live2d/mouth", service.handleLive2DMouth)
 	mux.HandleFunc("/api/music/config", service.handleMusicConfig)
 	mux.HandleFunc("/api/music/lyrics", service.handleMusicLyrics)
 	mux.HandleFunc("/api/events", service.handleEvents)
@@ -351,6 +353,40 @@ func (s *SceneService) handleLive2D(w http.ResponseWriter, r *http.Request) {
 		"model_offset_x": offsetX,
 		"model_offset_y": offsetY,
 	})
+}
+
+func (s *SceneService) handleLive2DMouth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Cache-Control", "no-store")
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		s.mu.RLock()
+		value := s.mouthOpen
+		s.mu.RUnlock()
+		writeSceneJSON(w, map[string]float64{"value": value})
+	case http.MethodPost:
+		var payload struct { Value float64 `json:"value"` }
+		r.Body = http.MaxBytesReader(w, r.Body, 1024)
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "invalid mouth value", http.StatusBadRequest)
+			return
+		}
+		if payload.Value < 0 { payload.Value = 0 }
+		if payload.Value > 1 { payload.Value = 1 }
+		s.mu.Lock()
+		s.mouthOpen = payload.Value
+		s.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		w.Header().Set("Allow", "GET, POST, OPTIONS")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 func (s *SceneService) handleVideoQueue(w http.ResponseWriter, r *http.Request) {
