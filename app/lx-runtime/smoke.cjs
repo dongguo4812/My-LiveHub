@@ -71,18 +71,22 @@ async function run() {
   })
   socket = connection
   const input = readline.createInterface({ input: socket, crlfDelay: Infinity })
+  let handshakeReceived = false
   const hello = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Timed out waiting for LX IPC handshake; stderr: ' + stderr)), 15000)
-    input.once('line', line => {
-      clearTimeout(timer)
-      try { resolve(JSON.parse(line)) } catch (error) { reject(error) }
+    input.on('line', line => {
+      let message
+      try { message = JSON.parse(line) } catch (error) { reject(error); return }
+      if (!handshakeReceived) {
+        handshakeReceived = true
+        clearTimeout(timer)
+        resolve(message)
+        return
+      }
+      dispatch(message)
     })
   })
   if (hello.type !== 'hello' || hello.token !== token) throw new Error('Invalid LX runtime IPC handshake')
-
-  input.on('line', line => {
-    try { dispatch(JSON.parse(line)) } catch (_) {}
-  })
   socket.on('close', () => {
     for (const waiter of waiters.splice(0)) {
       clearTimeout(waiter.timer)
