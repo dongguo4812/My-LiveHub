@@ -85,7 +85,7 @@ func (s *VideoQueueService) GetSnapshot() VideoQueueSnapshot {
 	if s == nil { return VideoQueueSnapshot{Items:[]VideoQueueItem{}} }
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	items := append([]VideoQueueItem(nil), s.queue...)
+	items := append([]VideoQueueItem{}, s.queue...)
 	return VideoQueueSnapshot{Enabled:s.settings.VideoRequestsEnabled, Current:cloneVideoQueueItem(s.current),
 		Items:items, QueueCount:len(items), Playback:s.webview.GetPlaybackState()}
 }
