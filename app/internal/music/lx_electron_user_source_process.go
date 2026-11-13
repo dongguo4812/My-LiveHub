@@ -276,7 +276,9 @@ func (p *LXElectronUserSourceProcess) readLoop(reader io.Reader) {
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		select { case p.ready <- fmt.Errorf("读取洛雪 Electron 音源进程输出失败：%w",err): default: }
+		readErr := fmt.Errorf("读取洛雪 Electron 音源进程输出失败：%w",err)
+		select { case p.windowReady <- readErr: default: }
+		p.finishInitialization(readErr)
 	}
 }
 
