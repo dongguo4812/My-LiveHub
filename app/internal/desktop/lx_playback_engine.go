@@ -132,12 +132,6 @@ func (e *LXPlaybackEngine) Load(ctx context.Context, track music.Track) error {
 	if ctx == nil { ctx = context.Background() }
 	uri, err := buildLXPlayURI(track)
 	if err != nil { return err }
-	before, beforeErr := e.Snapshot(ctx)
-	if beforeErr != nil {
-		// A scheme launch is still attempted, but success is not reported until
-		// the API can confirm the requested song.
-		before = music.PlaybackSnapshot{}
-	}
 	if err := launchLXURI(uri); err != nil { return fmt.Errorf("启动洛雪播放协议失败：%w", err) }
 	deadline := time.NewTimer(6 * time.Second)
 	defer deadline.Stop()
@@ -154,7 +148,6 @@ func (e *LXPlaybackEngine) Load(ctx context.Context, track music.Track) error {
 			if sameLXTrackIdentity(track, statusTrackIdentity(snapshot)) {
 				// If the exact song was already playing before the request, it is
 				// still a valid playback result; otherwise this confirms the switch.
-				_ = before
 				return nil
 			}
 		}
