@@ -1,5 +1,5 @@
 {
-  "config_version": 9,
+  "config_version": 10,
   "enabled": true,
   "command_enabled": true,
   "skip_command_enabled": true,
