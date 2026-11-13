@@ -144,6 +144,7 @@ func (e *LXPlaybackEngine) Load(ctx context.Context, track music.Track) error {
 		case <-ticker.C:
 			snapshot, statusErr := e.Snapshot(ctx)
 			if statusErr != nil { continue }
+			if snapshot.State == music.PlaybackError { return errors.New(firstNonEmpty(snapshot.Error, "洛雪报告播放失败")) }
 			if snapshot.State != music.PlaybackPlaying { continue }
 			if sameLXTrackIdentity(track, statusTrackIdentity(snapshot)) {
 				// If the exact song was already playing before the request, it is
