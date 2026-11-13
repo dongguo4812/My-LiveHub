@@ -153,6 +153,9 @@ func validateLayoutConfig(value LayoutConfig) error {
 			if layer.Width < 0 || layer.Height < 0 || layer.Opacity < 0 || layer.Opacity > 1 {
 				return fmt.Errorf("图层 %q 的尺寸或透明度无效", layer.Name)
 			}
+			if layer.Type == "music_queue" && layer.QueueDisplayCount != 0 && (layer.QueueDisplayCount < 1 || layer.QueueDisplayCount > 1000) {
+				return fmt.Errorf("图层 %q 的待播显示数量必须在 1 到 1000 之间", layer.Name)
+			}
 		}
 	}
 	return nil
