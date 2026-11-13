@@ -22,7 +22,7 @@ func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original m
 	ctx, cancel := context.WithTimeout(parent, 90*time.Second)
 	defer cancel()
 
-	priority := s.activeLXSearchSourceIDs()
+	priority := s.enabledSearchSourceIDs()
 	currentSource := firstNonEmpty(original.LXSourceKey, original.SourceID)
 	ordered := make([]string, 0, len(priority))
 	currentIndex := -1
