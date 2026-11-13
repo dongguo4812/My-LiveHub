@@ -1144,7 +1144,7 @@ func (s *MusicService) ValidateLXUserSource(id string) (music.LXSourceRuntimeRes
 	if err != nil { return music.LXSourceRuntimeResult{}, err }
 	// A successful validation is bound to the stored script version and is
 	// reused after app restarts. Updating/reimporting the script clears it.
-	if metadata.Validation != nil && metadata.ValidatedAt != nil && metadata.Validation.Initialized {
+	if metadata.Validation != nil && metadata.ValidatedAt != nil && metadata.Validation.Initialized && metadata.Validation.Runtime == music.LXUserSourceRuntimeVersion {
 		if metadata.EnabledSearchSources == nil {
 			defaults := make([]string, 0)
 			for _, option := range s.lxSearchSourceOptions(*metadata.Validation, nil) { defaults = append(defaults, option.ID) }
