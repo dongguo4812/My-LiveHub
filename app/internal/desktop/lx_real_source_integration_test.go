@@ -2,7 +2,6 @@ package desktop
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -112,16 +111,12 @@ func TestLXRealSourceIntegration(t *testing.T) {
 			continue
 		}
 		passed++
-		t.Logf("%s passed: %s - %s, quality=%s, HTTP=%d, audio bytes=%d, url=%s",
-			platform, track.Title, track.Artist, selected.Type, audioResponse.StatusCode, len(audio), redactPlaybackURL(playURL))
+		t.Logf("%s passed: %s - %s, quality=%s, HTTP=%d, audio bytes=%d",
+			platform, track.Title, track.Artist, selected.Type, audioResponse.StatusCode, len(audio))
 		platformCancel()
 	}
 	if passed == 0 {
-		t.Fatal(fmt.Sprintf("real LX source did not successfully resolve and read audio for either Netease (wy) or QQ (tx); declared platforms=%v", process.Snapshot().Platforms))
+		t.Fatalf("real LX source did not successfully resolve and read audio for either Netease (wy) or QQ (tx); declared platforms=%v", process.Snapshot().Platforms)
 	}
 }
 
-func redactPlaybackURL(raw string) string {
-	if len(raw) <= 100 { return raw }
-	return raw[:80] + "…"
-}
