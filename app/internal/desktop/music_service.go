@@ -545,9 +545,8 @@ type musicLyricsResponse struct {
 // Successful results are cached so the main player and desktop lyrics window
 // reuse the same lyric response instead of issuing duplicate provider requests.
 func (s *MusicService) GetLyrics(track music.Track) (string, error) {
-	if s == nil { return "", errors.New("music lyrics service is unavailable") }
-	source := track.LXSourceKey
-	if source == "" { source = track.SourceID }
+	if s == nil || s.engine == nil { return "", errors.New("music lyrics service is unavailable") }
+	source := firstNonEmpty(track.LXSourceKey, track.SourceID)
 	cacheKey := strings.Join([]string{source, track.ID, track.Title, track.Artist}, "\x00")
 	s.lyricsMu.Lock()
 	if cached, ok := s.lyricsCache[cacheKey]; ok {
@@ -556,24 +555,13 @@ func (s *MusicService) GetLyrics(track music.Track) (string, error) {
 	}
 	s.lyricsMu.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 18*time.Second)
+	provider, ok := s.engine.(interface {
+		GetCurrentLyrics(context.Context) (string, error)
+	})
+	if !ok { return "", errors.New("当前播放引擎不支持读取洛雪歌词 API") }
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	var lyrics string
-	var err error
-	switch source {
-	case music.LXSearchTX:
-		lyrics, err = music.GetQQMusicLyrics(ctx, nil, track)
-	case music.LXSearchKG:
-		lyrics, err = music.GetKugouMusicLyrics(ctx, nil, track)
-	case music.LXSearchKW:
-		lyrics, err = music.GetKuwoMusicLyrics(ctx, nil, track)
-	case music.LXSearchWY:
-		lyrics, err = music.GetNeteaseMusicLyrics(ctx, nil, track)
-	case music.LXSearchMG:
-		lyrics, err = music.GetMiguMusicLyrics(ctx, nil, track)
-	default:
-		lyrics, err = s.getLRCLIBLyrics(track)
-	}
+	lyrics, err := provider.GetCurrentLyrics(ctx)
 	if err != nil { return "", err }
 	s.lyricsMu.Lock()
 	if s.lyricsCache == nil { s.lyricsCache = make(map[string]string) }
