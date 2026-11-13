@@ -10,7 +10,7 @@ import { getLive2DSettings, listLive2DModels } from '../services/live2d'
 type Live2DDisplay = { enabled: boolean; runtime_version: 'moc2' | 'moc3'; model_url: string; model_scale: number; model_offset_x: number; model_offset_y: number }
 type Live2DLayer = LayoutLayer & { live2d_scale?: number; live2d_x?: number; live2d_y?: number }
 function live2DLayer(layer: LayoutLayer) { return layer as Live2DLayer }
-function live2DScale(layer: LayoutLayer) { return live2DLayer(layer).live2d_scale || 1 }
+function live2DScale(layer: LayoutLayer) { return live2DLayer(layer).live2d_scale || 100 }
 const live2DDisplay = ref<Live2DDisplay | null>(null)
 let live2DRefreshTimer: ReturnType<typeof setInterval> | undefined
 const live2DFrameURL = computed(() => {
@@ -25,7 +25,7 @@ function applyLive2DFrameTransform() {
     if (!layer) return
     const value = live2DLayer(layer)
     const target = frame.contentWindow as (Window & { live2dSetModelTransform?: (scale: number, x: number, y: number) => boolean }) | null
-    target?.live2dSetModelTransform?.(live2DDisplay.value ? live2DDisplay.value.model_scale * live2DScale(layer) : live2DScale(layer), (live2DDisplay.value?.model_offset_x || 0) / 100 + (value.live2d_x || 0), (live2DDisplay.value?.model_offset_y || 0) / 100 + (value.live2d_y || 0))
+    target?.live2dSetModelTransform?.(live2DDisplay.value ? live2DDisplay.value.model_scale * live2DScale(layer) / 100 : live2DScale(layer) / 100, (live2DDisplay.value?.model_offset_x || 0) / 100 + (value.live2d_x || 0) / 100, (live2DDisplay.value?.model_offset_y || 0) / 100 + (value.live2d_y || 0) / 100)
   })
 }
 function handleLive2DMessage(event: MessageEvent) {
@@ -86,7 +86,7 @@ function addLayer(type: string) {
   if (!base) return
   const layer = { id: makeID(type), type, name: base.name ?? type, x: 100, y: 120, width: base.width ?? 300, height: base.height ?? 100, z_index: scene.value.layers.length + 1, visible: true, opacity: 1, text: base.text ?? '', url: base.url ?? '', color: base.color ?? '#ffffff', font_size: base.font_size ?? 24 } as LayoutLayer
   if (type === 'music_queue' || type === 'video_queue') (layer as LayoutLayer & { queue_display_count?: number }).queue_display_count = 10
-  if (type === 'live2d') Object.assign(layer, { live2d_scale: 1, live2d_x: 0, live2d_y: 0 })
+  if (type === 'live2d') Object.assign(layer, { live2d_scale: 100, live2d_x: 0, live2d_y: 0 })
   scene.value.layers.push(layer)
   selectedLayerID.value = layer.id
 }
@@ -94,7 +94,7 @@ function selectLayer(layer: LayoutLayer) {
   selectedLayerID.value = layer.id
   if (layer.type === 'live2d') {
     const value = live2DLayer(layer)
-    value.live2d_scale ??= 1
+    value.live2d_scale ??= 100
     value.live2d_x ??= 0
     value.live2d_y ??= 0
   }
@@ -340,9 +340,9 @@ onUnmounted(() => {
               <el-form-item label="高度"><el-input-number v-model="selectedLayer!.height" :min="20" :max="scene?.height ?? 1080" controls-position="right" /></el-form-item>
             </div>
             <template v-if="selectedLayer.type === 'live2d'">
-              <el-form-item label="模型大小"><el-input-number v-model="live2DLayer(selectedLayer!).live2d_scale" :min="0.1" :max="5" :step="0.05" :precision="2" controls-position="right" @change="persistLive2DLayer(selectedLayer!)" /></el-form-item>
-              <el-form-item label="水平位置"><el-input-number v-model="live2DLayer(selectedLayer!).live2d_x" :min="-2" :max="2" :step="0.01" :precision="2" controls-position="right" @change="persistLive2DLayer(selectedLayer!)" /></el-form-item>
-              <el-form-item label="垂直位置"><el-input-number v-model="live2DLayer(selectedLayer!).live2d_y" :min="-2" :max="2" :step="0.01" :precision="2" controls-position="right" @change="persistLive2DLayer(selectedLayer!)" /></el-form-item>
+              <el-form-item label="模型大小（%）"><el-input-number v-model="live2DLayer(selectedLayer!).live2d_scale"  :min="10" :max="500" :step="5" :precision="0" controls-position="right" @change="persistLive2DLayer(selectedLayer!)" /></el-form-item>
+              <el-form-item label="水平位置（%）"><el-input-number v-model="live2DLayer(selectedLayer!).live2d_x" :min="-200" :max="200" :step="1" :precision="0" controls-position="right" @change="persistLive2DLayer(selectedLayer!)" /></el-form-item>
+              <el-form-item label="垂直位置（%）"><el-input-number v-model="live2DLayer(selectedLayer!).live2d_y" :min="-200" :max="200" :step="1" :precision="0" controls-position="right" @change="persistLive2DLayer(selectedLayer!)" /></el-form-item>
             </template>
             <el-form-item v-if="selectedLayer.type !== 'live2d'" label="字体大小"><el-input-number v-model="selectedLayer!.font_size" :min="10" :max="160" /></el-form-item>
             <el-form-item v-if="selectedLayer.type !== 'live2d'" label="文字颜色"><el-color-picker v-model="selectedLayer!.color" show-alpha /></el-form-item>
