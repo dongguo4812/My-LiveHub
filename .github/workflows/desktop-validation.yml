@@ -50,6 +50,16 @@ jobs:
           cache: npm
           cache-dependency-path: app/frontend/package-lock.json
 
+      - name: Build LX Electron source runtime
+        shell: pwsh
+        run: |
+          npm --prefix lx-runtime install --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm --prefix lx-runtime run package
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force -Path bin/lx-runtime | Out-Null
+          Copy-Item -Path lx-runtime/release/win-unpacked/* -Destination bin/lx-runtime -Recurse -Force
+
       - name: Add Go bin to PATH
         shell: pwsh
         run: |
