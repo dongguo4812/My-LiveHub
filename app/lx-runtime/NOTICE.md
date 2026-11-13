@@ -8,5 +8,7 @@ This directory vendors the user API runtime components from **LX Music Desktop 2
 - Vendored files:
   - `src/main/modules/userApi/renderer/preload.js`
   - `src/main/modules/userApi/rendererEvent/name.js`
+  - `src/main/modules/userApi/renderer/user-api.html`
+- The upstream Apache License 2.0 text is included in `LICENSE-LX.txt`.
 
 The Electron host in this directory is the My-LiveHub/Wails process adapter. The user API preload and event names are taken from the upstream revision above.
