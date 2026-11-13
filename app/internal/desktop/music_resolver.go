@@ -15,16 +15,21 @@ func chooseLXTrackQuality(track music.Track, declared music.LXDeclaredSource) (m
 	for _, item := range track.Qualities { if strings.TrimSpace(item.Type) != "" { available[item.Type] = item } }
 	allowed := make(map[string]bool, len(declared.Qualitys))
 	for _, item := range declared.Qualitys { allowed[item] = true }
-	if selected := strings.TrimSpace(track.SelectedQuality); selected != "" {
-		item, ok := available[selected]
-		if !ok { return music.TrackQuality{}, fmt.Errorf("歌曲不支持所选音质：%s", selected) }
-		if !allowed[selected] { return music.TrackQuality{}, fmt.Errorf("当前自定义音源不支持 %s 音质", selected) }
-		return item, nil
+	selected := strings.TrimSpace(track.SelectedQuality)
+	tryQualitys := []string{"flac24bit", "flac", "320k"}
+	if selected != "" {
+		for index, quality := range tryQualitys {
+			if quality != selected { continue }
+			for _, candidate := range tryQualitys[index:] {
+				if item, ok := available[candidate]; ok && allowed[candidate] { return item, nil }
+			}
+			break
+		}
 	}
-	// LX getPlayQuality() defaults to 128k unless the user explicitly
-	// selects a higher quality. It does not silently upgrade to the best file.
+	// LX getPlayQuality() defaults to 128k and only tries descending
+	// qualities when the user's configured preference is a higher tier.
 	if item, ok := available["128k"]; ok && allowed["128k"] { return item, nil }
-	return music.TrackQuality{}, errors.New("当前歌曲没有可用的 128k 音质；请明确选择其他音质")
+	return music.TrackQuality{}, errors.New("当前歌曲没有与洛雪音源共同支持的可用音质")
 }
 
 func buildLXMusicURLRequest(track music.Track, selected music.TrackQuality) ([]byte, error) {
