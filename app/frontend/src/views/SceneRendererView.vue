@@ -9,7 +9,7 @@ type Track = { id: string; source_id: string; title: string; artist?: string; al
 type Playback = { state: string; track?: Track; position_ms: number; duration_ms: number }
 type MusicQueueItem = { id: string; track: Track; requested_by?: string }
 type MusicQueue = { current?: MusicQueueItem; items: MusicQueueItem[]; capacity: number }
-type MusicDisplayConfig = { enabled: boolean; command_enabled: boolean; command_prefix: string; skip_command_enabled: boolean; skip_command: string; require_fan_medal: boolean; fan_medal_level: number }
+type MusicDisplayConfig = { enabled: boolean; command_enabled: boolean; command_prefix: string; skip_command_enabled: boolean; skip_command: string; require_fan_medal: boolean; fan_medal_level: number; queue_display_count: number }
 type LyricLine = { time: number; text: string; translation?: string }
 type MusicLyricsResponse = { lyrics: string }
 const route = useRoute()
@@ -185,6 +185,7 @@ function isAudienceRequest(value?: string) {
 }
 const audienceCurrent = computed(() => isAudienceRequest(musicQueue.value.current?.requested_by) ? musicQueue.value.current : null)
 const audienceQueueItems = computed(() => musicQueue.value.items.filter(item => isAudienceRequest(item.requested_by)))
+const audienceQueueDisplayItems = computed(() => audienceQueueItems.value.slice(0, Math.max(1, musicDisplayConfig.value?.queue_display_count || 5)))
 async function loadMusicDisplayConfig() {
   try {
     const response = await fetch('/api/music/config', { cache: 'no-store' })
@@ -290,7 +291,7 @@ onUnmounted(() => {
         <section class="music-queue-section music-queue-pending">
           <strong class="music-queue-heading"><span class="music-queue-heading-mark">Ⅱ</span> 待播队列 <span class="music-queue-count">{{ audienceQueueItems.length }} 首</span></strong>
           <div v-if="audienceQueueItems.length" class="music-queue-list">
-            <div v-for="(item, index) in audienceQueueItems" :key="item.id" class="music-queue-item">
+            <div v-for="(item, index) in audienceQueueDisplayItems" :key="item.id" class="music-queue-item">
               <span class="music-queue-index">{{ String(index + 1).padStart(2, '0') }}</span>
               <span class="music-queue-track"><strong>{{ item.track.title }}</strong><small>{{ item.track.artist || '未知歌手' }}</small></span>
               <span class="music-queue-requester">{{ item.requested_by }}</span>
