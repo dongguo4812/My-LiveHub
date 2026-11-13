@@ -45,7 +45,8 @@ let lxSourcesRefreshRevision = 0
 const activeLXSourceID = ref('')
 const validatingLXSourceID = ref('')
 const testingLXSourceID = ref('')
-const lxSourceTests = ref<Record<string, Awaited<ReturnType<(typeof MusicService)['TestLXUserSource']>>>>({})
+type LXSourcePlatformTest = { platform: string; name: string; status: string; message: string; song?: string }
+const lxSourceTests = ref<Record<string, LXSourcePlatformTest[]>>({})
 
 const lxSourceURL = ref('')
 const importingLXSource = ref(false)
@@ -439,7 +440,7 @@ async function testLXSource(source: LXSource) {
   error.value = ''
   success.value = ''
   try {
-    const results = await (MusicService as any).TestLXUserSource(source.id) as Array<{ platform: string; name: string; status: string; message: string; song?: string }>
+    const results = await (MusicService as any).TestLXUserSource(source.id) as LXSourcePlatformTest[]
     lxSourceTests.value = { ...lxSourceTests.value, [source.id]: results }
     const passed = results.filter(item => item.status === 'passed').length
     const supported = results.filter(item => item.status !== 'unsupported').length
