@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CopyDocument, Plus, Delete, Picture, ChatLineRound, Clock, Present, ChatDotRound, Headset } from '@element-plus/icons-vue'
 import { getScenes, saveScene, deleteScene, getBrowserSourceURL, type LayoutScene, type LayoutLayer } from '../services/layouts'
+import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
 
 const scenes = ref<LayoutScene[]>([])
 const activeSceneID = ref('')
@@ -144,9 +145,7 @@ function layerLabel(type: string) {
 }
 async function loadMusicCommandConfig() {
   try {
-    const response = await fetch('/api/music/config', { cache: 'no-store' })
-    if (!response.ok) return
-    const config = await response.json() as { command_enabled?: boolean }
+    const config = await MusicService.GetConfig()
     musicCommandEnabled.value = config.command_enabled === true
   } catch { /* Keep the last known command setting. */ }
 }
