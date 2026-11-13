@@ -12,24 +12,16 @@ type Track struct {
 	SelectedQuality string `json:"selected_quality,omitempty"`
 	ID         string `json:"id"`
 	SourceID   string `json:"source_id"`
-	// LXSourceKey is the source key declared by an LX-compatible resolver.
-	// Built-in search adapters populate it; future search plugins can provide
-	// their own key without adding a central platform switch.
+	// LXSourceKey is the source identifier used by the 洛雪 playback protocol.
 	LXSourceKey string `json:"lx_source_key,omitempty"`
 	// SourceData preserves provider-native identifiers and fields required by
-	// source scripts (for example QQ songmid or Kugou FileHash).
+	// the 洛雪 playback protocol (for example QQ songmid or Kugou FileHash).
 	SourceData map[string]string `json:"source_data,omitempty"`
 	Title      string `json:"title"`
 	Artist     string `json:"artist,omitempty"`
 	Album      string `json:"album,omitempty"`
 	DurationMS int64  `json:"duration_ms,omitempty"`
 	CoverURL   string `json:"cover_url,omitempty"`
-}
-
-type PlaybackResource struct {
-	URL     string            `json:"url"`
-	Headers map[string]string `json:"headers,omitempty"`
-	MIMEType string           `json:"mime_type,omitempty"`
 }
 
 type Source interface { ID() string; Name() string; Capabilities() SourceCapabilities }
