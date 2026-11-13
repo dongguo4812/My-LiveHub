@@ -510,4 +510,5 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-lyric-status{width:100%;text-align:center;font-size:var(--music-status-size);line-height:1.35;color:var(--random-color)}
 @media(max-width:300px){.music-widget{gap:5px}.music-main{height:84px}.music-cover-wrap{height:84px;width:84px;flex-basis:84px}.music-song-title{font-size:14px}.music-song-author{font-size:12px}.music-song-time{height:56px;padding:0 10px}.music-time{width:34px;flex-basis:34px;font-size:10px}.music-lyrics{min-height:38px}.music-lyrics strong{font-size:12px}.music-lyrics span{font-size:10px}}
 .scene-error{display:grid;place-items:center;width:100vw;height:100vh;background:transparent;color:#fff;font:16px "Microsoft YaHei",sans-serif}
+.output-layer iframe.live2d-output-frame{display:block;width:100%;height:100%;border:0;background:transparent;pointer-events:none}
 </style>
