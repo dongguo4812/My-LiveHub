@@ -64,7 +64,6 @@ type sceneMusicProvider interface {
 type SceneService struct {
 	music sceneMusicProvider
 	video sceneVideoProvider
-	music sceneMusicProvider
 	mu       sync.RWMutex
 	manager  *config.Manager
 	events   *eventstream.Buffer
