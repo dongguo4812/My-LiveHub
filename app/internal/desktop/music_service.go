@@ -6,6 +6,7 @@ import (
 			"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -1226,7 +1227,7 @@ func (s *MusicService) TestLXUserSource(id string) ([]LXSourcePlatformTest, erro
 			results = append(results, result)
 			continue
 		}
-		resolved, resolveErr := music.ResolveLXUserSource(ctx, script, payload)
+		resolved, resolveErr := s.ResolveLXUserSource(id, payload)
 		if resolveErr != nil {
 			result.Message = "播放地址解析失败：" + resolveErr.Error()
 			cancel()
@@ -1244,8 +1245,19 @@ func (s *MusicService) TestLXUserSource(id string) ([]LXSourcePlatformTest, erro
 		if requestErr == nil { request.Header.Set("Range", "bytes=0-1023") }
 		var response *http.Response
 		if requestErr == nil {
-			client := &http.Client{Timeout:12*time.Second}
+			// Use the same configured proxy as the active LX runtime. The old
+			// test used a bare http.Client, so sources that require the LX proxy
+			// were incorrectly reported as unavailable.
+			proxyConfig := s.GetLXUserSourceProxy()
+			transport := http.DefaultTransport.(*http.Transport).Clone()
+			if proxyConfig.Enabled && strings.TrimSpace(proxyConfig.Host) != "" && strings.TrimSpace(proxyConfig.Port) != "" {
+				transport.Proxy = http.ProxyURL(&url.URL{Scheme: "http", Host: net.JoinHostPort(strings.TrimSpace(proxyConfig.Host), strings.TrimSpace(proxyConfig.Port))})
+			} else {
+				transport.Proxy = http.ProxyFromEnvironment
+			}
+			client := &http.Client{Timeout:12*time.Second, Transport:transport}
 			response, requestErr = client.Do(request)
+			transport.CloseIdleConnections()
 		}
 		if requestErr != nil {
 			result.Message = "播放地址请求失败：" + requestErr.Error()
