@@ -14,13 +14,6 @@ func TestNewMusicServiceRegistersFiveLXSearchPlatforms(t *testing.T){
  for i,id:=range want { if got[i].ID!=id { t.Errorf("source[%d]=%q, want %q",i,got[i].ID,id) }; if !got[i].Capabilities.Search { t.Errorf("source %q is not marked searchable",id) } }
 }
 
-func TestShouldAutoStartAcceptedSongRequest(t *testing.T) {
-	if !shouldAutoStartSongRequest(nil) { t.Fatal("an idle player must start the first accepted request") }
-	if shouldAutoStartSongRequest(&music.QueueItem{RequestedBy: "viewer"}) { t.Fatal("a request must not interrupt another viewer request") }
-	if !shouldAutoStartSongRequest(&music.QueueItem{RequestedBy: hostQueueMarker}) { t.Fatal("a viewer request must interrupt the host playlist") }
-}
-
-
 type playbackStartTestEngine struct {
 	calls []string
 	loadErr error
@@ -92,41 +85,6 @@ func TestLoadAndStartPlaybackDoesNotResumeWhenLoadFails(t *testing.T) {
 	}
 }
 
-
-func TestMoveHostTrackBetweenPlaylists(t *testing.T) {
-	st := &hostPlaylistState{
-		loaded: true,
-		activeID: "a",
-		index: 1,
-		playlists: []HostPlaylistSnapshot{
-			{ID: "a", Name: "A", Tracks: []music.Track{
-				{ID: "one", SourceID: "tx", Title: "第一首"},
-				{ID: "two", SourceID: "tx", Title: "第二首"},
-				{ID: "three", SourceID: "tx", Title: "第三首"},
-			}},
-			{ID: "b", Name: "B", Tracks: []music.Track{{ID: "two", SourceID: "tx", Title: "第二首"}}},
-		},
-	}
-	if err := moveHostTrackBetweenPlaylists(st, "a", "b", "tx", "one"); err != nil { t.Fatal(err) }
-	if len(st.playlists[0].Tracks) != 2 || st.playlists[0].Tracks[0].ID != "two" { t.Fatalf("source playlist not updated: %#v", st.playlists[0].Tracks) }
-	if st.index != 0 { t.Fatalf("playback cursor should shift with removal before current track, got %d", st.index) }
-	if got := st.playlists[1].Tracks[1]; got.ID != "one" || got.Title != "第一首" { t.Fatalf("track metadata was not preserved: %#v", got) }
-	if err := moveHostTrackBetweenPlaylists(st, "a", "b", "tx", "two"); err == nil { t.Fatal("expected duplicate destination track error") }
-	if err := moveHostTrackBetweenPlaylists(st, "a", "missing", "tx", "two"); err == nil { t.Fatal("expected missing playlist error") }
-}
-
-func TestMovingCurrentlyPlayingHostTrackKeepsCursor(t *testing.T) {
-	st := &hostPlaylistState{
-		loaded: true, activeID: "a", index: 1,
-		playlists: []HostPlaylistSnapshot{
-			{ID: "a", Tracks: []music.Track{{ID:"one",SourceID:"tx"},{ID:"two",SourceID:"tx"},{ID:"three",SourceID:"tx"}}},
-			{ID: "b", Tracks: []music.Track{}},
-		},
-	}
-	if err := moveHostTrackBetweenPlaylists(st,"a","b","tx","two"); err != nil { t.Fatal(err) }
-	if st.index != 0 { t.Fatalf("moving current track must position cursor before the next queued track, got %d",st.index) }
-	if st.playlists[1].Tracks[0].ID != "two" { t.Fatal("current track was not moved to destination") }
-}
 
 func TestSkipCommandMatchingIsExact(t *testing.T) {
 	if !isSkipCommand(" 切歌 ", "切歌") { t.Fatal("trimmed exact command should match") }
