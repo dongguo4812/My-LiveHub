@@ -234,7 +234,7 @@ onUnmounted(() => {
       <div v-else-if="layer.type === 'super_chat'" class="event-stack">
         <div v-for="item in superChats" :key="item.id" class="event-line sc-line"><strong>{{ item.user_name }} · ¥{{ Number(item.amount || 0).toFixed(2) }}</strong><span>{{ item.content }}</span></div>
       </div>
-      <section v-else-if="layer.type === 'music' && playback?.state === 'playing' && playback?.track" class="music-widget" :style="{ '--random-color': musicAccentColor, '--details-bg': playback.track.cover_url ? 'url(' + JSON.stringify(playback.track.cover_url) + ')' : 'none' }">
+      <section v-else-if="layer.type === 'music' && playback?.state === 'playing' && playback?.track" class="music-widget" :style="{ '--random-color': musicAccentColor, '--details-bg': playback.track.cover_url ? 'url(' + JSON.stringify(playback.track.cover_url) + ')' : 'none', '--music-title-size': ((layer.font_size || 24) * 18 / 24) + 'px', '--music-author-size': ((layer.font_size || 24) * 14 / 24) + 'px', '--music-time-size': ((layer.font_size || 24) * 12 / 24) + 'px', '--music-lyric-size': ((layer.font_size || 24) * 14 / 24) + 'px', '--music-translation-size': ((layer.font_size || 24) * 12 / 24) + 'px', '--music-status-size': ((layer.font_size || 24) * 14 / 24) + 'px', '--music-small-title-size': ((layer.font_size || 24) * 14 / 24) + 'px', '--music-small-author-size': ((layer.font_size || 24) * 12 / 24) + 'px', '--music-small-time-size': ((layer.font_size || 24) * 10 / 24) + 'px', '--music-small-lyric-size': ((layer.font_size || 24) * 12 / 24) + 'px', '--music-small-translation-size': ((layer.font_size || 24) * 10 / 24) + 'px' }">
         <div class="music-main">
           <div class="music-cover-wrap">
             <div class="music-cover-blur" :style="{ backgroundImage: playback.track.cover_url ? 'url(' + JSON.stringify(playback.track.cover_url) + ')' : 'none' }"></div>
@@ -295,10 +295,10 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-details::before{content:"";position:absolute;inset:0;z-index:-2;background-image:var(--details-bg,none);background-position:center;background-size:cover;background-repeat:no-repeat;opacity:.6;filter:blur(3px) brightness(.65);transform:scale(1.04);pointer-events:none}
 .music-details::after{content:"";position:absolute;inset:0;z-index:-1;background:rgba(0,0,0,.2);pointer-events:none}
 .music-song-info{min-width:0;display:flex;flex-direction:column;gap:7px;overflow:hidden;border-bottom:1px solid var(--random-color);padding-bottom:7px;position:relative;z-index:1}
-.music-song-title{font-size:18px;font-weight:700;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 4px #24170f;color:var(--random-color)}
-.music-song-author{font-size:14px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.94;color:var(--random-color)}
+.music-song-title{font-size:var(--music-title-size);font-weight:700;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 4px #24170f;color:var(--random-color)}
+.music-song-author{font-size:var(--music-author-size);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.94;color:var(--random-color)}
 .music-song-time{height:36px;width:100%;display:flex;align-items:center;justify-content:space-between;gap:5px;padding:0;margin:0;position:relative;z-index:1}
-.music-time{width:42px;flex:0 0 42px;font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--random-color)}
+.music-time{width:42px;flex:0 0 42px;font-size:var(--music-time-size);font-weight:700;font-variant-numeric:tabular-nums;color:var(--random-color)}
 .music-time:last-child{text-align:right}
 .music-wave{height:36px;flex:1;display:flex;align-items:center;justify-content:center;gap:3px;overflow:hidden}
 .music-wavebar{width:3px;min-width:2px;height:var(--h);border-radius:3px;background:var(--random-color);opacity:.92;transform:scaleY(.45);transform-origin:center;animation:music-wave var(--speed) ease-in-out infinite alternate;animation-delay:var(--delay)}
@@ -307,9 +307,9 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-lyrics::before,.music-lyrics::after{content:none}
 .music-lyric-viewport{width:100%;min-width:0;overflow:hidden;display:flex;justify-content:center}
 .music-lyric-text{position:relative;display:block;flex:none;width:max-content;max-width:none;overflow:visible;white-space:nowrap;transform:translate3d(0,0,0);transition:transform .48s linear;will-change:transform}
-.music-lyrics strong.music-lyric-text{font-size:14px;font-weight:700;line-height:1.35;color:var(--random-color)}
-.music-lyrics span.music-lyric-text{font-size:12px;line-height:1.3;color:#e7c89d;opacity:.9}
-.music-lyric-status{width:100%;text-align:center;font-size:14px;line-height:1.35;color:var(--random-color)}
-@media(max-width:300px){.music-widget{gap:5px}.music-main{height:84px}.music-cover-wrap{height:84px;width:84px;flex-basis:84px}.music-song-title{font-size:14px}.music-song-author{font-size:12px}.music-song-time{height:56px;padding:0 7px}.music-time{width:34px;flex-basis:34px;font-size:10px}.music-lyrics{min-height:38px}.music-lyrics strong{font-size:12px}.music-lyrics span{font-size:10px}}
+.music-lyrics strong.music-lyric-text{font-size:var(--music-lyric-size);font-weight:700;line-height:1.35;color:var(--random-color)}
+.music-lyrics span.music-lyric-text{font-size:var(--music-translation-size);line-height:1.3;color:#e7c89d;opacity:.9}
+.music-lyric-status{width:100%;text-align:center;font-size:var(--music-status-size);line-height:1.35;color:var(--random-color)}
+@media(max-width:300px){.music-widget{gap:5px}.music-main{height:84px}.music-cover-wrap{height:84px;width:84px;flex-basis:84px}.music-song-title{font-size:var(--music-small-title-size)}.music-song-author{font-size:var(--music-small-author-size)}.music-song-time{height:56px;padding:0 7px}.music-time{width:34px;flex-basis:34px;font-size:var(--music-small-time-size)}.music-lyrics{min-height:38px}.music-lyrics strong{font-size:var(--music-small-lyric-size)}.music-lyrics span{font-size:var(--music-small-translation-size)}}
 .scene-error{display:grid;place-items:center;width:100vw;height:100vh;background:transparent;color:#fff;font:16px "Microsoft YaHei",sans-serif}
 </style>
