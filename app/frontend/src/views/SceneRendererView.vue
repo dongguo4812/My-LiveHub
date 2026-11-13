@@ -375,13 +375,13 @@ onUnmounted(() => {
           </div>
         </section>
         <section class="music-queue-section music-queue-current-section">
-          <div class="music-queue-item music-queue-current music-queue-current-inline">
+          <div class="music-queue-item music-queue-current music-queue-current-inline music-queue-current-stacked">
             <strong class="music-queue-current-label"><span class="music-queue-heading-mark">▶</span> 当前播放</strong>
             <span v-if="videoQueue.current" class="music-queue-current-track">
               <strong class="music-queue-current-title">{{ videoQueue.current.title || videoQueue.current.bvid }}</strong>
               <span class="music-queue-current-artist">{{ videoQueue.current.bvid }}</span>
             </span>
-            <span v-else class="music-queue-empty">暂无正在播放的视频</span>
+            <span v-else class="music-queue-empty">暂无点播视频</span>
             <span v-if="videoQueue.current" class="music-queue-requester">{{ videoQueue.current.requester }}</span>
           </div>
         </section>
@@ -404,7 +404,7 @@ onUnmounted(() => {
           </div>
         </section>
         <section class="music-queue-section music-queue-current-section">
-          <div v-if="audienceCurrent" class="music-queue-item music-queue-current music-queue-current-inline">
+          <div v-if="audienceCurrent" class="music-queue-item music-queue-current music-queue-current-inline music-queue-current-stacked">
             <strong class="music-queue-current-label"><span class="music-queue-heading-mark">♫</span> 当前播放</strong>
             <span class="music-queue-current-track">
               <strong class="music-queue-current-title">{{ audienceCurrent.track.title }}</strong>
@@ -504,6 +504,7 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-queue-prompt-single span{flex:none;color:#d7deea}
 .music-queue-prompt-single b{color:#ffd66b;font-weight:800}
 .music-queue-current-inline{flex-wrap:nowrap;gap:.55em;padding:.34em 0;border:0;border-radius:0;background:transparent;box-shadow:none;white-space:nowrap}
+.music-queue-current-stacked{display:flex;flex-wrap:wrap;align-items:flex-start;gap:.28em .55em;white-space:normal}.music-queue-current-stacked .music-queue-current-track,.music-queue-current-stacked .music-queue-empty{flex:0 0 100%;width:100%;max-width:100%;white-space:normal}.music-queue-current-stacked .music-queue-requester{flex:0 0 100%;max-width:100%;white-space:normal}
 .music-queue-current-label{flex:none;color:#ffd66b;font-size:.82em;white-space:nowrap}
 .music-queue-current-track{display:flex;flex:1;align-items:baseline;gap:.35em;min-width:0;overflow:hidden;white-space:nowrap}
 .music-queue-current-title{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f7f8fc;font-size:.88em}
