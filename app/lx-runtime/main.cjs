@@ -3,6 +3,7 @@
 const { app, BrowserWindow, ipcMain } = require('electron')
 const readline = require('node:readline')
 const path = require('node:path')
+const fs = require('node:fs')
 const net = require('node:net')
 
 const EVENT = {
@@ -70,7 +71,7 @@ function createWindow() {
   windowRef.webContents.on('did-fail-load', (_event, code, description, url) => process.stderr.write('LX renderer load failed ' + code + ' ' + description + ' ' + url + '\n'))
   windowRef.webContents.on('render-process-gone', (_event, details) => process.stderr.write('LX renderer process gone ' + JSON.stringify(details) + '\n'))
   windowRef.once('ready-to-show', () => process.stderr.write('LX runtime ready-to-show\n'))
-  const html = '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body></body></html>'
+  const html = fs.readFileSync(path.join(__dirname, 'src', 'main', 'modules', 'userApi', 'renderer', 'user-api.html'), 'utf8')
   return new Promise((resolve, reject) => {
     windowRef.once('ready-to-show', resolve)
     windowRef.loadURL('data:text/html;charset=UTF-8,' + encodeURIComponent(html)).catch(reject)
