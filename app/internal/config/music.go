@@ -3,11 +3,12 @@ package config
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"strconv"
 	"strings"
 )
 
-const CurrentMusicConfigVersion = 10
+const CurrentMusicConfigVersion = 11
 
 type LXUserSourceProxyConfig struct {
 	Enabled bool `json:"enabled"`
@@ -37,6 +38,8 @@ type MusicConfig struct {
 	Volume int `json:"volume"`
 	LoudnessNormalization bool `json:"loudness_normalization"`
 	LXUserSourceProxy LXUserSourceProxyConfig `json:"lx_user_source_proxy"`
+	LXAPIEndpoints []string `json:"lx_api_endpoints"`
+	EnabledSearchSources []string `json:"enabled_search_sources"`
 	RequireFanMedal bool `json:"require_fan_medal"`
 	FanMedalLevel int `json:"fan_medal_level"`
 }
@@ -53,6 +56,8 @@ func DefaultMusicConfig() MusicConfig {
 		QueueDisplayCount: 5,
 		Volume: 80,
 		FanMedalLevel: 1,
+		LXAPIEndpoints: []string{"http://127.0.0.1:23330", "http://192.168.1.3:23330"},
+		EnabledSearchSources: []string{"tx", "kw", "kg", "wy", "mg"},
 	}
 }
 
@@ -77,6 +82,8 @@ func MigrateMusicConfig(c MusicConfig) (MusicConfig, bool) {
 		n.QueueDisplayCount = c.QueueDisplayCount
 	}
 	n.LXUserSourceProxy = c.LXUserSourceProxy
+	if len(c.LXAPIEndpoints) > 0 { n.LXAPIEndpoints = append([]string(nil), c.LXAPIEndpoints...) }
+	if len(c.EnabledSearchSources) > 0 { n.EnabledSearchSources = append([]string(nil), c.EnabledSearchSources...) }
 	n.RequireFanMedal = c.RequireFanMedal
 	if c.FanMedalLevel >= 1 && c.FanMedalLevel <= 120 { n.FanMedalLevel = c.FanMedalLevel }
 	n.LoudnessNormalization = c.LoudnessNormalization
@@ -105,6 +112,23 @@ func (c MusicConfig) Validate() error {
 		return fmt.Errorf("music queue display count must be between 1 and 1000")
 	}
 	if err := c.LXUserSourceProxy.Validate(); err != nil { return err }
+	if len(c.LXAPIEndpoints) > 10 { return fmt.Errorf("洛雪 API 地址最多允许配置 10 个") }
+	seenEndpoints := make(map[string]bool, len(c.LXAPIEndpoints))
+	for _, endpoint := range c.LXAPIEndpoints {
+		parsed, err := url.Parse(strings.TrimSpace(endpoint))
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return fmt.Errorf("无效的洛雪 API 地址：%s", endpoint)
+		}
+		key := strings.TrimRight(parsed.String(), "/")
+		if seenEndpoints[key] { return fmt.Errorf("洛雪 API 地址不能重复：%s", endpoint) }
+		seenEndpoints[key] = true
+	}
+	seenSources := make(map[string]bool, len(c.EnabledSearchSources))
+	for _, source := range c.EnabledSearchSources {
+		if source != "tx" && source != "kw" && source != "kg" && source != "wy" && source != "mg" { return fmt.Errorf("不支持的音乐搜索来源：%s", source) }
+		if seenSources[source] { return fmt.Errorf("音乐搜索来源不能重复：%s", source) }
+		seenSources[source] = true
+	}
 	return nil
 }
 
@@ -132,6 +156,8 @@ func LoadMusicConfig(m *Manager) (MusicConfig, error) {
 			"volume": true,
 			"loudness_normalization": true,
 			"lx_user_source_proxy": true,
+			"lx_api_endpoints": true,
+			"enabled_search_sources": true,
 			"require_fan_medal": true,
 			"fan_medal_level": true,
 		}
