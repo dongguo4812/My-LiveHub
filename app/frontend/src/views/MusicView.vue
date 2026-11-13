@@ -2,7 +2,6 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Headset, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
-import { getActiveSyncedLyric, parseSyncedLyrics } from '../utils/syncedLyrics'
 
 type MusicConfig = Awaited<ReturnType<typeof MusicService.GetConfig>>
 type Track = Awaited<ReturnType<typeof MusicService.Search>>['tracks'][number]
@@ -78,14 +77,6 @@ async function testLXAPIConnection() {
 const queue = ref<QueueSnapshot | null>(null)
 const draggedQueueItemID = ref('')
 const playback = ref<PlaybackSnapshot | null>(null)
-const lyricPosition = ref(0)
-let lyricPositionAnchor = 0
-let lyricPositionAnchorAt = 0
-let lyricClockTimer: ReturnType<typeof setInterval> | undefined
-const syncedLyrics = ref<Array<{ time: number; text: string; translation?: string }>>([])
-const lyricsTrackKey = ref('')
-const lyricsStatus = ref<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle')
-let lyricsRequestID = 0
 const results = ref<Track[]>([])
 const searchErrors = ref<Record<string, string>>({})
 const qualitySelections = ref<Record<string, string>>({})
@@ -118,39 +109,6 @@ function formatDuration(value?: number) {
 function formatSeekTooltip(percent: number) {
   const duration = playback.value?.duration_ms ?? 0
   return formatDuration(Math.round(duration * Math.min(100, Math.max(0, percent)) / 100))
-}
-const activeLyric = computed(() => {
-  if (lyricsStatus.value === 'loading' || lyricsStatus.value === 'idle') return { text: '歌词加载中…', translation: '' }
-  if (lyricsStatus.value === 'error') return { text: '歌词获取失败，稍后重试', translation: '' }
-  if (lyricsStatus.value === 'empty' || lyricsStatus.value === 'ready' && syncedLyrics.value.length === 0) return { text: '暂无歌词', translation: '' }
-  return getActiveSyncedLyric(syncedLyrics.value, lyricPosition.value) ?? { text: '歌词加载中…', translation: '' }
-})
-const currentLyric = computed(() => activeLyric.value.text)
-const currentLyricTranslation = computed(() => activeLyric.value.translation ?? '')
-async function loadTrackLyrics() {
-  const track = playback.value?.track
-  const key = track ? `${track.source_id}:${track.id}` : ''
-  if (key === lyricsTrackKey.value) return
-  lyricsTrackKey.value = key
-  syncedLyrics.value = []
-  const requestID = ++lyricsRequestID
-  if (!track) {
-    lyricsStatus.value = 'idle'
-    return
-  }
-  lyricsStatus.value = 'loading'
-  try {
-    const lrc = await MusicService.GetLyrics(track)
-    if (requestID !== lyricsRequestID || lyricsTrackKey.value !== key) return
-    const parsed = parseSyncedLyrics(lrc ?? '')
-    syncedLyrics.value = parsed
-    lyricsStatus.value = parsed.length > 0 ? 'ready' : 'empty'
-  } catch {
-    if (requestID === lyricsRequestID && lyricsTrackKey.value === key) {
-      // A network/API failure is not proof that the track has no lyrics.
-      lyricsStatus.value = 'error'
-    }
-  }
 }
 function sourceName(id?: string) {
   const names: Record<string, string> = { kw: '酷我音乐', kg: '酷狗音乐', tx: 'QQ 音乐', wy: '网易云音乐', mg: '咪咕音乐' }
@@ -225,10 +183,6 @@ async function clearQueue() {
 async function refreshPlayback() {
   try {
     playback.value = await MusicService.GetPlaybackStatus()
-    lyricPositionAnchor = playback.value.position_ms ?? 0
-    lyricPositionAnchorAt = Date.now()
-    lyricPosition.value = lyricPositionAnchor
-    void loadTrackLyrics()
   } catch { /* The engine is not started until the first play request. */ }
   await refreshQueue()
 }
@@ -330,14 +284,9 @@ onMounted(() => {
   void loadConfig()
   void refreshPlayback()
   statusTimer = setInterval(() => void refreshPlayback(), 1500)
-  lyricClockTimer = setInterval(() => {
-    if (!playback.value) return
-    lyricPosition.value = lyricPositionAnchor + (playback.value.state === 'playing' ? Date.now() - lyricPositionAnchorAt : 0)
-  }, 30)
 })
 onUnmounted(() => {
   if (statusTimer) clearInterval(statusTimer)
-  if (lyricClockTimer) clearInterval(lyricClockTimer)
 })
 </script>
 
@@ -373,8 +322,6 @@ onUnmounted(() => {
         </div>
         <div class="track-info">
           <strong>{{ playback?.track ? `${playback.track.title} - ${playback.track.artist || '未知歌手'}` : '尚未播放歌曲' }}</strong>
-          <span class="current-lyric">{{ playback?.track ? currentLyric : '搜索歌曲并加入播放队列' }}</span>
-          <span v-if="playback?.track && currentLyricTranslation" class="current-lyric-translation">{{ currentLyricTranslation }}</span>
           <small v-if="playback?.track">{{ playbackSourceName(playback.track) }}</small>
           <el-tag v-else-if="queue?.current && queue.current.requested_by !== '__my_livehub_search_play__'" type="warning" size="small">观众点播</el-tag>
         </div>
@@ -526,8 +473,6 @@ onUnmounted(() => {
         <el-icon v-else><Headset /></el-icon>
         <div>
           <strong>{{ playback?.track ? `${playback.track.title} - ${playback.track.artist || '未知歌手'}` : '尚未播放歌曲' }}</strong>
-          <span class="current-lyric">{{ playback?.track ? currentLyric : '从歌曲搜索开始播放' }}</span>
-          <span v-if="playback?.track && currentLyricTranslation" class="current-lyric-translation">{{ currentLyricTranslation }}</span>
         </div>
       </div>
       <div class="mini-player-actions">
@@ -547,7 +492,7 @@ onUnmounted(() => {
 .music-tabs button:hover{color:var(--el-text-color-primary)}
 .music-tabs button.active{color:var(--app-accent);border-bottom-color:var(--app-accent);font-weight:600}
 .music-tabs button span{font-size:11px;padding:1px 6px;border-radius:10px;background:var(--app-bg-control)}
-.current-lyric-translation{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--el-text-color-secondary);font-size:11px;line-height:1.35}.mini-player-track>div{min-width:0}.mini-player-track .track-info .mini-player{position:sticky;bottom:-28px;z-index:30;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-shrink:0;margin-top:auto;margin-left:-32px;margin-right:-32px;margin-bottom:-28px;padding:12px 32px calc(12px + env(safe-area-inset-bottom));min-height:68px;border:1px solid var(--app-border);border-bottom:0;border-radius:12px 12px 0 0;background:var(--el-bg-color);box-shadow:0 -8px 28px #00000018}
+.mini-player-track>div{min-width:0}.mini-player-track .track-info .mini-player{position:sticky;bottom:-28px;z-index:30;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-shrink:0;margin-top:auto;margin-left:-32px;margin-right:-32px;margin-bottom:-28px;padding:12px 32px calc(12px + env(safe-area-inset-bottom));min-height:68px;border:1px solid var(--app-border);border-bottom:0;border-radius:12px 12px 0 0;background:var(--el-bg-color);box-shadow:0 -8px 28px #00000018}
 .mini-player-track,.mini-player-actions{display:flex;align-items:center;gap:12px;min-width:0}
 .mini-player-track img{width:42px;height:42px;object-fit:cover;border-radius:7px}.mini-player-track>.el-icon{font-size:28px;color:var(--el-text-color-secondary)}
 .mini-player-track>div{display:flex;flex-direction:column;gap:3px;min-width:0}
