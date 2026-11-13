@@ -1151,10 +1151,15 @@ func (s *MusicService) ValidateLXUserSource(id string) (music.LXSourceRuntimeRes
 	}
 	script, err := store.ReadScript(id)
 	if err != nil { return music.LXSourceRuntimeResult{}, err }
-	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	result, err := music.InspectLXUserSource(ctx, script)
+	process, err := music.StartLXElectronUserSourceProcess(ctx, script, s.GetLXUserSourceProxy(), metadata)
 	if err != nil { return music.LXSourceRuntimeResult{}, err }
+	defer process.Close()
+	result := process.Snapshot()
+	if !result.Initialized || len(result.DeclaredSources) == 0 {
+		return music.LXSourceRuntimeResult{}, errors.New("洛雪音源未成功声明可用的平台")
+	}
 	if err := store.SetValidation(id, result); err != nil {
 		return music.LXSourceRuntimeResult{}, fmt.Errorf("音源验证通过，但保存验证状态失败：%w", err)
 	}
@@ -1180,8 +1185,6 @@ func (s *MusicService) TestLXUserSource(id string) ([]LXSourcePlatformTest, erro
 	validation, err := s.ValidateLXUserSource(id)
 	if err != nil { return nil, err }
 	store, err := s.lxUserSourceStore()
-	if err != nil { return nil, err }
-	script, err := store.ReadScript(id)
 	if err != nil { return nil, err }
 	searchNames := map[string]string{"kw":"酷我音乐","kg":"酷狗音乐","tx":"QQ 音乐","wy":"网易云音乐","mg":"咪咕音乐"}
 	declared := make(map[string]music.LXDeclaredSource, len(validation.DeclaredSources))
