@@ -76,7 +76,6 @@ const qualitySelections = ref<Record<string, string>>({})
 const query = ref('')
 const selectedSource = ref('all')
 
-const loading = ref(false)
 const searching = ref(false)
 const currentPage = ref(1)
 const maxPage = ref(0)
@@ -88,10 +87,7 @@ const error = ref('')
 const success = ref('')
 let statusTimer: ReturnType<typeof setInterval> | undefined
 
-const seeking = ref(false)
-const seekPreview = ref(0)
 const progress = computed(() => {
-  if (seeking.value) return seekPreview.value
   if (!playback.value || playback.value.duration_ms <= 0) return 0
   return Math.min(100, Math.max(0, playback.value.position_ms / playback.value.duration_ms * 100))
 })
@@ -150,7 +146,6 @@ function qualityNames(track: Track) {
 }
 function trackRowKey(row: Track) { return `${row.source_id}:${row.id}` }
 async function loadConfig() {
-  loading.value = true
   error.value = ''
   try {
     config.value = await MusicService.GetConfig()
@@ -160,7 +155,6 @@ async function loadConfig() {
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
   } finally {
-    loading.value = false
   }
 }
 async function refreshQueue() {
@@ -241,7 +235,8 @@ async function saveConfig() {
     await MusicService.SaveConfig(config.value)
     success.value = '音乐设置已保存'
     config.value = await MusicService.GetConfig()
-    } catch (reason) {
+    selectedSource.value = 'all'
+  } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
   } finally {
     saving.value = false
@@ -334,11 +329,6 @@ async function previousTrack() {
 async function pause() { try { await MusicService.Pause(); await refreshPlayback() } catch (reason) { error.value = String(reason) } }
 async function resume() { try { await MusicService.Resume(); await refreshPlayback() } catch (reason) { error.value = String(reason) } }
 async function stop() { try { await MusicService.Stop(); await refreshPlayback() } catch (reason) { error.value = String(reason) } }
-function previewSeek(value: number | number[]) {
-  const percent = Array.isArray(value) ? value[0] : value
-  seekPreview.value = Math.min(100, Math.max(0, Number(percent) || 0))
-  seeking.value = true
-}
 onMounted(() => {
   void loadConfig()
   void refreshLyricsWindowState()
@@ -385,11 +375,10 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
           <el-tag v-else-if="queue?.current && queue.current.requested_by !== '__my_livehub_search_play__'" type="warning" size="small">观众点播</el-tag>
         </div>
       </div>
-      <el-slider :model-value="progress" :min="0" :max="100" :step="0.1" :format-tooltip="formatSeekTooltip" :disabled="true" @input="previewSeek" @change="seekTo" />
+      <el-slider :model-value="progress" :min="0" :max="100" :step="0.1" :format-tooltip="formatSeekTooltip" :disabled="true" />
       <div class="time-row"><span>{{ formatDuration(playback?.position_ms) }}</span><span>{{ formatDuration(playback?.duration_ms) }}</span></div>
       <p class="hint">音量调节和播放进度定位暂不受洛雪开放 API 支持，请在洛雪客户端中操作。</p>
       <div class="player-controls">
-        <el-button type="primary" @click="playNext">播放队列</el-button>
         <el-button :disabled="playback?.state !== 'playing'" @click="pause">暂停</el-button>
         <el-button :disabled="playback?.state !== 'paused'" @click="resume">继续</el-button>
         <el-button @click="previousTrack">上一首</el-button>
