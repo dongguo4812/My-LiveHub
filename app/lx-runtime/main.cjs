@@ -66,11 +66,6 @@ function createWindow() {
   windowRef.webContents.session.setPermissionRequestHandler((contents, permission, callback) => callback(contents !== windowRef.webContents))
   windowRef.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   windowRef.on('closed', () => { windowRef = null })
-  windowRef.webContents.on('did-finish-load', () => process.stderr.write('LX runtime renderer loaded\n'))
-  windowRef.webContents.on('preload-error', (_event, preloadPath, error) => process.stderr.write('LX preload error ' + preloadPath + ': ' + error.message + '\n'))
-  windowRef.webContents.on('did-fail-load', (_event, code, description, url) => process.stderr.write('LX renderer load failed ' + code + ' ' + description + ' ' + url + '\n'))
-  windowRef.webContents.on('render-process-gone', (_event, details) => process.stderr.write('LX renderer process gone ' + JSON.stringify(details) + '\n'))
-  windowRef.once('ready-to-show', () => process.stderr.write('LX runtime ready-to-show\n'))
   const html = fs.readFileSync(path.join(__dirname, 'src', 'main', 'modules', 'userApi', 'renderer', 'user-api.html'), 'utf8')
   return new Promise((resolve, reject) => {
     windowRef.once('ready-to-show', resolve)
@@ -161,11 +156,9 @@ function connectHost() {
 }
 
 app.whenReady().then(async () => {
-  process.stderr.write('LX Electron app ready\n')
   try {
     await connectHost()
   } catch (error) {
-    process.stderr.write('LX runtime IPC connection failed: ' + error.message + '\n')
     app.quit()
     return
   }
