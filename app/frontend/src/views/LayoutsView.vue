@@ -29,7 +29,7 @@ function applyLive2DFrameTransform() {
   })
 }
 function handleLive2DMessage(event: MessageEvent) {
-  if (event.data?.type === 'moc3-model-loaded') applyLive2DFrameTransform()
+  if (event.data?.type === 'moc3-model-loaded' || event.data?.type === 'moc2-model-loaded') applyLive2DFrameTransform()
 }
 async function loadLive2DDisplay() {
   try {
