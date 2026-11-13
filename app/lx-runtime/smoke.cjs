@@ -6,8 +6,9 @@ const path = require('node:path')
 const executable = process.argv[2]
 if (!executable) throw new Error('Pass the packaged LX runtime executable path')
 
-const child = spawn(path.resolve(executable), [], { stdio: ['pipe', 'pipe', 'ignore'] })
+const child = spawn(path.resolve(executable), [], { stdio: ['pipe', 'pipe', 'pipe'] })
 let pending = ''
+let stderr = ''
 const messages = []
 const waiters = []
 
@@ -22,7 +23,7 @@ function dispatch(message) {
   }
 }
 
-function waitFor(predicate, timeoutMs = 30000) {
+function waitFor(predicate, timeoutMs = 30000, label = 'LX runtime IPC response') {
   const existing = messages.find(predicate)
   if (existing) return Promise.resolve(existing)
   return new Promise((resolve, reject) => {
@@ -32,12 +33,15 @@ function waitFor(predicate, timeoutMs = 30000) {
       timer: setTimeout(() => {
         const index = waiters.indexOf(waiter)
         if (index >= 0) waiters.splice(index, 1)
-        reject(new Error('Timed out waiting for LX runtime IPC response'))
+        reject(new Error('Timed out waiting for ' + label + '; stderr: ' + stderr))
       }, timeoutMs),
     }
     waiters.push(waiter)
   })
 }
+
+child.stderr.setEncoding('utf8')
+child.stderr.on('data', chunk => { stderr += chunk })
 
 child.stdout.setEncoding('utf8')
 child.stdout.on('data', chunk => {
@@ -81,11 +85,16 @@ async function run() {
     proxy: { host: '', port: '' },
   }) + '\n')
 
+  const ready = await waitFor(message => message.type === 'ready' || message.type === 'error', 30000, 'Electron BrowserWindow ready')
+  if (ready.type === 'error') throw new Error('Electron host initialization failed: ' + JSON.stringify(ready.params))
+
   const initialized = await waitFor(message =>
     message.type === 'event' &&
     message.name === 'userApi_init' &&
     message.params &&
-    message.params.status === true
+    message.params.status === true,
+    30000,
+    'original LX preload userApi_init event'
   )
   if (!initialized.params.data.sources.wy) throw new Error('LX preload did not register the test source')
 
