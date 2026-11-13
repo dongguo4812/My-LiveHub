@@ -170,3 +170,17 @@ func TestMusicConfigValidatesLXAPIEndpointsAndSearchSources(t *testing.T) {
 	c.EnabledSearchSources = []string{"tx", "tx"}
 	if err := c.Validate(); err == nil { t.Fatal("expected duplicate search source to be rejected") }
 }
+
+func TestMusicConfigMigrationPreservesExplicitEmptySelections(t *testing.T) {
+	got, changed := MigrateMusicConfig(MusicConfig{
+		ConfigVersion: 11, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
+		QueueCapacity: 100, LXAPIEndpoints: []string{}, EnabledSearchSources: []string{},
+	})
+	if !changed { t.Fatal("expected v11 configuration migration") }
+	if got.LXAPIEndpoints == nil || got.EnabledSearchSources == nil {
+		t.Fatalf("explicit empty selections should remain empty, got endpoints=%#v sources=%#v", got.LXAPIEndpoints, got.EnabledSearchSources)
+	}
+	if len(got.LXAPIEndpoints) != 0 || len(got.EnabledSearchSources) != 0 {
+		t.Fatalf("expected empty selections, got endpoints=%#v sources=%#v", got.LXAPIEndpoints, got.EnabledSearchSources)
+	}
+}
