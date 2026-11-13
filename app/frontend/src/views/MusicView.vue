@@ -11,6 +11,57 @@ type QueueSnapshot = Awaited<ReturnType<typeof MusicService.GetQueue>>
 type PlaybackSnapshot = Awaited<ReturnType<typeof MusicService.GetPlaybackStatus>>
 
 const config = ref<MusicConfig | null>(null)
+const musicSourceOptions = [
+  { id: 'tx', name: 'QQ 音乐' },
+  { id: 'kw', name: '酷我音乐' },
+  { id: 'kg', name: '酷狗音乐' },
+  { id: 'wy', name: '网易云音乐' },
+  { id: 'mg', name: '咪咕音乐' },
+]
+const searchableSources = computed(() => {
+  const enabled = config.value?.enabled_search_sources ?? []
+  return musicSourceOptions.filter(item => enabled.includes(item.id))
+})
+function addLXAPIEndpoint() {
+  if (config.value && config.value.lx_api_endpoints.length < 10) config.value.lx_api_endpoints.push('')
+}
+function removeLXAPIEndpoint(index: number) {
+  config.value?.lx_api_endpoints.splice(index, 1)
+}
+function moveLXAPIEndpoint(index: number, direction: -1 | 1) {
+  const endpoints = config.value?.lx_api_endpoints
+  const target = index + direction
+  if (!endpoints || target < 0 || target >= endpoints.length) return
+  ;[endpoints[index], endpoints[target]] = [endpoints[target], endpoints[index]]
+}
+function setSearchSourceEnabled(id: string, enabled: boolean) {
+  if (!config.value) return
+  const current = config.value.enabled_search_sources ?? []
+  config.value.enabled_search_sources = enabled
+    ? [...current.filter(item => item !== id), id]
+    : current.filter(item => item !== id)
+}
+function moveSearchSource(index: number, direction: -1 | 1) {
+  if (!config.value) return
+  const sources = [...(config.value.enabled_search_sources ?? [])]
+  const target = index + direction
+  if (target < 0 || target >= sources.length) return
+  ;[sources[index], sources[target]] = [sources[target], sources[index]]
+  config.value.enabled_search_sources = sources
+}
+async function testLXAPIConnection() {
+  if (!config.value) return
+  error.value = ''
+  success.value = ''
+  try {
+    config.value.lx_api_endpoints = config.value.lx_api_endpoints.map(item => item.trim()).filter(Boolean)
+    await MusicService.SaveConfig(config.value)
+    await MusicService.GetPlaybackStatus()
+    success.value = '已成功连接洛雪客户端 API'
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  }
+}
 type LXUserSourceProxy = Awaited<ReturnType<typeof MusicService.GetLXUserSourceProxy>>
 const lxProxy = ref<LXUserSourceProxy>({ enabled: false, host: '', port: '' })
 const lxProxyBusy = ref(false)
@@ -64,7 +115,7 @@ const searchErrors = ref<Record<string, string>>({})
 const qualitySelections = ref<Record<string, string>>({})
 const query = ref('')
 const selectedSource = ref('all')
-const searchableSources = computed(() => (lxSearchSourceOptions.value[activeLXSourceID.value] ?? []).filter(item => item.enabled).map(item => ({ id: item.id, name: item.name })))
+
 const volume = ref(80)
 const loading = ref(false)
 const searching = ref(false)
@@ -702,6 +753,7 @@ async function saveConfig() {
   error.value = ''
   success.value = ''
   try {
+    config.value.lx_api_endpoints = config.value.lx_api_endpoints.map(item => item.trim()).filter(Boolean)
     await MusicService.SaveConfig(config.value)
     success.value = '音乐设置已保存'
     config.value = await MusicService.GetConfig()
@@ -874,8 +926,9 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
           <el-tag v-else-if="queue?.current && queue.current.requested_by !== '__my_livehub_search_play__'" type="warning" size="small">观众点播</el-tag>
         </div>
       </div>
-      <el-slider :model-value="progress" :min="0" :max="100" :step="0.1" :format-tooltip="formatSeekTooltip" :disabled="!playback?.track || !playback.duration_ms" @input="previewSeek" @change="seekTo" />
+      <el-slider :model-value="progress" :min="0" :max="100" :step="0.1" :format-tooltip="formatSeekTooltip" :disabled="true" @input="previewSeek" @change="seekTo" />
       <div class="time-row"><span>{{ formatDuration(playback?.position_ms) }}</span><span>{{ formatDuration(playback?.duration_ms) }}</span></div>
+      <p class="hint">播放进度定位暂不受洛雪开放 API 支持，请在洛雪客户端中操作。</p>
       <div class="player-controls">
         <el-button type="primary" @click="addHostPlaylistToQueue">播放</el-button>
         <el-button :disabled="playback?.state !== 'playing'" @click="pause">暂停</el-button>
@@ -922,7 +975,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
           <el-button type="primary" plain @click="activeTab = 'host-playlist'">前往主播歌单</el-button>
         </el-empty>
       </div>
-      <p class="hint">首次播放前需要在 Windows 中安装 mpv，并确保 mpv.exe 已加入 PATH。</p>
+      <p class="hint">播放由本机洛雪客户端负责。请先启动洛雪，并在配置页填写其本地 API 地址。</p>
     </el-card>
 
     <el-card v-if="activeTab === 'settings'" shadow="never">
@@ -1138,6 +1191,46 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
     </el-card>
 
     <el-card v-if="activeTab === 'settings'" shadow="never">
+      <template #header><strong>洛雪客户端连接与搜索音源</strong></template>
+      <p class="section-description">洛雪客户端需运行在本机。地址按从上到下的顺序尝试，前一个不可用时自动切换到下一个；播放通过 lxmusic:// 协议发起。</p>
+      <div v-if="config" class="setting-list">
+        <div v-for="(endpoint, index) in config.lx_api_endpoints" :key="index" class="setting-row">
+          <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">
+            <strong style="white-space:nowrap">API {{ index + 1 }}</strong>
+            <el-input v-model="config.lx_api_endpoints[index]" placeholder="http://127.0.0.1:23330" />
+          </div>
+          <div style="display:flex;gap:6px">
+            <el-button link :disabled="index === 0" @click="moveLXAPIEndpoint(index, -1)">上移</el-button>
+            <el-button link :disabled="index === config.lx_api_endpoints.length - 1" @click="moveLXAPIEndpoint(index, 1)">下移</el-button>
+            <el-button link type="danger" @click="removeLXAPIEndpoint(index)">删除</el-button>
+          </div>
+        </div>
+      </div>
+      <div class="card-actions">
+        <el-button plain :disabled="!config || config.lx_api_endpoints.length >= 10" @click="addLXAPIEndpoint">添加 API 地址</el-button>
+        <el-button type="primary" :loading="saving" :disabled="!config" @click="testLXAPIConnection">保存并测试连接</el-button>
+      </div>
+      <el-divider />
+      <strong>搜索平台启用及优先级</strong>
+      <p class="section-description">勾选参与搜索和自动换源的平台；上方平台优先尝试。QQ 音乐默认排在第一位。</p>
+      <div v-if="config" class="setting-list">
+        <div v-for="(source, index) in config.enabled_search_sources" :key="source" class="setting-row">
+          <div><strong>{{ index + 1 }}. {{ musicSourceOptions.find(item => item.id === source)?.name ?? source }}</strong></div>
+          <div style="display:flex;gap:6px">
+            <el-button link :disabled="index === 0" @click="moveSearchSource(index, -1)">上移</el-button>
+            <el-button link :disabled="index === config.enabled_search_sources.length - 1" @click="moveSearchSource(index, 1)">下移</el-button>
+            <el-button link type="danger" @click="setSearchSourceEnabled(source, false)">禁用</el-button>
+          </div>
+        </div>
+        <div v-for="source in musicSourceOptions.filter(item => !config.enabled_search_sources.includes(item.id))" :key="source.id" class="setting-row">
+          <strong>{{ source.name }}</strong>
+          <el-button link type="primary" @click="setSearchSourceEnabled(source.id, true)">启用</el-button>
+        </div>
+      </div>
+      <div class="card-actions"><el-button type="primary" :loading="saving" :disabled="!config" @click="saveConfig">保存音乐配置</el-button></div>
+    </el-card>
+
+    <el-card v-if="activeTab === 'settings'" shadow="never">
       <template #header><strong>点歌设置</strong></template>
       <div v-if="config" class="setting-list">
         <div class="setting-row"><div><strong>启用音乐模块</strong><p>关闭后无法加入歌曲队列或播放歌曲，也不会处理弹幕点歌；MV 视频播放不受影响。</p></div><el-switch v-model="config.enabled" /></div>
@@ -1155,8 +1248,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         <div class="setting-row"><div><strong>切歌命令</strong><p>发送完整命令即可切换下一首，例如：切歌。</p></div><el-input v-model="config.skip_command" maxlength="16" style="width:220px" /></div>
         <el-divider />
         <div class="setting-row"><div><strong>播放队列容量</strong><p>统一队列允许等待的歌曲数量。</p></div><el-input-number v-model="config.queue_capacity" :min="1" :max="1000" /></div>
-        <el-divider />
-        <div class="setting-row"><div><strong>响度标准化</strong><p>使用 EBU R128 动态响度标准化，统一不同歌曲的整体响度并限制峰值；目标 -16 LUFS，真峰值不高于 -1.5 dBTP。</p></div><el-switch v-model="config.loudness_normalization" /></div>
+ 
       </div>
       <div class="card-actions"><el-button type="primary" :loading="saving" :disabled="!config" @click="saveConfig">保存全部设置</el-button></div>
     </el-card>
