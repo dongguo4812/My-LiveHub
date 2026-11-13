@@ -93,6 +93,11 @@ let activeMoc2TransformBase: { model: LegacyModel; scaleX: number; scaleY: numbe
 let settingsSaveQueue: Promise<void> = Promise.resolve()
 let legacyScriptPromise: Promise<void> | null = null
 let runtimeMessageHandler: ((event: MessageEvent) => void) | null = null
+let mouthSyncChannel: BroadcastChannel | null = null
+
+function broadcastMouthOpen(value: number) {
+  mouthSyncChannel?.postMessage({ type: 'live2d-mouth-open', value: Math.max(0, Math.min(1, value)) })
+}
 
 function live2dWindow(): Live2DWindow {
   return window as Live2DWindow
@@ -384,6 +389,7 @@ async function chooseModel(value: string) {
 
 function driveModelMouth(value: number) {
   const bounded = Math.max(0, Math.min(1, value))
+  broadcastMouthOpen(bounded)
   if (settings.value?.runtime_version === 'moc3') {
     const frameWindow = runtimeFrame.value?.contentWindow as Live2DWindow | undefined
     frameWindow?.live2dSetMouthOpen?.(bounded)
@@ -474,12 +480,15 @@ async function changeDevice(deviceID: string) {
 }
 
 onMounted(() => {
+  mouthSyncChannel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('my-livehub-live2d-mouth') : null
   runtimeMessageHandler = onRuntimeMessage
   window.addEventListener('message', runtimeMessageHandler)
   void refresh()
 })
 onUnmounted(() => {
   stopMicrophone()
+  mouthSyncChannel?.close()
+  mouthSyncChannel = null
   if (runtimeMessageHandler) window.removeEventListener('message', runtimeMessageHandler)
 })
 </script>
