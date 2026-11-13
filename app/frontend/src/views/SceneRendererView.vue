@@ -285,7 +285,7 @@ onUnmounted(() => {
             <span class="music-queue-track"><strong>{{ audienceCurrent.track.title }}</strong><small>{{ audienceCurrent.track.artist || '未知歌手' }}</small></span>
             <span class="music-queue-requester">{{ audienceCurrent.requested_by }}</span>
           </div>
-          <div v-else class="music-queue-empty">当前没有观众点播歌曲</div>
+          <div v-else class="music-queue-empty">当前播放歌曲非观众点播</div>
         </section>
         <section class="music-queue-section music-queue-pending">
           <strong class="music-queue-heading"><span class="music-queue-heading-mark">Ⅱ</span> 待播队列 <span class="music-queue-count">{{ audienceQueueItems.length }} 首</span></strong>
@@ -377,14 +377,14 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-queue-heading{display:flex;align-items:center;gap:.42em;min-width:0;padding-bottom:.32em;border-bottom:1px solid rgba(159,192,255,.22);color:#9fc0ff;font-size:1.02em;font-weight:800;line-height:1.35}
 .music-queue-heading-mark{flex:none;color:#ffd66b}
 .music-queue-count{margin-left:auto;color:#aebbd0;font-size:.72em;font-weight:600}
-.music-queue-prompt{border-color:rgba(255,214,107,.2);background:linear-gradient(135deg,rgba(48,39,25,.88),rgba(22,23,29,.82))}
+.music-queue-pending{flex:1;min-height:0}.music-queue-prompt{border-color:rgba(255,214,107,.2);background:linear-gradient(135deg,rgba(48,39,25,.88),rgba(22,23,29,.82))}
 .music-queue-prompt .music-queue-heading{color:#ffd66b;border-bottom-color:rgba(255,214,107,.24)}
 .music-queue-prompt-line{display:flex;align-items:center;gap:.65em;min-width:0;padding:.32em .48em;border-radius:.32em;background:rgba(255,255,255,.055);font-size:.82em;line-height:1.35}
 .music-queue-prompt-label{flex:none;min-width:2.5em;color:#ffd66b;font-weight:800}
 .music-queue-prompt-line strong{min-width:0;overflow-wrap:anywhere;color:#f5f6fa;font-weight:700}
 .music-queue-prompt-line small{color:#aebbd0;font-size:.82em;font-weight:500}
 .music-queue-prompt-note{padding:.25em .48em;color:#c4cddd;font-size:.72em;line-height:1.35}
-.music-queue-list{display:flex;flex-direction:column;gap:.28em;min-height:0;overflow:hidden}
+.music-queue-list{display:flex;flex:1;flex-direction:column;gap:.28em;min-height:0;overflow:hidden}
 .music-queue-item{display:flex;align-items:center;gap:.58em;min-width:0;padding:.38em .5em;border:1px solid rgba(255,255,255,.055);border-radius:.36em;background:rgba(255,255,255,.055);line-height:1.3}
 .music-queue-current{border-color:rgba(255,214,107,.2);background:rgba(255,214,107,.075)}
 .music-queue-index{flex:none;min-width:1.7em;color:#9fc0ff;font-size:.78em;font-weight:800;font-variant-numeric:tabular-nums}
