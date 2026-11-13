@@ -610,52 +610,13 @@ func (s *MusicService) playNext(parent context.Context) error {
 		if !ok { return errors.New("播放队列为空") }
 		current = &item
 	}
-	track := current.Track
-	sourceKey := track.LXSourceKey
-	if sourceKey == "" { sourceKey = track.SourceID }
-
-	activeID, err := s.GetActiveLXUserSourceID()
-	if err != nil { return fmt.Errorf("读取当前洛雪自定义源失败：%w", err) }
-	if activeID == "" { return errors.New("尚未启用洛雪自定义源，无法解析歌曲播放地址") }
-
-	s.lxSessionMu.Lock()
-	session := s.lxSession
-	sessionID := s.lxSessionID
-	s.lxSessionMu.Unlock()
-	if session == nil || sessionID != activeID || !session.IsRunning() {
-		if err := s.SetActiveLXUserSource(activeID); err != nil { return fmt.Errorf("启动洛雪自定义源失败：%w", err) }
-		s.lxSessionMu.Lock()
-		session = s.lxSession
-		sessionID = s.lxSessionID
-		s.lxSessionMu.Unlock()
-	}
-	if session == nil || sessionID != activeID { return errors.New("当前洛雪自定义源未能启动") }
-	initCtx, initCancel := context.WithTimeout(parent, 90*time.Second)
-	defer initCancel()
-	if err := session.WaitInitialized(initCtx); err != nil { return fmt.Errorf("等待洛雪音源初始化失败：%w", err) }
-
-	var declared *music.LXDeclaredSource
-	for _, item := range session.Snapshot().DeclaredSources {
-		if item.Key == sourceKey { copy := item; declared = &copy; break }
-	}
-	if declared == nil { return fmt.Errorf("当前自定义源未声明平台 %s 的音乐解析能力", sourceKey) }
-	hasMusicURL := false
-	for _, action := range declared.Actions { if action == "musicUrl" { hasMusicURL = true; break } }
-	if !hasMusicURL { return fmt.Errorf("当前自定义源未声明 %s 的 musicUrl 动作", sourceKey) }
-
-	selected, err := chooseLXTrackQuality(track, *declared)
-	if err != nil { return err }
-	payload, err := buildLXMusicURLRequest(track, selected)
-	if err != nil { return fmt.Errorf("构建洛雪播放请求失败：%w", err) }
-	ctx, cancel := context.WithTimeout(parent, 22*time.Second)
-	defer cancel()
-	rawURL, err := session.Request(ctx, payload)
-	if err != nil { return fmt.Errorf("解析歌曲播放地址失败：%w", err) }
-	playbackURL, err := parseLXMusicURLResponse(rawURL, sourceKey, selected.Type)
-	if err != nil { return err }
-	if err := ctx.Err(); err != nil { return err }
-	if err := loadAndStartPlayback(ctx, s.engine, music.PlaybackResource{URL: playbackURL}, track); err != nil {
+	resolvedTrack, err := s.resolveAndStartLXTrack(parent, current.Track, false)
+	if err != nil {
 		return err
+	}
+	current.Track = resolvedTrack
+	if err := s.queue.SetCurrent(*current); err != nil {
+		return fmt.Errorf("更新自动换源后的当前歌曲失败：%w", err)
 	}
 	s.startPlaybackWatcher()
 	return nil
@@ -951,8 +912,21 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 			if snapshot.State == music.PlaybackError {
 				message := strings.TrimSpace(snapshot.Error)
 				if message == "" { message = "mpv 加载音频失败" }
-				s.setLastError(errors.New(message))
 				currentItem := s.queue.Snapshot().Current
+				if currentItem != nil {
+					if resolvedTrack, retryErr := s.resolveAndStartLXTrack(ctx, currentItem.Track, true); retryErr == nil {
+						currentItem.Track = resolvedTrack
+						if updateErr := s.queue.SetCurrent(*currentItem); updateErr == nil {
+							s.startPlaybackWatcher()
+							return
+						} else {
+							message += "；更新换源结果失败：" + updateErr.Error()
+						}
+					} else {
+						message += "；自动换源失败：" + retryErr.Error()
+					}
+				}
+				s.setLastError(errors.New(message))
 				s.queue.FinishCurrent()
 				if currentItem != nil && currentItem.RequestedBy == hostQueueMarker {
 					_ = s.advanceHostPlaylist()
