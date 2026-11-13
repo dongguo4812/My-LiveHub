@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
-	"github.com/dongguo4812/My-LiveHub/app/internal/music"
 	eventstream "github.com/dongguo4812/My-LiveHub/app/internal/events"
+	"github.com/dongguo4812/My-LiveHub/app/internal/music"
 )
 
 const layoutConfigName = "layouts.json"
@@ -55,9 +55,9 @@ type sceneMusicProvider interface {
 }
 
 type sceneMusicResponse struct {
-	Snapshot music.PlaybackSnapshot `json:"snapshot"`
-	Lyrics string `json:"lyrics"`
-	LyricsError string `json:"lyrics_error,omitempty"`
+	Snapshot    music.PlaybackSnapshot `json:"snapshot"`
+	Lyrics      string                 `json:"lyrics"`
+	LyricsError string                 `json:"lyrics_error,omitempty"`
 }
 
 type SceneService struct {
@@ -78,7 +78,9 @@ func NewSceneService(manager *config.Manager, events *eventstream.Buffer, assets
 		return nil, fmt.Errorf("load layout configuration: %w", err)
 	}
 	service := &SceneService{manager: manager, events: events}
-	if len(musicProviders) > 0 { service.music = musicProviders[0] }
+	if len(musicProviders) > 0 {
+		service.music = musicProviders[0]
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/scenes/", service.handleScene)
 	mux.HandleFunc("/api/music", service.handleMusic)
@@ -263,7 +265,9 @@ func (s *SceneService) handleMusic(w http.ResponseWriter, r *http.Request) {
 	if snapshot.Track != nil {
 		lyrics, lyricErr := s.music.GetLyrics(*snapshot.Track)
 		response.Lyrics = lyrics
-		if lyricErr != nil { response.LyricsError = lyricErr.Error() }
+		if lyricErr != nil {
+			response.LyricsError = lyricErr.Error()
+		}
 	}
 	writeSceneJSON(w, response)
 }
