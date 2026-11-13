@@ -8,6 +8,9 @@ import * as VideoQueueService from '../../bindings/github.com/dongguo4812/My-Liv
 import { getLive2DSettings, listLive2DModels } from '../services/live2d'
 
 type Live2DDisplay = { enabled: boolean; runtime_version: 'moc2' | 'moc3'; model_url: string; model_scale: number; model_offset_x: number; model_offset_y: number }
+type Live2DLayer = LayoutLayer & { live2d_scale?: number; live2d_x?: number; live2d_y?: number }
+function live2DLayer(layer: LayoutLayer) { return layer as Live2DLayer }
+function live2DScale(layer: LayoutLayer) { return live2DLayer(layer).live2d_scale || 1 }
 const live2DDisplay = ref<Live2DDisplay | null>(null)
 let live2DRefreshTimer: ReturnType<typeof setInterval> | undefined
 const live2DFrameURL = computed(() => {
@@ -17,10 +20,12 @@ const live2DFrameURL = computed(() => {
   return value.runtime_version === 'moc2' ? '/live2d-runtime/moc2/index.html?' + params : '/live2d-runtime/moc3/index.html?model=' + encodeURIComponent(value.model_url)
 })
 function applyLive2DFrameTransform() {
-  if (live2DDisplay.value?.runtime_version !== 'moc3') return
   document.querySelectorAll<HTMLIFrameElement>('.live2d-layer-frame').forEach(frame => {
+    const layer = scene.value?.layers.find(item => item.id === frame.dataset.layerId)
+    if (!layer) return
+    const value = live2DLayer(layer)
     const target = frame.contentWindow as (Window & { live2dSetModelTransform?: (scale: number, x: number, y: number) => boolean }) | null
-    target?.live2dSetModelTransform?.(live2DDisplay.value!.model_scale, live2DDisplay.value!.model_offset_x / 100, live2DDisplay.value!.model_offset_y / 100)
+    target?.live2dSetModelTransform?.(live2DScale(layer), value.live2d_x || 0, value.live2d_y || 0)
   })
 }
 function handleLive2DMessage(event: MessageEvent) {
@@ -112,8 +117,16 @@ function startDrag(event: PointerEvent, layer: LayoutLayer) {
   if (!canvas.value || event.button !== 0) return
   selectedLayerID.value = layer.id
   drag = { x: event.clientX, y: event.clientY, layerX: layer.x, layerY: layer.y }
+  const live2DStart = layer.type === 'live2d' ? { x: live2DLayer(layer).live2d_x || 0, y: live2DLayer(layer).live2d_y || 0 } : null
   const move = (next: PointerEvent) => {
     if (!drag || !scene.value) return
+    if (live2DStart) {
+      const value = live2DLayer(layer)
+      value.live2d_x = live2DStart.x + (next.clientX - drag.x) / Math.max(1, layer.width * scale.value) * 2
+      value.live2d_y = live2DStart.y - (next.clientY - drag.y) / Math.max(1, layer.height * scale.value) * 2
+      applyLive2DFrameTransform()
+      return
+    }
     layer.x = Math.max(0, Math.min(scene.value.width - layer.width, drag.layerX + (next.clientX - drag.x) / scale.value))
     layer.y = Math.max(0, Math.min(scene.value.height - layer.height, drag.layerY + (next.clientY - drag.y) / scale.value))
   }
@@ -137,8 +150,16 @@ function startResize(event: PointerEvent, layer: LayoutLayer) {
   const startY = event.clientY
   const startWidth = layer.width
   const startHeight = layer.height
+  const startLive2DScale = live2DScale(layer)
   const move = (next: PointerEvent) => {
     if (!scene.value) return
+    if (layer.type === 'live2d') {
+      const deltaX = (next.clientX - startX) / Math.max(1, startWidth * scale.value)
+      const deltaY = (next.clientY - startY) / Math.max(1, startHeight * scale.value)
+      live2DLayer(layer).live2d_scale = Math.max(0.1, Math.min(5, startLive2DScale * (1 + (deltaX + deltaY) / 2)))
+      applyLive2DFrameTransform()
+      return
+    }
     layer.width = Math.max(40, Math.min(scene.value.width - layer.x, startWidth + (next.clientX - startX) / scale.value))
     layer.height = Math.max(40, Math.min(scene.value.height - layer.y, startHeight + (next.clientY - startY) / scale.value))
   }
@@ -311,7 +332,7 @@ onUnmounted(() => {
             <span v-if="layer.type === 'text'">{{ layer.text }}</span>
             <span v-else-if="layer.type === 'clock'">12:34:56</span>
             <img v-else-if="layer.type === 'image' && layer.url && layer.url !== 'https://'" :src="layer.url" alt="" />
-            <iframe v-else-if="layer.type === 'live2d' && live2DFrameURL" class="live2d-layer-frame" :src="live2DFrameURL" title="Live2D 预览" allowtransparency="true" :style="{ backgroundColor: 'transparent' }" @load="applyLive2DFrameTransform" />
+            <iframe v-else-if="layer.type === 'live2d' && live2DFrameURL" class="live2d-layer-frame" :data-layer-id="layer.id" :src="live2DFrameURL" title="Live2D 预览" allowtransparency="true" :style="{ backgroundColor: 'transparent' }" @load="applyLive2DFrameTransform" />
             <button v-if="layer.type === 'live2d' && selectedLayerID === layer.id" class="live2d-resize-handle" type="button" aria-label="调整 Live2D 大小" @pointerdown.stop="startResize($event, layer)" />
             <span v-else-if="layer.type === 'live2d'" class="live2d-layer-empty">请先在 Live2D 页面配置并启用默认模型</span>
             <div v-else-if="layer.type === 'music'" class="music-layer-preview"><div class="music-cover-preview">♫</div><div><strong>歌曲名称 · 歌手</strong><span>━━━━━━━●━━━━  01:23 / 04:12</span><p>当前歌词 · 歌词翻译</p></div></div>
@@ -331,7 +352,7 @@ onUnmounted(() => {
             <span v-else>{{ layerLabel(layer.type) }}组件</span>
           </div>
         </div>
-        <div class="canvas-hint">拖动组件调整位置 · Live2D 右下角控制点可缩放 · 操作后自动保存</div>
+        <div class="canvas-hint">拖动 Live2D 人物调整位置 · 右下角控制点调整人物大小 · 操作后自动保存</div>
       </main>
       <aside class="studio-panel property-panel">
         <div class="panel-heading"><strong>属性</strong><el-button v-if="selectedLayer" text type="danger" @click="removeLayer">删除图层</el-button></div>
@@ -365,5 +386,5 @@ onUnmounted(() => {
 <style scoped>
 .layouts-page{display:flex;flex-direction:column;gap:16px;min-width:0}.page-heading{display:flex;justify-content:space-between;gap:20px;align-items:flex-start}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 8px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description{color:var(--el-text-color-secondary);font-size:13px;margin:8px 0 0}.heading-actions,.scene-tabs,.source-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.scene-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--app-border);border-radius:9px;background:var(--app-bg-surface)}.studio-grid{display:grid;grid-template-columns:210px minmax(0,1fr) 250px;gap:14px;min-height:550px}.studio-panel{border:1px solid var(--app-border);border-radius:9px;background:var(--app-bg-surface);padding:13px;min-width:0}.panel-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;font-size:13px}.panel-heading span{font-size:11px;color:var(--el-text-color-secondary)}.add-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}.add-grid button{height:55px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;border:1px solid var(--app-border);border-radius:7px;background:var(--app-bg-control);color:var(--el-text-color-regular);cursor:pointer;font-size:11px}.add-grid button:hover{border-color:var(--app-accent);color:var(--app-accent)}.add-grid .el-icon{font-size:17px}.layer-list{display:flex;flex-direction:column;gap:4px}.layer-list button{display:flex;justify-content:space-between;align-items:center;padding:9px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--el-text-color-regular);text-align:left;cursor:pointer;font-size:12px}.layer-list button.selected{background:var(--app-bg-selected);border-color:var(--app-accent);color:var(--app-accent-soft)}.layer-list small{color:var(--el-text-color-secondary)}.canvas-area{min-width:0;display:flex;flex-direction:column;justify-content:center;gap:9px}.canvas-caption{display:flex;justify-content:space-between;color:var(--el-text-color-secondary);font-size:11px}.scene-canvas{position:relative;container-type:size;width:100%;aspect-ratio:16/9;overflow:hidden;border:1px solid var(--app-border);border-radius:6px;box-shadow:0 8px 28px #0002}.checkerboard{position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(45deg,#80808018 25%,transparent 25%),linear-gradient(-45deg,#80808018 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#80808018 75%),linear-gradient(-45deg,transparent 75%,#80808018 75%);background-size:24px 24px;background-position:0 0,0 12px,12px -12px,-12px 0}.canvas-layer{position:absolute;display:flex;align-items:center;justify-content:flex-start;padding:4px;border:1px dashed transparent;cursor:move;overflow:hidden;white-space:pre-wrap;word-break:break-word;font-weight:600;text-shadow:0 2px 5px #000a;touch-action:none}.canvas-layer.active{border-color:#8493ff;background:#8290ff18}.canvas-layer img,.canvas-layer iframe{width:100%;height:100%;object-fit:contain;border:0;background:transparent;display:block}.canvas-layer img{width:100%;height:100%;object-fit:contain}.music-layer-preview{display:flex;align-items:center;gap:12px;width:100%;height:100%;padding:8px;border-radius:9px;background:#151923d9;color:#fff;font-size:12px;text-shadow:none;overflow:hidden}.music-cover-preview{display:grid;place-items:center;flex:none;width:30%;height:100%;border-radius:6px;background:#343b4c;font-size:32px}.music-layer-preview>div:last-child{display:flex;flex-direction:column;gap:7px;min-width:0}.music-layer-preview strong,.music-layer-preview span,.music-layer-preview p{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:0;font-size:12px}.music-layer-preview span{color:#c6cad4;font-size:10px}.music-layer-preview p{color:#fff;font-size:11px}.music-queue-layer-preview{display:flex;flex-direction:column;gap:5px;width:100%;height:100%;padding:8px;border-radius:8px;background:linear-gradient(135deg,#141a26ed,#0d111acc);color:#f4f6fb;font-size:12px;text-shadow:none;overflow:hidden}.music-queue-layer-preview>div{display:flex;flex-direction:column;gap:3px;min-width:0;padding:5px 7px;border:1px solid #9fc0ff2b;border-radius:6px;background:#ffffff09}.music-queue-layer-preview strong{padding-bottom:3px;border-bottom:1px solid #9fc0ff44;color:#9fc0ff;font-size:12px}.music-queue-layer-preview span{display:flex;justify-content:space-between;gap:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#d8dce6;font-size:10px}.music-queue-layer-preview small{color:#65b8ff;font-size:9px}.music-queue-layer-preview .queue-preview-prompt{background:#30271999;border-color:#ffd66b44}.music-queue-layer-preview .queue-preview-prompt strong{color:#ffd66b;border-color:#ffd66b44}.music-queue-layer-preview .queue-preview-current{border-color:#ffd66b44}.music-queue-layer-preview .queue-preview-current strong{color:#ffd66b} .video-queue-layer-preview{display:flex;flex-direction:column;gap:5px;width:100%;height:100%;padding:8px;border-radius:8px;background:linear-gradient(135deg,#141a26ed,#0d111acc);color:#f4f6fb;font-size:12px;text-shadow:none;overflow:hidden}.video-queue-layer-preview>div{display:flex;flex-direction:column;gap:3px;min-width:0;padding:5px 7px;border:1px solid #9fc0ff2b;border-radius:6px;background:#ffffff09}.video-queue-layer-preview strong{padding-bottom:3px;border-bottom:1px solid #9fc0ff44;color:#9fc0ff;font-size:12px}.video-queue-layer-preview span{display:flex;justify-content:space-between;gap:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#d8dce6;font-size:10px}.video-queue-layer-preview small{color:#65b8ff;font-size:9px}.video-queue-layer-preview .queue-preview-prompt{background:#30271999;border-color:#ffd66b44}.video-queue-layer-preview .queue-preview-prompt strong{color:#ffd66b;border-color:#ffd66b44}.video-queue-layer-preview .queue-preview-current{border-color:#ffd66b44}.video-queue-layer-preview .queue-preview-current strong{color:#ffd66b}.canvas-hint{text-align:center;color:var(--el-text-color-secondary);font-size:11px}.property-panel .el-form-item{margin-bottom:12px}.property-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 8px}.property-grid .el-input-number{width:100%}.obs-card-content{display:flex;align-items:center;justify-content:space-between;gap:16px}.obs-card-content p{margin:6px 0 9px;color:var(--el-text-color-secondary);font-size:12px}.obs-card-content code{font-size:11px;word-break:break-all;color:var(--app-accent-soft)}@media(max-width:1100px){.studio-grid{grid-template-columns:180px minmax(0,1fr)}.property-panel{grid-column:1/-1}.property-grid{grid-template-columns:repeat(4,1fr)}}@media(max-width:760px){.page-heading,.scene-toolbar{align-items:flex-start;flex-direction:column}.studio-grid{grid-template-columns:1fr}.canvas-area{grid-row:1}.property-panel{grid-column:auto}.layer-panel{order:2}.obs-card-content{align-items:flex-start;flex-direction:column}}
 .canvas-layer{position:absolute}.live2d-resize-handle{position:absolute;right:0;bottom:0;width:16px;height:16px;padding:0;border:2px solid #fff;border-radius:3px;background:#647cff;box-shadow:0 1px 5px #0008;cursor:nwse-resize;z-index:5;touch-action:none}
-.canvas-layer iframe.live2d-layer-frame{display:block;width:100%;height:100%;border:0;background:transparent!important;background-color:transparent!important;color-scheme:normal;pointer-events:none}.live2d-layer-empty{display:grid;place-items:center;width:100%;height:100%;font-size:12px;color:#aeb9ca;text-shadow:none;text-align:center}
+.canvas-layer:has(iframe.live2d-layer-frame){cursor:grab}.canvas-layer:has(iframe.live2d-layer-frame):active{cursor:grabbing}.canvas-layer iframe.live2d-layer-frame{display:block;width:100%;height:100%;border:0;background:transparent!important;background-color:transparent!important;color-scheme:normal;pointer-events:none}.live2d-layer-empty{display:grid;place-items:center;width:100%;height:100%;font-size:12px;color:#aeb9ca;text-shadow:none;text-align:center}
 </style>
