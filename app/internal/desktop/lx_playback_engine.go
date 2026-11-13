@@ -115,14 +115,6 @@ func (e *LXPlaybackEngine) Resume(ctx context.Context) error {
 	return e.requestControl(ctx, "/play")
 }
 
-// 洛雪开放 API 未提供可靠的 seek 和 volume 控制接口；不要伪造成功。
-func (e *LXPlaybackEngine) Seek(context.Context, int64) error {
-	return errors.New("当前洛雪开放 API 不支持定位播放进度")
-}
-func (e *LXPlaybackEngine) SetVolume(context.Context, int) error {
-	return errors.New("当前洛雪开放 API 不支持通过外部接口调节音量，请在洛雪客户端中调整")
-}
-
 // Stop has no dedicated 洛雪 endpoint. Pausing is the documented safe action;
 // the My-LiveHub queue is still finished locally.
 func (e *LXPlaybackEngine) Stop(ctx context.Context) error { return e.Pause(ctx) }
@@ -136,7 +128,7 @@ func (e *LXPlaybackEngine) Snapshot(ctx context.Context) (music.PlaybackSnapshot
 	return parseLXPlaybackSnapshot(value), nil
 }
 
-func (e *LXPlaybackEngine) Load(ctx context.Context, _ music.PlaybackResource, track music.Track) error {
+func (e *LXPlaybackEngine) Load(ctx context.Context, track music.Track) error {
 	if ctx == nil { ctx = context.Background() }
 	uri, err := buildLXPlayURI(track)
 	if err != nil { return err }
