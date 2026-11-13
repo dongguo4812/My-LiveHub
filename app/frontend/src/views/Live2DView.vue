@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getLive2DSettings, updateLive2DSettings, listLive2DModels, type Live2DConfig, type Live2DModel } from '../services/live2d'
+import { getScenes, getBrowserSourceURL } from '../services/layouts'
 
 type LegacyModel = {
   initialized?: boolean
@@ -94,9 +95,31 @@ let settingsSaveQueue: Promise<void> = Promise.resolve()
 let legacyScriptPromise: Promise<void> | null = null
 let runtimeMessageHandler: ((event: MessageEvent) => void) | null = null
 let mouthSyncChannel: BroadcastChannel | null = null
+let mouthSyncEndpoint = ''
 
 function broadcastMouthOpen(value: number) {
-  mouthSyncChannel?.postMessage({ type: 'live2d-mouth-open', value: Math.max(0, Math.min(1, value)) })
+  const bounded = Math.max(0, Math.min(1, value))
+  mouthSyncChannel?.postMessage({ type: 'live2d-mouth-open', value: bounded })
+  if (mouthSyncEndpoint) {
+    void fetch(mouthSyncEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+      body: JSON.stringify({ value: bounded }),
+      cache: 'no-store',
+    }).catch(() => undefined)
+  }
+}
+
+async function resolveMouthSyncEndpoint() {
+  try {
+    const scenes = await getScenes()
+    const scene = scenes[0]
+    if (!scene) return
+    const sourceURL = await getBrowserSourceURL(scene.id)
+    mouthSyncEndpoint = new URL('/api/live2d/mouth', sourceURL).toString()
+  } catch {
+    mouthSyncEndpoint = ''
+  }
 }
 
 function live2dWindow(): Live2DWindow {
@@ -311,6 +334,7 @@ async function refresh() {
     models.value = found
     selectedModel.value = config.runtime_version === 'moc2' ? config.default_model_moc2 : config.default_model_moc3
     await enumerateDevices()
+    await resolveMouthSyncEndpoint()
     await loadSelectedModel()
   } catch (error) {
     ElMessage.error('读取 Live2D 配置失败：' + String(error))
