@@ -13,14 +13,14 @@ func TestDefaultMusicConfigIsValid(t *testing.T) {
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if !c.Enabled || !c.CommandEnabled || c.QueueCapacity != 100 || c.QueueDisplayCount != 5 || c.Volume != 80 || c.LoudnessNormalization {
+	if !c.Enabled || !c.CommandEnabled || c.QueueCapacity != 100 || c.QueueDisplayCount != 5 {
 		t.Fatalf("defaults: %+v", c)
 	}
 }
 
 func TestMusicConfigMigrationDropsPlatformConfig(t *testing.T) {
 	c, changed := MigrateMusicConfig(MusicConfig{
-		ConfigVersion: 3, Enabled: true, CommandEnabled: true, Volume: 42,
+		ConfigVersion: 3, Enabled: true, CommandEnabled: true, 
 		CommandPrefix: "点歌", QueueCapacity: 80,
 	})
 	if !changed {
@@ -29,7 +29,7 @@ func TestMusicConfigMigrationDropsPlatformConfig(t *testing.T) {
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if c.ConfigVersion != CurrentMusicConfigVersion || c.QueueCapacity != 80 || c.Volume != 42 || c.LoudnessNormalization {
+	if c.ConfigVersion != CurrentMusicConfigVersion || c.QueueCapacity != 80 {
 		t.Fatalf("migrated: %+v", c)
 	}
 }
@@ -37,11 +37,10 @@ func TestMusicConfigMigrationDropsPlatformConfig(t *testing.T) {
 func TestMusicConfigV7MigrationPreservesSkipCommandAndNormalization(t *testing.T) {
 	got, changed := MigrateMusicConfig(MusicConfig{
 		ConfigVersion: 7, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
-		SkipCommandEnabled: false, SkipCommand: "下一首", QueueCapacity: 100, Volume: 66,
-		LoudnessNormalization: true,
+		SkipCommandEnabled: false, SkipCommand: "下一首", QueueCapacity: 100,
 	})
 	if !changed { t.Fatal("expected v7 configuration migration") }
-	if got.SkipCommandEnabled || got.SkipCommand != "下一首" || !got.LoudnessNormalization || got.Volume != 66 {
+	if got.SkipCommandEnabled || got.SkipCommand != "下一首" {
 		t.Fatalf("v7 settings were not preserved: %+v", got)
 	}
 }
@@ -100,7 +99,7 @@ func TestLoadMusicConfigRemovesRetiredFieldsBeforeStrictDecode(t *testing.T) {
 func TestMusicConfigV8MigrationAddsIndependentFanMedalDefaults(t *testing.T) {
 	got, changed := MigrateMusicConfig(MusicConfig{
 		ConfigVersion: 8, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
-		SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100, Volume: 80,
+		SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100,
 		RequireFanMedal: true, FanMedalLevel: 6,
 	})
 	if !changed { t.Fatal("expected v8 configuration migration") }
@@ -141,10 +140,10 @@ func TestMusicConfigFanMedalLevelValidation(t *testing.T) {
 }
 
 
-func TestMusicConfigV10MigrationAddsLXConnectionDefaults(t *testing.T) {
+func TestMusicConfigV11MigrationAddsLXConnectionDefaults(t *testing.T) {
 	got, changed := MigrateMusicConfig(MusicConfig{
-		ConfigVersion: 10, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
-		SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100, QueueDisplayCount: 5, Volume: 80,
+		ConfigVersion: 11, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
+		SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100, QueueDisplayCount: 5,
 	})
 	if !changed { t.Fatal("expected v10 configuration migration") }
 	if err := got.Validate(); err != nil { t.Fatal(err) }
