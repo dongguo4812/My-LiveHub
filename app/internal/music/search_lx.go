@@ -5,8 +5,6 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/md5"
-	"crypto/sha1"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -422,20 +420,9 @@ type qqSearchRequest struct {
 		} `json:"param"`
 	} `json:"music.search.SearchCgiService"`
 }
-func qqSignature(text string) string {
-	sum:=sha1.Sum([]byte(text));h:=hex.EncodeToString(sum[:])
-	p1:=[]int{23,14,6,36,16,40,7,19};p2:=[]int{16,1,32,12,19,27,8,5}
-	var a,b strings.Builder;for _,i:=range p1{if i>=0 && i<len(h){a.WriteByte(h[i])}};for _,i:=range p2{if i>=0 && i<len(h){b.WriteByte(h[i])}}
-	scramble:=[]byte{89,39,179,150,218,82,58,252,177,52,186,123,120,64,242,133,143,161,121,179}
-	raw:=make([]byte,len(scramble));for i,v:=range scramble{n,_:=strconv.ParseUint(h[i*2:i*2+2],16,8);raw[i]=v^byte(n)}
-	mid:=base64.StdEncoding.EncodeToString(raw);mid=strings.NewReplacer("/","","+","","=","").Replace(mid)
-	return strings.ToLower("zzc"+a.String()+mid+b.String())
-}
 func (p qqSearchProvider) Search(ctx context.Context,keyword string,page,limit int)(SearchPage,error){
 	if limit <= 0 { limit = lxSongSearchPageSize }
-	// LX desktop retries QQ's signed search request when the API returns a
-	// non-zero status. The production endpoint is musics.fcg (plural), not
-	// musicu.fcg; the latter is used by the lyric API.
+	// Use the current QQ Music search endpoint and its module-key request envelope.
 	var raw map[string]any
 	var lastStatus string
 	for attempt:=0;attempt<=5;attempt++ {
@@ -464,7 +451,7 @@ func (p qqSearchProvider) Search(ctx context.Context,keyword string,page,limit i
 			total:=intValue(meta["sum"]);if total==0{total=intValue(song["totalnum"])}
 			return SearchPage{Tracks:tracks,Total:total,Page:page,PageSize:limit,MaxPage:pageCount(total,limit),Source:"tx"},nil
 		}
-		lastStatus=fmt.Sprintf("top-level code=%v, provider code=%v",raw["code"],mapValue(raw["music.search.SearchCgiService"])["code"])
+		lastStatus=fmt.Sprintf("top-level code=%v, provider code=%v",raw["code"],req["code"])
 		if attempt<5 {
 			select { case <-ctx.Done(): return SearchPage{},ctx.Err(); case <-time.After(time.Duration(attempt+1)*150*time.Millisecond): }
 		}
