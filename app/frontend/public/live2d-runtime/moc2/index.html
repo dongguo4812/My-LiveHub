@@ -40,17 +40,18 @@
           if(!model||!model.initialized||!matrix||!matrix.width||!matrix.height)return false;
           if(!base||base.model!==model){
             const sx=matrix.getScaleX(),sy=matrix.getScaleY();
-            base={model,sx,sy,cx:matrix.tr[12]+matrix.width*sx/2,cy:matrix.tr[13]+matrix.height*sy/2};
+            base={model,sx,sy,tr:new Float32Array(matrix.tr),cx:matrix.tr[12]+matrix.width*sx/2,cy:matrix.tr[13]+matrix.height*sy/2};
           }
           const width=matrix.width*Math.abs(base.sx),height=matrix.height*Math.abs(base.sy);
           const fit=Math.min(1,2/width,2/height);
+          if(typeof matrix.tr.set==='function')matrix.tr.set(base.tr);
           matrix.scale(base.sx*fit*scale,base.sy*fit*scale);
           matrix.centerX(base.cx+offsetX*2/100);
           matrix.centerY(base.cy-offsetY*2/100);
           return true;
         };
         let attempts=0;
-        const timer=setInterval(()=>{attempts++;if(apply()||attempts>=300)clearInterval(timer);},100);
+        const timer=setInterval(()=>{attempts++;if(apply()){window.parent.postMessage({type:'moc2-model-loaded'},window.location.origin);clearInterval(timer);}else if(attempts>=300)clearInterval(timer);},100);
       };
       script.onerror=function(){console.error('Failed to load MOC2 runtime');};
       document.head.appendChild(script);
