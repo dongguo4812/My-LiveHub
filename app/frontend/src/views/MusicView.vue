@@ -78,6 +78,10 @@ async function testLXAPIConnection() {
 const queue = ref<QueueSnapshot | null>(null)
 const draggedQueueItemID = ref('')
 const playback = ref<PlaybackSnapshot | null>(null)
+const lyricPosition = ref(0)
+let lyricPositionAnchor = 0
+let lyricPositionAnchorAt = 0
+let lyricClockTimer: ReturnType<typeof setInterval> | undefined
 const syncedLyrics = ref<Array<{ time: number; text: string; translation?: string }>>([])
 const lyricsTrackKey = ref('')
 const lyricsStatus = ref<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle')
@@ -119,8 +123,7 @@ const activeLyric = computed(() => {
   if (lyricsStatus.value === 'loading' || lyricsStatus.value === 'idle') return { text: '歌词加载中…', translation: '' }
   if (lyricsStatus.value === 'error') return { text: '歌词获取失败，稍后重试', translation: '' }
   if (lyricsStatus.value === 'empty' || lyricsStatus.value === 'ready' && syncedLyrics.value.length === 0) return { text: '暂无歌词', translation: '' }
-  const position = playback.value?.position_ms ?? 0
-  return getActiveSyncedLyric(syncedLyrics.value, position) ?? { text: '歌词加载中…', translation: '' }
+  return getActiveSyncedLyric(syncedLyrics.value, lyricPosition.value) ?? { text: '歌词加载中…', translation: '' }
 })
 const currentLyric = computed(() => activeLyric.value.text)
 const currentLyricTranslation = computed(() => activeLyric.value.translation ?? '')
@@ -222,6 +225,9 @@ async function clearQueue() {
 async function refreshPlayback() {
   try {
     playback.value = await MusicService.GetPlaybackStatus()
+    lyricPositionAnchor = playback.value.position_ms ?? 0
+    lyricPositionAnchorAt = Date.now()
+    lyricPosition.value = lyricPositionAnchor
     void loadTrackLyrics()
   } catch { /* The engine is not started until the first play request. */ }
   await refreshQueue()
@@ -322,9 +328,17 @@ async function pause() { try { await MusicService.Pause(); await refreshPlayback
 async function resume() { try { await MusicService.Resume(); await refreshPlayback() } catch (reason) { error.value = String(reason) } }
 onMounted(() => {
   void loadConfig()
+  void refreshPlayback()
   statusTimer = setInterval(() => void refreshPlayback(), 1500)
+  lyricClockTimer = setInterval(() => {
+    if (!playback.value) return
+    lyricPosition.value = lyricPositionAnchor + (playback.value.state === 'playing' ? Date.now() - lyricPositionAnchorAt : 0)
+  }, 30)
 })
-onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
+onUnmounted(() => {
+  if (statusTimer) clearInterval(statusTimer)
+  if (lyricClockTimer) clearInterval(lyricClockTimer)
+})
 </script>
 
 <template>
