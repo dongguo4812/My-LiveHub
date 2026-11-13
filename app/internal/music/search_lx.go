@@ -413,13 +413,13 @@ type qqSearchRequest struct {
 		Module string `json:"module"`
 		Method string `json:"method"`
 		Param struct {
-			Group int `json:"grp"`
+			Group int `json:"grp,omitempty"`
 			Limit int `json:"num_per_page"`
 			Page int `json:"page_num"`
 			Query string `json:"query"`
-			Remote string `json:"remoteplace"`
+			Remote string `json:"remoteplace,omitempty"`
 			Type int `json:"search_type"`
-			SearchID string `json:"searchid"`
+			SearchID string `json:"searchid,omitempty"`
 		} `json:"param"`
 	} `json:"music.search.SearchCgiService"`
 }
@@ -441,18 +441,12 @@ func (p qqSearchProvider) Search(ctx context.Context,keyword string,page,limit i
 	var lastStatus string
 	for attempt:=0;attempt<=5;attempt++ {
 		var payload qqSearchRequest
-		payload.Comm.ChannelID="0";payload.Comm.OSVersion="6.2.9200-2";payload.Comm.CT="19";payload.Comm.CV="2151"
-		payload.Comm.GUID="1F70E520B2EAA7D25E11760783C53CA9";payload.Comm.Patch="118";payload.Comm.AppID="qqmusic";payload.Comm.WID="7223299733393904640";payload.Comm.UIN="0"
 		payload.Service.Module="music.search.SearchCgiService";payload.Service.Method="DoSearchForQQMusicDesktop"
-		payload.Service.Param.Group=1;payload.Service.Param.Limit=limit;payload.Service.Param.Page=page;payload.Service.Param.Query=keyword;payload.Service.Param.Remote="txt.newclient.top";payload.Service.Param.Type=0
-		var random [16]byte
-		if _,err:=rand.Read(random[:]);err!=nil{return SearchPage{},fmt.Errorf("生成 QQ 搜索会话 ID 失败：%w",err)}
-		payload.Service.Param.SearchID=strings.ToUpper(hex.EncodeToString(random[:]))+fmt.Sprintf("%05d",time.Now().UnixNano()%100000)
+		payload.Service.Param.Limit=limit;payload.Service.Param.Page=page;payload.Service.Param.Query=keyword;payload.Service.Param.Type=0
 		body,err:=jsonBody(payload);if err!=nil{return SearchPage{},err}
-		sign:=qqSignature(string(body))
 		raw,err=doLXJSON(ctx,p.client,http.MethodPost,p.endpoint,map[string]string{"User-Agent":"Mozilla/5.0","Content-Type":"application/json","Referer":"https://y.qq.com/","Origin":"https://y.qq.com"},bytes.NewReader(body))
 		if err!=nil{return SearchPage{},err}
-		req:=mapValue(raw["music.search.SearchCgiService"]);if len(req)==0{req=mapValue(raw["req"])}
+		req:=mapValue(raw["music.search.SearchCgiService"]);if len(req)==0{req=mapValue(raw["req_1"])}
 		if len(req)>0&&intValue(raw["code"])==0&&intValue(req["code"])==0 {
 			data:=mapValue(req["data"]);resultBody:=mapValue(data["body"]);song:=mapValue(resultBody["song"]);meta:=mapValue(data["meta"])
 			items:=sliceValue(song["list"]);tracks:=make([]Track,0,len(items))
