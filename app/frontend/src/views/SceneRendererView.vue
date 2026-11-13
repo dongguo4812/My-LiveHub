@@ -206,7 +206,13 @@ async function loadVideoQueue() {
   try {
     const response = await fetch('/api/video/queue', { cache: 'no-store' })
     if (!response.ok) return
-    videoQueue.value = await response.json() as VideoQueue
+    const data = await response.json() as Partial<VideoQueue>
+    videoQueue.value = {
+      enabled: data.enabled === true,
+      current: data.current,
+      items: Array.isArray(data.items) ? data.items : [],
+      queue_count: Number.isFinite(data.queue_count) ? Number(data.queue_count) : 0,
+    }
   } catch { /* Keep the last known video queue while the local source reconnects. */ }
 }
 async function loadMusicQueue() {
