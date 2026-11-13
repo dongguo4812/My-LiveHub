@@ -1336,7 +1336,7 @@ func (s *MusicService) GetLXUserSourceUpdates() []music.LXUserSourceUpdate {
 	return updates
 }
 
-func (s *MusicService) watchLXUserSourceUpdates(id string, session *music.LXUserSourceProcess) {
+func (s *MusicService) watchLXUserSourceUpdates(id string, session *music.LXElectronUserSourceProcess) {
 	for update := range session.Updates() {
 		s.lxSessionMu.Lock()
 		active := s.lxSession == session && s.lxSessionID == id
