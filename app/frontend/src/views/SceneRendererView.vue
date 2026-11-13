@@ -281,8 +281,10 @@ onUnmounted(() => {
         <section class="music-queue-section music-queue-current-section">
           <div v-if="audienceCurrent" class="music-queue-item music-queue-current music-queue-current-inline">
             <strong class="music-queue-current-label"><span class="music-queue-heading-mark">♫</span> 当前播放</strong>
-            <strong class="music-queue-current-title">{{ audienceCurrent.track.title }}</strong>
-            <span class="music-queue-current-artist">{{ audienceCurrent.track.artist || '未知歌手' }}</span>
+            <span class="music-queue-current-track">
+              <strong class="music-queue-current-title">{{ audienceCurrent.track.title }}</strong>
+              <span class="music-queue-current-artist">{{ audienceCurrent.track.artist || '未知歌手' }}</span>
+            </span>
             <span class="music-queue-requester">{{ audienceCurrent.requested_by }}</span>
           </div>
           <div v-else class="music-queue-item music-queue-current music-queue-current-inline">
@@ -377,8 +379,10 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-queue-prompt-single span{flex:none;color:#d7deea}
 .music-queue-prompt-single b{color:#ffd66b;font-weight:800}
 .music-queue-current-inline{flex-wrap:nowrap;gap:.55em;padding:.34em 0;border:0;border-radius:0;background:transparent;box-shadow:none;white-space:nowrap}
-.music-queue-current-label{flex:none;color:#ffd66b;font-size:.82em;white-space:nowrap}.music-queue-current-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f7f8fc;font-size:.88em}
-.music-queue-current-artist{flex:none;max-width:28%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#aeb9ca;font-size:.76em}
+.music-queue-current-label{flex:none;color:#ffd66b;font-size:.82em;white-space:nowrap}
+.music-queue-current-track{display:flex;flex:1;align-items:baseline;gap:.35em;min-width:0;overflow:hidden;white-space:nowrap}
+.music-queue-current-title{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f7f8fc;font-size:.88em}
+.music-queue-current-artist{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#aeb9ca;font-size:.76em}
 .music-queue-current-inline .music-queue-requester{max-width:24%}.music-queue-current-inline .music-queue-empty{padding:0;white-space:nowrap}
 .music-queue-list{gap:0}
 .music-queue-list .music-queue-item{padding-top:.08em;padding-bottom:.08em;border-radius:0;border-bottom:1px solid rgba(255,255,255,.045)}
@@ -386,8 +390,8 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-queue-item{display:flex;align-items:center;gap:.58em;min-width:0;padding:.38em .5em;border:1px solid rgba(255,255,255,.055);border-radius:.36em;background:rgba(255,255,255,.055);line-height:1.3}
 .music-queue-current{border-color:rgba(255,214,107,.2);background:rgba(255,214,107,.075)}.music-queue-item.music-queue-current-inline{padding:.34em 0;border:0;border-radius:0;background:transparent;box-shadow:none}
 .music-queue-index{flex:none;min-width:1.7em;color:#9fc0ff;font-size:.78em;font-weight:800;font-variant-numeric:tabular-nums}
-.music-queue-track{display:flex;flex:1;flex-direction:column;gap:.12em;min-width:0;overflow:hidden}
-.music-queue-track strong,.music-queue-track small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.music-queue-track{display:flex;flex:1;flex-direction:row;align-items:baseline;gap:.35em;min-width:0;overflow:hidden;white-space:nowrap}
+.music-queue-track strong,.music-queue-track small{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .music-queue-track strong{color:#f7f8fc;font-size:.88em;font-weight:750}
 .music-queue-track small{color:#aeb9ca;font-size:.7em}
 .music-queue-requester{flex:none;max-width:30%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#65b8ff;font-size:.72em;font-weight:700}
