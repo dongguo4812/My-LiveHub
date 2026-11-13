@@ -95,7 +95,7 @@ onUnmounted(() => {
         </div>
       </el-header>
       <el-main class="workspace">
-        <router-view />
+        <KeepAlive include="Live2DView"><router-view /></KeepAlive>
       </el-main>
       <footer class="footer">
         <span>My-LiveHub · 本地桌面版</span>
