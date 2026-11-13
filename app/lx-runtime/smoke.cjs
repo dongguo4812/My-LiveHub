@@ -96,7 +96,7 @@ async function run() {
 
   const script = [
     'lx.on(lx.EVENT_NAMES.request, function (request) {',
-    '  return Promise.resolve("https://cdn.example.test/" + request.info.songmid + ".mp3");',
+    '  return Promise.resolve("https://cdn.example.test/" + request.info.musicInfo.songmid + ".mp3");',
     '});',
     'lx.send(lx.EVENT_NAMES.inited, {',
     '  sources: { wy: { type: "music", actions: ["musicUrl"], qualitys: ["320k"] } }',
