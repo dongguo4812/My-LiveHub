@@ -19,6 +19,11 @@ import (
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
 )
 
+func lxRequestContextError(err error) error {
+	if errors.Is(err, context.DeadlineExceeded) { return errors.New("Request timeout") }
+	return errors.New("Cancel request")
+}
+
 const (
 	lxElectronReadyTimeout = 20 * time.Second
 	lxElectronInitTimeout = 70 * time.Second
