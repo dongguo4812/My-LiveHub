@@ -97,6 +97,17 @@ function removeLayer() {
   scene.value.layers = scene.value.layers.filter(layer => layer.id !== selectedLayerID.value)
   selectedLayerID.value = ''
 }
+async function persistLive2DLayer(layer: LayoutLayer) {
+  if (!scene.value || layer.type !== 'live2d') return
+  try {
+    const snapshot = JSON.parse(JSON.stringify(scene.value)) as LayoutScene
+    const saved = await saveScene(snapshot)
+    const index = scenes.value.findIndex(item => item.id === saved.id)
+    if (index >= 0) scenes.value[index] = saved
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : String(error))
+  }
+}
 function startDrag(event: PointerEvent, layer: LayoutLayer) {
   if (!canvas.value || event.button !== 0) return
   selectedLayerID.value = layer.id
@@ -107,12 +118,38 @@ function startDrag(event: PointerEvent, layer: LayoutLayer) {
     layer.y = Math.max(0, Math.min(scene.value.height - layer.height, drag.layerY + (next.clientY - drag.y) / scale.value))
   }
   const stop = () => {
+    const movedLayer = layer.type === 'live2d'
     drag = null
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', stop)
     window.removeEventListener('pointercancel', stop)
+    if (movedLayer) void persistLive2DLayer(layer)
   }
   event.preventDefault()
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', stop, { once: true })
+  window.addEventListener('pointercancel', stop, { once: true })
+}
+function startResize(event: PointerEvent, layer: LayoutLayer) {
+  if (!canvas.value || event.button !== 0 || !scene.value) return
+  selectedLayerID.value = layer.id
+  const startX = event.clientX
+  const startY = event.clientY
+  const startWidth = layer.width
+  const startHeight = layer.height
+  const move = (next: PointerEvent) => {
+    if (!scene.value) return
+    layer.width = Math.max(40, Math.min(scene.value.width - layer.x, startWidth + (next.clientX - startX) / scale.value))
+    layer.height = Math.max(40, Math.min(scene.value.height - layer.y, startHeight + (next.clientY - startY) / scale.value))
+  }
+  const stop = () => {
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', stop)
+    window.removeEventListener('pointercancel', stop)
+    void persistLive2DLayer(layer)
+  }
+  event.preventDefault()
+  event.stopPropagation()
   window.addEventListener('pointermove', move)
   window.addEventListener('pointerup', stop, { once: true })
   window.addEventListener('pointercancel', stop, { once: true })
@@ -275,6 +312,7 @@ onUnmounted(() => {
             <span v-else-if="layer.type === 'clock'">12:34:56</span>
             <img v-else-if="layer.type === 'image' && layer.url && layer.url !== 'https://'" :src="layer.url" alt="" />
             <iframe v-else-if="layer.type === 'live2d' && live2DFrameURL" class="live2d-layer-frame" :src="live2DFrameURL" title="Live2D 预览" allowtransparency="true" :style="{ backgroundColor: 'transparent' }" @load="applyLive2DFrameTransform" />
+            <button v-if="layer.type === 'live2d' && selectedLayerID === layer.id" class="live2d-resize-handle" type="button" aria-label="调整 Live2D 大小" @pointerdown.stop="startResize($event, layer)" />
             <span v-else-if="layer.type === 'live2d'" class="live2d-layer-empty">请先在 Live2D 页面配置并启用默认模型</span>
             <div v-else-if="layer.type === 'music'" class="music-layer-preview"><div class="music-cover-preview">♫</div><div><strong>歌曲名称 · 歌手</strong><span>━━━━━━━●━━━━  01:23 / 04:12</span><p>当前歌词 · 歌词翻译</p></div></div>
             <div v-else-if="layer.type === 'video_queue'" class="video-queue-layer-preview">
@@ -293,7 +331,7 @@ onUnmounted(() => {
             <span v-else>{{ layerLabel(layer.type) }}组件</span>
           </div>
         </div>
-        <div class="canvas-hint">拖动组件调整位置 · 选中图层后可在右侧修改属性</div>
+        <div class="canvas-hint">拖动组件调整位置 · Live2D 右下角控制点可缩放 · 操作后自动保存</div>
       </main>
       <aside class="studio-panel property-panel">
         <div class="panel-heading"><strong>属性</strong><el-button v-if="selectedLayer" text type="danger" @click="removeLayer">删除图层</el-button></div>
@@ -326,5 +364,6 @@ onUnmounted(() => {
 
 <style scoped>
 .layouts-page{display:flex;flex-direction:column;gap:16px;min-width:0}.page-heading{display:flex;justify-content:space-between;gap:20px;align-items:flex-start}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 8px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description{color:var(--el-text-color-secondary);font-size:13px;margin:8px 0 0}.heading-actions,.scene-tabs,.source-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.scene-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--app-border);border-radius:9px;background:var(--app-bg-surface)}.studio-grid{display:grid;grid-template-columns:210px minmax(0,1fr) 250px;gap:14px;min-height:550px}.studio-panel{border:1px solid var(--app-border);border-radius:9px;background:var(--app-bg-surface);padding:13px;min-width:0}.panel-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;font-size:13px}.panel-heading span{font-size:11px;color:var(--el-text-color-secondary)}.add-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}.add-grid button{height:55px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;border:1px solid var(--app-border);border-radius:7px;background:var(--app-bg-control);color:var(--el-text-color-regular);cursor:pointer;font-size:11px}.add-grid button:hover{border-color:var(--app-accent);color:var(--app-accent)}.add-grid .el-icon{font-size:17px}.layer-list{display:flex;flex-direction:column;gap:4px}.layer-list button{display:flex;justify-content:space-between;align-items:center;padding:9px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--el-text-color-regular);text-align:left;cursor:pointer;font-size:12px}.layer-list button.selected{background:var(--app-bg-selected);border-color:var(--app-accent);color:var(--app-accent-soft)}.layer-list small{color:var(--el-text-color-secondary)}.canvas-area{min-width:0;display:flex;flex-direction:column;justify-content:center;gap:9px}.canvas-caption{display:flex;justify-content:space-between;color:var(--el-text-color-secondary);font-size:11px}.scene-canvas{position:relative;container-type:size;width:100%;aspect-ratio:16/9;overflow:hidden;border:1px solid var(--app-border);border-radius:6px;box-shadow:0 8px 28px #0002}.checkerboard{position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(45deg,#80808018 25%,transparent 25%),linear-gradient(-45deg,#80808018 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#80808018 75%),linear-gradient(-45deg,transparent 75%,#80808018 75%);background-size:24px 24px;background-position:0 0,0 12px,12px -12px,-12px 0}.canvas-layer{position:absolute;display:flex;align-items:center;justify-content:flex-start;padding:4px;border:1px dashed transparent;cursor:move;overflow:hidden;white-space:pre-wrap;word-break:break-word;font-weight:600;text-shadow:0 2px 5px #000a;touch-action:none}.canvas-layer.active{border-color:#8493ff;background:#8290ff18}.canvas-layer img,.canvas-layer iframe{width:100%;height:100%;object-fit:contain;border:0;background:transparent;display:block}.canvas-layer img{width:100%;height:100%;object-fit:contain}.music-layer-preview{display:flex;align-items:center;gap:12px;width:100%;height:100%;padding:8px;border-radius:9px;background:#151923d9;color:#fff;font-size:12px;text-shadow:none;overflow:hidden}.music-cover-preview{display:grid;place-items:center;flex:none;width:30%;height:100%;border-radius:6px;background:#343b4c;font-size:32px}.music-layer-preview>div:last-child{display:flex;flex-direction:column;gap:7px;min-width:0}.music-layer-preview strong,.music-layer-preview span,.music-layer-preview p{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:0;font-size:12px}.music-layer-preview span{color:#c6cad4;font-size:10px}.music-layer-preview p{color:#fff;font-size:11px}.music-queue-layer-preview{display:flex;flex-direction:column;gap:5px;width:100%;height:100%;padding:8px;border-radius:8px;background:linear-gradient(135deg,#141a26ed,#0d111acc);color:#f4f6fb;font-size:12px;text-shadow:none;overflow:hidden}.music-queue-layer-preview>div{display:flex;flex-direction:column;gap:3px;min-width:0;padding:5px 7px;border:1px solid #9fc0ff2b;border-radius:6px;background:#ffffff09}.music-queue-layer-preview strong{padding-bottom:3px;border-bottom:1px solid #9fc0ff44;color:#9fc0ff;font-size:12px}.music-queue-layer-preview span{display:flex;justify-content:space-between;gap:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#d8dce6;font-size:10px}.music-queue-layer-preview small{color:#65b8ff;font-size:9px}.music-queue-layer-preview .queue-preview-prompt{background:#30271999;border-color:#ffd66b44}.music-queue-layer-preview .queue-preview-prompt strong{color:#ffd66b;border-color:#ffd66b44}.music-queue-layer-preview .queue-preview-current{border-color:#ffd66b44}.music-queue-layer-preview .queue-preview-current strong{color:#ffd66b} .video-queue-layer-preview{display:flex;flex-direction:column;gap:5px;width:100%;height:100%;padding:8px;border-radius:8px;background:linear-gradient(135deg,#141a26ed,#0d111acc);color:#f4f6fb;font-size:12px;text-shadow:none;overflow:hidden}.video-queue-layer-preview>div{display:flex;flex-direction:column;gap:3px;min-width:0;padding:5px 7px;border:1px solid #9fc0ff2b;border-radius:6px;background:#ffffff09}.video-queue-layer-preview strong{padding-bottom:3px;border-bottom:1px solid #9fc0ff44;color:#9fc0ff;font-size:12px}.video-queue-layer-preview span{display:flex;justify-content:space-between;gap:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#d8dce6;font-size:10px}.video-queue-layer-preview small{color:#65b8ff;font-size:9px}.video-queue-layer-preview .queue-preview-prompt{background:#30271999;border-color:#ffd66b44}.video-queue-layer-preview .queue-preview-prompt strong{color:#ffd66b;border-color:#ffd66b44}.video-queue-layer-preview .queue-preview-current{border-color:#ffd66b44}.video-queue-layer-preview .queue-preview-current strong{color:#ffd66b}.canvas-hint{text-align:center;color:var(--el-text-color-secondary);font-size:11px}.property-panel .el-form-item{margin-bottom:12px}.property-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 8px}.property-grid .el-input-number{width:100%}.obs-card-content{display:flex;align-items:center;justify-content:space-between;gap:16px}.obs-card-content p{margin:6px 0 9px;color:var(--el-text-color-secondary);font-size:12px}.obs-card-content code{font-size:11px;word-break:break-all;color:var(--app-accent-soft)}@media(max-width:1100px){.studio-grid{grid-template-columns:180px minmax(0,1fr)}.property-panel{grid-column:1/-1}.property-grid{grid-template-columns:repeat(4,1fr)}}@media(max-width:760px){.page-heading,.scene-toolbar{align-items:flex-start;flex-direction:column}.studio-grid{grid-template-columns:1fr}.canvas-area{grid-row:1}.property-panel{grid-column:auto}.layer-panel{order:2}.obs-card-content{align-items:flex-start;flex-direction:column}}
+.canvas-layer{position:absolute}.live2d-resize-handle{position:absolute;right:0;bottom:0;width:16px;height:16px;padding:0;border:2px solid #fff;border-radius:3px;background:#647cff;box-shadow:0 1px 5px #0008;cursor:nwse-resize;z-index:5;touch-action:none}
 .canvas-layer iframe.live2d-layer-frame{display:block;width:100%;height:100%;border:0;background:transparent!important;background-color:transparent!important;color-scheme:normal;pointer-events:none}.live2d-layer-empty{display:grid;place-items:center;width:100%;height:100%;font-size:12px;color:#aeb9ca;text-shadow:none;text-align:center}
 </style>
