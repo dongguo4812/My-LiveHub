@@ -1195,22 +1195,24 @@ func (s *MusicService) TestLXUserSource(id string) ([]LXSourcePlatformTest, erro
 		}
 		result.Status = "failed"
 		ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
-		page, searchErr := s.searcher.SearchProvider(ctx, platform, "稻香 周杰伦", 1)
+		// Use the same provider search implementation as the music search UI.
+		// Test exactly the first result for the plain keyword "稻香"; do not
+		// silently skip it in favor of a later result.
+		page, searchErr := s.searcher.SearchProvider(ctx, platform, "稻香", 1)
 		if searchErr != nil || len(page.Tracks) == 0 {
 			if searchErr != nil { result.Message = "搜索失败：" + searchErr.Error() } else { result.Message = "搜索成功，但没有找到测试歌曲" }
 			cancel()
 			results = append(results, result)
 			continue
 		}
-		var track music.Track
-		var selected music.TrackQuality
-		found := false
-		for _, candidate := range page.Tracks {
-			quality, qualityErr := chooseLXTrackQuality(candidate, item)
-			if qualityErr == nil { track, selected, found = candidate, quality, true; break }
-		}
-		if !found {
-			result.Message = "搜索到歌曲，但没有与脚本声明音质匹配的曲目"
+		track := page.Tracks[0]
+		// Match the UI's default "自动选择最佳音质" behavior. An explicit
+		// SelectedQuality is honored by chooseLXTrackQuality; when absent it
+		// selects the best quality supported by both the track and source.
+		selected, qualityErr := chooseLXTrackQuality(track, item)
+		if qualityErr != nil {
+			result.Song = track.Title + " - " + track.Artist
+			result.Message = "首条搜索结果没有可用的默认音质：" + qualityErr.Error()
 			cancel()
 			results = append(results, result)
 			continue
