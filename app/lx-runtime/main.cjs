@@ -66,14 +66,6 @@ function createWindow() {
   windowRef.webContents.session.setPermissionRequestHandler((contents, permission, callback) => callback(contents !== windowRef.webContents))
   windowRef.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   windowRef.on('closed', () => { windowRef = null })
-  windowRef.webContents.on('console-message', (_event, details) => {
-    output('console', '', {
-      level: details.level,
-      message: details.message,
-      sourceId: details.sourceId,
-      lineNumber: details.lineNumber,
-    })
-  })
   windowRef.webContents.on('did-finish-load', () => process.stderr.write('LX runtime renderer loaded\n'))
   windowRef.webContents.on('preload-error', (_event, preloadPath, error) => process.stderr.write('LX preload error ' + preloadPath + ': ' + error.message + '\n'))
   windowRef.webContents.on('did-fail-load', (_event, code, description, url) => process.stderr.write('LX renderer load failed ' + code + ' ' + description + ' ' + url + '\n'))
