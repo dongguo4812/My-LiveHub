@@ -21,7 +21,6 @@ type PlaybackSnapshot struct {
 	Track *Track `json:"track,omitempty"`
 	PositionMS int64 `json:"position_ms"`
 	DurationMS int64 `json:"duration_ms"`
-	Volume int `json:"volume"`
 	Error string `json:"error,omitempty"`
 	VideoWidth int `json:"video_width,omitempty"`
 	VideoHeight int `json:"video_height,omitempty"`
@@ -30,11 +29,9 @@ type PlaybackSnapshot struct {
 }
 
 type PlaybackEngine interface {
-	Load(context.Context, PlaybackResource, Track) error
+	Load(context.Context, Track) error
 	Pause(context.Context) error
 	Resume(context.Context) error
-	Seek(context.Context, int64) error
-	SetVolume(context.Context, int) error
 	Stop(context.Context) error
 	Snapshot(context.Context) (PlaybackSnapshot, error)
 }
