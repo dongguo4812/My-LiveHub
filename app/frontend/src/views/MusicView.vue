@@ -62,46 +62,6 @@ async function testLXAPIConnection() {
     error.value = reason instanceof Error ? reason.message : String(reason)
   }
 }
-type LXUserSourceProxy = Awaited<ReturnType<typeof MusicService.GetLXUserSourceProxy>>
-const lxProxy = ref<LXUserSourceProxy>({ enabled: false, host: '', port: '' })
-const lxProxyBusy = ref(false)
-type MusicTab = 'now-playing' | 'host-playlist' | 'visitor-requests' | 'search' | 'settings'
-const activeTab = ref<MusicTab>('now-playing')
-const favorites = ref<Track[]>([])
-type HostTrackSourceResults = { source_id: string; name: string; tracks: Track[]; error?: string }
-const replaceDialogVisible = ref(false)
-const replacingTrack = ref<Track | null>(null)
-const replacementGroups = ref<HostTrackSourceResults[]>([])
-const replacementSourceID = ref('')
-const selectedReplacement = ref<Track | null>(null)
-const replacementSearching = ref(false)
-const replacementSaving = ref(false)
-
-const hostPlayMode = ref('list')
-type HostPlaylistSummary = { id: string; name: string; track_count: number; mode: string }
-const hostPlaylists = ref<HostPlaylistSummary[]>([])
-const activeHostPlaylistID = ref('')
-const playlistFileInput = ref<HTMLInputElement | null>(null)
-const importingPlaylist = ref(false)
-type LXSource = Awaited<ReturnType<typeof MusicService.GetLXUserSources>>[number]
-type LXValidation = Awaited<ReturnType<typeof MusicService.ValidateLXUserSource>>
-type LXSearchSourceOption = Awaited<ReturnType<typeof MusicService.GetLXSearchSourceOptions>>[number]
-const lxSources = ref<LXSource[]>([])
-const lxValidation = ref<Record<string, LXValidation>>({})
-const lxSearchSourceOptions = ref<Record<string, LXSearchSourceOption[]>>({})
-// Serialize writes per LX source and ignore stale read-backs from earlier UI changes.
-const lxSearchSourceSaveQueues = new Map<string, Promise<void>>()
-const lxSearchSourceRevisions = new Map<string, number>()
-let lxSourcesRefreshRevision = 0
-const activeLXSourceID = ref('')
-const validatingLXSourceID = ref('')
-const testingLXSourceID = ref('')
-type LXSourcePlatformTest = { platform: string; name: string; status: string; message: string; song?: string }
-const lxSourceTests = ref<Record<string, LXSourcePlatformTest[]>>({})
-
-const lxSourceURL = ref('')
-const importingLXSource = ref(false)
-const sourceFileInput = ref<HTMLInputElement | null>(null)
 const queue = ref<QueueSnapshot | null>(null)
 const draggedQueueItemID = ref('')
 const playback = ref<PlaybackSnapshot | null>(null)
@@ -116,7 +76,6 @@ const qualitySelections = ref<Record<string, string>>({})
 const query = ref('')
 const selectedSource = ref('all')
 
-const volume = ref(80)
 const loading = ref(false)
 const searching = ref(false)
 const currentPage = ref(1)
@@ -190,474 +149,18 @@ function qualityNames(track: Track) {
   return (track.qualities ?? []).map(item => item.type).join(' / ') || '未知'
 }
 function trackRowKey(row: Track) { return `${row.source_id}:${row.id}` }
-function isCurrentHostTrack(track: Track) {
-  return queue.value?.current?.requested_by === '__my_livehub_host_playlist__'
-    && !!playback.value?.track
-    && trackRowKey(track) === trackRowKey(playback.value.track)
-}
-function isFavorite(track: Track) { return favorites.value.some(item => trackRowKey(item) === trackRowKey(track)) }
-async function refreshHostPlaylists(preferredID = activeHostPlaylistID.value) {
-  const api = MusicService as any
-  const result = await api.GetHostPlaylists() as [HostPlaylistSummary[], string]
-  hostPlaylists.value = result[0] ?? []
-  const nextID = hostPlaylists.value.some(item => item.id === preferredID) ? preferredID : (result[1] || hostPlaylists.value[0]?.id || '')
-  activeHostPlaylistID.value = nextID
-  if (nextID && nextID !== result[1]) await api.SelectHostPlaylist(nextID)
-  if (nextID) {
-    const playlist = await api.GetHostPlaylistByID(nextID)
-    favorites.value = playlist.tracks ?? []
-    hostPlayMode.value = playlist.mode ?? 'list'
-  } else {
-    favorites.value = []
-    hostPlayMode.value = 'list'
-  }
-}
-async function loadFavorites() {
-  try { await refreshHostPlaylists() }
-  catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
-    favorites.value = []
-  }
-}
-async function selectHostPlaylist(id: string) {
-  if (!id) return
-  try {
-    await (MusicService as any).SelectHostPlaylist(id)
-    await refreshHostPlaylists(id)
-    success.value = '已切换歌单；当前正在播放的歌曲不会被打断'
-  } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
-}
-async function createHostPlaylist() {
-  const name = window.prompt('请输入新歌单名称')
-  if (!name?.trim()) return
-  try {
-    const created = await (MusicService as any).CreateHostPlaylist(name.trim())
-    await refreshHostPlaylists(created.id)
-    success.value = `已创建歌单：${created.name}`
-  } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
-}
-async function renameHostPlaylist() {
-  const current = hostPlaylists.value.find(item => item.id === activeHostPlaylistID.value)
-  if (!current) return
-  const name = window.prompt('修改歌单名称', current.name)
-  if (!name?.trim() || name.trim() === current.name) return
-  try {
-    await (MusicService as any).RenameHostPlaylist(current.id, name.trim())
-    await refreshHostPlaylists(current.id)
-    success.value = '歌单名称已修改'
-  } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
-}
-async function deleteHostPlaylist() {
-  const current = hostPlaylists.value.find(item => item.id === activeHostPlaylistID.value)
-  if (!current || !window.confirm(`确定删除歌单“${current.name}”吗？歌单内歌曲也会一并删除。`)) return
-  try {
-    await (MusicService as any).DeleteHostPlaylist(current.id)
-    await refreshHostPlaylists()
-    success.value = '歌单已删除'
-  } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
-}
-function choosePlaylistFile() { playlistFileInput.value?.click() }
-async function importLXPlaylist(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-  importingPlaylist.value = true
-  error.value = ''
-  success.value = ''
-  try {
-    if (file.size > 64 * 1024 * 1024) throw new Error('歌单备份不能超过 64 MB')
-    const bytes = new Uint8Array(await file.arrayBuffer())
-    let binary = ''
-    for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
-    const imported = await (MusicService as any).ImportLXPlaylistFile(file.name, btoa(binary)) as HostPlaylistSummary[]
-    await refreshHostPlaylists(imported?.[0]?.id)
-    success.value = `成功导入 ${imported.length} 个洛雪歌单${imported.length ? '：' + imported.map(item => item.name + '（' + item.track_count + '首）').join('、') : ''}`
-  } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
-  finally { importingPlaylist.value = false; input.value = '' }
-}
-
-async function toggleFavorite(track: Track) {
-  error.value = ''
-  try {
-    if (isFavorite(track)) await (MusicService as any).RemoveHostTrackFromPlaylist(activeHostPlaylistID.value, track.source_id, track.id)
-    else await (MusicService as any).AddHostTrackToPlaylist(activeHostPlaylistID.value, track)
-    await loadFavorites()
-    success.value = isFavorite(track) ? '已加入当前歌单' : '已从当前歌单移除'
-  } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
-}
-async function removeFavorite(track: Track) {
-  try {
-    await (MusicService as any).RemoveHostTrackFromPlaylist(activeHostPlaylistID.value, track.source_id, track.id)
-    await loadFavorites()
-  } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
-}
-async function moveTrackToPlaylist(track: Track, targetPlaylistID: string) {
-  if (!targetPlaylistID || targetPlaylistID === activeHostPlaylistID.value) return
-  const target = hostPlaylists.value.find(item => item.id === targetPlaylistID)
-  if (!target) return
-  try {
-    await (MusicService as any).MoveHostTrackBetweenPlaylists(activeHostPlaylistID.value, targetPlaylistID, track.source_id, track.id)
-    await refreshHostPlaylists(activeHostPlaylistID.value)
-    await loadFavorites()
-    success.value = `已将「${track.title}」移动到「${target.name}」`
-  } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
-}
-async function playFavorite(track: Track) {
-  const index = favorites.value.findIndex(item => trackRowKey(item) === trackRowKey(track))
-  if (index < 0) return
-  try { await (MusicService as any).PlayHostTrackFromPlaylist(activeHostPlaylistID.value, index); await refreshPlayback(); success.value = '开始播放当前歌单' }
-  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
-}
-async function openReplaceTrack(track: Track) {
-  replacingTrack.value = track
-  selectedReplacement.value = null
-  replacementGroups.value = []
-  replacementSourceID.value = ''
-  replaceDialogVisible.value = true
-  replacementSearching.value = true
-  error.value = ''
-  try {
-    const groups = await (MusicService as any).SearchHostTrackAlternatives(track) as HostTrackSourceResults[]
-    replacementGroups.value = groups ?? []
-    replacementSourceID.value = replacementGroups.value[0]?.source_id ?? ''
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
-  } finally {
-    replacementSearching.value = false
-  }
-}
-async function confirmReplaceTrack() {
-  const original = replacingTrack.value
-  const replacement = selectedReplacement.value
-  if (!original || !replacement || !activeHostPlaylistID.value) return
-  replacementSaving.value = true
-  error.value = ''
-  try {
-    await (MusicService as any).ReplaceHostTrackInPlaylist(activeHostPlaylistID.value, original.source_id, original.id, replacement)
-    await refreshHostPlaylists(activeHostPlaylistID.value)
-    await refreshPlayback()
-    replaceDialogVisible.value = false
-    success.value = '已将「' + original.title + '」换源为「' + replacement.title + '」'
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
-  } finally {
-    replacementSaving.value = false
-  }
-}
-async function addHostPlaylistToQueue() {
-  try { await (MusicService as any).PlayHostPlaylistByID(activeHostPlaylistID.value); await refreshPlayback(); success.value = '已开始播放当前歌单' }
-  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
-}
-async function moveFavorite(index: number, offset: number) {
-  const target = index + offset
-  if (target < 0 || target >= favorites.value.length) return
-  try { await (MusicService as any).MoveHostTrackInPlaylist(activeHostPlaylistID.value, index, target); await loadFavorites() }
-  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
-}
-async function changeHostPlayMode(mode: string) {
-  try {
-    await (MusicService as any).SetHostPlaylistPlayMode(activeHostPlaylistID.value, mode)
-    hostPlayMode.value = mode
-    await refreshHostPlaylists(activeHostPlaylistID.value)
-  } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
-}
 async function loadConfig() {
   loading.value = true
   error.value = ''
   try {
     config.value = await MusicService.GetConfig()
-      await refreshQueue()
-    await refreshLXSources()
+    config.value.lx_api_endpoints ??= []
+    config.value.enabled_search_sources ??= []
+    await refreshQueue()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
   } finally {
     loading.value = false
-  }
-}
-async function refreshLXSources() {
-  const refreshRevision = ++lxSourcesRefreshRevision
-  try {
-    const sources = await MusicService.GetLXUserSources()
-    if (refreshRevision !== lxSourcesRefreshRevision) return
-
-    // Take a per-source snapshot before reading persisted options. A refresh
-    // must never replace optimistic checkbox state while a save is in flight,
-    // nor may an older response overwrite a newer user interaction.
-    const optionEntries = await Promise.all(sources.map(async source => {
-      const revision = lxSearchSourceRevisions.get(source.id) ?? 0
-      const saveInProgress = lxSearchSourceSaveQueues.has(source.id)
-      const options = await MusicService.GetLXSearchSourceOptions(source.id)
-      return { id: source.id, options, revision, saveInProgress }
-    }))
-    if (refreshRevision !== lxSourcesRefreshRevision) return
-
-    lxSources.value = sources
-    const nextOptions: Record<string, LXSearchSourceOption[]> = {}
-    for (const entry of optionEntries) {
-      const revisionUnchanged = (lxSearchSourceRevisions.get(entry.id) ?? 0) === entry.revision
-      const current = lxSearchSourceOptions.value[entry.id]
-      nextOptions[entry.id] = !entry.saveInProgress && revisionUnchanged
-        ? entry.options
-        : (current ?? entry.options)
-    }
-    lxSearchSourceOptions.value = nextOptions
-
-    // Restore each source's persisted validation result into the view state.
-    // The backend returns this only for the exact script version that passed.
-    lxValidation.value = Object.fromEntries(
-      sources.flatMap(source => {
-        const persisted = (source as LXSource & { validation?: LXValidation | null }).validation
-        return persisted?.initialized ? [[source.id, persisted]] : []
-      }),
-    )
-    const activeSourceID = await MusicService.GetActiveLXUserSourceID()
-    if (refreshRevision !== lxSourcesRefreshRevision) return
-    activeLXSourceID.value = activeSourceID
-    if (selectedSource.value !== 'all' && !searchableSources.value.some(source => source.id === selectedSource.value)) {
-      selectedSource.value = 'all'
-    }
-  } catch (reason) {
-    if (refreshRevision === lxSourcesRefreshRevision) {
-      error.value = reason instanceof Error ? reason.message : String(reason)
-    }
-  }
-}
-function chooseLXSourceFile() { sourceFileInput.value?.click() }
-async function importLXSourceFile(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-  importingLXSource.value = true
-  error.value = ''
-  success.value = ''
-  try {
-    if (lxSources.value.length > 20) throw new Error('最多只能导入 21 个自定义音源')
-    const script = await file.text()
-    if (script.length > 9_000_000) throw new Error('音源脚本不能超过 9 MB')
-    const metadata = await MusicService.ImportLXSource(script)
-    success.value = `已导入音源：${metadata.name}；可运行基础初始化验证`
-    await refreshLXSources()
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
-  } finally {
-    importingLXSource.value = false
-    input.value = ''
-  }
-}
-async function importLXSourceURL() {
-  if (!lxSourceURL.value.trim()) { error.value = '请输入音源脚本 URL'; return }
-  importingLXSource.value = true
-  error.value = ''
-  success.value = ''
-  try {
-    const metadata = await MusicService.ImportLXSourceURL(lxSourceURL.value.trim())
-    success.value = `已下载并导入音源：${metadata.name}；可运行基础初始化验证`
-    lxSourceURL.value = ''
-    await refreshLXSources()
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
-  } finally {
-    importingLXSource.value = false
-  }
-}
-async function validateLXSource(source: LXSource) {
-  validatingLXSourceID.value = source.id
-  error.value = ''
-  success.value = ''
-  // Validation performs multiple asynchronous backend calls. Keep the search
-  // selection revision from before validation so its read-back cannot replace
-  // checkbox changes made while the script is initializing.
-  const searchRevision = lxSearchSourceRevisions.get(source.id) ?? 0
-  const saveInProgress = lxSearchSourceSaveQueues.has(source.id)
-  try {
-    const result = await MusicService.ValidateLXUserSource(source.id)
-    lxValidation.value = { ...lxValidation.value, [source.id]: result }
-    const options = await MusicService.GetLXSearchSourceOptions(source.id)
-    const revisionUnchanged = (lxSearchSourceRevisions.get(source.id) ?? 0) === searchRevision
-    const noSaveInProgress = !saveInProgress && !lxSearchSourceSaveQueues.has(source.id)
-    if (revisionUnchanged && noSaveInProgress) {
-      lxSearchSourceOptions.value = { ...lxSearchSourceOptions.value, [source.id]: options }
-    }
-    success.value = `音源初始化通过：${source.name}；已声明来源：${result.platforms.join('、')}。实际搜索与播放解析待洛雪 SDK 接管。`
-  } catch (reason) {
-    delete lxValidation.value[source.id]
-    error.value = reason instanceof Error ? reason.message : String(reason)
-  } finally {
-    validatingLXSourceID.value = ''
-  }
-}
-async function testLXSource(source: LXSource) {
-  testingLXSourceID.value = source.id
-  error.value = ''
-  success.value = ''
-  try {
-    const results = await (MusicService as any).TestLXUserSource(source.id) as LXSourcePlatformTest[]
-    lxSourceTests.value = { ...lxSourceTests.value, [source.id]: results }
-    const passed = results.filter(item => item.status === 'passed').length
-    const supported = results.filter(item => item.status !== 'unsupported').length
-    success.value = `音源测试完成：${source.name}，${passed}/${supported} 个支持的平台通过`
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
-  } finally {
-    testingLXSourceID.value = ''
-  }
-}
-async function updateLXSource(source: LXSource) {
-  importingLXSource.value = true
-  error.value = ''
-  success.value = ''
-  try {
-    const metadata = await MusicService.UpdateLXUserSource(source.id)
-    success.value = `已更新音源：${metadata.name}；请重新运行基础初始化验证`
-    delete lxValidation.value[source.id]
-    await refreshLXSources()
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
-  } finally {
-    importingLXSource.value = false
-  }
-}
-
-async function deleteLXSource(source: LXSource) {
-  if (!window.confirm(`确定删除音源“${source.name}”吗？`)) return
-  try {
-    await MusicService.DeleteLXUserSource(source.id)
-    success.value = `已删除音源：${source.name}`
-    delete lxValidation.value[source.id]
-    await refreshLXSources()
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
-  }
-}
-
-async function setActiveLXSource(source: LXSource) {
-  error.value = ''
-  try {
-    await MusicService.SetActiveLXUserSource(source.id)
-    activeLXSourceID.value = source.id
-    if (selectedSource.value !== 'all' && !searchableSources.value.some(item => item.id === selectedSource.value)) selectedSource.value = 'all'
-    success.value = `已启用音源：${source.name}`
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
-  }
-}
-async function deactivateLXSource() {
-  error.value = ''
-  try {
-    await MusicService.SetActiveLXUserSource('')
-    activeLXSourceID.value = ''
-    selectedSource.value = 'all'
-    results.value = []
-    success.value = '已停用自定义音源'
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
-  }
-}
-async function persistLXSearchPriority(source: LXSource, options: LXSearchSourceOption[]) {
-  const revision = lxSearchSourceRevisions.get(source.id) ?? 0
-  const enabled = options.filter(item => item.enabled).map(item => item.id)
-  const previous = lxSearchSourceSaveQueues.get(source.id) ?? Promise.resolve()
-  const save = previous.catch(() => undefined).then(async () => {
-    await MusicService.SetLXSearchSources(source.id, enabled)
-    const persisted = await MusicService.GetLXSearchSourceOptions(source.id)
-    const persistedEnabled = persisted.filter(item => item.enabled).map(item => item.id)
-    if (persistedEnabled.length !== enabled.length || persistedEnabled.some((id, index) => id !== enabled[index])) {
-      throw new Error('搜索来源保存结果与当前选择不一致，请重试')
-    }
-    if (lxSearchSourceRevisions.get(source.id) === revision) {
-      lxSearchSourceOptions.value = { ...lxSearchSourceOptions.value, [source.id]: persisted.map(item => ({ ...item })) }
-      if (activeLXSourceID.value === source.id && selectedSource.value !== 'all' && !searchableSources.value.some(item => item.id === selectedSource.value)) selectedSource.value = 'all'
-      results.value = []
-    }
-  })
-  lxSearchSourceSaveQueues.set(source.id, save)
-  try { await save }
-  finally { if (lxSearchSourceSaveQueues.get(source.id) === save) lxSearchSourceSaveQueues.delete(source.id) }
-}
-function onLXSearchSourceChange(source: LXSource) {
-  // v-model has already updated the reactive option. Read the complete checked
-  // list from that single source of truth so the priority list and saved value
-  // cannot diverge from the checkbox state.
-  const selected = (lxSearchSourceOptions.value[source.id] ?? [])
-    .filter(item => item.enabled)
-    .map(item => item.id)
-  void setLXSearchSources(source, selected)
-}
-async function setLXSearchSources(source: LXSource, selected: string[]) {
-  const current = lxSearchSourceOptions.value[source.id] ?? []
-  const selectedSet = new Set(selected.map(String))
-  const ordered = current.filter(item => item.enabled && selectedSet.has(item.id))
-  for (const item of current) if (selectedSet.has(item.id) && !ordered.some(existing => existing.id === item.id)) ordered.push(item)
-  const updated = current.map(item => ({ ...item, enabled: selectedSet.has(item.id) }))
-  const reordered = [...ordered, ...updated.filter(item => !item.enabled)]
-  const revision = (lxSearchSourceRevisions.get(source.id) ?? 0) + 1
-  lxSearchSourceRevisions.set(source.id, revision)
-  lxSearchSourceOptions.value = { ...lxSearchSourceOptions.value, [source.id]: reordered }
-  try {
-    await persistLXSearchPriority(source, reordered)
-    success.value = '已保存搜索来源及优先级'
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
-    if (lxSearchSourceRevisions.get(source.id) === revision && !lxSearchSourceSaveQueues.has(source.id)) {
-      try {
-        const persisted = await MusicService.GetLXSearchSourceOptions(source.id)
-        if (lxSearchSourceRevisions.get(source.id) === revision) lxSearchSourceOptions.value = { ...lxSearchSourceOptions.value, [source.id]: persisted }
-      } catch { /* Keep the last known state and show the original save error. */ }
-    }
-  }
-}
-async function moveLXSearchPriority(source: LXSource, index: number, direction: -1 | 1) {
-  const current = [...(lxSearchSourceOptions.value[source.id] ?? [])]
-  const enabled = current.filter(item => item.enabled)
-  const target = index + direction
-  if (target < 0 || target >= enabled.length) return
-  const [moved] = enabled.splice(index, 1)
-  enabled.splice(target, 0, moved)
-  const disabled = current.filter(item => !item.enabled)
-  const reordered = [...enabled, ...disabled]
-  const revision = (lxSearchSourceRevisions.get(source.id) ?? 0) + 1
-  lxSearchSourceRevisions.set(source.id, revision)
-  lxSearchSourceOptions.value = { ...lxSearchSourceOptions.value, [source.id]: reordered }
-  try {
-    await persistLXSearchPriority(source, reordered)
-    success.value = '已调整音源搜索优先级'
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
-    if (lxSearchSourceRevisions.get(source.id) === revision && !lxSearchSourceSaveQueues.has(source.id)) {
-      try {
-        const persisted = await MusicService.GetLXSearchSourceOptions(source.id)
-        if (lxSearchSourceRevisions.get(source.id) === revision) lxSearchSourceOptions.value = { ...lxSearchSourceOptions.value, [source.id]: persisted }
-      } catch { /* Keep the last known state and show the original save error. */ }
-    }
-  }
-}
-async function setLXSourceUpdateAlert(source: LXSource, enabled: boolean | string | number) {
-  try {
-    await MusicService.SetLXUserSourceAllowUpdateAlert(source.id, Boolean(enabled))
-    source.allow_show_update_alert = Boolean(enabled)
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
-    await refreshLXSources()
-  }
-}
-let pollingLXUpdates = false
-async function pollLXSourceUpdates() {
-  if (pollingLXUpdates) return
-  pollingLXUpdates = true
-  try {
-    const updates = await MusicService.GetLXUserSourceUpdates()
-    for (const update of updates) {
-      const message = `${update.name || '洛雪音源'} 发布了更新提醒：\\n\\n${update.log}`
-      if (update.update_url && window.confirm(`${message}\\n\\n是否打开更新地址？\\n${update.update_url}`)) {
-        window.open(update.update_url, '_blank', 'noopener')
-      } else if (!update.update_url) {
-        window.alert(message)
-      }
-    }
-  } catch {
-    // Update notifications are best-effort and must not interrupt playback polling.
-  } finally {
-    pollingLXUpdates = false
   }
 }
 async function refreshQueue() {
@@ -724,28 +227,9 @@ async function refreshPlayback() {
   try {
     playback.value = await MusicService.GetPlaybackStatus()
     void loadTrackLyrics()
-    if (playback.value.volume >= 0) volume.value = playback.value.volume
   } catch { /* The engine is not started until the first play request. */ }
   await refreshQueue()
-  await pollLXSourceUpdates()
   await refreshLyricsWindowState()
-}
-async function loadLXProxy() {
-  try { lxProxy.value = await MusicService.GetLXUserSourceProxy() }
-  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
-}
-async function saveLXProxy() {
-  lxProxyBusy.value = true
-  error.value = ''
-  success.value = ''
-  try {
-    lxProxy.value = await MusicService.UpdateLXUserSourceProxy(lxProxy.value.enabled, lxProxy.value.host, lxProxy.value.port)
-    success.value = '自定义音源网络代理设置已保存并应用'
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
-  } finally {
-    lxProxyBusy.value = false
-  }
 }
 async function saveConfig() {
   if (!config.value) return
@@ -850,36 +334,13 @@ async function previousTrack() {
 async function pause() { try { await MusicService.Pause(); await refreshPlayback() } catch (reason) { error.value = String(reason) } }
 async function resume() { try { await MusicService.Resume(); await refreshPlayback() } catch (reason) { error.value = String(reason) } }
 async function stop() { try { await MusicService.Stop(); await refreshPlayback() } catch (reason) { error.value = String(reason) } }
-async function setVolume(value: number | number[]) {
-  const next = Array.isArray(value) ? value[0] : value
-  try { await MusicService.SetVolume(next); volume.value = next } catch (reason) { error.value = String(reason) }
-}
 function previewSeek(value: number | number[]) {
   const percent = Array.isArray(value) ? value[0] : value
   seekPreview.value = Math.min(100, Math.max(0, Number(percent) || 0))
   seeking.value = true
 }
-async function seekTo(value: number | number[]) {
-  if (!playback.value || playback.value.duration_ms <= 0) {
-    seeking.value = false
-    return
-  }
-  const percent = Math.min(100, Math.max(0, Number(Array.isArray(value) ? value[0] : value) || 0))
-  const targetMS = Math.round(playback.value.duration_ms * percent / 100)
-  try {
-    await MusicService.Seek(targetMS)
-    await refreshPlayback()
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
-  } finally {
-    seeking.value = false
-  }
-}
-
 onMounted(() => {
-  void loadFavorites()
   void loadConfig()
-  void loadLXProxy()
   void refreshLyricsWindowState()
   statusTimer = setInterval(() => void refreshPlayback(), 1500)
 })
@@ -892,7 +353,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
       <div>
         <p class="eyebrow">MUSIC PLAYER</p>
         <h2>音乐中心</h2>
-        <p class="description">管理主播常驻歌单、观众点播与直播音乐播放。</p>
+        <p class="description">管理洛雪音乐播放、歌曲搜索与观众点播队列。</p>
         <el-alert v-if="config && !config.enabled" title="音乐模块当前已关闭：无法加入歌曲队列或播放。请在下方「点歌设置」中启用音乐模块并保存全部设置。" type="warning" :closable="false" show-icon style="margin-top:12px" />
       </div>
       <el-tag type="success" effect="plain">直播音乐控制台</el-tag>
@@ -905,7 +366,6 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
     <nav class="music-tabs" aria-label="音乐页面导航">
       <button :class="{ active: activeTab === 'now-playing' }" @click="activeTab = 'now-playing'">正在播放</button>
       <button :class="{ active: activeTab === 'search' }" @click="activeTab = 'search'">歌曲搜索</button>
-      <button :class="{ active: activeTab === 'host-playlist' }" @click="activeTab = 'host-playlist'">主播歌单 <span>{{ favorites.length }}</span></button>
       <button :class="{ active: activeTab === 'visitor-requests' }" @click="activeTab = 'visitor-requests'">观众点播 <span>{{ queue?.items.length ?? 0 }}</span></button>
       <button :class="{ active: activeTab === 'settings' }" @click="activeTab = 'settings'">音乐设置</button>
     </nav>
@@ -922,15 +382,14 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
           <span class="current-lyric">{{ playback?.track ? currentLyric : '搜索歌曲并加入播放队列' }}</span>
           <span v-if="playback?.track && currentLyricTranslation" class="current-lyric-translation">{{ currentLyricTranslation }}</span>
           <small v-if="playback?.track">{{ sourceName(playback.track.source_id) }}</small>
-          <el-tag v-if="queue?.current?.requested_by === '__my_livehub_host_playlist__'" type="success" size="small">主播歌单</el-tag>
           <el-tag v-else-if="queue?.current && queue.current.requested_by !== '__my_livehub_search_play__'" type="warning" size="small">观众点播</el-tag>
         </div>
       </div>
       <el-slider :model-value="progress" :min="0" :max="100" :step="0.1" :format-tooltip="formatSeekTooltip" :disabled="true" @input="previewSeek" @change="seekTo" />
       <div class="time-row"><span>{{ formatDuration(playback?.position_ms) }}</span><span>{{ formatDuration(playback?.duration_ms) }}</span></div>
-      <p class="hint">播放进度定位暂不受洛雪开放 API 支持，请在洛雪客户端中操作。</p>
+      <p class="hint">音量调节和播放进度定位暂不受洛雪开放 API 支持，请在洛雪客户端中操作。</p>
       <div class="player-controls">
-        <el-button type="primary" @click="addHostPlaylistToQueue">播放</el-button>
+        <el-button type="primary" @click="playNext">播放队列</el-button>
         <el-button :disabled="playback?.state !== 'playing'" @click="pause">暂停</el-button>
         <el-button :disabled="playback?.state !== 'paused'" @click="resume">继续</el-button>
         <el-button @click="previousTrack">上一首</el-button>
@@ -938,112 +397,12 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         <el-button @click="stop">停止</el-button>
         <el-button type="primary" plain @click="toggleLyricsWindow">{{ lyricsWindowOpen ? '关闭桌面歌词' : '开启桌面歌词' }}</el-button>
       </div>
-      <div class="playback-order-row">
-        <span>播放顺序</span>
-        <el-select v-model="hostPlayMode" style="width:150px" @change="changeHostPlayMode">
-          <el-option label="列表循环" value="list" />
-          <el-option label="单曲循环" value="single" />
-          <el-option label="随机播放" value="shuffle" />
-        </el-select>
-      </div>
-      <div class="volume-row"><span>音量</span><el-slider v-model="volume" :min="0" :max="100" @change="setVolume" /></div>
-      <div class="now-playing-list">
-        <div class="now-playing-list-header">
-          <div>
-            <strong>当前播放列表</strong>
-            <span>{{ hostPlaylists.find(item => item.id === activeHostPlaylistID)?.name || '未选择歌单' }} · {{ favorites.length }} 首歌曲</span>
-          </div>
-          <el-button link type="primary" @click="activeTab = 'host-playlist'">管理歌单</el-button>
-        </div>
-        <div v-if="favorites.length" class="now-playing-track-list">
-          <div
-            v-for="(track, index) in favorites"
-            :key="trackRowKey(track)"
-            class="now-playing-track"
-            :class="{ 'now-playing-track-active': isCurrentHostTrack(track) }"
-          >
-            <span class="now-playing-track-index">{{ String(index + 1).padStart(2, '0') }}</span>
-            <div class="now-playing-track-info">
-              <strong>{{ track.title }}</strong>
-              <span>{{ track.artist || '未知歌手' }} · {{ sourceName(track.source_id) }}</span>
-            </div>
-            <el-tag v-if="isCurrentHostTrack(track)" type="success" size="small">正在播放</el-tag>
-            <el-button v-else link type="primary" @click="playFavorite(track)">播放</el-button>
-          </div>
-        </div>
-        <el-empty v-else description="当前歌单还没有歌曲，可前往主播歌单添加或导入歌曲。" :image-size="64">
-          <el-button type="primary" plain @click="activeTab = 'host-playlist'">前往主播歌单</el-button>
-        </el-empty>
-      </div>
       <p class="hint">播放由本机洛雪客户端负责。请先启动洛雪，并在配置页填写其本地 API 地址。</p>
-    </el-card>
-
-    <el-card v-if="activeTab === 'settings'" shadow="never">
-      <template #header><div class="card-heading"><strong>洛雪自定义音源</strong><el-tag type="success" effect="plain">动态来源注册</el-tag></div></template>
-      <p class="section-description">每个 JS 脚本可以声明一个或多个洛雪来源。导入后可查看脚本实际声明的来源键、动作和音质；播放时只调用声明了对应来源键及 musicUrl 动作的脚本，不再把脚本固定绑定到四个平台。</p>
-      <div class="lx-import-row">
-        <el-input v-model="lxSourceURL" placeholder="粘贴 .js 音源脚本 URL" clearable @keyup.enter="importLXSourceURL" />
-        <el-button type="primary" :loading="importingLXSource" @click="importLXSourceURL">从 URL 导入</el-button>
-        <el-button :loading="importingLXSource" @click="chooseLXSourceFile">导入本地 JS</el-button>
-        <input ref="sourceFileInput" class="hidden-file-input" type="file" accept=".js,.txt,text/javascript" @change="importLXSourceFile" />
-      </div>
-      <div v-if="lxSources.length" class="lx-source-list">
-        <div v-for="source in lxSources" :key="source.id" class="lx-source-row">
-          <div class="source-copy">
-            <strong>{{ source.name }} <el-tag v-if="activeLXSourceID === source.id" size="small" type="success">当前使用</el-tag> <el-tag size="small" :type="lxValidation[source.id] ? 'success' : 'info'">{{ lxValidation[source.id] ? '基础初始化通过' : '尚未验证' }}</el-tag></strong>
-            <span>{{ source.author || '未知作者' }} · {{ source.version || '未标注版本' }} · SHA256 {{ source.sha256.slice(0, 12) }}</span>
-            <span v-if="lxValidation[source.id]">已声明来源：{{ lxValidation[source.id].declared_sources.map(item => (item.name || item.key) + '（' + item.key + '）').join('、') }} · 支持动作：{{ [...new Set(lxValidation[source.id].declared_sources.flatMap(item => item.actions || []))].join('、') || '无' }} · 音质：{{ [...new Set(lxValidation[source.id].declared_sources.flatMap(item => item.qualitys || []))].join('、') || '未声明' }}</span>
-            <span v-if="lxValidation[source.id]">已注册事件：{{ lxValidation[source.id].handlers.join('、') || '无' }}；仅声明 musicUrl 的来源可参与实际播放解析</span>
-            <div v-if="lxSearchSourceOptions[source.id]?.length" class="lx-search-source-settings">
-              <span>允许参与搜索的来源（脚本和搜索引擎均支持）：</span>
-              <div class="lx-search-source-checkboxes">
-                <label v-for="option in lxSearchSourceOptions[source.id]" :key="option.id" class="lx-search-source-toggle">
-                  <input class="lx-search-source-checkbox" type="checkbox" v-model="option.enabled" @change="onLXSearchSourceChange(source)">
-                  <span>{{ option.name }}</span>
-                </label>
-              </div>
-              <div class="lx-search-priority-list">
-                <strong>搜索优先级（从上到下）</strong>
-                <template v-if="lxSearchSourceOptions[source.id].some(item => item.enabled)">
-                  <div v-for="(option, index) in lxSearchSourceOptions[source.id].filter(item => item.enabled)" :key="option.id" class="lx-search-priority-row">
-                    <strong>{{ index + 1 }}. {{ option.name }}</strong>
-                    <span class="lx-search-priority-actions">
-                      <el-button link size="small" :disabled="index === 0" @click="moveLXSearchPriority(source, index, -1)">上移</el-button>
-                      <el-button link size="small" :disabled="index === lxSearchSourceOptions[source.id].filter(item => item.enabled).length - 1" @click="moveLXSearchPriority(source, index, 1)">下移</el-button>
-                    </span>
-                  </div>
-                </template>
-                <span v-else class="lx-search-priority-empty">尚未勾选搜索来源</span>
-              </div>
-            </div>
-            <span v-else-if="lxValidation[source.id]">该脚本没有可供当前搜索引擎使用的来源</span>
-            <span v-if="source.source_url">{{ source.source_url }}</span>
-          <div v-if="lxSourceTests[source.id]?.length" class="lx-source-test-results">
-            <div v-for="item in lxSourceTests[source.id]" :key="item.platform" class="lx-source-test-result">
-              <strong>{{ item.name || item.platform }}</strong>
-              <el-tag size="small" :type="item.status === 'passed' ? 'success' : item.status === 'unsupported' ? 'info' : 'danger'">{{ item.status === 'passed' ? '可播放' : item.status === 'unsupported' ? '不支持' : '失败' }}</el-tag>
-              <span>{{ item.message }}</span>
-              <small v-if="item.song">{{ item.song }}</small>
-            </div>
-          </div>
-          </div>
-          <div class="lx-source-actions">
-            <el-button link type="primary" @click="setActiveLXSource(source)">{{ activeLXSourceID === source.id ? '重新加载' : '启用' }}</el-button>
-            <el-button v-if="activeLXSourceID === source.id" link @click="deactivateLXSource">停用</el-button>
-            <el-checkbox :model-value="source.allow_show_update_alert" @change="setLXSourceUpdateAlert(source, $event)">允许更新提醒</el-checkbox>
-            <el-button link type="primary" :loading="validatingLXSourceID === source.id" :disabled="!!validatingLXSourceID || !!testingLXSourceID || importingLXSource" @click="validateLXSource(source)">验证脚本</el-button>
-            <el-button link type="success" :loading="testingLXSourceID === source.id" :disabled="!!validatingLXSourceID || !!testingLXSourceID || importingLXSource" @click="testLXSource(source)">测试音源</el-button>
-            <el-button v-if="source.source_url" link type="primary" :loading="importingLXSource" @click="updateLXSource(source)">检查更新</el-button>
-            <el-button link type="danger" @click="deleteLXSource(source)">删除</el-button>
-          </div>
-        </div>
-      </div>
-      <el-empty v-else description="尚未导入自定义音源" :image-size="64" />
     </el-card>
 
     <el-card v-if="activeTab === 'search'" shadow="never">
       <template #header><strong>搜索歌曲</strong></template>
-      <p class="section-description">这里只显示当前启用且已验证的音源脚本所声明、并具备 musicUrl 能力的平台。</p>
+      <p class="section-description">搜索平台及优先级在音乐设置中统一管理。</p>
       <div class="search-row">
         <el-select v-model="selectedSource" style="width:160px" @change="search">
           <el-option label="全部可用音源" value="all" :disabled="searchableSources.length === 0" />
@@ -1062,7 +421,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         <el-table-column label="可用音质" min-width="150"><template #default="scope">{{ qualityNames(scope.row) }}</template></el-table-column>
         <el-table-column label="播放音质" min-width="135"><template #default="scope"><el-select v-model="qualitySelections[trackRowKey(scope.row)]" size="small" clearable placeholder="自动"><el-option v-for="quality in (scope.row.qualities ?? [])" :key="quality.type" :label="quality.type" :value="quality.type" /></el-select></template></el-table-column>
         <el-table-column label="时长" width="90"><template #default="scope">{{ formatDuration(scope.row.duration_ms) }}</template></el-table-column>
-        <el-table-column label="操作" width="230" fixed="right"><template #default="scope"><el-button link type="success" @click="playSearchTrackNow(scope.row)">播放</el-button><el-button link :type="isFavorite(scope.row) ? 'danger' : 'primary'" @click="toggleFavorite(scope.row)">{{ isFavorite(scope.row) ? '取消收藏' : '收藏' }}</el-button><el-button link type="primary" @click="addToQueue(scope.row)">加入队列</el-button></template></el-table-column>
+        <el-table-column label="操作" width="170" fixed="right"><template #default="scope"><el-button link type="success" @click="playSearchTrackNow(scope.row)">立即播放</el-button><el-button link type="primary" @click="addToQueue(scope.row)">加入队列</el-button></template></el-table-column>
       </el-table>
       <div v-if="maxPage > 1" class="search-pagination">
         <el-pagination
@@ -1076,85 +435,6 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
       </div>
       <el-empty v-else-if="!searching && results.length === 0" description="搜索结果将在这里显示" :image-size="76" />
     </el-card>
-
-    <el-card v-if="activeTab === 'host-playlist'" shadow="never">
-      <template #header>
-        <div class="playlist-header">
-          <div><strong>主播歌单</strong><p class="section-description">管理多组直播背景音乐。观众点播结束后，会继续播放被打断的歌曲。</p></div>
-          <div class="playlist-header-actions">
-            <el-button @click="createHostPlaylist">新建歌单</el-button>
-            <el-button type="primary" plain :loading="importingPlaylist" @click="choosePlaylistFile">导入洛雪歌单</el-button>
-            <input ref="playlistFileInput" class="hidden-file-input" type="file" accept=".lxmc,.json,application/json" @change="importLXPlaylist" />
-          </div>
-        </div>
-      </template>
-      <div class="playlist-toolbar">
-        <el-select v-model="activeHostPlaylistID" style="width:min(320px, 100%)" placeholder="选择歌单" @change="selectHostPlaylist">
-          <el-option v-for="item in hostPlaylists" :key="item.id" :label="`${item.name} · ${item.track_count} 首`" :value="item.id" />
-        </el-select>
-        <el-button :disabled="!activeHostPlaylistID" @click="renameHostPlaylist">重命名</el-button>
-        <el-button :disabled="hostPlaylists.length <= 1" type="danger" plain @click="deleteHostPlaylist">删除歌单</el-button>
-        <el-tag effect="plain">{{ favorites.length }} 首歌曲</el-tag>
-        <el-button type="primary" :disabled="favorites.length === 0" @click="addHostPlaylistToQueue">播放当前歌单</el-button>
-      </div>
-      <div v-if="hostPlaylists.length" class="playlist-cards">
-        <button v-for="item in hostPlaylists" :key="item.id" class="playlist-card" :class="{ active: item.id === activeHostPlaylistID }" @click="selectHostPlaylist(item.id)">
-          <span class="playlist-card-icon">♫</span>
-          <span class="playlist-card-name">{{ item.name }}</span>
-          <span class="playlist-card-meta">{{ item.track_count }} 首歌曲 · {{ item.mode === 'single' ? '单曲循环' : item.mode === 'shuffle' ? '随机播放' : '列表循环' }}</span>
-        </button>
-      </div>
-      <el-table v-if="favorites.length" :data="favorites" :row-key="trackRowKey" style="width:100%">
-        <el-table-column type="index" label="#" width="55" />
-        <el-table-column prop="title" label="歌曲" min-width="180" />
-        <el-table-column prop="artist" label="歌手" min-width="140" />
-        <el-table-column prop="album" label="专辑" min-width="140" />
-        <el-table-column label="音源" width="130"><template #default="scope">{{ sourceName(scope.row.source_id) }}</template></el-table-column>
-        <el-table-column label="操作" width="220" fixed="right"><template #default="scope"><el-button link type="primary" @click="playFavorite(scope.row)">播放</el-button><el-button link type="primary" @click="openReplaceTrack(scope.row)">换源</el-button><el-button link :disabled="scope.$index === 0" @click="moveFavorite(scope.$index, -1)">上移</el-button><el-button link :disabled="scope.$index === favorites.length - 1" @click="moveFavorite(scope.$index, 1)">下移</el-button><el-dropdown :disabled="hostPlaylists.length <= 1" @command="(targetID: string) => moveTrackToPlaylist(scope.row, targetID)">
-            <el-button link type="primary" :disabled="hostPlaylists.length <= 1">移动到</el-button>
-            <template #dropdown><el-dropdown-menu>
-              <el-dropdown-item v-for="item in hostPlaylists.filter(item => item.id !== activeHostPlaylistID)" :key="item.id" :command="item.id">{{ item.name }}</el-dropdown-item>
-            </el-dropdown-menu></template>
-          </el-dropdown><el-button link type="danger" @click="removeFavorite(scope.row)">移除</el-button></template></el-table-column>
-      </el-table>
-      <el-empty v-else description="这个歌单还没有歌曲。可以从搜索结果收藏歌曲，或导入洛雪歌单。" :image-size="76" />
-    </el-card>
-
-    <el-dialog v-model="replaceDialogVisible" title="歌曲换源" width="min(820px, 94vw)" destroy-on-close>
-      <div v-if="replacingTrack" class="replace-track-original">
-        <strong>原歌曲</strong>
-        <div>{{ replacingTrack.title }} · {{ replacingTrack.artist || '未知歌手' }}</div>
-        <small>{{ sourceName(replacingTrack.source_id) }} · {{ replacingTrack.album || '未知专辑' }} · {{ formatDuration(replacingTrack.duration_ms) }}</small>
-      </div>
-      <el-skeleton v-if="replacementSearching" :rows="5" animated />
-      <el-empty v-else-if="replacementGroups.length === 0" description="当前启用的音源没有可搜索的平台，请检查音乐音源设置。" />
-      <template v-else>
-        <el-tabs v-model="replacementSourceID">
-          <el-tab-pane v-for="group in replacementGroups" :key="group.source_id" :name="group.source_id">
-            <template #label>{{ group.name }} <el-tag size="small" effect="plain">{{ group.tracks?.length ?? 0 }}</el-tag></template>
-            <el-alert v-if="group.error" :title="group.error" type="warning" :closable="false" show-icon />
-            <el-empty v-else-if="!group.tracks?.length" description="这个平台没有搜索到匹配歌曲" :image-size="64" />
-            <el-radio-group v-else v-model="selectedReplacement" class="replace-candidate-list">
-              <el-radio v-for="candidate in group.tracks" :key="trackRowKey(candidate)" :value="candidate" class="replace-candidate">
-                <span class="replace-candidate-main">
-                  <strong>{{ candidate.title }}</strong>
-                  <small>{{ candidate.artist || '未知歌手' }} · {{ candidate.album || '未知专辑' }} · {{ formatDuration(candidate.duration_ms) }}</small>
-                </span>
-              </el-radio>
-            </el-radio-group>
-          </el-tab-pane>
-        </el-tabs>
-      </template>
-      <div v-if="selectedReplacement" class="replace-track-comparison">
-        <strong>将替换为</strong>
-        <div>{{ selectedReplacement.title }} · {{ selectedReplacement.artist || '未知歌手' }}</div>
-        <small>{{ sourceName(selectedReplacement.source_id) }} · {{ selectedReplacement.album || '未知专辑' }} · {{ formatDuration(selectedReplacement.duration_ms) }}</small>
-      </div>
-      <template #footer>
-        <el-button @click="replaceDialogVisible = false">取消</el-button>
-        <el-button type="primary" :disabled="!selectedReplacement" :loading="replacementSaving" @click="confirmReplaceTrack">确认换源</el-button>
-      </template>
-    </el-dialog>
 
     <el-card v-if="activeTab === 'visitor-requests'" shadow="never">
       <template #header>
@@ -1252,24 +532,13 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
       </div>
       <div class="card-actions"><el-button type="primary" :loading="saving" :disabled="!config" @click="saveConfig">保存全部设置</el-button></div>
     </el-card>
-    <el-card v-if="activeTab === 'settings'" shadow="never">
-      <template #header><strong>自定义音源网络代理</strong></template>
-      <p class="section-description">为导入的洛雪自定义音源指定 HTTP 代理。关闭时使用系统环境代理配置；未配置系统代理则直连。保存后立即应用到当前运行中的音源。</p>
-      <div class="setting-row"><div><strong>启用自定义代理</strong><p>开启后，音源脚本发出的网络请求将通过下方代理地址。</p></div><el-switch v-model="lxProxy.enabled" /></div>
-      <el-divider />
-      <div class="lx-proxy-fields">
-        <label>代理主机地址<el-input v-model="lxProxy.host" placeholder="127.0.0.1" /></label>
-        <label>代理端口<el-input v-model="lxProxy.port" placeholder="7890" /></label>
-      </div>
-      <div class="card-actions"><el-button type="primary" :loading="lxProxyBusy" @click="saveLXProxy">保存并立即应用</el-button></div>
-    </el-card>
     <div v-if="activeTab !== 'now-playing'" class="mini-player">
       <div class="mini-player-track">
         <img v-if="playback?.track?.cover_url" :src="playback.track.cover_url" alt="当前歌曲封面" />
         <el-icon v-else><Headset /></el-icon>
         <div>
           <strong>{{ playback?.track ? `${playback.track.title} - ${playback.track.artist || '未知歌手'}` : '尚未播放歌曲' }}</strong>
-          <span class="current-lyric">{{ playback?.track ? currentLyric : '从主播歌单或歌曲搜索开始播放' }}</span>
+          <span class="current-lyric">{{ playback?.track ? currentLyric : '从歌曲搜索开始播放' }}</span>
           <span v-if="playback?.track && currentLyricTranslation" class="current-lyric-translation">{{ currentLyricTranslation }}</span>
         </div>
       </div>
