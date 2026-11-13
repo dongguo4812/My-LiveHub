@@ -576,3 +576,125 @@ func TestFilterLXSourceDeclarationUsesJavaScriptIncludesSemantics(t *testing.T) 
 		t.Fatalf("local source without qualitys should remain valid: %#v", local)
 	}
 }
+
+func TestRunLXSourceWorkerResolvesHuibqSourceThroughLXRequest(t *testing.T) {
+	// This fixture mirrors Huibq v1.2.0's published source script. The HTTP
+	// transport is mocked so the test verifies the real Goja/LX request bridge
+	// and response contract without depending on Huibq's external API uptime.
+	script := `/*
+ * @name Huibq_lxmusic源
+ * @description Github搜索“洛雪音乐音源”，禁止批量下载！
+ * @version v1.2.0
+ * @author Huibq
+ */
+const DEV_ENABLE = false
+const API_URL = 'https://lxmusicapi.onrender.com'
+const API_KEY = 'share-v3'
+const MUSIC_QUALITY = {
+  kw: ['128k', '320k'],
+  kg: ['128k', '320k'],
+  tx: ['128k', '320k'],
+  wy: ['128k', '320k'],
+  mg: ['128k', '320k'],
+}
+const MUSIC_SOURCE = Object.keys(MUSIC_QUALITY)
+const { EVENT_NAMES, request, on, send, utils, env, version } = globalThis.lx
+const httpFetch = (url, options = { method: 'GET' }) => {
+  return new Promise((resolve, reject) => {
+    request(url, options, (err, resp) => {
+      if (err) return reject(err)
+      resolve(resp)
+    })
+  })
+}
+const handleGetMusicUrl = async (source, musicInfo, quality) => {
+  const songId = musicInfo.hash ?? musicInfo.songmid
+  const request = await httpFetch(`${API_URL}/url/${source}/${songId}/${quality}`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'User-Agent': `${env ? `lx-music-${env}/${version}` : `lx-usic-request/${version}`}`,
+      'X-Request-Key': API_KEY,
+    },
+  })
+  const { body } = request
+  if (!body || isNaN(Number(body.code))) throw new Error('unknow error')
+  switch (body.code) {
+    case 0: return body.url
+    case 1: throw new Error('block ip')
+    case 2: throw new Error('get music url failed')
+    case 4: throw new Error('internal server error')
+    case 5: throw new Error('too many requests')
+    case 6: throw new Error('param error')
+    default: throw new Error(body.msg ?? 'unknow error')
+  }
+}
+const musicSources = {}
+MUSIC_SOURCE.forEach(item => {
+  musicSources[item] = {
+    name: item, type: 'music', actions: ['musicUrl'], qualitys: MUSIC_QUALITY[item],
+  }
+})
+on(EVENT_NAMES.request, ({ action, source, info }) => {
+  switch (action) {
+    case 'musicUrl':
+      if (env != 'mobile') {
+        console.group(`Handle Action(musicUrl)`)
+        console.log('source', source)
+        console.log('quality', info.type)
+        console.log('musicInfo', info.musicInfo)
+        console.groupEnd()
+      } else {
+        console.log(`Handle Action(musicUrl)`)
+        console.log('source', source)
+        console.log('quality', info.type)
+        console.log('musicInfo', info.musicInfo)
+      }
+      return handleGetMusicUrl(source, info.musicInfo, info.type)
+        .then(data => Promise.resolve(data))
+        .catch(err => Promise.reject(err))
+    default:
+      console.error(`action(${action}) not support`)
+      return Promise.reject('action not support')
+  }
+})
+send(EVENT_NAMES.inited, { status: true, openDevTools: DEV_ENABLE, sources: musicSources })
+`;
+	payload := json.RawMessage(`{"source":"tx","action":"musicUrl","info":{"type":"320k","musicInfo":{"source":"tx","songmid":"0039MnYb0qxYhV","name":"稻香","singer":"周杰伦"}}}`)
+
+	var captured *http.Request
+	client := &http.Client{Transport: lxRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		captured = request.Clone(request.Context())
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status: "200 OK",
+			Header: http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(`{"code":0,"url":"https://cdn.example.test/稻香.mp3"}`)),
+			Request: request,
+		}, nil
+	})}
+	input, err := json.Marshal(lxWorkerRequest{Script: script, Operation: "resolve", Payload: payload})
+	if err != nil { t.Fatal(err) }
+	var output bytes.Buffer
+	if code := runLXSourceWorker(bytes.NewReader(input), &output, client); code != 0 {
+		t.Fatalf("Huibq source worker returned %d: %s", code, output.String())
+	}
+	var response lxWorkerResponse
+	if err := json.Unmarshal(output.Bytes(), &response); err != nil { t.Fatal(err) }
+	if response.Error != "" { t.Fatal(response.Error) }
+	var resolved string
+	if err := json.Unmarshal(response.Value, &resolved); err != nil { t.Fatal(err) }
+	if resolved != "https://cdn.example.test/稻香.mp3" {
+		t.Fatalf("Huibq resolved URL = %q", resolved)
+	}
+	if captured == nil { t.Fatal("Huibq did not issue an HTTP request") }
+	if captured.Method != http.MethodGet || captured.URL.String() != "https://lxmusicapi.onrender.com/url/tx/0039MnYb0qxYhV/320k" {
+		t.Fatalf("Huibq request target mismatch: %s %s", captured.Method, captured.URL)
+	}
+	if captured.Header.Get("Content-Type") != "application/json" ||
+		captured.Header.Get("User-Agent") != "lx-music-desktop/2.0.0" ||
+		captured.Header.Get("X-Request-Key") != "share-v3" {
+		t.Fatalf("Huibq request headers mismatch: %#v", captured.Header)
+	}
+}
+
