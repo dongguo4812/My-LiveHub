@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, onUpdated, ref } from 'vue'
+import { computed, onMounted, onUnmounted, onUpdated, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
 type Layer = { id: string; type: string; name: string; x: number; y: number; width: number; height: number; z_index: number; visible: boolean; opacity: number; text?: string; url?: string; color?: string; font_size?: number }
@@ -33,7 +33,6 @@ let musicRefreshTimer: ReturnType<typeof setInterval> | undefined
 let musicTrackKey = ''
 let musicRefreshing = false
 let lyricsRequestID = 0
-let lyricResizeObserver: ResizeObserver | undefined
 
 const danmaku = computed(() => liveEvents.value.filter(item => item.type === 'danmaku').slice(-8).reverse())
 const gifts = computed(() => liveEvents.value.filter(item => item.type === 'gift').slice(-3).reverse())
@@ -76,20 +75,6 @@ function measureLyricOverflow() {
     : 0
   if (original !== lyricOverflow.value.original || translation !== lyricOverflow.value.translation) {
     lyricOverflow.value = { original, translation }
-  }
-}
-function observeLyricElements() {
-  if (!lyricResizeObserver) return
-  lyricResizeObserver.disconnect()
-  const elements = [
-    lyricOriginalViewport.value,
-    lyricOriginalText.value,
-    lyricTranslationViewport.value,
-    lyricTranslationText.value,
-    document.querySelector('.music-widget'),
-  ]
-  for (const element of elements) {
-    if (element) lyricResizeObserver.observe(element)
   }
 }
 const progress = computed(() => {
@@ -218,7 +203,6 @@ async function loadMusic() {
   } finally { musicRefreshing = false }
 }
 onMounted(() => {
-  lyricResizeObserver = new ResizeObserver(() => measureLyricOverflow())
   window.addEventListener('resize', measureLyricOverflow)
   void loadScene()
   void loadMusic()
@@ -230,14 +214,9 @@ onMounted(() => {
   source.onopen = () => { error.value = ''; void loadRecentEvents() }
   clockTimer = setInterval(() => { now.value = new Date() }, 500)
 })
-onUpdated(() => {
-  observeLyricElements()
-  void nextTick(measureLyricOverflow)
-})
+onUpdated(measureLyricOverflow)
 onUnmounted(() => {
   window.removeEventListener('resize', measureLyricOverflow)
-  lyricResizeObserver?.disconnect()
-  lyricResizeObserver = undefined
   source?.close()
   lyricsRequestID++
   if (clockTimer) clearInterval(clockTimer)
