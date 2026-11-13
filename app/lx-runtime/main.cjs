@@ -102,6 +102,7 @@ onRendererEvent(EVENT.showUpdateAlert, params => envelope(EVENT.showUpdateAlert,
 onRendererEvent(EVENT.getProxy, () => send(EVENT.proxyUpdate, currentProxy))
 
 const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity })
+input.on('close', () => { closing = true; app.quit() })
 input.on('line', async line => {
   let message
   try { message = JSON.parse(line) } catch (_) { return }
