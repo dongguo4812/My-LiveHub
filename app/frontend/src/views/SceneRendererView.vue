@@ -32,6 +32,7 @@ let clockTimer: ReturnType<typeof setInterval> | undefined
 let sceneRefreshTimer: ReturnType<typeof setInterval> | undefined
 let musicRefreshTimer: ReturnType<typeof setInterval> | undefined
 let musicQueueRefreshTimer: ReturnType<typeof setInterval> | undefined
+let musicConfigRefreshTimer: ReturnType<typeof setInterval> | undefined
 let musicTrackKey = ''
 let musicRefreshing = false
 let lyricsRequestID = 0
@@ -229,7 +230,7 @@ onMounted(() => {
   sceneRefreshTimer = setInterval(() => { void loadScene() }, 1000)
   musicRefreshTimer = setInterval(() => { void loadMusic() }, 500)
   musicQueueRefreshTimer = setInterval(() => { void loadMusicQueue() }, 1000)
-  setInterval(() => { void loadMusicDisplayConfig() }, 3000)
+  musicConfigRefreshTimer = setInterval(() => { void loadMusicDisplayConfig() }, 3000)
   source = new EventSource('/api/events')
   source.onmessage = handleEvent
   source.onerror = () => { error.value = '直播事件连接中断，正在自动重连…' }
@@ -244,6 +245,7 @@ onUnmounted(() => {
   if (sceneRefreshTimer) clearInterval(sceneRefreshTimer)
   if (musicRefreshTimer) clearInterval(musicRefreshTimer)
   if (musicQueueRefreshTimer) clearInterval(musicQueueRefreshTimer)
+  if (musicConfigRefreshTimer) clearInterval(musicConfigRefreshTimer)
 })
 </script>
 
