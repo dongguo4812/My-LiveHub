@@ -362,8 +362,8 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-prompt-line{padding:.42em .5em;border-radius:.3em;background:rgba(16,19,26,.62);line-height:1.35}
 .music-prompt-widget{align-items:stretch}
 .music-queue-output-layer{padding:0;text-shadow:none;white-space:normal;overflow:hidden;font-family:Arial,"Microsoft YaHei",sans-serif}
-.music-queue-widget{display:flex;flex-direction:column;gap:.62em;width:100%;height:100%;overflow:hidden;color:#f4f6fb;text-shadow:0 2px 5px rgba(0,0,0,.5)}
-.music-queue-section{display:flex;flex-direction:column;gap:.35em;min-width:0;padding:.55em .68em;border:1px solid rgba(159,192,255,.16);border-radius:.55em;background:linear-gradient(135deg,rgba(20,26,38,.88),rgba(13,17,26,.78));box-shadow:0 4px 14px rgba(0,0,0,.16)}
+.music-queue-widget{display:flex;flex-direction:column;gap:0;width:100%;height:100%;overflow:hidden;color:#f4f6fb;text-shadow:0 2px 5px rgba(0,0,0,.5)}
+.music-queue-section{display:flex;flex-direction:column;gap:0;min-width:0;padding:.55em .68em;border:1px solid rgba(159,192,255,.16);border-radius:.55em;background:linear-gradient(135deg,rgba(20,26,38,.88),rgba(13,17,26,.78));box-shadow:0 4px 14px rgba(0,0,0,.16)}
 .music-queue-heading{display:flex;align-items:center;gap:.42em;min-width:0;padding-bottom:.32em;border-bottom:1px solid rgba(159,192,255,.22);color:#9fc0ff;font-size:1.02em;font-weight:800;line-height:1.35}
 .music-queue-heading-mark{flex:none;color:#ffd66b}
 .music-queue-count{margin-left:auto;color:#aebbd0;font-size:.72em;font-weight:600}
@@ -379,7 +379,7 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-queue-current-inline .music-queue-requester{max-width:24%}.music-queue-current-inline .music-queue-empty{padding:0;white-space:nowrap}
 .music-queue-list{gap:0}
 .music-queue-list .music-queue-item{padding-top:.08em;padding-bottom:.08em;border-radius:0;border-bottom:1px solid rgba(255,255,255,.045)}
-.music-queue-list{display:flex;flex:1;flex-direction:column;gap:.28em;min-height:0;overflow:hidden}
+.music-queue-list{display:flex;flex:1;flex-direction:column;gap:0;min-height:0;overflow:hidden}
 .music-queue-item{display:flex;align-items:center;gap:.58em;min-width:0;padding:.38em .5em;border:1px solid rgba(255,255,255,.055);border-radius:.36em;background:rgba(255,255,255,.055);line-height:1.3}
 .music-queue-current{border-color:rgba(255,214,107,.2);background:rgba(255,214,107,.075)}
 .music-queue-index{flex:none;min-width:1.7em;color:#9fc0ff;font-size:.78em;font-weight:800;font-variant-numeric:tabular-nums}
