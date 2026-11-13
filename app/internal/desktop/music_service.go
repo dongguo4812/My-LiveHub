@@ -1226,7 +1226,7 @@ func (s *MusicService) TestLXUserSource(id string) ([]LXSourcePlatformTest, erro
 			results = append(results, result)
 			continue
 		}
-		resolved, resolveErr := music.ResolveLXUserSource(ctx, script, payload)
+		resolved, resolveErr := s.ResolveLXUserSource(id, payload)
 		if resolveErr != nil {
 			result.Message = "播放地址解析失败：" + resolveErr.Error()
 			cancel()
