@@ -2,7 +2,6 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Headset, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
-import * as MusicLyricsWindowService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musiclyricswindowservice.js'
 import { getActiveSyncedLyric, parseSyncedLyrics } from '../utils/syncedLyrics'
 
 type MusicConfig = Awaited<ReturnType<typeof MusicService.GetConfig>>
@@ -80,7 +79,6 @@ const queue = ref<QueueSnapshot | null>(null)
 const draggedQueueItemID = ref('')
 const playback = ref<PlaybackSnapshot | null>(null)
 const syncedLyrics = ref<Array<{ time: number; text: string; translation?: string }>>([])
-const lyricsWindowOpen = ref(false)
 const lyricsTrackKey = ref('')
 const lyricsStatus = ref<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle')
 let lyricsRequestID = 0
@@ -218,26 +216,12 @@ async function clearQueue() {
     error.value = reason instanceof Error ? reason.message : String(reason)
   }
 }
-async function refreshLyricsWindowState() {
-  try { lyricsWindowOpen.value = (await MusicLyricsWindowService.GetWindowState()).is_open }
-  catch { lyricsWindowOpen.value = false }
-}
-async function toggleLyricsWindow() {
-  try {
-    if (lyricsWindowOpen.value) await MusicLyricsWindowService.CloseWindow()
-    else await MusicLyricsWindowService.OpenWindow()
-    await refreshLyricsWindowState()
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
-  }
-}
 async function refreshPlayback() {
   try {
     playback.value = await MusicService.GetPlaybackStatus()
     void loadTrackLyrics()
   } catch { /* The engine is not started until the first play request. */ }
   await refreshQueue()
-  await refreshLyricsWindowState()
 }
 async function saveConfig() {
   if (!config.value) return
@@ -333,10 +317,8 @@ async function previousTrack() {
 }
 async function pause() { try { await MusicService.Pause(); await refreshPlayback() } catch (reason) { error.value = String(reason) } }
 async function resume() { try { await MusicService.Resume(); await refreshPlayback() } catch (reason) { error.value = String(reason) } }
-async function stop() { try { await MusicService.Stop(); await refreshPlayback() } catch (reason) { error.value = String(reason) } }
 onMounted(() => {
   void loadConfig()
-  void refreshLyricsWindowState()
   statusTimer = setInterval(() => void refreshPlayback(), 1500)
 })
 onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
@@ -388,8 +370,6 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         <el-button :disabled="playback?.state !== 'paused'" @click="resume">继续</el-button>
         <el-button @click="previousTrack">上一首</el-button>
         <el-button @click="nextTrack">下一首</el-button>
-        <el-button @click="stop">停止</el-button>
-        <el-button type="primary" plain @click="toggleLyricsWindow">{{ lyricsWindowOpen ? '关闭桌面歌词' : '开启桌面歌词' }}</el-button>
       </div>
       <p class="hint">播放由本机洛雪客户端负责。请先启动洛雪，并在配置页填写其本地 API 地址。</p>
     </el-card>
