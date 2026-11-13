@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
+	"github.com/dongguo4812/My-LiveHub/app/internal/music"
 	eventstream "github.com/dongguo4812/My-LiveHub/app/internal/events"
 )
 
@@ -48,7 +49,19 @@ type LayoutLayer struct {
 	FontSize int     `json:"font_size,omitempty"`
 }
 
+type sceneMusicProvider interface {
+	GetPlaybackStatus() (music.PlaybackSnapshot, error)
+	GetLyrics(music.Track) (string, error)
+}
+
+type sceneMusicResponse struct {
+	Snapshot music.PlaybackSnapshot `json:"snapshot"`
+	Lyrics string `json:"lyrics"`
+	LyricsError string `json:"lyrics_error,omitempty"`
+}
+
 type SceneService struct {
+	music sceneMusicProvider
 	mu       sync.RWMutex
 	manager  *config.Manager
 	events   *eventstream.Buffer
@@ -57,7 +70,7 @@ type SceneService struct {
 	baseURL  string
 }
 
-func NewSceneService(manager *config.Manager, events *eventstream.Buffer, assets http.Handler) (*SceneService, error) {
+func NewSceneService(manager *config.Manager, events *eventstream.Buffer, assets http.Handler, musicProviders ...sceneMusicProvider) (*SceneService, error) {
 	if manager == nil || events == nil || assets == nil {
 		return nil, errors.New("scene service requires config, event buffer and asset handler")
 	}
@@ -65,8 +78,10 @@ func NewSceneService(manager *config.Manager, events *eventstream.Buffer, assets
 		return nil, fmt.Errorf("load layout configuration: %w", err)
 	}
 	service := &SceneService{manager: manager, events: events}
+	if len(musicProviders) > 0 { service.music = musicProviders[0] }
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/scenes/", service.handleScene)
+	mux.HandleFunc("/api/music", service.handleMusic)
 	mux.HandleFunc("/api/events", service.handleEvents)
 	mux.HandleFunc("/api/events/recent", service.handleRecentEvents)
 	mux.Handle("/", assets)
@@ -129,7 +144,7 @@ func validateLayoutConfig(value LayoutConfig) error {
 			}
 			layerIDs[layer.ID] = true
 			switch layer.Type {
-			case "text", "image", "clock", "danmaku", "gift", "super_chat":
+			case "text", "image", "clock", "danmaku", "gift", "super_chat", "music":
 			default:
 				return fmt.Errorf("不支持的图层类型：%s", layer.Type)
 			}
@@ -227,6 +242,30 @@ func (s *SceneService) findScene(id string) (LayoutScene, error) {
 		}
 	}
 	return LayoutScene{}, errors.New("场景不存在")
+}
+
+
+func (s *SceneService) handleMusic(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.music == nil {
+		http.Error(w, "music service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	snapshot, err := s.music.GetPlaybackStatus()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	response := sceneMusicResponse{Snapshot: snapshot}
+	if snapshot.Track != nil {
+		lyrics, lyricErr := s.music.GetLyrics(*snapshot.Track)
+		response.Lyrics = lyrics
+		if lyricErr != nil { response.LyricsError = lyricErr.Error() }
+	}
+	writeSceneJSON(w, response)
 }
 
 func (s *SceneService) handleScene(w http.ResponseWriter, r *http.Request) {
