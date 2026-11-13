@@ -63,6 +63,11 @@ function createWindow() {
   windowRef.webContents.session.setPermissionRequestHandler((contents, permission, callback) => callback(contents !== windowRef.webContents))
   windowRef.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   windowRef.on('closed', () => { windowRef = null })
+  windowRef.webContents.on('did-finish-load', () => process.stderr.write('LX runtime renderer loaded\\n'))
+  windowRef.webContents.on('preload-error', (_event, preloadPath, error) => process.stderr.write('LX preload error ' + preloadPath + ': ' + error.message + '\\n'))
+  windowRef.webContents.on('did-fail-load', (_event, code, description, url) => process.stderr.write('LX renderer load failed ' + code + ' ' + description + ' ' + url + '\\n'))
+  windowRef.webContents.on('render-process-gone', (_event, details) => process.stderr.write('LX renderer process gone ' + JSON.stringify(details) + '\\n'))
+  windowRef.once('ready-to-show', () => process.stderr.write('LX runtime ready-to-show\\n'))
   const html = '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body></body></html>'
   return new Promise((resolve, reject) => {
     windowRef.once('ready-to-show', resolve)
@@ -101,6 +106,7 @@ onRendererEvent(EVENT.openDevTools, () => {
 onRendererEvent(EVENT.showUpdateAlert, params => envelope(EVENT.showUpdateAlert, params))
 onRendererEvent(EVENT.getProxy, () => send(EVENT.proxyUpdate, currentProxy))
 
+process.stderr.write('LX runtime main process started\\n')
 const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity })
 input.on('close', () => { closing = true; app.quit() })
 input.on('line', async line => {
@@ -131,6 +137,7 @@ input.on('line', async line => {
 })
 
 app.whenReady().then(() => {
+  process.stderr.write('LX Electron app ready\\n')
   app.on('window-all-closed', () => { if (!closing) app.quit() })
 })
 app.on('before-quit', () => { closing = true })
