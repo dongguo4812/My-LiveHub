@@ -332,7 +332,8 @@ func (s *MusicService) SearchSourcePage(keyword, source string, page int) (Music
 func (s *MusicService) enabledSearchSourceIDs() []string {
 	if s == nil || s.searcher == nil { return []string{} }
 	s.mu.RLock()
-	configured := append([]string(nil), s.value.EnabledSearchSources...)
+	var configured []string
+	if s.value.EnabledSearchSources != nil { configured = append([]string{}, s.value.EnabledSearchSources...) }
 	s.mu.RUnlock()
 	if configured == nil {
 		for _, item := range s.searcher.Sources() { configured = append(configured, item.ID) }
