@@ -1180,10 +1180,6 @@ func (s *MusicService) TestLXUserSource(id string) ([]LXSourcePlatformTest, erro
 	if s == nil { return nil, errors.New("音乐服务不可用") }
 	validation, err := s.ValidateLXUserSource(id)
 	if err != nil { return nil, err }
-	store, err := s.lxUserSourceStore()
-	if err != nil { return nil, err }
-	script, err := store.ReadScript(id)
-	if err != nil { return nil, err }
 	searchNames := map[string]string{"kw":"酷我音乐","kg":"酷狗音乐","tx":"QQ 音乐","wy":"网易云音乐","mg":"咪咕音乐"}
 	declared := make(map[string]music.LXDeclaredSource, len(validation.DeclaredSources))
 	for _, item := range validation.DeclaredSources { declared[item.Key] = item }
