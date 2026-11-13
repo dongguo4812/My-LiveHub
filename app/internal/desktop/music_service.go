@@ -710,7 +710,7 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 					return
 				}
 				message := strings.TrimSpace(snapshot.Error)
-				if message == "" { message = "mpv 加载音频失败" }
+				if message == "" { message = "洛雪无法播放当前歌曲" }
 				currentItem := s.queue.Snapshot().Current
 				if currentItem != nil {
 					if resolvedTrack, retryErr := s.resolveAndStartLXTrack(ctx, currentItem.Track, true); retryErr == nil {
