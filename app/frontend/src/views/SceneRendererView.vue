@@ -223,7 +223,7 @@ function applyLive2DFrameTransforms() {
   })
 }
 function handleLive2DMessage(event: MessageEvent) {
-  if (event.data?.type === 'moc3-model-loaded') applyLive2DFrameTransforms()
+  if (event.data?.type === 'moc3-model-loaded' || event.data?.type === 'moc2-model-loaded') applyLive2DFrameTransforms()
 }
 async function loadMusicDisplayConfig() {
   try {
@@ -302,7 +302,7 @@ onMounted(() => {
   source.onopen = () => { error.value = ''; void loadRecentEvents() }
   clockTimer = setInterval(() => { now.value = new Date() }, 500)
 })
-onUpdated(updateLyricScroll)
+onUpdated(() => { updateLyricScroll(); applyLive2DFrameTransforms() })
 onUnmounted(() => {
   source?.close()
   lyricsRequestID++
