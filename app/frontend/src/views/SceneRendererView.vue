@@ -51,7 +51,21 @@ let musicTrackKey = ''
 let musicRefreshing = false
 let lyricsRequestID = 0
 let mouthSyncChannel: BroadcastChannel | null = null
+let mouthSyncPollTimer: ReturnType<typeof setInterval> | undefined
 let currentMouthOpen = 0
+async function pollMouthSync() {
+  try {
+    const response = await fetch('/api/live2d/mouth', { cache: 'no-store' })
+    if (!response.ok) return
+    const data = await response.json() as { value?: number }
+    const value = Math.max(0, Math.min(1, Number(data.value) || 0))
+    if (Math.abs(value - currentMouthOpen) < 0.005) return
+    currentMouthOpen = value
+    document.querySelectorAll<HTMLIFrameElement>('.live2d-output-frame').forEach(frame => {
+      (frame.contentWindow as Live2DWindow | null)?.live2dSetMouthOpen?.(currentMouthOpen)
+    })
+  } catch { /* Keep the last received mouth value while the local relay reconnects. */ }
+}
 function handleMouthSyncMessage(event: MessageEvent) {
   if (event.data?.type !== 'live2d-mouth-open') return
   currentMouthOpen = Math.max(0, Math.min(1, Number(event.data.value) || 0))
@@ -305,6 +319,8 @@ onMounted(() => {
   void loadMusicDisplayConfig()
   void loadLive2DDisplay()
   live2DRefreshTimer = setInterval(() => { void loadLive2DDisplay() }, 3000)
+  mouthSyncPollTimer = setInterval(() => { void pollMouthSync() }, 33)
+  void pollMouthSync()
   window.addEventListener('message', handleLive2DMessage)
   sceneRefreshTimer = setInterval(() => { void loadScene() }, 1000)
   musicRefreshTimer = setInterval(() => { void loadMusic() }, 500)
@@ -321,6 +337,7 @@ onUpdated(() => { updateLyricScroll(); applyLive2DFrameTransforms() })
 onUnmounted(() => {
   mouthSyncChannel?.close()
   mouthSyncChannel = null
+  if (mouthSyncPollTimer) clearInterval(mouthSyncPollTimer)
   source?.close()
   lyricsRequestID++
   if (clockTimer) clearInterval(clockTimer)
