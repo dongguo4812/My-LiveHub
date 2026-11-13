@@ -70,7 +70,7 @@ type MusicService struct {
 	lxStoreErr error
 	lxLifecycleMu sync.Mutex
 	lxSessionMu sync.Mutex
-	lxSession *music.LXUserSourceProcess
+	lxSession *music.LXElectronUserSourceProcess
 	lxSessionID string
 	lxUpdateMu sync.Mutex
 	lxUpdates []music.LXUserSourceUpdate
@@ -610,49 +610,13 @@ func (s *MusicService) playNext(parent context.Context) error {
 		if !ok { return errors.New("播放队列为空") }
 		current = &item
 	}
-	track := current.Track
-	sourceKey := track.LXSourceKey
-	if sourceKey == "" { sourceKey = track.SourceID }
-
-	activeID, err := s.GetActiveLXUserSourceID()
-	if err != nil { return fmt.Errorf("读取当前洛雪自定义源失败：%w", err) }
-	if activeID == "" { return errors.New("尚未启用洛雪自定义源，无法解析歌曲播放地址") }
-
-	s.lxSessionMu.Lock()
-	session := s.lxSession
-	sessionID := s.lxSessionID
-	s.lxSessionMu.Unlock()
-	if session == nil || sessionID != activeID || !session.IsRunning() {
-		if err := s.SetActiveLXUserSource(activeID); err != nil { return fmt.Errorf("启动洛雪自定义源失败：%w", err) }
-		s.lxSessionMu.Lock()
-		session = s.lxSession
-		sessionID = s.lxSessionID
-		s.lxSessionMu.Unlock()
-	}
-	if session == nil || sessionID != activeID { return errors.New("当前洛雪自定义源未能启动") }
-
-	var declared *music.LXDeclaredSource
-	for _, item := range session.Snapshot().DeclaredSources {
-		if item.Key == sourceKey { copy := item; declared = &copy; break }
-	}
-	if declared == nil { return fmt.Errorf("当前自定义源未声明平台 %s 的音乐解析能力", sourceKey) }
-	hasMusicURL := false
-	for _, action := range declared.Actions { if action == "musicUrl" { hasMusicURL = true; break } }
-	if !hasMusicURL { return fmt.Errorf("当前自定义源未声明 %s 的 musicUrl 动作", sourceKey) }
-
-	selected, err := chooseLXTrackQuality(track, *declared)
-	if err != nil { return err }
-	payload, err := buildLXMusicURLRequest(track, selected)
-	if err != nil { return fmt.Errorf("构建洛雪播放请求失败：%w", err) }
-	ctx, cancel := context.WithTimeout(parent, 22*time.Second)
-	defer cancel()
-	rawURL, err := session.Request(ctx, payload)
-	if err != nil { return fmt.Errorf("解析歌曲播放地址失败：%w", err) }
-	playbackURL, err := parseLXMusicURLResponse(rawURL, sourceKey, selected.Type)
-	if err != nil { return err }
-	if err := ctx.Err(); err != nil { return err }
-	if err := loadAndStartPlayback(ctx, s.engine, music.PlaybackResource{URL: playbackURL}, track); err != nil {
+	resolvedTrack, err := s.resolveAndStartLXTrack(parent, current.Track, false)
+	if err != nil {
 		return err
+	}
+	current.Track = resolvedTrack
+	if err := s.queue.SetCurrent(*current); err != nil {
+		return fmt.Errorf("更新自动换源后的当前歌曲失败：%w", err)
 	}
 	s.startPlaybackWatcher()
 	return nil
@@ -946,10 +910,32 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 				if snapshot.PositionMS >= threshold { sawEndPosition = true }
 			}
 			if snapshot.State == music.PlaybackError {
+				s.mu.RLock()
+				generationCurrent := s.playGeneration == generation
+				s.mu.RUnlock()
+				if !generationCurrent || ctx.Err() != nil {
+					return
+				}
 				message := strings.TrimSpace(snapshot.Error)
 				if message == "" { message = "mpv 加载音频失败" }
-				s.setLastError(errors.New(message))
 				currentItem := s.queue.Snapshot().Current
+				if currentItem != nil {
+					if resolvedTrack, retryErr := s.resolveAndStartLXTrack(ctx, currentItem.Track, true); retryErr == nil {
+						if ctx.Err() != nil {
+							return
+						}
+						currentItem.Track = resolvedTrack
+						if updateErr := s.queue.SetCurrent(*currentItem); updateErr == nil {
+							s.startPlaybackWatcher()
+							return
+						} else {
+							message += "；更新换源结果失败：" + updateErr.Error()
+						}
+					} else {
+						message += "；自动换源失败：" + retryErr.Error()
+					}
+				}
+				s.setLastError(errors.New(message))
 				s.queue.FinishCurrent()
 				if currentItem != nil && currentItem.RequestedBy == hostQueueMarker {
 					_ = s.advanceHostPlaylist()
@@ -1141,7 +1127,7 @@ func (s *MusicService) ValidateLXUserSource(id string) (music.LXSourceRuntimeRes
 	if err != nil { return music.LXSourceRuntimeResult{}, err }
 	// A successful validation is bound to the stored script version and is
 	// reused after app restarts. Updating/reimporting the script clears it.
-	if metadata.Validation != nil && metadata.ValidatedAt != nil && metadata.Validation.Initialized {
+	if metadata.Validation != nil && metadata.ValidatedAt != nil && metadata.Validation.Initialized && metadata.Validation.Runtime == music.LXUserSourceRuntimeVersion {
 		if metadata.EnabledSearchSources == nil {
 			defaults := make([]string, 0)
 			for _, option := range s.lxSearchSourceOptions(*metadata.Validation, nil) { defaults = append(defaults, option.ID) }
@@ -1151,10 +1137,16 @@ func (s *MusicService) ValidateLXUserSource(id string) (music.LXSourceRuntimeRes
 	}
 	script, err := store.ReadScript(id)
 	if err != nil { return music.LXSourceRuntimeResult{}, err }
-	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	result, err := music.InspectLXUserSource(ctx, script)
+	process, err := music.StartLXElectronUserSourceProcess(ctx, script, s.GetLXUserSourceProxy(), metadata)
 	if err != nil { return music.LXSourceRuntimeResult{}, err }
+	defer process.Close()
+	if err := process.WaitInitialized(ctx); err != nil { return music.LXSourceRuntimeResult{}, err }
+	result := process.Snapshot()
+	if !result.Initialized || len(result.DeclaredSources) == 0 {
+		return music.LXSourceRuntimeResult{}, errors.New("洛雪音源未成功声明可用的平台")
+	}
 	if err := store.SetValidation(id, result); err != nil {
 		return music.LXSourceRuntimeResult{}, fmt.Errorf("音源验证通过，但保存验证状态失败：%w", err)
 	}
@@ -1164,6 +1156,100 @@ func (s *MusicService) ValidateLXUserSource(id string) (music.LXSourceRuntimeRes
 	return result, nil
 }
 
+
+type LXSourcePlatformTest struct {
+	Platform string `json:"platform"`
+	Name string `json:"name"`
+	Status string `json:"status"`
+	Message string `json:"message"`
+	Song string `json:"song,omitempty"`
+}
+
+// TestLXUserSource checks each declared platform independently: native search,
+// the script's musicUrl resolver, and a real ranged audio response.
+func (s *MusicService) TestLXUserSource(id string) ([]LXSourcePlatformTest, error) {
+	if s == nil { return nil, errors.New("音乐服务不可用") }
+	validation, err := s.ValidateLXUserSource(id)
+	if err != nil { return nil, err }
+	searchNames := map[string]string{"kw":"酷我音乐","kg":"酷狗音乐","tx":"QQ 音乐","wy":"网易云音乐","mg":"咪咕音乐"}
+	declared := make(map[string]music.LXDeclaredSource, len(validation.DeclaredSources))
+	for _, item := range validation.DeclaredSources { declared[item.Key] = item }
+	platforms := []string{"tx", "wy", "kg", "kw", "mg"}
+	results := make([]LXSourcePlatformTest, 0, len(platforms))
+	for _, platform := range platforms {
+		item, exists := declared[platform]
+		result := LXSourcePlatformTest{Platform:platform, Name:searchNames[platform], Status:"unsupported", Message:"脚本未声明 musicUrl 动作"}
+		if result.Name == "" { result.Name = platform }
+		if !exists || !containsLXAction(item.Actions, "musicUrl") {
+			results = append(results, result)
+			continue
+		}
+		result.Status = "failed"
+		ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+		page, searchErr := s.searcher.SearchProvider(ctx, platform, "稻香 周杰伦", 1)
+		if searchErr != nil || len(page.Tracks) == 0 {
+			if searchErr != nil { result.Message = "搜索失败：" + searchErr.Error() } else { result.Message = "搜索成功，但没有找到测试歌曲" }
+			cancel()
+			results = append(results, result)
+			continue
+		}
+		var track music.Track
+		var selected music.TrackQuality
+		found := false
+		for _, candidate := range page.Tracks {
+			quality, qualityErr := chooseLXTrackQuality(candidate, item)
+			if qualityErr == nil { track, selected, found = candidate, quality, true; break }
+		}
+		if !found {
+			result.Message = "搜索到歌曲，但没有与脚本声明音质匹配的曲目"
+			cancel()
+			results = append(results, result)
+			continue
+		}
+		result.Song = track.Title + " - " + track.Artist
+		payload, payloadErr := buildLXMusicURLRequest(track, selected)
+		if payloadErr != nil {
+			result.Message = "构造解析请求失败：" + payloadErr.Error()
+			cancel()
+			results = append(results, result)
+			continue
+		}
+		resolved, resolveErr := s.ResolveLXUserSource(id, payload)
+		if resolveErr != nil {
+			result.Message = "播放地址解析失败：" + resolveErr.Error()
+			cancel()
+			results = append(results, result)
+			continue
+		}
+		playURL, parseErr := parseLXMusicURLResponse(resolved, platform, selected.Type)
+		if parseErr != nil {
+			result.Message = "播放地址无效：" + parseErr.Error()
+			cancel()
+			results = append(results, result)
+			continue
+		}
+		request, requestErr := http.NewRequestWithContext(ctx, http.MethodGet, playURL, nil)
+		if requestErr == nil { request.Header.Set("Range", "bytes=0-1023") }
+		var response *http.Response
+		if requestErr == nil {
+			client := &http.Client{Timeout:12*time.Second}
+			response, requestErr = client.Do(request)
+		}
+		if requestErr != nil {
+			result.Message = "播放地址请求失败：" + requestErr.Error()
+		} else {
+			body, readErr := io.ReadAll(io.LimitReader(response.Body, 1024))
+			_ = response.Body.Close()
+			if readErr != nil { result.Message = "读取音频数据失败：" + readErr.Error()
+			} else if response.StatusCode < 200 || response.StatusCode >= 300 { result.Message = fmt.Sprintf("音频服务器返回 HTTP %d", response.StatusCode)
+			} else if len(body) == 0 { result.Message = "播放地址可访问，但没有返回音频数据"
+			} else { result.Status = "passed"; result.Message = fmt.Sprintf("解析成功，已取得 %d 字节音频数据", len(body)) }
+		}
+		cancel()
+		results = append(results, result)
+	}
+	return results, nil
+}
 
 // closeLXUserSourceSession releases the active custom source when it is
 // replaced, deleted, or the desktop application shuts down.
@@ -1193,13 +1279,20 @@ func (s *MusicService) SetActiveLXUserSource(id string) error {
 func (s *MusicService) setActiveLXUserSourceLocked(id string) error {
 	store, err := s.lxUserSourceStore()
 	if err != nil { return err }
-	var next *music.LXUserSourceProcess
+
+	// LX userApi.setApi() closes the currently loaded source window before
+	// creating the next one. Keep the same single-active-source lifecycle.
+	s.closeLXUserSourceSession()
+
+	var next *music.LXElectronUserSourceProcess
 	if id != "" {
 		script, err := store.ReadScript(id)
 		if err != nil { return err }
+		metadata, err := store.Get(id)
+		if err != nil { return err }
 		ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
 		defer cancel()
-		next, err = music.StartLXUserSourceProcess(ctx, script, s.GetLXUserSourceProxy())
+		next, err = music.StartLXElectronUserSourceProcess(ctx, script, s.GetLXUserSourceProxy(), metadata)
 		if err != nil { return err }
 	}
 	if err := store.SetActiveID(id); err != nil {
@@ -1207,10 +1300,8 @@ func (s *MusicService) setActiveLXUserSourceLocked(id string) error {
 		return err
 	}
 	s.lxSessionMu.Lock()
-	previous := s.lxSession
 	s.lxSession, s.lxSessionID = next, id
 	s.lxSessionMu.Unlock()
-	if previous != nil { _ = previous.Close() }
 	if next != nil { go s.watchLXUserSourceUpdates(id, next) }
 	return nil
 }
@@ -1236,7 +1327,7 @@ func (s *MusicService) GetLXUserSourceUpdates() []music.LXUserSourceUpdate {
 	return updates
 }
 
-func (s *MusicService) watchLXUserSourceUpdates(id string, session *music.LXUserSourceProcess) {
+func (s *MusicService) watchLXUserSourceUpdates(id string, session *music.LXElectronUserSourceProcess) {
 	for update := range session.Updates() {
 		s.lxSessionMu.Lock()
 		active := s.lxSession == session && s.lxSessionID == id

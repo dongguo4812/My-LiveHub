@@ -1,0 +1,56 @@
+{
+  "scenes": [
+    {
+      "id": "main",
+      "name": "主场景",
+      "width": 1920,
+      "height": 1080,
+      "background": "transparent",
+      "layers": [
+        {
+          "id": "welcome",
+          "type": "text",
+          "name": "标题文字",
+          "x": 80,
+          "y": 70,
+          "width": 600,
+          "height": 90,
+          "z_index": 1,
+          "visible": true,
+          "opacity": 1,
+          "text": "欢迎来到直播间",
+          "color": "#ffffff",
+          "font_size": 48
+        },
+        {
+          "id": "clock",
+          "type": "clock",
+          "name": "时钟",
+          "x": 1640,
+          "y": 70,
+          "width": 220,
+          "height": 60,
+          "z_index": 2,
+          "visible": true,
+          "opacity": 1,
+          "color": "#ffffff",
+          "font_size": 32
+        },
+        {
+          "id": "danmaku",
+          "type": "danmaku",
+          "name": "实时弹幕",
+          "x": 80,
+          "y": 760,
+          "width": 900,
+          "height": 250,
+          "z_index": 3,
+          "visible": true,
+          "opacity": 1,
+          "color": "#ffffff",
+          "font_size": 26
+        }
+      ]
+    }
+  ]
+}

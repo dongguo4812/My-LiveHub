@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 
@@ -17,7 +19,6 @@ import (
 	"github.com/dongguo4812/My-LiveHub/app/internal/voice"
 	"github.com/dongguo4812/My-LiveHub/app/internal/media/imagecache"
 	"github.com/dongguo4812/My-LiveHub/app/internal/media/resource"
-	"github.com/dongguo4812/My-LiveHub/app/internal/music"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
@@ -29,12 +30,6 @@ var assets embed.FS
 var embeddedDefaultConfig embed.FS
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == music.LXSourceWorkerArgument {
-		if len(os.Args) > 2 && os.Args[2] == music.LXSourceSessionWorkerArgument {
-			os.Exit(music.RunLXUserSourceSessionWorker(os.Stdin, os.Stdout))
-		}
-		os.Exit(music.RunLXSourceWorker(os.Stdin, os.Stdout))
-	}
 	environment := config.ResolveEnvironment(os.Args[1:])
 	paths, err := config.ResolveRuntimePaths(environment)
 	if err != nil {
@@ -102,6 +97,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("load voice configuration: %v", err)
 	}
+	live2dConfig, err := config.LoadTyped[config.Live2DConfig](configManager, "live2d.json", func(value config.Live2DConfig) error {
+		return value.Validate()
+	})
+	if err != nil {
+		log.Fatalf("load Live2D configuration: %v", err)
+	}
 	eventBus := eventstream.NewBus()
 	bilibiliEvents := eventstream.NewBuffer(eventBus)
 	musicService := desktop.NewMusicServiceWithFanMedalChecker(configManager, musicConfig, fanMedalChecker, bilibiliEvents)
@@ -165,11 +166,31 @@ func main() {
 	if err := coreApp.Modules().Register("video", desktop.NewVideoModule(videoQueueService)); err != nil {
 		log.Fatalf("register video module: %v", err)
 	}
+	live2dService := desktop.NewLive2DService(configManager, live2dConfig, filepath.Join(cacheDir, "live2d", "models"))
+	if err := coreApp.Modules().Register("live2d", desktop.NewLive2DModule(live2dService)); err != nil {
+		log.Fatalf("register Live2D module: %v", err)
+	}
 	bilibiliSettingsService := desktop.NewBilibiliSettingsService(configManager, bilibiliConfig, bilibiliAdapter, fanMedalChecker)
 	assetHandler := application.AssetFileServerFS(assets)
 	imageCache, cacheErr := imagecache.NewWithPolicies(filepath.Join(cacheDir, "media-images"), assetHandler, map[string]imagecache.URLPolicy{"bilibili":imagecache.BilibiliURLPolicy})
 	if cacheErr != nil { log.Printf("initialize local media image cache: %v", cacheErr) } else { assetHandler = imageCache; platformService.SetMediaImageCache(imageCache); imageCache.RefreshStats() }
+	assetHandler = desktop.WrapLive2DAssetHandler(live2dService, assetHandler)
 	danmakuDisplayService := desktop.NewDanmakuDisplayService(configManager, danmakuDisplayConfig, danmakuWindowConfig, bilibiliEvents, imageCache)
+	sceneAssets := assetHandler
+	if environment == config.EnvironmentDevelopment {
+		vitePort := os.Getenv("WAILS_VITE_PORT")
+		if vitePort == "" {
+			vitePort = "8769"
+		}
+		viteURL, parseErr := url.Parse("http://127.0.0.1:" + vitePort)
+		if parseErr != nil {
+			log.Fatalf("configure scene development asset proxy: %v", parseErr)
+		}
+		sceneAssets = httputil.NewSingleHostReverseProxy(viteURL)
+	}
+	sceneAssets = desktop.WrapLive2DAssetHandler(live2dService, sceneAssets)
+	sceneService, err := desktop.NewSceneService(configManager, bilibiliEvents, sceneAssets, musicService, videoQueueService, live2dService)
+	if err != nil { log.Fatalf("initialize scene browser source service: %v", err) }
 	app := application.New(application.Options{
 		Name:        "My-LiveHub",
 		Description: "多平台综合直播互动辅助平台",
@@ -188,10 +209,12 @@ func main() {
 			application.NewService(bilibiliSettingsService),
 			application.NewService(desktop.NewAppearanceService(configManager, appConfig)),
 			application.NewService(danmakuDisplayService),
+			application.NewService(sceneService),
 			application.NewService(voiceService),
 			application.NewService(musicService),
 			application.NewService(musicLyricsWindowService),
 			application.NewService(videoQueueService),
+			application.NewService(live2dService),
 			application.NewService(bilibiliWebViewService),
 		},
 	})
@@ -202,6 +225,7 @@ func main() {
 	desktop.AttachBilibiliWebViewApplication(bilibiliWebViewService, app)
 	app.OnShutdown(func() {
 		danmakuDisplayService.CloseWindowForShutdown()
+		if err := sceneService.Shutdown(); err != nil { log.Printf("stop scene browser source service: %v", err) }
 		musicLyricsWindowService.CloseWindowForShutdown()
 		videoQueueService.Close()
 		bilibiliWebViewService.CloseWindowForShutdown()

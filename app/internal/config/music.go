@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const CurrentMusicConfigVersion = 9
+const CurrentMusicConfigVersion = 10
 
 type LXUserSourceProxyConfig struct {
 	Enabled bool `json:"enabled"`
@@ -33,6 +33,7 @@ type MusicConfig struct {
 	SkipCommandEnabled bool `json:"skip_command_enabled"`
 	SkipCommand string `json:"skip_command"`
 	QueueCapacity  int    `json:"queue_capacity"`
+	QueueDisplayCount int `json:"queue_display_count"`
 	Volume int `json:"volume"`
 	LoudnessNormalization bool `json:"loudness_normalization"`
 	LXUserSourceProxy LXUserSourceProxyConfig `json:"lx_user_source_proxy"`
@@ -49,6 +50,7 @@ func DefaultMusicConfig() MusicConfig {
 		SkipCommandEnabled: true,
 		SkipCommand: "切歌",
 		QueueCapacity: 100,
+		QueueDisplayCount: 5,
 		Volume: 80,
 		FanMedalLevel: 1,
 	}
@@ -70,6 +72,9 @@ func MigrateMusicConfig(c MusicConfig) (MusicConfig, bool) {
 	}
 	if c.QueueCapacity >= 1 && c.QueueCapacity <= 1000 {
 		n.QueueCapacity = c.QueueCapacity
+	}
+	if c.QueueDisplayCount >= 1 && c.QueueDisplayCount <= 1000 {
+		n.QueueDisplayCount = c.QueueDisplayCount
 	}
 	n.LXUserSourceProxy = c.LXUserSourceProxy
 	n.RequireFanMedal = c.RequireFanMedal
@@ -96,6 +101,9 @@ func (c MusicConfig) Validate() error {
 	if c.QueueCapacity < 1 || c.QueueCapacity > 1000 {
 		return fmt.Errorf("music queue capacity must be between 1 and 1000")
 	}
+	if c.QueueDisplayCount < 1 || c.QueueDisplayCount > 1000 {
+		return fmt.Errorf("music queue display count must be between 1 and 1000")
+	}
 	if err := c.LXUserSourceProxy.Validate(); err != nil { return err }
 	return nil
 }
@@ -120,6 +128,7 @@ func LoadMusicConfig(m *Manager) (MusicConfig, error) {
 			"skip_command_enabled": true,
 			"skip_command": true,
 			"queue_capacity": true,
+			"queue_display_count": true,
 			"volume": true,
 			"loudness_normalization": true,
 			"lx_user_source_proxy": true,

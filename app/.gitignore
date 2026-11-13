@@ -19,3 +19,12 @@
 
 # Downloaded mpv runtime is local-only until the corresponding-source audit is cleared
 /runtime/mpv/
+
+# LX Music runtime dependencies (reinstall with npm install)
+/lx-runtime/node_modules/
+
+
+/lx-runtime/node_modules/
+/lx-runtime/dist/
+/lx-runtime/vendor/
+/lx-runtime/package-lock.json

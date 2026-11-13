@@ -10,21 +10,26 @@ import (
 	"github.com/dongguo4812/My-LiveHub/app/internal/music"
 )
 
-var lxQualityPreference = []string{"flac24bit", "flac", "320k", "128k"}
-
 func chooseLXTrackQuality(track music.Track, declared music.LXDeclaredSource) (music.TrackQuality, error) {
 	available := make(map[string]music.TrackQuality, len(track.Qualities))
 	for _, item := range track.Qualities { if strings.TrimSpace(item.Type) != "" { available[item.Type] = item } }
 	allowed := make(map[string]bool, len(declared.Qualitys))
 	for _, item := range declared.Qualitys { allowed[item] = true }
-	if selected := strings.TrimSpace(track.SelectedQuality); selected != "" {
-		item, ok := available[selected]
-		if !ok { return music.TrackQuality{}, fmt.Errorf("歌曲不支持所选音质：%s", selected) }
-		if !allowed[selected] { return music.TrackQuality{}, fmt.Errorf("当前自定义音源不支持 %s 音质", selected) }
-		return item, nil
+	selected := strings.TrimSpace(track.SelectedQuality)
+	tryQualitys := []string{"flac24bit", "flac", "320k"}
+	if selected != "" {
+		for index, quality := range tryQualitys {
+			if quality != selected { continue }
+			for _, candidate := range tryQualitys[index:] {
+				if item, ok := available[candidate]; ok && allowed[candidate] { return item, nil }
+			}
+			break
+		}
 	}
-	for _, kind := range lxQualityPreference { if item, ok := available[kind]; ok && allowed[kind] { return item, nil } }
-	return music.TrackQuality{}, errors.New("当前歌曲与自定义音源没有共同支持的音质")
+	// LX getPlayQuality() defaults to 128k and only tries descending
+	// qualities when the user's configured preference is a higher tier.
+	if item, ok := available["128k"]; ok && allowed["128k"] { return item, nil }
+	return music.TrackQuality{}, errors.New("当前歌曲没有与洛雪音源共同支持的可用音质")
 }
 
 func buildLXMusicURLRequest(track music.Track, selected music.TrackQuality) ([]byte, error) {
@@ -78,7 +83,7 @@ func buildLXMusicURLRequest(track music.Track, selected music.TrackQuality) ([]b
 		"songmid": songID,
 		"interval": lxMusicInfoInterval(source, track.DurationMS),
 		"albumName": track.Album,
-		"img": nullableLXString(track.CoverURL),
+		"img": track.CoverURL,
 		"typeUrl": map[string]any{},
 		"types": qualityList,
 		"_types": qualityMap,
@@ -139,12 +144,10 @@ func parseLXMusicURLResponse(raw []byte, expectedSource, expectedQuality string)
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return "", errors.New("自定义源返回的播放结果格式无效")
 	}
-	if result.Source != expectedSource || result.Action != "musicUrl" {
-		return "", errors.New("自定义源返回的播放结果与当前歌曲不匹配")
-	}
-	if result.Data.Type != "" && result.Data.Type != expectedQuality {
-		return "", errors.New("自定义源返回的音质与所选音质不匹配")
-	}
+	// LX's renderer wrapper reads res.data.url and returns the requested
+	// quality unchanged; it does not independently validate source/action/type.
+	_ = expectedSource
+	_ = expectedQuality
 	if err := music.ValidateLXPlaybackURL(result.Data.URL); err != nil {
 		return "", errors.New("自定义源未返回有效的 HTTP(S) 播放地址")
 	}

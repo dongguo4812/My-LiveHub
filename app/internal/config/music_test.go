@@ -13,7 +13,7 @@ func TestDefaultMusicConfigIsValid(t *testing.T) {
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if !c.Enabled || !c.CommandEnabled || c.QueueCapacity != 100 || c.Volume != 80 || c.LoudnessNormalization {
+	if !c.Enabled || !c.CommandEnabled || c.QueueCapacity != 100 || c.QueueDisplayCount != 5 || c.Volume != 80 || c.LoudnessNormalization {
 		t.Fatalf("defaults: %+v", c)
 	}
 }
@@ -115,6 +115,27 @@ func TestMusicConfigV8MigrationAddsIndependentFanMedalDefaults(t *testing.T) {
 	if !changed { t.Fatal("expected v8 configuration migration") }
 	if err := got.Validate(); err != nil { t.Fatal(err) }
 	if !got.RequireFanMedal || got.FanMedalLevel != 6 { t.Fatalf("fan medal settings were not preserved: %+v", got) }
+}
+
+
+func TestMusicConfigV9MigrationAddsQueueDisplayCount(t *testing.T) {
+	got, changed := MigrateMusicConfig(MusicConfig{
+		ConfigVersion: 9, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
+		SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100, Volume: 80,
+	})
+	if !changed { t.Fatal("expected v9 configuration migration") }
+	if err := got.Validate(); err != nil { t.Fatal(err) }
+	if got.QueueDisplayCount != 5 { t.Fatalf("expected default display count 5, got %d", got.QueueDisplayCount) }
+}
+
+func TestMusicConfigQueueDisplayCountValidation(t *testing.T) {
+	c := DefaultMusicConfig()
+	c.QueueDisplayCount = 0
+	if err := c.Validate(); err == nil { t.Fatal("expected zero display count to be rejected") }
+	c.QueueDisplayCount = 1000
+	if err := c.Validate(); err != nil { t.Fatalf("valid maximum display count rejected: %v", err) }
+	c.QueueDisplayCount = 1001
+	if err := c.Validate(); err == nil { t.Fatal("expected display count above 1000 to be rejected") }
 }
 
 func TestMusicConfigFanMedalLevelValidation(t *testing.T) {

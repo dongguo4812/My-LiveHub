@@ -29,22 +29,26 @@ const groups = [
   { title: '工作台', items: [{ path: '/', title: '总览', icon: HomeFilled }, { path: '/monitor', title: '实时监控', icon: DataLine }] },
   { title: '直播接入', items: [{ path: '/platforms', title: '平台管理', icon: Connection }] },
   { title: '互动中心', items: [{ path: '/events', title: '事件中心', icon: ChatDotRound }, { path: '/users', title: '用户管理', icon: User }, { path: '/rules', title: '互动规则', icon: SetUp }] },
-  { title: '功能模块', items: [{ path: '/modules', title: '功能模块', icon: Grid }, { path: '/danmaku', title: '弹幕显示', icon: ChatDotRound }, { path: '/voice', title: '语音播报', icon: Microphone }, { path: '/music', title: '音乐播放', icon: Headset }, { path: '/video', title: '视频点播', icon: VideoPlay }] },
+  { title: '功能模块', items: [{ path: '/modules', title: '功能模块', icon: Grid }, { path: '/danmaku', title: '弹幕显示', icon: ChatDotRound }, { path: '/voice', title: '语音播报', icon: Microphone }, { path: '/music', title: '音乐播放', icon: Headset }, { path: '/video', title: '视频点播', icon: VideoPlay }, { path: '/live2d', title: 'Live2D', icon: Monitor }] },
   { title: '展示管理', items: [{ path: '/layouts', title: '综合展示', icon: Monitor }, { path: '/obs', title: 'OBS 管理', icon: Operation }] },
   { title: '扩展中心', items: [{ path: '/extensions', title: '扩展管理', icon: Grid }] },
   { title: '系统管理', items: [{ path: '/settings', title: '系统设置', icon: Setting }, { path: '/logs', title: '日志诊断', icon: Document }] },
 ]
 
 let refreshTimer: ReturnType<typeof setInterval> | undefined
+let voiceAudioInitialized = false
 function navigate(path: string) { router.push(path) }
 
-onMounted(() => {
+onMounted(async () => {
+  await router.isReady()
+  if (route.path.startsWith('/scene/')) return
   initializeVoiceAudio()
+  voiceAudioInitialized = true
   void refreshCoreStatus()
   refreshTimer = setInterval(() => void refreshCoreStatus(), 3000)
 })
 onUnmounted(() => {
-  disposeVoiceAudio()
+  if (voiceAudioInitialized) disposeVoiceAudio()
   if (refreshTimer) clearInterval(refreshTimer)
 })
 </script>
@@ -91,7 +95,11 @@ onUnmounted(() => {
         </div>
       </el-header>
       <el-main class="workspace">
-        <router-view />
+        <router-view v-slot="{ Component }">
+          <KeepAlive include="Live2DView">
+            <component :is="Component" />
+          </KeepAlive>
+        </router-view>
       </el-main>
       <footer class="footer">
         <span>My-LiveHub · 本地桌面版</span>
