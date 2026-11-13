@@ -118,7 +118,7 @@ func NewSceneService(manager *config.Manager, events *eventstream.Buffer, assets
 	return service, nil
 }
 
-func (s *SceneService) SetVideoProvider(provider sceneVideoProvider) {
+func (s *SceneService) setVideoProvider(provider sceneVideoProvider) {
 	if s == nil { return }
 	s.mu.Lock()
 	s.video = provider
