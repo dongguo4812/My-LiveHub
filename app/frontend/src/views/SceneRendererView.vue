@@ -14,8 +14,6 @@ type VideoQueue = { enabled: boolean; current?: VideoQueueItem; items: VideoQueu
 type Live2DDisplay = { enabled: boolean; runtime_version: 'moc2' | 'moc3'; model_url: string; model_scale: number; model_offset_x: number; model_offset_y: number }
 type Live2DWindow = Window & { live2dSetModelTransform?: (scale: number, x: number, y: number) => boolean; live2dSetMouthOpen?: (value: number) => void }
 type MusicDisplayConfig = { enabled: boolean; command_enabled: boolean; command_prefix: string; skip_command_enabled: boolean; skip_command: string; require_fan_medal: boolean; fan_medal_level: number }
-type LyricLine = { time: number; text: string; translation?: string }
-type MusicLyricsResponse = { lyrics: string }
 const route = useRoute()
 const scene = ref<Scene | null>(null)
 const liveEvents = ref<LiveEvent[]>([])
@@ -32,9 +30,6 @@ const live2DFrameURL = computed(() => {
   return value.runtime_version === 'moc2' ? '/live2d-runtime/moc2/index.html?' + params : '/live2d-runtime/moc3/index.html?model=' + encodeURIComponent(value.model_url)
 })
 const musicDisplayConfig = ref<MusicDisplayConfig | null>(null)
-const lyricLines = ref<LyricLine[]>([])
-const lyricsLoading = ref(false)
-const lyricsFailed = ref(false)
 const musicError = ref('')
 const musicAccentColor = ref('#A83232')
 const waveBars = Array.from({ length: 31 }, (_, index) => ({ height: 7 + Math.abs(Math.sin(index * 1.71) * 24), speed: 0.45 + (index % 7) * 0.13, delay: -(Math.random() * 1.8) }))
@@ -49,7 +44,6 @@ let musicConfigRefreshTimer: ReturnType<typeof setInterval> | undefined
 let live2DRefreshTimer: ReturnType<typeof setInterval> | undefined
 let musicTrackKey = ''
 let musicRefreshing = false
-let lyricsRequestID = 0
 let mouthSyncChannel: BroadcastChannel | null = null
 let mouthSyncPollTimer: ReturnType<typeof setInterval> | undefined
 let currentMouthOpen = 0
@@ -77,67 +71,11 @@ function handleMouthSyncMessage(event: MessageEvent) {
 const danmaku = computed(() => liveEvents.value.filter(item => item.type === 'danmaku').slice(-8).reverse())
 const gifts = computed(() => liveEvents.value.filter(item => item.type === 'gift').slice(-3).reverse())
 const superChats = computed(() => liveEvents.value.filter(item => item.type === 'super_chat').slice(-3).reverse())
-const activeLyricIndex = computed(() => {
-  if (!playback.value?.track) return -1
-  let activeIndex = -1
-  for (let index = 0; index < lyricLines.value.length; index++) {
-    if (lyricLines.value[index].time > playback.value.position_ms) break
-    activeIndex = index
-  }
-  return activeIndex
-})
-const activeLyric = computed(() => activeLyricIndex.value >= 0 ? lyricLines.value[activeLyricIndex.value] : null)
-const lyricScrollProgress = computed(() => {
-  const index = activeLyricIndex.value
-  const current = playback.value
-  if (index < 0 || !current) return 0
-  const start = lyricLines.value[index].time
-  const end = lyricLines.value[index + 1]?.time ?? (current.duration_ms || current.track?.duration_ms || start)
-  if (end <= start) return 0
-  return Math.max(0, Math.min(1, (current.position_ms - start) / (end - start)))
-})
-function updateLyricScroll() {
-  const progress = lyricScrollProgress.value
-  document.querySelectorAll<HTMLElement>('.music-lyrics').forEach(container => {
-    const lyricIndex = container.dataset.lyricIndex ?? ''
-    const lineChanged = container.dataset.lastLyricIndex !== lyricIndex
-    container.dataset.lastLyricIndex = lyricIndex
-    container.querySelectorAll<HTMLElement>('.music-lyric-text').forEach(text => {
-      const viewport = text.parentElement
-      if (!(viewport instanceof HTMLElement)) return
-      const overflow = Math.max(0, text.scrollWidth - viewport.clientWidth)
-      viewport.dataset.scrolling = overflow > 1 ? 'true' : 'false'
-      viewport.style.justifyContent = overflow > 1 ? 'flex-start' : 'center'
-      text.style.transition = lineChanged ? 'none' : ''
-      text.style.transform = overflow > 1 ? `translate3d(-${overflow * progress}px, 0, 0)` : 'translate3d(0, 0, 0)'
-    })
-  })
-}
 const progress = computed(() => {
   const duration = playback.value?.duration_ms || playback.value?.track?.duration_ms || 0
   if (!duration) return 0
   return Math.max(0, Math.min(100, (playback.value?.position_ms || 0) / duration * 100))
 })
-function parseLyrics(raw: string): LyricLine[] {
-  const parsed: Array<{ time: number; text: string }> = []
-  for (const line of raw.split(/\r?\n/)) {
-    const match = line.match(/^\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\](.*)$/)
-    if (!match) continue
-    const fraction = match[3] ?? '0'
-    const time = Number(match[1]) * 60000 + Number(match[2]) * 1000 + Number(fraction.padEnd(3, '0').slice(0, 3))
-    const text = match[4].trim()
-    if (text) parsed.push({ time, text })
-  }
-  parsed.sort((a, b) => a.time - b.time)
-  const result: LyricLine[] = []
-  for (const line of parsed) {
-    const previous = result[result.length - 1]
-    if (previous?.time === line.time) {
-      if (line.text !== previous.text && !previous.translation) previous.translation = line.text
-    } else result.push({ ...line })
-  }
-  return result
-}
 function formatTime(value: number) {
   const seconds = Math.max(0, Math.floor(value / 1000))
   return Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0')
@@ -188,32 +126,6 @@ async function loadScene() {
     const root = document.getElementById('app')
     if (root) root.style.background = 'transparent'
   } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) }
-}
-async function loadTrackLyrics(track: Track, key: string) {
-  const requestID = ++lyricsRequestID
-  lyricsLoading.value = true
-  lyricsFailed.value = false
-  try {
-    const response = await fetch('/api/music/lyrics', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(track),
-      cache: 'no-store',
-    })
-    if (!response.ok) throw new Error('歌词获取失败')
-    const data = await response.json() as MusicLyricsResponse
-    if (requestID !== lyricsRequestID || musicTrackKey !== key) return
-    lyricLines.value = parseLyrics(data.lyrics || '')
-    musicError.value = ''
-  } catch (cause) {
-    if (requestID === lyricsRequestID && musicTrackKey === key) {
-      lyricLines.value = []
-      lyricsFailed.value = true
-      musicError.value = cause instanceof Error ? cause.message : String(cause)
-    }
-  } finally {
-    if (requestID === lyricsRequestID && musicTrackKey === key) lyricsLoading.value = false
-  }
 }
 function isAudienceRequest(value?: string) {
   return Boolean(value?.trim())
@@ -298,12 +210,7 @@ async function loadMusic() {
         const nextColors = musicColors.filter(color => color !== musicAccentColor.value)
         musicAccentColor.value = nextColors[Math.floor(Math.random() * nextColors.length)] || musicColors[0]
       }
-      lyricsRequestID++
-      lyricLines.value = []
-      lyricsLoading.value = Boolean(track)
-      lyricsFailed.value = false
       musicError.value = ''
-      if (track) void loadTrackLyrics(track, key)
     }
   } catch (cause) {
     musicError.value = cause instanceof Error ? cause.message : String(cause)
@@ -333,13 +240,12 @@ onMounted(() => {
   source.onopen = () => { error.value = ''; void loadRecentEvents() }
   clockTimer = setInterval(() => { now.value = new Date() }, 500)
 })
-onUpdated(() => { updateLyricScroll(); applyLive2DFrameTransforms() })
+onUpdated(() => { applyLive2DFrameTransforms() })
 onUnmounted(() => {
   mouthSyncChannel?.close()
   mouthSyncChannel = null
   if (mouthSyncPollTimer) clearInterval(mouthSyncPollTimer)
   source?.close()
-  lyricsRequestID++
   if (clockTimer) clearInterval(clockTimer)
   if (sceneRefreshTimer) clearInterval(sceneRefreshTimer)
   if (musicRefreshTimer) clearInterval(musicRefreshTimer)
@@ -375,13 +281,13 @@ onUnmounted(() => {
           </div>
         </section>
         <section class="music-queue-section music-queue-current-section">
-          <div class="music-queue-item music-queue-current music-queue-current-inline">
+          <div class="music-queue-item music-queue-current music-queue-current-inline music-queue-current-stacked">
             <strong class="music-queue-current-label"><span class="music-queue-heading-mark">▶</span> 当前播放</strong>
             <span v-if="videoQueue.current" class="music-queue-current-track">
               <strong class="music-queue-current-title">{{ videoQueue.current.title || videoQueue.current.bvid }}</strong>
               <span class="music-queue-current-artist">{{ videoQueue.current.bvid }}</span>
             </span>
-            <span v-else class="music-queue-empty">暂无正在播放的视频</span>
+            <span v-else class="music-queue-empty">暂无点播视频</span>
             <span v-if="videoQueue.current" class="music-queue-requester">{{ videoQueue.current.requester }}</span>
           </div>
         </section>
@@ -397,15 +303,14 @@ onUnmounted(() => {
           <div v-else class="music-queue-empty">暂无待播视频</div>
         </section>
       </section>
-      <section v-else-if="layer.type === 'music_queue'" class="music-queue-widget" :style="{ '--queue-accent': layer.color || '#9fc0ff', fontSize: ((layer.font_size || 22) / (scene?.height || 1080) * 100) + 'cqh' }">
-        <section v-if="musicDisplayConfig?.enabled && musicDisplayConfig.command_enabled" class="music-queue-section music-queue-prompt">
+      <section v-else-if="layer.type === 'music_queue'" class="music-queue-widget" :style="{ '--queue-accent': layer.color || '#9fc0ff', fontSize: ((layer.font_size || 22) / (scene?.height || 1080) * 100) + 'cqh' }">        <section v-if="musicDisplayConfig?.enabled && musicDisplayConfig.command_enabled" class="music-queue-section music-queue-prompt">
           <div class="music-queue-prompt-single">
             <strong class="music-queue-prompt-title"><span class="music-queue-heading-mark">♪</span> 歌曲点播指令</strong>
             <span><b>{{ musicDisplayConfig.command_prefix }}</b> 歌曲名称</span>
           </div>
         </section>
         <section class="music-queue-section music-queue-current-section">
-          <div v-if="audienceCurrent" class="music-queue-item music-queue-current music-queue-current-inline">
+          <div v-if="audienceCurrent" class="music-queue-item music-queue-current music-queue-current-inline music-queue-current-stacked">
             <strong class="music-queue-current-label"><span class="music-queue-heading-mark">♫</span> 当前播放</strong>
             <span class="music-queue-current-track">
               <strong class="music-queue-current-title">{{ audienceCurrent.track.title }}</strong>
@@ -413,7 +318,7 @@ onUnmounted(() => {
             </span>
             <span class="music-queue-requester">{{ audienceCurrent.requested_by }}</span>
           </div>
-          <div v-else class="music-queue-item music-queue-current music-queue-current-inline">
+          <div v-else class="music-queue-item music-queue-current music-queue-current-inline music-queue-current-stacked">
             <strong class="music-queue-current-label"><span class="music-queue-heading-mark">♫</span> 当前播放</strong>
             <span class="music-queue-empty">暂无点播歌曲</span>
           </div>
@@ -430,7 +335,7 @@ onUnmounted(() => {
           <div v-else class="music-queue-empty">暂无待播歌曲</div>
         </section>
       </section>
-      <section v-else-if="layer.type === 'music' && playback?.state === 'playing' && playback?.track" class="music-widget" :style="{ '--random-color': musicAccentColor, '--details-bg': playback.track.cover_url ? 'url(' + JSON.stringify(playback.track.cover_url) + ')' : 'none', '--music-lyric-size': ((layer.font_size || 24) * 14 / 24) + 'px', '--music-translation-size': ((layer.font_size || 24) * 12 / 24) + 'px', '--music-status-size': ((layer.font_size || 24) * 14 / 24) + 'px' }">
+      <section v-else-if="layer.type === 'music' && playback?.state === 'playing' && playback?.track" class="music-widget" :style="{ '--random-color': musicAccentColor, '--details-bg': playback.track.cover_url ? 'url(' + JSON.stringify(playback.track.cover_url) + ')' : 'none' }">
         <div class="music-main">
           <div class="music-cover-wrap">
             <div class="music-cover-blur" :style="{ backgroundImage: playback.track.cover_url ? 'url(' + JSON.stringify(playback.track.cover_url) + ')' : 'none' }"></div>
@@ -450,18 +355,6 @@ onUnmounted(() => {
               <span class="music-time">{{ formatTime(playback.duration_ms || playback.track.duration_ms) }}</span>
             </div>
           </div>
-        </div>
-        <div class="music-lyrics" :data-lyric-index="activeLyricIndex">
-          <template v-if="activeLyric">
-            <div class="music-lyric-viewport">
-              <strong class="music-lyric-text">{{ activeLyric.text }}</strong>
-            </div>
-            <div v-if="activeLyric.translation" class="music-lyric-viewport">
-              <span class="music-lyric-text">{{ activeLyric.translation }}</span>
-            </div>
-          </template>
-          <div v-else-if="!lyricsLoading && !lyricLines.length && !lyricsFailed" class="music-lyric-status">暂无同步歌词</div>
-          <div v-else-if="lyricsFailed" class="music-lyric-status">歌词获取失败</div>
         </div>
       </section>
     </div>
@@ -505,6 +398,7 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-queue-prompt-single span{flex:none;color:#d7deea}
 .music-queue-prompt-single b{color:#ffd66b;font-weight:800}
 .music-queue-current-inline{flex-wrap:nowrap;gap:.55em;padding:.34em 0;border:0;border-radius:0;background:transparent;box-shadow:none;white-space:nowrap}
+.music-queue-current-stacked{display:flex;flex-wrap:wrap;align-items:flex-start;gap:.28em .55em;white-space:normal}.music-queue-current-stacked .music-queue-current-track{box-sizing:border-box;flex:0 0 100%;width:100%;max-width:100%;padding-left:calc(.5em + 1.7em + .58em);white-space:normal}.music-queue-current-stacked .music-queue-empty{box-sizing:border-box;flex:0 0 100%;width:100%;max-width:100%;padding-left:.5em;white-space:normal}.music-queue-current-stacked .music-queue-requester{box-sizing:border-box;flex:0 0 100%;max-width:100%;padding-left:calc(.5em + 1.7em + .58em);white-space:normal}
 .music-queue-current-label{flex:none;color:#ffd66b;font-size:.82em;white-space:nowrap}
 .music-queue-current-track{display:flex;flex:1;align-items:baseline;gap:.35em;min-width:0;overflow:hidden;white-space:nowrap}
 .music-queue-current-title{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f7f8fc;font-size:.88em}
@@ -540,14 +434,7 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-wave{height:36px;flex:1;display:flex;align-items:center;justify-content:center;gap:3px;overflow:hidden}
 .music-wavebar{width:3px;min-width:2px;height:var(--h);border-radius:3px;background:var(--random-color);opacity:.92;transform:scaleY(.45);transform-origin:center;animation:music-wave var(--speed) ease-in-out infinite alternate;animation-delay:var(--delay)}
 @keyframes music-wave{from{transform:scaleY(.22)}to{transform:scaleY(1)}}
-.music-lyrics{position:relative;min-height:42px;display:flex;flex-direction:column;justify-content:center;gap:3px;overflow:hidden;padding:5px 9px;border-radius:5px;background:transparent;text-align:center}
-.music-lyrics::before,.music-lyrics::after{content:none}
-.music-lyric-viewport{width:100%;min-width:0;overflow:hidden;display:flex;justify-content:center}
-.music-lyric-text{position:relative;display:block;flex:none;width:max-content;max-width:none;overflow:visible;white-space:nowrap;transform:translate3d(0,0,0);transition:transform .48s linear;will-change:transform}
-.music-lyrics strong.music-lyric-text{font-size:var(--music-lyric-size);font-weight:700;line-height:1.35;color:var(--random-color)}
-.music-lyrics span.music-lyric-text{font-size:var(--music-translation-size);line-height:1.3;color:#e7c89d;opacity:.9}
-.music-lyric-status{width:100%;text-align:center;font-size:var(--music-status-size);line-height:1.35;color:var(--random-color)}
-@media(max-width:300px){.music-widget{gap:5px}.music-main{height:84px}.music-cover-wrap{height:84px;width:84px;flex-basis:84px}.music-song-title{font-size:14px}.music-song-author{font-size:12px}.music-song-time{height:56px;padding:0 10px}.music-time{width:34px;flex-basis:34px;font-size:10px}.music-lyrics{min-height:38px}.music-lyrics strong{font-size:12px}.music-lyrics span{font-size:10px}}
+@media(max-width:300px){.music-widget{gap:5px}.music-main{height:84px}.music-cover-wrap{height:84px;width:84px;flex-basis:84px}.music-song-title{font-size:14px}.music-song-author{font-size:12px}.music-song-time{height:56px;padding:0 10px}.music-time{width:34px;flex-basis:34px;font-size:10px}}
 .scene-error{display:grid;place-items:center;width:100vw;height:100vh;background:transparent;color:#fff;font:16px "Microsoft YaHei",sans-serif}
 .output-layer iframe.live2d-output-frame{display:block;width:100%;height:100%;border:0;background:transparent!important;background-color:transparent!important;color-scheme:normal;pointer-events:none}
 </style>

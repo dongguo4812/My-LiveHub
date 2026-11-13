@@ -1,5 +1,5 @@
 {
-  "config_version": 10,
+  "config_version": 13,
   "enabled": true,
   "command_enabled": true,
   "skip_command_enabled": true,
@@ -7,13 +7,16 @@
   "command_prefix": "点歌",
   "queue_capacity": 100,
   "queue_display_count": 5,
-  "volume": 80,
-  "loudness_normalization": false,
   "require_fan_medal": false,
   "fan_medal_level": 1,
-  "lx_user_source_proxy": {
-    "enabled": false,
-    "host": "",
-    "port": ""
-  }
+  "lx_api_endpoints": [
+    "http://127.0.0.1:23330"
+  ],
+  "enabled_search_sources": [
+    "tx",
+    "kw",
+    "kg",
+    "wy",
+    "mg"
+  ]
 }

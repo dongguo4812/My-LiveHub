@@ -2,28 +2,11 @@ package config
 
 import (
 	"fmt"
-	"net"
-	"strconv"
+	"net/url"
 	"strings"
 )
 
-const CurrentMusicConfigVersion = 10
-
-type LXUserSourceProxyConfig struct {
-	Enabled bool `json:"enabled"`
-	Host string `json:"host"`
-	Port string `json:"port"`
-}
-
-func (c LXUserSourceProxyConfig) Validate() error {
-	if !c.Enabled { return nil }
-	host := strings.TrimSpace(c.Host)
-	if host == "" || strings.Contains(host, "://") || strings.ContainsAny(host, "/?#@ ") { return fmt.Errorf("LX 音源代理主机地址无效") }
-	port, err := strconv.Atoi(strings.TrimSpace(c.Port))
-	if err != nil || port < 1 || port > 65535 { return fmt.Errorf("LX 音源代理端口必须为 1 到 65535 之间的数字") }
-	if net.ParseIP(host) == nil && strings.Contains(host, ":") { return fmt.Errorf("LX 音源代理主机地址无效") }
-	return nil
-}
+const CurrentMusicConfigVersion = 13
 
 type MusicConfig struct {
 	ConfigVersion  int    `json:"config_version"`
@@ -34,9 +17,8 @@ type MusicConfig struct {
 	SkipCommand string `json:"skip_command"`
 	QueueCapacity  int    `json:"queue_capacity"`
 	QueueDisplayCount int `json:"queue_display_count"`
-	Volume int `json:"volume"`
-	LoudnessNormalization bool `json:"loudness_normalization"`
-	LXUserSourceProxy LXUserSourceProxyConfig `json:"lx_user_source_proxy"`
+	LXAPIEndpoints []string `json:"lx_api_endpoints"`
+	EnabledSearchSources []string `json:"enabled_search_sources"`
 	RequireFanMedal bool `json:"require_fan_medal"`
 	FanMedalLevel int `json:"fan_medal_level"`
 }
@@ -51,8 +33,9 @@ func DefaultMusicConfig() MusicConfig {
 		SkipCommand: "切歌",
 		QueueCapacity: 100,
 		QueueDisplayCount: 5,
-		Volume: 80,
 		FanMedalLevel: 1,
+		LXAPIEndpoints: []string{"http://127.0.0.1:23330"},
+		EnabledSearchSources: []string{"tx", "kw", "kg", "wy", "mg"},
 	}
 }
 
@@ -76,11 +59,15 @@ func MigrateMusicConfig(c MusicConfig) (MusicConfig, bool) {
 	if c.QueueDisplayCount >= 1 && c.QueueDisplayCount <= 1000 {
 		n.QueueDisplayCount = c.QueueDisplayCount
 	}
-	n.LXUserSourceProxy = c.LXUserSourceProxy
+	if c.LXAPIEndpoints != nil {
+		n.LXAPIEndpoints = append([]string{}, c.LXAPIEndpoints...)
+		if c.ConfigVersion < 13 && len(n.LXAPIEndpoints) > 1 {
+			n.LXAPIEndpoints = n.LXAPIEndpoints[:1]
+		}
+	}
+	if c.EnabledSearchSources != nil { n.EnabledSearchSources = append([]string{}, c.EnabledSearchSources...) }
 	n.RequireFanMedal = c.RequireFanMedal
 	if c.FanMedalLevel >= 1 && c.FanMedalLevel <= 120 { n.FanMedalLevel = c.FanMedalLevel }
-	n.LoudnessNormalization = c.LoudnessNormalization
-	if c.Volume > 0 && c.Volume <= 100 { n.Volume = c.Volume }
 	return n, true
 }
 
@@ -96,7 +83,6 @@ func (c MusicConfig) Validate() error {
 	}
 	if c.SkipCommandEnabled && strings.TrimSpace(c.SkipCommand) == "" { return fmt.Errorf("music skip command is required") }
 	if len([]rune(c.SkipCommand)) > 16 { return fmt.Errorf("music skip command is too long") }
-	if c.Volume < 0 || c.Volume > 100 { return fmt.Errorf("music volume must be between 0 and 100") }
 	if c.RequireFanMedal && (c.FanMedalLevel < 1 || c.FanMedalLevel > 120) { return fmt.Errorf("音乐点播粉丝勋章等级必须在 1 到 120 之间") }
 	if c.QueueCapacity < 1 || c.QueueCapacity > 1000 {
 		return fmt.Errorf("music queue capacity must be between 1 and 1000")
@@ -104,7 +90,23 @@ func (c MusicConfig) Validate() error {
 	if c.QueueDisplayCount < 1 || c.QueueDisplayCount > 1000 {
 		return fmt.Errorf("music queue display count must be between 1 and 1000")
 	}
-	if err := c.LXUserSourceProxy.Validate(); err != nil { return err }
+	if len(c.LXAPIEndpoints) > 10 { return fmt.Errorf("洛雪 API 地址最多允许配置 10 个") }
+	seenEndpoints := make(map[string]bool, len(c.LXAPIEndpoints))
+	for _, endpoint := range c.LXAPIEndpoints {
+		parsed, err := url.Parse(strings.TrimSpace(endpoint))
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return fmt.Errorf("无效的洛雪 API 地址：%s", endpoint)
+		}
+		key := strings.TrimRight(parsed.String(), "/")
+		if seenEndpoints[key] { return fmt.Errorf("洛雪 API 地址不能重复：%s", endpoint) }
+		seenEndpoints[key] = true
+	}
+	seenSources := make(map[string]bool, len(c.EnabledSearchSources))
+	for _, source := range c.EnabledSearchSources {
+		if source != "tx" && source != "kw" && source != "kg" && source != "wy" && source != "mg" { return fmt.Errorf("不支持的音乐搜索来源：%s", source) }
+		if seenSources[source] { return fmt.Errorf("音乐搜索来源不能重复：%s", source) }
+		seenSources[source] = true
+	}
 	return nil
 }
 
@@ -129,9 +131,8 @@ func LoadMusicConfig(m *Manager) (MusicConfig, error) {
 			"skip_command": true,
 			"queue_capacity": true,
 			"queue_display_count": true,
-			"volume": true,
-			"loudness_normalization": true,
-			"lx_user_source_proxy": true,
+			"lx_api_endpoints": true,
+			"enabled_search_sources": true,
 			"require_fan_medal": true,
 			"fan_medal_level": true,
 		}

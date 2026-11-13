@@ -13,14 +13,14 @@ func TestDefaultMusicConfigIsValid(t *testing.T) {
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if !c.Enabled || !c.CommandEnabled || c.QueueCapacity != 100 || c.QueueDisplayCount != 5 || c.Volume != 80 || c.LoudnessNormalization {
+	if !c.Enabled || !c.CommandEnabled || c.QueueCapacity != 100 || c.QueueDisplayCount != 5 {
 		t.Fatalf("defaults: %+v", c)
 	}
 }
 
 func TestMusicConfigMigrationDropsPlatformConfig(t *testing.T) {
 	c, changed := MigrateMusicConfig(MusicConfig{
-		ConfigVersion: 3, Enabled: true, CommandEnabled: true, Volume: 42,
+		ConfigVersion: 3, Enabled: true, CommandEnabled: true, 
 		CommandPrefix: "点歌", QueueCapacity: 80,
 	})
 	if !changed {
@@ -29,19 +29,18 @@ func TestMusicConfigMigrationDropsPlatformConfig(t *testing.T) {
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if c.ConfigVersion != CurrentMusicConfigVersion || c.QueueCapacity != 80 || c.Volume != 42 || c.LoudnessNormalization {
+	if c.ConfigVersion != CurrentMusicConfigVersion || c.QueueCapacity != 80 {
 		t.Fatalf("migrated: %+v", c)
 	}
 }
 
-func TestMusicConfigV7MigrationPreservesSkipCommandAndNormalization(t *testing.T) {
+func TestMusicConfigV7MigrationPreservesSkipCommand(t *testing.T) {
 	got, changed := MigrateMusicConfig(MusicConfig{
 		ConfigVersion: 7, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
-		SkipCommandEnabled: false, SkipCommand: "下一首", QueueCapacity: 100, Volume: 66,
-		LoudnessNormalization: true,
+		SkipCommandEnabled: false, SkipCommand: "下一首", QueueCapacity: 100,
 	})
 	if !changed { t.Fatal("expected v7 configuration migration") }
-	if got.SkipCommandEnabled || got.SkipCommand != "下一首" || !got.LoudnessNormalization || got.Volume != 66 {
+	if got.SkipCommandEnabled || got.SkipCommand != "下一首" {
 		t.Fatalf("v7 settings were not preserved: %+v", got)
 	}
 }
@@ -97,19 +96,10 @@ func TestLoadMusicConfigRemovesRetiredFieldsBeforeStrictDecode(t *testing.T) {
 	}
 }
 
-func TestLXUserSourceProxyConfigValidation(t *testing.T) {
-	if err := (LXUserSourceProxyConfig{}).Validate(); err != nil { t.Fatalf("disabled proxy should be valid: %v", err) }
-	valid := LXUserSourceProxyConfig{Enabled: true, Host: "127.0.0.1", Port: "7890"}
-	if err := valid.Validate(); err != nil { t.Fatalf("valid proxy rejected: %v", err) }
-	for _, value := range []LXUserSourceProxyConfig{{Enabled:true, Host:"", Port:"7890"}, {Enabled:true, Host:"127.0.0.1", Port:"0"}, {Enabled:true, Host:"http://127.0.0.1", Port:"7890"}} {
-		if err := value.Validate(); err == nil { t.Errorf("invalid proxy config accepted: %+v", value) }
-	}
-}
-
 func TestMusicConfigV8MigrationAddsIndependentFanMedalDefaults(t *testing.T) {
 	got, changed := MigrateMusicConfig(MusicConfig{
 		ConfigVersion: 8, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
-		SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100, Volume: 80,
+		SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100,
 		RequireFanMedal: true, FanMedalLevel: 6,
 	})
 	if !changed { t.Fatal("expected v8 configuration migration") }
@@ -121,7 +111,7 @@ func TestMusicConfigV8MigrationAddsIndependentFanMedalDefaults(t *testing.T) {
 func TestMusicConfigV9MigrationAddsQueueDisplayCount(t *testing.T) {
 	got, changed := MigrateMusicConfig(MusicConfig{
 		ConfigVersion: 9, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
-		SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100, Volume: 80,
+		SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100,
 	})
 	if !changed { t.Fatal("expected v9 configuration migration") }
 	if err := got.Validate(); err != nil { t.Fatal(err) }
@@ -147,4 +137,63 @@ func TestMusicConfigFanMedalLevelValidation(t *testing.T) {
 	if err := c.Validate(); err != nil { t.Fatalf("valid maximum medal level rejected: %v", err) }
 	c.FanMedalLevel = 121
 	if err := c.Validate(); err == nil { t.Fatal("expected medal level above 120 to be rejected") }
+}
+
+
+func TestMusicConfigV11MigrationAddsLXConnectionDefaults(t *testing.T) {
+	got, changed := MigrateMusicConfig(MusicConfig{
+		ConfigVersion: 11, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
+		SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100, QueueDisplayCount: 5,
+	})
+	if !changed { t.Fatal("expected v11 configuration migration") }
+	if err := got.Validate(); err != nil { t.Fatal(err) }
+	if len(got.LXAPIEndpoints) != 1 || got.LXAPIEndpoints[0] != "http://127.0.0.1:23330" {
+		t.Fatalf("unexpected 洛雪 API defaults: %#v", got.LXAPIEndpoints)
+	}
+	if len(got.EnabledSearchSources) != 5 || got.EnabledSearchSources[0] != "tx" {
+		t.Fatalf("unexpected search source priority: %#v", got.EnabledSearchSources)
+	}
+}
+
+func TestMusicConfigValidatesLXAPIEndpointsAndSearchSources(t *testing.T) {
+	c := DefaultMusicConfig()
+	if err := c.Validate(); err != nil { t.Fatalf("defaults should validate: %v", err) }
+	c.LXAPIEndpoints = []string{"ftp://127.0.0.1:23330"}
+	if err := c.Validate(); err == nil { t.Fatal("expected invalid API scheme to be rejected") }
+	c = DefaultMusicConfig()
+	c.LXAPIEndpoints = []string{"http://127.0.0.1:23330", "http://127.0.0.1:23330/"}
+	if err := c.Validate(); err == nil { t.Fatal("expected duplicate API endpoints to be rejected") }
+	c = DefaultMusicConfig()
+	c.EnabledSearchSources = []string{"tx", "unknown"}
+	if err := c.Validate(); err == nil { t.Fatal("expected unknown search source to be rejected") }
+	c = DefaultMusicConfig()
+	c.EnabledSearchSources = []string{"tx", "tx"}
+	if err := c.Validate(); err == nil { t.Fatal("expected duplicate search source to be rejected") }
+}
+
+func TestMusicConfigMigrationPreservesExplicitEmptySelections(t *testing.T) {
+	got, changed := MigrateMusicConfig(MusicConfig{
+		ConfigVersion: 11, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
+		QueueCapacity: 100, LXAPIEndpoints: []string{}, EnabledSearchSources: []string{},
+	})
+	if !changed { t.Fatal("expected v11 configuration migration") }
+	if got.LXAPIEndpoints == nil || got.EnabledSearchSources == nil {
+		t.Fatalf("explicit empty selections should remain empty, got endpoints=%#v sources=%#v", got.LXAPIEndpoints, got.EnabledSearchSources)
+	}
+	if len(got.LXAPIEndpoints) != 0 || len(got.EnabledSearchSources) != 0 {
+		t.Fatalf("expected empty selections, got endpoints=%#v sources=%#v", got.LXAPIEndpoints, got.EnabledSearchSources)
+	}
+}
+
+
+func TestMusicConfigV12MigrationClearsDefaultBackupEndpoint(t *testing.T) {
+	got, changed := MigrateMusicConfig(MusicConfig{ConfigVersion: 12, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌", SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100, QueueDisplayCount: 5, LXAPIEndpoints: []string{"http://127.0.0.1:23330", "http://192.168.1.3:23330"}})
+	if !changed { t.Fatal("expected v12 configuration migration") }
+	if len(got.LXAPIEndpoints) != 1 || got.LXAPIEndpoints[0] != "http://127.0.0.1:23330" { t.Fatalf("expected only primary 洛雪 API address, got %#v", got.LXAPIEndpoints) }
+}
+
+func TestMusicConfigV12MigrationPreservesEmptyEndpoints(t *testing.T) {
+	got, changed := MigrateMusicConfig(MusicConfig{ConfigVersion: 12, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌", QueueCapacity: 100, LXAPIEndpoints: []string{}})
+	if !changed { t.Fatal("expected v12 configuration migration") }
+	if got.LXAPIEndpoints == nil || len(got.LXAPIEndpoints) != 0 { t.Fatalf("explicitly empty API endpoints should remain empty, got %#v", got.LXAPIEndpoints) }
 }
