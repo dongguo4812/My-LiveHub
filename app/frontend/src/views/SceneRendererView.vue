@@ -216,9 +216,9 @@ function applyLive2DFrameTransforms() {
     if (!layer) return
     const target = frame.contentWindow as Live2DWindow | null
     target?.live2dSetModelTransform?.(
-      value.model_scale * (layer.live2d_scale || 1),
-      value.model_offset_x / 100 + (layer.live2d_x || 0),
-      value.model_offset_y / 100 + (layer.live2d_y || 0),
+      value.model_scale * (layer.live2d_scale || 100) / 100,
+      value.model_offset_x / 100 + (layer.live2d_x || 0) / 100,
+      value.model_offset_y / 100 + (layer.live2d_y || 0) / 100,
     )
   })
 }
