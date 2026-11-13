@@ -1127,6 +1127,8 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
         <el-divider />
         <div class="setting-row"><div><strong>播放队列容量</strong><p>统一队列允许等待的歌曲数量。</p></div><el-input-number v-model="config.queue_capacity" :min="1" :max="1000" /></div>
         <el-divider />
+        <div class="setting-row"><div><strong>待播显示数量</strong><p>控制场景展示页显示的待播歌曲条数；标题中的待播总数始终按实际观众点播队列统计。</p></div><el-input-number v-model="config.queue_display_count" :min="1" :max="1000" /></div>
+        <el-divider />
         <div class="setting-row"><div><strong>响度标准化</strong><p>使用 EBU R128 动态响度标准化，统一不同歌曲的整体响度并限制峰值；目标 -16 LUFS，真峰值不高于 -1.5 dBTP。</p></div><el-switch v-model="config.loudness_normalization" /></div>
       </div>
       <div class="card-actions"><el-button type="primary" :loading="saving" :disabled="!config" @click="saveConfig">保存全部设置</el-button></div>
