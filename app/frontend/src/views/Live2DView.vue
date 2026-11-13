@@ -499,6 +499,11 @@ async function toggleMicrophone(enabled: boolean) {
   }
 }
 
+function previewMicrophoneTuning(patch: Partial<Pick<Live2DConfig, 'microphone_sensitivity' | 'microphone_smoothing'>>) {
+  if (!settings.value) return
+  Object.assign(settings.value, patch)
+}
+
 async function changeDevice(deviceID: string) {
   await save({ microphone_device_id: deviceID })
   if (micActive.value) await startMicrophone()
@@ -607,8 +612,8 @@ onUnmounted(() => {
         <p class="hint">麦克风 RMS 音量实时映射到已检测到的模型嘴型参数。模型不支持时会明确显示检测结果。</p>
       </div>
       <div class="tuning-row">
-        <div><span>麦克风灵敏度</span><el-slider v-if="settings" :model-value="settings.microphone_sensitivity" :min="0.1" :max="10" :step="0.1" @change="save({ microphone_sensitivity: Number($event) })" /></div>
-        <div><span>口型平滑度</span><el-slider v-if="settings" :model-value="settings.microphone_smoothing" :min="0" :max="0.99" :step="0.01" @change="save({ microphone_smoothing: Number($event) })" /></div>
+        <div><span>麦克风灵敏度</span><el-slider v-if="settings" :model-value="settings.microphone_sensitivity" :min="0.1" :max="10" :step="0.1" @input="previewMicrophoneTuning({ microphone_sensitivity: Number($event) })" @change="save({ microphone_sensitivity: Number($event) })" /></div>
+        <div><span>口型平滑度</span><el-slider v-if="settings" :model-value="settings.microphone_smoothing" :min="0" :max="0.99" :step="0.01" @input="previewMicrophoneTuning({ microphone_smoothing: Number($event) })" @change="save({ microphone_smoothing: Number($event) })" /></div>
       </div>
     </el-card>
   </section>
