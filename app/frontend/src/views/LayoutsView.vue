@@ -25,7 +25,7 @@ function applyLive2DFrameTransform() {
     if (!layer) return
     const value = live2DLayer(layer)
     const target = frame.contentWindow as (Window & { live2dSetModelTransform?: (scale: number, x: number, y: number) => boolean }) | null
-    target?.live2dSetModelTransform?.(live2DScale(layer), value.live2d_x || 0, value.live2d_y || 0)
+    target?.live2dSetModelTransform?.(live2DDisplay.value ? live2DDisplay.value.model_scale * live2DScale(layer) : live2DScale(layer), (live2DDisplay.value?.model_offset_x || 0) / 100 + (value.live2d_x || 0), (live2DDisplay.value?.model_offset_y || 0) / 100 + (value.live2d_y || 0))
   })
 }
 function handleLive2DMessage(event: MessageEvent) {
