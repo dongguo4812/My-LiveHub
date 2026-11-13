@@ -264,16 +264,24 @@ onUnmounted(() => {
       <div v-else-if="layer.type === 'super_chat'" class="event-stack">
         <div v-for="item in superChats" :key="item.id" class="event-line sc-line"><strong>{{ item.user_name }} · ¥{{ Number(item.amount || 0).toFixed(2) }}</strong><span>{{ item.content }}</span></div>
       </div>
-      <section v-else-if="layer.type === 'music_queue'" class="music-simple-widget" :style="{ fontSize: ((layer.font_size || 22) / (scene?.height || 1080) * 100) + 'cqh' }">
-        <strong class="music-simple-heading">待播队列</strong>
-        <div v-if="musicQueue.items.length" class="music-simple-list">
-          <div v-for="(item, index) in musicQueue.items" :key="item.id" class="music-simple-row">
-            <span class="music-simple-index">{{ index + 1 }}.</span>
-            <span class="music-simple-song">{{ item.track.title }} - {{ item.track.artist || '未知歌手' }}</span>
-            <span class="music-simple-requester">{{ displayRequester(item.requested_by) }}</span>
+      <section v-else-if="layer.type === 'music_queue'" class="music-queue-widget" :style="{ fontSize: ((layer.font_size || 22) / (scene?.height || 1080) * 100) + 'cqh' }">
+        <strong class="music-queue-heading">当前播放</strong>
+        <div v-if="playback?.state === 'playing' && playback?.track" class="music-queue-list">
+          <div class="music-queue-item">
+            <span class="music-queue-track"><strong>{{ playback.track.title }}</strong><small>{{ playback.track.artist || '未知歌手' }}</small></span>
+            <span class="music-queue-requester">{{ displayRequester(musicQueue.current?.requested_by, '主播') }}</span>
           </div>
         </div>
-        <div v-else class="music-simple-empty">暂无待播歌曲</div>
+        <div v-else class="music-queue-empty">当前没有正在播放的歌曲</div>
+        <strong class="music-queue-heading">待播队列</strong>
+        <div v-if="musicQueue.items.length" class="music-queue-list">
+          <div v-for="(item, index) in musicQueue.items" :key="item.id" class="music-queue-item">
+            <span class="music-queue-index">{{ index + 1 }}</span>
+            <span class="music-queue-track"><strong>{{ item.track.title }}</strong><small>{{ item.track.artist || '未知歌手' }}</small></span>
+            <span v-if="item.requested_by !== '__my_livehub_search_play__'" class="music-queue-requester">{{ item.requested_by || '观众' }}</span>
+          </div>
+        </div>
+        <div v-else class="music-queue-empty">暂无待播点播歌曲</div>
       </section>
       <section v-else-if="layer.type === 'music_prompt'" class="music-simple-widget music-prompt-widget" :style="{ fontSize: ((layer.font_size || 22) / (scene?.height || 1080) * 100) + 'cqh' }">
         <strong class="music-simple-heading">点歌提示</strong>
@@ -285,13 +293,39 @@ onUnmounted(() => {
         </template>
         <div v-else class="music-simple-empty">音乐点歌功能未启用</div>
       </section>
-      <section v-else-if="layer.type === 'music'" class="music-simple-widget music-current-widget" :style="{ fontSize: ((layer.font_size || 22) / (scene?.height || 1080) * 100) + 'cqh' }">
-        <strong class="music-simple-heading">当前播放</strong>
-        <div v-if="playback?.state === 'playing' && playback?.track" class="music-simple-row">
-          <span class="music-simple-song">{{ playback.track.title }} - {{ playback.track.artist || '未知歌手' }}</span>
-          <span class="music-simple-requester">{{ displayRequester(musicQueue.current?.requested_by, '主播') }}</span>
+      <section v-else-if="layer.type === 'music' && playback?.state === 'playing' && playback?.track' class="music-widget" :style="{ '--random-color': musicAccentColor, '--details-bg': playback.track.cover_url ? 'url(' + JSON.stringify(playback.track.cover_url) + ')' : 'none', '--music-lyric-size': ((layer.font_size || 24) * 14 / 24) + 'px', '--music-translation-size': ((layer.font_size || 24) * 12 / 24) + 'px', '--music-status-size': ((layer.font_size || 24) * 14 / 24) + 'px' }">
+        <div class="music-main">
+          <div class="music-cover-wrap">
+            <div class="music-cover-blur" :style="{ backgroundImage: playback.track.cover_url ? 'url(' + JSON.stringify(playback.track.cover_url) + ')' : 'none' }"></div>
+            <div v-if="!playback.track.cover_url" class="music-cover-fallback">♫</div>
+            <img v-if="playback.track.cover_url" class="music-cover" :src="playback.track.cover_url" alt="" referrerpolicy="no-referrer" />
+          </div>
+          <div class="music-details">
+            <div class="music-song-info">
+              <div class="music-song-title">{{ playback.track.title }}</div>
+              <div class="music-song-author">{{ playback.track.artist || '未知歌手' }}</div>
+            </div>
+            <div class="music-song-time">
+              <span class="music-time">{{ formatTime(playback.position_ms) }}</span>
+              <div class="music-wave" aria-hidden="true">
+                <i v-for="(bar, index) in waveBars" :key="index" class="music-wavebar" :style="{ '--h': bar.height + 'px', '--speed': bar.speed + 's', '--delay': bar.delay + 's' }"></i>
+              </div>
+              <span class="music-time">{{ formatTime(playback.duration_ms || playback.track.duration_ms) }}</span>
+            </div>
+          </div>
         </div>
-        <div v-else class="music-simple-empty">当前没有正在播放的歌曲</div>
+        <div class="music-lyrics" :data-lyric-index="activeLyricIndex">
+          <template v-if="activeLyric">
+            <div class="music-lyric-viewport">
+              <strong class="music-lyric-text">{{ activeLyric.text }}</strong>
+            </div>
+            <div v-if="activeLyric.translation" class="music-lyric-viewport">
+              <span class="music-lyric-text">{{ activeLyric.translation }}</span>
+            </div>
+          </template>
+          <div v-else-if="!lyricsLoading && !lyricLines.length && !lyricsFailed" class="music-lyric-status">暂无同步歌词</div>
+          <div v-else-if="lyricsFailed" class="music-lyric-status">歌词获取失败</div>
+        </div>
       </section>
     </div>
   </main>
