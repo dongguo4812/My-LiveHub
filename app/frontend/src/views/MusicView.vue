@@ -29,6 +29,7 @@ const availableSearchSources = computed(() => {
   const enabled = config.value?.enabled_search_sources ?? []
   return musicSourceOptions.filter(item => !enabled.includes(item.id))
 })
+const endpointRows = computed(() => (config.value?.lx_api_endpoints ?? []).map((value, index) => ({ value, index })))
 function addLXAPIEndpoint() {
   if (config.value && config.value.lx_api_endpoints.length < 10) config.value.lx_api_endpoints.push('')
 }
@@ -464,15 +465,15 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
       <template #header><strong>洛雪客户端连接与搜索音源</strong></template>
       <p class="section-description">洛雪客户端需运行在本机。地址按从上到下的顺序尝试，前一个不可用时自动切换到下一个；播放通过 lxmusic:// 协议发起。</p>
       <div v-if="config" class="setting-list">
-        <div v-for="(endpoint, endpointIndex) in config.lx_api_endpoints" :key="endpointIndex" class="setting-row">
+        <div v-for="row in endpointRows" :key="row.index" class="setting-row">
           <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">
-            <strong style="white-space:nowrap">API {{ endpointIndex + 1 }}</strong>
-            <el-input v-model="config.lx_api_endpoints[endpointIndex]" placeholder="http://127.0.0.1:23330" />
+            <strong style="white-space:nowrap">API {{ row.index + 1 }}</strong>
+            <el-input v-model="config.lx_api_endpoints[row.index]" placeholder="http://127.0.0.1:23330" />
           </div>
           <div style="display:flex;gap:6px">
-            <el-button link :disabled="endpointIndex === 0" @click="moveLXAPIEndpoint(endpointIndex, -1)">上移</el-button>
-            <el-button link :disabled="endpointIndex === config.lx_api_endpoints.length - 1" @click="moveLXAPIEndpoint(endpointIndex, 1)">下移</el-button>
-            <el-button link type="danger" @click="removeLXAPIEndpoint(endpointIndex)">删除</el-button>
+            <el-button link :disabled="row.index === 0" @click="moveLXAPIEndpoint(row.index, -1)">上移</el-button>
+            <el-button link :disabled="row.index === config.lx_api_endpoints.length - 1" @click="moveLXAPIEndpoint(row.index, 1)">下移</el-button>
+            <el-button link type="danger" @click="removeLXAPIEndpoint(row.index)">删除</el-button>
           </div>
         </div>
       </div>
