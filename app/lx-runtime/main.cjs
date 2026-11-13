@@ -3,6 +3,7 @@
 const { app, BrowserWindow, ipcMain } = require('electron')
 const readline = require('node:readline')
 const path = require('node:path')
+const net = require('node:net')
 
 const EVENT = {
   initEnv: 'userApi_initEnv',
@@ -19,9 +20,10 @@ let windowRef = null
 let initialized = false
 let currentProxy = { host: '', port: '' }
 let closing = false
+let socket = null
 
 function output(type, name, params) {
-  process.stdout.write(JSON.stringify({ type, name, params }) + '\n')
+  if (socket && !socket.destroyed) socket.write(JSON.stringify({ type, name, params }) + '\n')
 }
 
 function send(name, params) {
@@ -63,11 +65,11 @@ function createWindow() {
   windowRef.webContents.session.setPermissionRequestHandler((contents, permission, callback) => callback(contents !== windowRef.webContents))
   windowRef.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   windowRef.on('closed', () => { windowRef = null })
-  windowRef.webContents.on('did-finish-load', () => process.stderr.write('LX runtime renderer loaded\\n'))
-  windowRef.webContents.on('preload-error', (_event, preloadPath, error) => process.stderr.write('LX preload error ' + preloadPath + ': ' + error.message + '\\n'))
-  windowRef.webContents.on('did-fail-load', (_event, code, description, url) => process.stderr.write('LX renderer load failed ' + code + ' ' + description + ' ' + url + '\\n'))
-  windowRef.webContents.on('render-process-gone', (_event, details) => process.stderr.write('LX renderer process gone ' + JSON.stringify(details) + '\\n'))
-  windowRef.once('ready-to-show', () => process.stderr.write('LX runtime ready-to-show\\n'))
+  windowRef.webContents.on('did-finish-load', () => process.stderr.write('LX runtime renderer loaded\n'))
+  windowRef.webContents.on('preload-error', (_event, preloadPath, error) => process.stderr.write('LX preload error ' + preloadPath + ': ' + error.message + '\n'))
+  windowRef.webContents.on('did-fail-load', (_event, code, description, url) => process.stderr.write('LX renderer load failed ' + code + ' ' + description + ' ' + url + '\n'))
+  windowRef.webContents.on('render-process-gone', (_event, details) => process.stderr.write('LX renderer process gone ' + JSON.stringify(details) + '\n'))
+  windowRef.once('ready-to-show', () => process.stderr.write('LX runtime ready-to-show\n'))
   const html = '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body></body></html>'
   return new Promise((resolve, reject) => {
     windowRef.once('ready-to-show', resolve)
@@ -106,10 +108,7 @@ onRendererEvent(EVENT.openDevTools, () => {
 onRendererEvent(EVENT.showUpdateAlert, params => envelope(EVENT.showUpdateAlert, params))
 onRendererEvent(EVENT.getProxy, () => send(EVENT.proxyUpdate, currentProxy))
 
-process.stderr.write('LX runtime main process started\\n')
-const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity })
-input.on('close', () => { closing = true; app.quit() })
-input.on('line', async line => {
+async function handleInputLine(line) {
   let message
   try { message = JSON.parse(line) } catch (_) { return }
   try {
@@ -134,10 +133,41 @@ input.on('line', async line => {
   } catch (error) {
     output('error', message.operation || '', { message: error && error.message ? error.message : String(error) })
   }
-})
+}
 
-app.whenReady().then(() => {
-  process.stderr.write('LX Electron app ready\\n')
+function getArgument(name) {
+  const args = process.argv.slice(1)
+  const index = args.indexOf(name)
+  return index >= 0 ? args[index + 1] : ''
+}
+
+function connectHost() {
+  const address = getArgument('--lx-runtime-ipc')
+  const token = getArgument('--lx-runtime-token')
+  if (!address || !token) return Promise.reject(new Error('Missing authenticated LX runtime IPC arguments'))
+  const [host, port] = address.split(':')
+  return new Promise((resolve, reject) => {
+    socket = net.createConnection({ host, port: Number(port) })
+    socket.once('error', reject)
+    socket.once('connect', () => {
+      socket.write(JSON.stringify({ type: 'hello', token }) + '\n')
+      const input = readline.createInterface({ input: socket, crlfDelay: Infinity })
+      input.on('line', handleInputLine)
+      input.on('close', () => { closing = true; app.quit() })
+      resolve()
+    })
+  })
+}
+
+app.whenReady().then(async () => {
+  process.stderr.write('LX Electron app ready\n')
+  try {
+    await connectHost()
+  } catch (error) {
+    process.stderr.write('LX runtime IPC connection failed: ' + error.message + '\n')
+    app.quit()
+    return
+  }
   app.on('window-all-closed', () => { if (!closing) app.quit() })
 })
 app.on('before-quit', () => { closing = true })
