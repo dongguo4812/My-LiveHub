@@ -464,7 +464,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
       <template #header><strong>洛雪客户端连接与搜索音源</strong></template>
       <p class="section-description">洛雪客户端需运行在本机。地址按从上到下的顺序尝试，前一个不可用时自动切换到下一个；播放通过 lxmusic:// 协议发起。</p>
       <div v-if="config" class="setting-list">
-        <div v-for="(endpoint, endpointIndex) in config.lx_api_endpoints" :key="index" class="setting-row">
+        <div v-for="(endpoint, endpointIndex) in config.lx_api_endpoints" :key="endpointIndex" class="setting-row">
           <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">
             <strong style="white-space:nowrap">API {{ endpointIndex + 1 }}</strong>
             <el-input v-model="config.lx_api_endpoints[endpointIndex]" placeholder="http://127.0.0.1:23330" />
