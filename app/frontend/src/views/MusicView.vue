@@ -965,7 +965,6 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
             </div>
             <span v-else-if="lxValidation[source.id]">该脚本没有可供当前搜索引擎使用的来源</span>
             <span v-if="source.source_url">{{ source.source_url }}</span>
-          </div>
           <div v-if="lxSourceTests[source.id]?.length" class="lx-source-test-results">
             <div v-for="item in lxSourceTests[source.id]" :key="item.platform" class="lx-source-test-result">
               <strong>{{ item.name || item.platform }}</strong>
@@ -973,6 +972,7 @@ onUnmounted(() => { if (statusTimer) clearInterval(statusTimer) })
               <span>{{ item.message }}</span>
               <small v-if="item.song">{{ item.song }}</small>
             </div>
+          </div>
           </div>
           <div class="lx-source-actions">
             <el-button link type="primary" @click="setActiveLXSource(source)">{{ activeLXSourceID === source.id ? '重新加载' : '启用' }}</el-button>
