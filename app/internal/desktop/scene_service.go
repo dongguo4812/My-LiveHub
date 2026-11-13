@@ -54,12 +54,6 @@ type sceneMusicProvider interface {
 	GetLyrics(music.Track) (string, error)
 }
 
-type sceneMusicResponse struct {
-	Snapshot    music.PlaybackSnapshot `json:"snapshot"`
-	Lyrics      string                 `json:"lyrics"`
-	LyricsError string                 `json:"lyrics_error,omitempty"`
-}
-
 type SceneService struct {
 	music sceneMusicProvider
 	mu       sync.RWMutex
@@ -84,6 +78,7 @@ func NewSceneService(manager *config.Manager, events *eventstream.Buffer, assets
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/scenes/", service.handleScene)
 	mux.HandleFunc("/api/music", service.handleMusic)
+	mux.HandleFunc("/api/music/lyrics", service.handleMusicLyrics)
 	mux.HandleFunc("/api/events", service.handleEvents)
 	mux.HandleFunc("/api/events/recent", service.handleRecentEvents)
 	mux.Handle("/", assets)
@@ -261,15 +256,30 @@ func (s *SceneService) handleMusic(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
-	response := sceneMusicResponse{Snapshot: snapshot}
-	if snapshot.Track != nil {
-		lyrics, lyricErr := s.music.GetLyrics(*snapshot.Track)
-		response.Lyrics = lyrics
-		if lyricErr != nil {
-			response.LyricsError = lyricErr.Error()
-		}
+	writeSceneJSON(w, snapshot)
+}
+
+func (s *SceneService) handleMusicLyrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
 	}
-	writeSceneJSON(w, response)
+	if s.music == nil {
+		http.Error(w, "music service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	var track music.Track
+	if err := json.NewDecoder(r.Body).Decode(&track); err != nil {
+		http.Error(w, "invalid music track", http.StatusBadRequest)
+		return
+	}
+	lyrics, err := s.music.GetLyrics(track)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeSceneJSON(w, map[string]string{"lyrics": lyrics})
 }
 
 func (s *SceneService) handleScene(w http.ResponseWriter, r *http.Request) {
