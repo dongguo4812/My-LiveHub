@@ -464,11 +464,15 @@ func (s *MusicService) playNext(parent context.Context) error {
 
 func (s *MusicService) Pause() error {
 	if s == nil || s.engine == nil { return music.ErrPlaybackEngineUnavailable }
-	return s.engine.Pause(context.Background())
+	if err := s.engine.Pause(context.Background()); err != nil { return err }
+	s.cancelPlaybackWatcher()
+	return nil
 }
 func (s *MusicService) Resume() error {
 	if s == nil || s.engine == nil { return music.ErrPlaybackEngineUnavailable }
-	return s.engine.Resume(context.Background())
+	if err := s.engine.Resume(context.Background()); err != nil { return err }
+	s.startPlaybackWatcher()
+	return nil
 }
 func (s *MusicService) Next() error {
 	if s == nil || s.engine == nil || s.queue == nil { return errors.New("music playback service is unavailable") }
@@ -674,7 +678,7 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 	defer ticker.Stop()
 	startedAt := time.Now()
 	sawEndPosition := false
-	sawPlaying := false
+	sawPlaying := true
 	for {
 		select {
 		case <-ctx.Done():
