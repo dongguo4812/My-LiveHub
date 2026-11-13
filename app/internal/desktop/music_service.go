@@ -249,35 +249,26 @@ func (s *MusicService) GetConfig() config.MusicConfig {
 func (s *MusicService) SaveConfig(value config.MusicConfig) error {
 	if s == nil || s.manager == nil { return errors.New("music configuration service is unavailable") }
 	if err := value.Validate(); err != nil { return err }
-	oldConfig := s.GetConfig()
-	processor, supportsAudioProcessing := s.engine.(music.PlaybackEngineAudioProcessing)
-	normalizationChanged := oldConfig.LoudnessNormalization != value.LoudnessNormalization
-	if value.LoudnessNormalization && !supportsAudioProcessing {
-		return errors.New("当前播放引擎不支持响度标准化")
-	}
-	if normalizationChanged && supportsAudioProcessing {
-		if err := processor.SetLoudnessNormalization(context.Background(), value.LoudnessNormalization); err != nil {
-			return fmt.Errorf("应用响度标准化设置失败：%w", err)
-		}
-	}
-	rollbackNormalization := func() error {
-		if normalizationChanged && supportsAudioProcessing {
-			return processor.SetLoudnessNormalization(context.Background(), oldConfig.LoudnessNormalization)
-		}
-		return nil
-	}
 	oldCapacity := s.queue.Snapshot().Capacity
-	if err := s.queue.Resize(value.QueueCapacity); err != nil {
-		if rollbackErr := rollbackNormalization(); rollbackErr != nil { return fmt.Errorf("调整播放队列失败：%v；恢复原响度标准化设置失败：%w", err, rollbackErr) }
-		return err
-	}
+	if err := s.queue.Resize(value.QueueCapacity); err != nil { return err }
 	if err := config.SaveTyped(s.manager, "music.json", value, func(candidate config.MusicConfig) error { return candidate.Validate() }); err != nil {
 		_ = s.queue.Resize(oldCapacity)
-		if rollbackErr := rollbackNormalization(); rollbackErr != nil { return fmt.Errorf("保存音乐配置失败：%v；恢复原响度标准化设置失败：%w", err, rollbackErr) }
 		return err
 	}
-	s.mu.Lock(); wasEnabled := s.value.Enabled; s.value = cloneMusicConfig(value); s.mu.Unlock(); if player, ok := s.engine.(*LXPlaybackEngine); ok { player.SetEndpoints(value.LXAPIEndpoints) }
-	if wasEnabled && !value.Enabled { s.cancelPlaybackWatcher(); _ = s.engine.Stop(context.Background()); s.queue.Clear(); s.queue.FinishCurrent(); s.mu.Lock(); s.history = nil; s.mu.Unlock() }
+	s.mu.Lock()
+	wasEnabled := s.value.Enabled
+	s.value = cloneMusicConfig(value)
+	s.mu.Unlock()
+	if player, ok := s.engine.(*LXPlaybackEngine); ok { player.SetEndpoints(value.LXAPIEndpoints) }
+	if wasEnabled && !value.Enabled {
+		s.cancelPlaybackWatcher()
+		_ = s.engine.Stop(context.Background())
+		s.queue.Clear()
+		s.queue.FinishCurrent()
+		s.mu.Lock()
+		s.history = nil
+		s.mu.Unlock()
+	}
 	return nil
 }
 
@@ -475,20 +466,6 @@ func (s *MusicService) playNext(parent context.Context) error {
 }
 
 
-// loadAndStartPlayback explicitly clears mpv's global pause property after
-// replacing the current file. mpv retains pause=true across loadfile calls,
-// so a viewer request that preempts a paused host track can otherwise appear
-// to switch tracks while remaining silent.
-func loadAndStartPlayback(ctx context.Context, engine music.PlaybackEngine, resource music.PlaybackResource, track music.Track) error {
-	if err := engine.Load(ctx, resource, track); err != nil {
-		return fmt.Errorf("mpv 加载歌曲失败：%w", err)
-	}
-	if err := engine.Resume(ctx); err != nil {
-		return fmt.Errorf("启动歌曲播放失败：%w", err)
-	}
-	return nil
-}
-
 func (s *MusicService) Pause() error {
 	if s == nil || s.engine == nil { return music.ErrPlaybackEngineUnavailable }
 	return s.engine.Pause(context.Background())
@@ -504,19 +481,7 @@ func (s *MusicService) Seek(positionMS int64) error {
 func (s *MusicService) SetVolume(volume int) error {
 	if s == nil || s.engine == nil { return music.ErrPlaybackEngineUnavailable }
 	if volume < 0 || volume > 100 { return fmt.Errorf("音量必须在 0 到 100 之间") }
-	if err := s.engine.SetVolume(context.Background(), volume); err != nil { return err }
-	s.mu.Lock()
-	next := s.value
-	next.Volume = volume
-	if s.manager != nil {
-		if err := config.SaveTyped(s.manager, "music.json", next, func(value config.MusicConfig) error { return value.Validate() }); err != nil {
-			s.mu.Unlock()
-			return fmt.Errorf("保存音乐音量失败：%w", err)
-		}
-	}
-	s.value = next
-	s.mu.Unlock()
-	return nil
+	return s.engine.SetVolume(context.Background(), volume)
 }
 
 func (s *MusicService) Next() error {
