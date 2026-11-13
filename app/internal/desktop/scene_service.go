@@ -54,6 +54,11 @@ type sceneVideoProvider interface {
 	GetSnapshot() VideoQueueSnapshot
 }
 
+type sceneLive2DProvider interface {
+	GetSettings() config.Live2DConfig
+	ListModels() ([]Live2DModel, error)
+}
+
 type sceneMusicProvider interface {
 	GetPlaybackStatus() (music.PlaybackSnapshot, error)
 	GetQueue() music.QueueSnapshot
@@ -72,19 +77,20 @@ type SceneService struct {
 	baseURL  string
 }
 
-func NewSceneService(manager *config.Manager, events *eventstream.Buffer, assets http.Handler, musicProvider sceneMusicProvider, videoProvider sceneVideoProvider) (*SceneService, error) {
+func NewSceneService(manager *config.Manager, events *eventstream.Buffer, assets http.Handler, musicProvider sceneMusicProvider, videoProvider sceneVideoProvider, live2dProvider sceneLive2DProvider) (*SceneService, error) {
 	if manager == nil || events == nil || assets == nil {
 		return nil, errors.New("scene service requires config, event buffer and asset handler")
 	}
 	if _, err := config.LoadTyped[LayoutConfig](manager, layoutConfigName, validateLayoutConfig); err != nil {
 		return nil, fmt.Errorf("load layout configuration: %w", err)
 	}
-	service := &SceneService{manager: manager, events: events, music: musicProvider, video: videoProvider}
+	service := &SceneService{manager: manager, events: events, music: musicProvider, video: videoProvider, live2d: live2dProvider}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/scenes/", service.handleScene)
 	mux.HandleFunc("/api/music", service.handleMusic)
 	mux.HandleFunc("/api/music/queue", service.handleMusicQueue)
 	mux.HandleFunc("/api/video/queue", service.handleVideoQueue)
+	mux.HandleFunc("/api/live2d", service.handleLive2D)
 	mux.HandleFunc("/api/music/config", service.handleMusicConfig)
 	mux.HandleFunc("/api/music/lyrics", service.handleMusicLyrics)
 	mux.HandleFunc("/api/events", service.handleEvents)
@@ -150,7 +156,7 @@ func validateLayoutConfig(value LayoutConfig) error {
 			}
 			layerIDs[layer.ID] = true
 			switch layer.Type {
-			case "text", "image", "clock", "danmaku", "gift", "super_chat", "music", "music_queue", "video_queue", "music_prompt":
+			case "text", "image", "clock", "danmaku", "gift", "super_chat", "music", "music_queue", "video_queue", "music_prompt", "live2d":
 			default:
 				return fmt.Errorf("不支持的图层类型：%s", layer.Type)
 			}
@@ -302,6 +308,45 @@ func (s *SceneService) handleMusicQueue(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeSceneJSON(w, s.music.GetQueue())
+}
+
+func (s *SceneService) handleLive2D(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.live2d == nil {
+		http.Error(w, "Live2D service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	settings := s.live2d.GetSettings()
+	models, err := s.live2d.ListModels()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	modelID := settings.DefaultModelMOC3
+	scale, offsetX, offsetY := settings.ModelScaleMOC3, settings.ModelOffsetXMOC3, settings.ModelOffsetYMOC3
+	if settings.RuntimeVersion == "moc2" {
+		modelID = settings.DefaultModelMOC2
+		scale, offsetX, offsetY = settings.ModelScaleMOC2, settings.ModelOffsetXMOC2, settings.ModelOffsetYMOC2
+	}
+	modelURL := ""
+	for _, model := range models {
+		if model.Format == settings.RuntimeVersion && model.ID == modelID {
+			modelURL = model.ModelURL
+			break
+		}
+	}
+	writeSceneJSON(w, map[string]any{
+		"enabled": settings.Enabled,
+		"runtime_version": settings.RuntimeVersion,
+		"model_id": modelID,
+		"model_url": modelURL,
+		"model_scale": scale,
+		"model_offset_x": offsetX,
+		"model_offset_y": offsetY,
+	})
 }
 
 func (s *SceneService) handleVideoQueue(w http.ResponseWriter, r *http.Request) {
