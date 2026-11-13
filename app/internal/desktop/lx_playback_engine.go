@@ -226,6 +226,9 @@ func parseLXPlaybackSnapshot(value any) music.PlaybackSnapshot {
 			snapshot.State = music.PlaybackPaused
 		case playing || status == "playing" || status == "play" || status == "1" || status == "true":
 			snapshot.State = music.PlaybackPlaying
+		case status == "error" || status == "failed":
+			snapshot.State = music.PlaybackError
+			snapshot.Error = firstNonEmpty(lxString(object["error"]), lxString(object["message"]), "洛雪报告播放失败")
 		case object["playing"] == false || status == "stopped" || status == "stop" || status == "0" || status == "false" || status == "ended" || status == "停止":
 			snapshot.State = music.PlaybackStopped
 		}
