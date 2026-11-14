@@ -173,7 +173,7 @@ func validateLayoutConfig(value LayoutConfig) error {
 			}
 			layerIDs[layer.ID] = true
 			switch layer.Type {
-			case "text", "image", "clock", "danmaku", "gift", "super_chat", "music", "music_queue", "video_queue", "music_prompt", "live2d", "emoticon", "lol_hex_display", "lol_hex_bar":
+			case "text", "image", "clock", "danmaku", "gift", "super_chat", "music", "music_queue", "video_queue", "music_prompt", "live2d", "emoticon", "lol_hex_display", "lol_hex_bar", "request_notice":
 			default:
 				return fmt.Errorf("不支持的图层类型：%s", layer.Type)
 			}
@@ -188,6 +188,9 @@ func validateLayoutConfig(value LayoutConfig) error {
 			}
 			if layer.Type == "super_chat" && layer.SuperChatDisplayDuration != 0 && (layer.SuperChatDisplayDuration < 1 || layer.SuperChatDisplayDuration > 120) {
 				return fmt.Errorf("图层 %q 的 SC 显示时间必须在 1 到 120 秒之间", layer.Name)
+			}
+			if layer.Type == "request_notice" && layer.RequestNoticeDisplayDuration != 0 && (layer.RequestNoticeDisplayDuration < 1 || layer.RequestNoticeDisplayDuration > 120) {
+				return fmt.Errorf("图层 %q 的点播结果通知显示时间必须在 1 到 120 秒之间", layer.Name)
 			}
 		}
 	}
