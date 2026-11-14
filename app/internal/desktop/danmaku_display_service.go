@@ -102,6 +102,7 @@ func (s *DanmakuDisplayService) OpenWindow() error {
 	options := application.WebviewWindowOptions{
 		Name: "danmaku-overlay", Title: "", Width: cfg.Width, Height: cfg.Height,
 		MinWidth: 420, MinHeight: 180, Frameless: true, DisableResize: false,
+		HiddenOnTaskbar: true,
 		BackgroundType: application.BackgroundTypeTransparent, BackgroundColour: application.NewRGBA(0, 0, 0, 0),
 		URL: "/#/danmaku/overlay",
 		Windows: application.WindowsWindow{DisableFramelessWindowDecorations: true},
