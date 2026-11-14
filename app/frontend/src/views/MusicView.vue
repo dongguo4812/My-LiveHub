@@ -468,7 +468,7 @@ onUnmounted(() => {
       </div>
       <div class="card-actions"><el-button type="primary" :loading="saving" :disabled="!config" @click="saveConfig">保存全部设置</el-button></div>
     </el-card>
-    <div v-if="activeTab !== 'now-playing'" class="mini-player">
+    <div v-if="activeTab === 'search' || activeTab === 'visitor-requests'" class="mini-player">
       <div class="mini-player-track">
         <img v-if="playback?.track?.cover_url" :src="playback.track.cover_url" alt="当前歌曲封面" />
         <el-icon v-else><Headset /></el-icon>
