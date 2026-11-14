@@ -17,7 +17,7 @@ type VideoQueue = { enabled: boolean; running: boolean; current?: VideoQueueItem
 type Live2DDisplay = { enabled: boolean; runtime_version: 'moc2' | 'moc3'; model_url: string; model_scale: number; model_offset_x: number; model_offset_y: number }
 type Live2DWindow = Window & { live2dSetModelTransform?: (scale: number, x: number, y: number) => boolean; live2dSetMouthOpen?: (value: number) => void }
 type MusicDisplayConfig = { enabled: boolean; command_enabled: boolean; command_prefix: string; skip_command_enabled: boolean; skip_command: string; require_fan_medal: boolean; fan_medal_level: number }
-type RequestNotice = { id: number; kind: 'music_request_success' | 'music_request_failed' | 'music_skip_success' | 'music_skip_failed' | 'video_request_success' | 'video_request_failed' | 'video_skip_success' | 'video_skip_failed'; user_name: string; item_name?: string; reason?: string; timestamp: number }
+type RequestNotice = { id: number; kind: 'music_request_success' | 'music_request_failed' | 'music_skip_success' | 'music_skip_failed' | 'video_request_success' | 'video_request_failed' | 'video_skip_success' | 'video_skip_failed' | 'video_skip_finished'; user_name: string; item_name?: string; reason?: string; timestamp: number }
 const route = useRoute()
 const scene = ref<Scene | null>(null)
 const lolHexFrameURLs = ref<Record<string, string>>({})
@@ -284,6 +284,7 @@ function requestNoticeText(notice: RequestNotice) {
     case 'video_request_failed': return '🎬' + user + '点播失败：' + (notice.reason || '未知原因')
     case 'video_skip_success': return '🎬' + user + '视频切换成功'
     case 'video_skip_failed': return '🎬' + user + '视频切换失败：' + (notice.reason || '未知原因')
+    case 'video_skip_finished': return '🎬' + user + '没有下一条视频，播放已结束'
   }
 }
 function handleEvent(event: MessageEvent<string>) {
@@ -467,7 +468,7 @@ onUnmounted(() => {
   <main v-if="scene" class="scene-output" :style="{ aspectRatio: scene.width + ' / ' + scene.height, background: scene.background === 'transparent' ? 'transparent' : scene.background }">
     <div v-for="layer in scene.layers.filter(item => item.visible && (item.type !== 'music_queue' || musicDisplayConfig?.command_enabled === true) && (item.type !== 'video_queue' || (videoQueue.running === true && videoQueue.enabled === true)) && (item.type !== 'live2d' || Boolean(live2DFrameURL)))" :key="layer.id" class="output-layer" :class="{ 'request-notice-output-layer': layer.type === 'request_notice', 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue', 'video-queue-output-layer': layer.type === 'video_queue', 'emoticon-output-layer': layer.type === 'emoticon' }" :style="layerStyle(layer)">
       <div v-if="layer.type === 'request_notice'" class="request-notice-stack">
-        <div v-for="notice in currentRequestNotices" :key="notice.id + ':' + notice.timestamp" class="request-notice-widget" :class="{ 'is-failed': notice.kind.endsWith('_failed') }" :style="{ color: notice.kind.endsWith('_failed') ? '#ffb2b2' : (layer.color || '#a7f3c0') }">{{ requestNoticeText(notice) }}</div>
+        <div v-for="notice in requestNoticesForLayer(layer)" :key="notice.id + ':' + notice.timestamp" class="request-notice-widget" :class="{ 'is-failed': notice.kind.endsWith('_failed') }" :style="{ color: notice.kind.endsWith('_failed') ? '#ffb2b2' : (layer.color || '#a7f3c0') }">{{ requestNoticeText(notice) }}</div>
       </div>
       <span v-else-if="layer.type === 'text'">{{ layer.text }}</span>
       <img v-else-if="layer.type === 'image' && layer.url" :src="layer.url" alt="" />
