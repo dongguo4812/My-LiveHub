@@ -109,11 +109,23 @@ type lolHexPIDRecord struct {
 }
 
 func (s *LOLHexService) readPIDRecord() lolHexPIDRecord {
-	data, err := os.ReadFile(filepath.Join(s.extensionDir, "lol_hex_display.pid"))
-	if err != nil { return lolHexPIDRecord{} }
-	var record lolHexPIDRecord
-	if json.Unmarshal(data, &record) != nil || record.PID <= 0 { return lolHexPIDRecord{} }
-	return record
+	// Source mode writes beside launcher.py; the packaged EXE writes beside
+	// itself under dist/lol_hex_display. Check both locations.
+	paths := []string{
+		filepath.Join(s.extensionDir, "lol_hex_display.pid"),
+		filepath.Join(s.extensionDir, "dist", "lol_hex_display", "lol_hex_display.pid"),
+	}
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var record lolHexPIDRecord
+		if json.Unmarshal(data, &record) == nil && record.PID > 0 {
+			return record
+		}
+	}
+	return lolHexPIDRecord{}
 }
 
 func (s *LOLHexService) readPID() int { return s.readPIDRecord().PID }
@@ -144,7 +156,8 @@ func (s *LOLHexService) Start() (LOLHexStatus, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if healthy, _ := s.health(); healthy {
-		s.owned = false
+		// Preserve this service instance's ownership on repeated Start clicks.
+		// Never adopt an instance carrying a different or missing manager token.
 		return s.GetStatusUnlocked(), nil
 	}
 	if s.owned {
@@ -180,6 +193,9 @@ func (s *LOLHexService) Start() (LOLHexStatus, error) {
 	tokenBytes := make([]byte, 24)
 	if _, err := rand.Read(tokenBytes); err != nil { return LOLHexStatus{}, fmt.Errorf("生成扩展进程身份令牌失败：%w", err) }
 	s.token = hex.EncodeToString(tokenBytes)
+	// Explicit argv survives the ShellExecuteW UAC relaunch; retain the
+	// environment variable for compatibility with existing launch paths.
+	command.Args = append(command.Args, "--manager-token", s.token)
 	command.Env = append(os.Environ(), "PYTHONUNBUFFERED=1", "LOL_HEX_MANAGED_BY_MY_LIVEHUB=1", "LOL_HEX_MANAGER_TOKEN="+s.token)
 	command.Stdout, command.Stderr = nil, nil
 	if err := command.Start(); err != nil {
