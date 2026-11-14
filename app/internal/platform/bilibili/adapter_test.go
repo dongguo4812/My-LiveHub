@@ -781,3 +781,20 @@ func TestGiftCatalogForceRefreshBypassesMemoryTTL(t *testing.T) {
 		t.Fatalf("forced refresh made total %d requests, want 2", requests)
 	}
 }
+
+
+func TestAdapterResolvesGiftImageFromRawSendGift(t *testing.T) {
+	buffer := eventstream.NewBuffer()
+	buffer.Add(eventstream.Event{PlatformID:"bilibili", Source:"live", Type:"gift", RoomID:12345, GiftID:30607, GiftName:"活动礼物"})
+	catalog := resource.NewCatalog()
+	a := &Adapter{events:buffer, mediaCatalog:catalog}
+	a.addGiftEventImage(12345, []byte(`{"data":{"giftId":30607,"giftName":"活动礼物","gift_info":{"id":30607,"name":"活动礼物","img_basic":"http://i0.hdslb.com/bfs/live/activity.png","gif":"http://i0.hdslb.com/bfs/live/activity.gif","price":1000}}}`))
+	events := buffer.Snapshot()
+	if len(events)!=1 || events[0].GiftImageURL!="https://i0.hdslb.com/bfs/live/activity.png" || events[0].GiftAnimationURL!="https://i0.hdslb.com/bfs/live/activity.gif" {
+		t.Fatalf("raw SEND_GIFT image metadata was not applied: %+v",events)
+	}
+	item,ok:=catalog.Find("bilibili","12345",resource.TypeGift,"30607")
+	if !ok || item.AnimationURL!="https://i0.hdslb.com/bfs/live/activity.gif" {
+		t.Fatalf("raw SEND_GIFT resource was not registered: %+v, found=%t",item,ok)
+	}
+}
