@@ -121,11 +121,14 @@ function addLayer(type: string) {
   scene.value.layers.push(layer)
   selectedLayerID.value = layer.id
 }
-function selectLayer(layer: LayoutLayer) {
-  selectedLayerID.value = layer.id
+function ensureLayerDefaults(layer: LayoutLayer) {
   if (layer.type === 'lol_hex_display' || layer.type === 'lol_hex_bar') {
     contentScaleLayer(layer).content_scale ??= 100
   }
+}
+function selectLayer(layer: LayoutLayer) {
+  selectedLayerID.value = layer.id
+  ensureLayerDefaults(layer)
   if (layer.type === 'live2d') {
     const value = live2DLayer(layer)
     value.live2d_scale ??= 100
@@ -163,6 +166,7 @@ function persistLive2DLayer(layer: LayoutLayer) {
 function startDrag(event: PointerEvent, layer: LayoutLayer) {
   if (!canvas.value || event.button !== 0) return
   selectedLayerID.value = layer.id
+  ensureLayerDefaults(layer)
   if (layer.type === 'live2d') {
     const value = live2DLayer(layer)
     value.live2d_scale ??= 100
