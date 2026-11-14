@@ -329,7 +329,7 @@ func TestStoppedMusicModuleStillReportsConfiguredCommands(t *testing.T) {
 	notices, cancel := broker.Subscribe()
 	defer cancel()
 
-	buffer.Publish(events.Event{Type: "danmaku", Content: value.SkipCommand, UserName: "主播"})
+	buffer.Add(events.Event{Type: "danmaku", Content: value.SkipCommand, UserName: "主播"})
 	select {
 	case notice := <-notices:
 		if notice.Kind != "music_skip_failed" || notice.Reason != "音乐模块未启动" {
