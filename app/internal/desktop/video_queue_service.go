@@ -62,6 +62,8 @@ func NewVideoQueueService(manager *config.Manager, settings config.BilibiliConfi
 	if manager == nil || resolver == nil || webview == nil || eventBuffer == nil {
 		return nil, errors.New("视频点播队列依赖未初始化")
 	}
+	if strings.TrimSpace(settings.VideoRequestPrefix) == "" { settings.VideoRequestPrefix = "点播" }
+	if strings.TrimSpace(settings.VideoSkipCommand) == "" { settings.VideoSkipCommand = "下一个" }
 	s := &VideoQueueService{manager:manager, settings:settings, resolver:resolver, webview:webview,
 		events:eventBuffer, lastRequest:make(map[int]time.Time), pending:make(map[string]bool), queue:make([]VideoQueueItem,0)}
 	return s, nil
@@ -154,6 +156,8 @@ func (s *VideoQueueService) GetSettings() config.BilibiliConfig {
 
 func (s *VideoQueueService) UpdateSettings(next config.BilibiliConfig) (config.BilibiliConfig, error) {
 	if s == nil || s.manager == nil { return config.BilibiliConfig{}, errors.New("视频设置服务不可用") }
+	if strings.TrimSpace(next.VideoRequestPrefix) == "" { next.VideoRequestPrefix = "点播" }
+	if strings.TrimSpace(next.VideoSkipCommand) == "" { next.VideoSkipCommand = "下一个" }
 	if err := next.Validate(); err != nil { return config.BilibiliConfig{}, err }
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -330,7 +334,12 @@ func (s *VideoQueueService) handleEvent(event eventstream.Event) {
 	s.mu.Unlock()
 	if event.PlatformID != "bilibili" || event.Source != "live" || event.Type != "danmaku" { return }
 	text := strings.TrimSpace(event.Content)
-	if text == "下一个" {
+	s.mu.Lock()
+	skipEnabled := s.settings.VideoSkipCommandEnabled
+	skipCommand := strings.TrimSpace(s.settings.VideoSkipCommand)
+	requestPrefix := strings.TrimSpace(s.settings.VideoRequestPrefix)
+	s.mu.Unlock()
+	if skipEnabled && skipCommand != "" && text == skipCommand {
 		if event.IsModerator || event.IsRoomOwner { _ = s.SkipCurrent() }
 		return
 	}
@@ -338,10 +347,18 @@ func (s *VideoQueueService) handleEvent(event eventstream.Event) {
 		if event.IsModerator || event.IsRoomOwner { s.ClearQueue() }
 		return
 	}
-	if !strings.HasPrefix(text, "点播") { return }
-	match := videoRequestBVPattern.FindString(text)
+	match := parseVideoRequest(text, requestPrefix)
 	if match == "" { return }
 	go s.processVideoRequest(event, match, generation)
+}
+
+func parseVideoRequest(content, prefix string) string {
+	content = strings.TrimSpace(content)
+	prefix = strings.TrimSpace(prefix)
+	if content == "" || prefix == "" || !strings.HasPrefix(content, prefix) { return "" }
+	remainder := strings.TrimSpace(strings.TrimPrefix(content, prefix))
+	if remainder == "" { return "" }
+	return videoRequestBVPattern.FindString(remainder)
 }
 
 func (s *VideoQueueService) processVideoRequest(event eventstream.Event, bvid string, generation uint64) {
