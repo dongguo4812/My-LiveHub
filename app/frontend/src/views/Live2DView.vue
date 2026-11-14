@@ -101,6 +101,7 @@ let live2DStatusEndpoint = ''
 let live2DModuleStatusTimer: ReturnType<typeof setInterval> | undefined
 const live2DModuleEnabled = ref(false)
 let microphoneStarting = false
+let lastKnownLive2DModuleEnabled: boolean | null = null
 
 function broadcastMouthOpen(value: number) {
   const bounded = Math.max(0, Math.min(1, value))
@@ -132,7 +133,6 @@ async function resolveMouthSyncEndpoint() {
 async function refreshLive2DModuleStatus() {
   if (!live2DStatusEndpoint) {
     live2DModuleEnabled.value = false
-    if (micActive.value) stopMicrophone()
     return
   }
   try {
@@ -140,9 +140,11 @@ async function refreshLive2DModuleStatus() {
     const data = response.ok ? await response.json() as { enabled?: boolean } : null
     live2DModuleEnabled.value = data?.enabled === true
   } catch {
-    live2DModuleEnabled.value = false
+    // A temporary status request failure must not disable manual microphone control.
+    return
   }
-  if (!live2DModuleEnabled.value && micActive.value) stopMicrophone()
+  if (lastKnownLive2DModuleEnabled === true && !live2DModuleEnabled.value && micActive.value) stopMicrophone()
+  lastKnownLive2DModuleEnabled = live2DModuleEnabled.value
   // Preserve the user's microphone preference across Live2D module restarts.
   if (live2DModuleEnabled.value && settings.value?.microphone_enabled && !micActive.value && !microphoneStarting) {
     await startMicrophone()
@@ -487,11 +489,6 @@ async function startMicrophone() {
   if (micActive.value || microphoneStarting) return
   microphoneStarting = true
   micError.value = ''
-  if (!live2DModuleEnabled.value) {
-    micError.value = '请先启动 Live2D 模块，再启用口型同步'
-    microphoneStarting = false
-    return
-  }
   if (!navigator.mediaDevices?.getUserMedia) {
     micError.value = '当前 WebView 不支持麦克风采集'
     microphoneStarting = false
@@ -639,7 +636,7 @@ onUnmounted(() => {
             <el-option v-for="device in devices" :key="device.deviceId" :label="device.label || '麦克风设备'" :value="device.deviceId" />
           </el-select>
         </div>
-        <el-button v-if="!micActive" type="primary" :disabled="!live2DModuleEnabled" @click="toggleMicrophone(true)">启动麦克风</el-button>
+        <el-button v-if="!micActive" type="primary" @click="toggleMicrophone(true)">启动麦克风</el-button>
         <el-button v-else type="danger" plain @click="toggleMicrophone(false)">停止采集</el-button>
       </div>
       <el-alert v-if="micError" type="error" :title="'麦克风启动失败：' + micError" :closable="false" show-icon />
