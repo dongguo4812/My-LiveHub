@@ -125,7 +125,7 @@ def register_bar_routes(
                     log.debug("[战绩条] 推送组队人数变更失败", exc_info=True)
 
     def start_worker():
-        """由主程序在取得单实例锁并完成初始化后启动自动刷新线程。"""
+        """由主程序在取得单实例锁并完成初始化后启动后台线程。"""
         nonlocal worker
         with worker_lock:
             if worker is not None:
@@ -139,6 +139,13 @@ def register_bar_routes(
                 daemon=True,
             )
             worker.start()
+            # 头像下载与战绩刷新解耦；多个常驻工作线程并发补齐资源。
+            for index in range(CHAMPION_ICON_WORKER_COUNT):
+                threading.Thread(
+                    target=champion_icon_prefetch_worker,
+                    name=f"lol-champion-icon-prefetch-{index + 1}",
+                    daemon=True,
+                ).start()
 
     def stop_worker():
         """通知刷新线程退出；有限等待当前缓存提交完成后再等待线程收尾。"""
@@ -700,6 +707,18 @@ def register_bar_routes(
                     ", ".join(sorted(newly_seen_ids)),
                 )
 
+            # 头像预取不阻塞战绩刷新和页面请求；覆盖账号缓存中的英雄，
+            # 因而首次启动、已有战绩缓存以及新增对局都会自动补齐本地资源。
+            cached_records = old.get("matches", []) if isinstance(old, dict) else []
+            schedule_champion_icon_prefetch(
+                (
+                    item.get("championId")
+                    for item in cached_records
+                    if isinstance(item, dict)
+                ),
+                credentials=refresh_credentials,
+            )
+
             log.info("[战绩条] %s", message)
             return True, message, bool(newly_seen_ids)
 
@@ -1168,12 +1187,15 @@ def register_bar_routes(
 
             return result
 
-    # 英雄头像统一由本地代理加载。优先使用 CDragon CDN 图片接口，
-    # raw 目录作为备用；兼容 PNG/JPEG/WebP，避免只接受 PNG 导致图片被误判。
+    # 头像资源策略与 lol-hexbar 一致：后台预取、磁盘缓存、HTTP 路由只读缓存。
     champion_icon_dir = data_dir / "bar_champion_icons"
     champion_icon_dir.mkdir(parents=True, exist_ok=True)
-    # 每个英雄使用独立锁：不同英雄头像可以并发下载，避免一个慢 CDN 请求
-    # 把整条战绩条的所有头像串行阻塞。相同英雄仍只会有一个请求写入缓存。
+    CHAMPION_ICON_WORKER_COUNT = 4
+    CHAMPION_ICON_FAILURE_COOLDOWN = 300
+    champion_icon_queue = queue.Queue()
+    champion_icon_pending = set()
+    champion_icon_failed_until = {}
+    champion_icon_state_lock = threading.Lock()
     champion_icon_locks = {}
     champion_icon_locks_guard = threading.Lock()
 
@@ -1186,9 +1208,9 @@ def register_bar_routes(
             return icon_lock
 
     def detect_champion_image_type(image_bytes):
-        if image_bytes.startswith(b"\\x89PNG\\r\\n\\x1a\\n"):
+        if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
             return "image/png", ".png"
-        if image_bytes.startswith(b"\\xff\\xd8\\xff"):
+        if image_bytes.startswith(b"\xff\xd8\xff"):
             return "image/jpeg", ".jpg"
         if image_bytes.startswith((b"GIF87a", b"GIF89a")):
             return "image/gif", ".gif"
@@ -1200,87 +1222,163 @@ def register_bar_routes(
             return "image/webp", ".webp"
         return None, None
 
+    def read_cached_champion_icon(champion_id):
+        cached_path = champion_icon_dir / f"{champion_id}.img"
+        try:
+            image_bytes = cached_path.read_bytes()
+        except OSError:
+            return None
+        mimetype, _ = detect_champion_image_type(image_bytes)
+        if not mimetype:
+            try:
+                cached_path.unlink()
+            except OSError:
+                pass
+            return None
+        return image_bytes, mimetype
+
+    def write_cached_champion_icon(champion_id, image_bytes, source):
+        mimetype, extension = detect_champion_image_type(image_bytes)
+        if not mimetype:
+            raise ValueError("响应不是受支持的图片格式")
+        cached_path = champion_icon_dir / f"{champion_id}.img"
+        temp_path = cached_path.with_name(
+            f"{champion_id}.{threading.get_ident()}.img.tmp"
+        )
+        try:
+            with temp_path.open("wb") as stream:
+                stream.write(image_bytes)
+                stream.flush()
+            temp_path.replace(cached_path)
+        finally:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        log.info(
+            "[战绩条] 已预取英雄头像：champion_id=%s，source=%s，type=%s，bytes=%s",
+            champion_id, source, mimetype, len(image_bytes),
+        )
+        return mimetype
+
+    def download_champion_icon(champion_id, credentials=None):
+        """LCU 本地资源优先；失败后回退 CommunityDragon，并原子写入缓存。"""
+        if champion_id <= 0 or stop_event.is_set():
+            return False
+        if read_cached_champion_icon(champion_id) is not None:
+            return True
+
+        errors = []
+        if credentials:
+            try:
+                if (
+                    get_lcu_credentials() != credentials
+                    or (client_is_recognized is not None and not client_is_recognized())
+                    or (lcu_is_available is not None and not lcu_is_available())
+                ):
+                    raise RuntimeError("LCU 凭据已失效或客户端不可用")
+                port, token = credentials
+                response = requests.get(
+                    f"https://127.0.0.1:{int(port)}/lol-game-data/assets/v1/champion-icons/{champion_id}.png",
+                    auth=("riot", str(token)),
+                    verify=False,
+                    timeout=(1.5, 3.0),
+                    headers={
+                        "Accept": "image/png,image/*;q=0.8,*/*;q=0.5",
+                        "User-Agent": "My-LiveHub LOL Hex",
+                    },
+                )
+                response.raise_for_status()
+                image_bytes = response.content
+                write_cached_champion_icon(champion_id, image_bytes, "LCU")
+                return True
+            except Exception as exc:
+                errors.append(f"LCU: {type(exc).__name__}: {exc}")
+
+        source_urls = (
+            f"https://cdn.communitydragon.org/latest/champion/{champion_id}/square",
+            (
+                "https://raw.communitydragon.org/latest/plugins/"
+                "rcp-be-lol-game-data/global/default/v1/champion-icons/"
+                f"{champion_id}.png"
+            ),
+        )
+        for source_url in source_urls:
+            if stop_event.is_set():
+                return False
+            try:
+                response = requests.get(
+                    source_url,
+                    timeout=(3, 8),
+                    headers={
+                        "User-Agent": "Mozilla/5.0",
+                        "Accept": "image/avif,image/webp,image/png,image/jpeg,*/*",
+                    },
+                )
+                response.raise_for_status()
+                write_cached_champion_icon(champion_id, response.content, source_url)
+                return True
+            except Exception as exc:
+                errors.append(f"{source_url}: {type(exc).__name__}: {exc}")
+
+        with champion_icon_state_lock:
+            champion_icon_failed_until[champion_id] = (
+                time.monotonic() + CHAMPION_ICON_FAILURE_COOLDOWN
+            )
+        log.warning(
+            "[战绩条] 英雄头像预取失败：champion_id=%s；%s",
+            champion_id, " | ".join(errors),
+        )
+        return False
+
+    def schedule_champion_icon_prefetch(champion_ids, credentials=None):
+        if not credentials:
+            credentials = get_lcu_credentials()
+        for raw_id in champion_ids:
+            champion_id = safe_int(raw_id)
+            if champion_id <= 0 or read_cached_champion_icon(champion_id) is not None:
+                continue
+            with champion_icon_state_lock:
+                if champion_id in champion_icon_pending:
+                    continue
+                if time.monotonic() < champion_icon_failed_until.get(champion_id, 0):
+                    continue
+                champion_icon_pending.add(champion_id)
+            champion_icon_queue.put((champion_id, credentials))
+
+    def champion_icon_prefetch_worker():
+        while not stop_event.is_set():
+            try:
+                champion_id, credentials = champion_icon_queue.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            try:
+                with get_champion_icon_lock(champion_id):
+                    download_champion_icon(champion_id, credentials)
+            except Exception:
+                log.exception("[战绩条] 英雄头像后台预取异常：champion_id=%s", champion_id)
+            finally:
+                with champion_icon_state_lock:
+                    champion_icon_pending.discard(champion_id)
+                champion_icon_queue.task_done()
+
     @bp.get("/asset/champion/<int:champion_id>.png")
     def champion_icon(champion_id):
         if champion_id <= 0:
             return Response(status=404, headers={"Cache-Control": "no-store"})
-
-        cached_path = champion_icon_dir / f"{champion_id}.img"
-
-        def cached_response():
-            try:
-                image_bytes = cached_path.read_bytes()
-            except OSError:
-                return None
-            mimetype, _ = detect_champion_image_type(image_bytes)
-            if not mimetype:
-                return None
+        cached = read_cached_champion_icon(champion_id)
+        if cached is None:
+            # 与 lol-hexbar 相同：HTTP 图片请求绝不触发外部网络下载。
             return Response(
-                image_bytes,
-                mimetype=mimetype,
-                headers={"Cache-Control": "public, max-age=86400"},
+                status=404,
+                headers={"Cache-Control": "no-store", "Retry-After": "2"},
             )
-
-        cached = cached_response()
-        if cached is not None:
-            return cached
-
-        with get_champion_icon_lock(champion_id):
-            cached = cached_response()
-            if cached is not None:
-                return cached
-
-            source_urls = (
-                f"https://cdn.communitydragon.org/latest/champion/{champion_id}/square",
-                (
-                    "https://raw.communitydragon.org/latest/plugins/"
-                    "rcp-be-lol-game-data/global/default/v1/champion-icons/"
-                    f"{champion_id}.png"
-                ),
-            )
-            errors = []
-            for source_url in source_urls:
-                try:
-                    response = requests.get(
-                        source_url,
-                        timeout=(3, 8),
-                        headers={
-                            "User-Agent": "Mozilla/5.0",
-                            "Accept": "image/avif,image/webp,image/png,image/jpeg,*/*",
-                        },
-                    )
-                    response.raise_for_status()
-                    image_bytes = response.content
-                    mimetype, _ = detect_champion_image_type(image_bytes)
-                    if not mimetype:
-                        raise ValueError(
-                            "响应不是受支持的图片格式，"
-                            f"Content-Type={response.headers.get('Content-Type', '')}"
-                        )
-
-                    temp_path = cached_path.with_suffix(".img.tmp")
-                    temp_path.write_bytes(image_bytes)
-                    temp_path.replace(cached_path)
-                    log.info(
-                        "[战绩条] 已缓存英雄头像：champion_id=%s，source=%s，type=%s",
-                        champion_id,
-                        source_url,
-                        mimetype,
-                    )
-                    return Response(
-                        image_bytes,
-                        mimetype=mimetype,
-                        headers={"Cache-Control": "public, max-age=86400"},
-                    )
-                except Exception as exc:
-                    errors.append(f"{source_url}: {type(exc).__name__}: {exc}")
-
-            log.warning(
-                "[战绩条] 英雄头像加载失败：champion_id=%s；%s",
-                champion_id,
-                " | ".join(errors),
-            )
-            return Response(status=404, headers={"Cache-Control": "no-store"})
+        image_bytes, mimetype = cached
+        return Response(
+            image_bytes,
+            mimetype=mimetype,
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
 
     @bp.get("/bar")
     def bar_page():
