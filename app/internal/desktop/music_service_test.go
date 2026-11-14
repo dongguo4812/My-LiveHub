@@ -117,23 +117,44 @@ func TestNextWithoutPendingTrackDoesNotPauseCurrentPlayback(t *testing.T) {
 	}
 }
 
-func TestLXPlaybackMovedAwayFromCurrent(t *testing.T) {
+func TestPlaybackSnapshotEnded(t *testing.T) {
+	tests := []struct {
+		name string
+		snapshot music.PlaybackSnapshot
+		want bool
+	}{
+		{name: "stopped", snapshot: music.PlaybackSnapshot{State: music.PlaybackStopped}, want: true},
+		{name: "playing at final two seconds", snapshot: music.PlaybackSnapshot{State: music.PlaybackPlaying, PositionMS: 98000, DurationMS: 100000}, want: true},
+		{name: "playing before end threshold", snapshot: music.PlaybackSnapshot{State: music.PlaybackPlaying, PositionMS: 97000, DurationMS: 100000}, want: false},
+		{name: "paused near end", snapshot: music.PlaybackSnapshot{State: music.PlaybackPaused, PositionMS: 99000, DurationMS: 100000}, want: false},
+		{name: "playing without duration", snapshot: music.PlaybackSnapshot{State: music.PlaybackPlaying, PositionMS: 99000}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := playbackSnapshotEnded(tt.snapshot); got != tt.want {
+				t.Fatalf("playbackSnapshotEnded() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLXAlreadyAdvancedPastCurrentOnlyGuardsEmptyQueueSkip(t *testing.T) {
 	current := &music.QueueItem{Track: music.Track{Title: "稻香", Artist: "周杰伦"}}
 	changed := music.PlaybackSnapshot{State: music.PlaybackPlaying, Track: &music.Track{Title: "晴天", Artist: "周杰伦"}}
-	if !lxPlaybackMovedAwayFromCurrent(current, changed) {
-		t.Fatal("a different song playing in 洛雪 should be detected as an automatic track switch")
+	if !lxAlreadyAdvancedPastCurrent(current, changed) {
+		t.Fatal("a different song already playing in 洛雪 should prevent a duplicate skip-next")
 	}
 	same := music.PlaybackSnapshot{State: music.PlaybackPlaying, Track: &music.Track{Title: "稻香", Artist: "周杰伦"}}
-	if lxPlaybackMovedAwayFromCurrent(current, same) {
-		t.Fatal("the managed current song must not be treated as an automatic switch")
+	if lxAlreadyAdvancedPastCurrent(current, same) {
+		t.Fatal("the same current song must still allow skip-next when the request queue is empty")
 	}
 	stopped := changed
 	stopped.State = music.PlaybackStopped
-	if lxPlaybackMovedAwayFromCurrent(current, stopped) {
-		t.Fatal("a stopped player must use the normal playback-end path")
+	if lxAlreadyAdvancedPastCurrent(current, stopped) {
+		t.Fatal("a stopped player has not already advanced")
 	}
-	if lxPlaybackMovedAwayFromCurrent(current, music.PlaybackSnapshot{State: music.PlaybackPlaying}) {
-		t.Fatal("a snapshot without track identity must not be treated as a track switch")
+	if lxAlreadyAdvancedPastCurrent(current, music.PlaybackSnapshot{State: music.PlaybackPlaying}) {
+		t.Fatal("a snapshot without track identity cannot prove that 洛雪 already advanced")
 	}
 }
 
