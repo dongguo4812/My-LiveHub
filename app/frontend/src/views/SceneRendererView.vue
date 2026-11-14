@@ -270,7 +270,7 @@ function handleRequestNotice(event: MessageEvent<string>) {
       const timerKey = layer.id + ':' + notice.id + ':' + notice.timestamp
       const duration = Math.max(1, Math.min(120, layer.request_notice_display_duration || 5)) * 1000
       requestNoticeTimers.set(timerKey, setTimeout(() => {
-        currentRequestNotices.value[layer.id] = (currentRequestNotices.value[layer.id] || []).filter(item => item !== notice)
+        currentRequestNotices.value[layer.id] = (currentRequestNotices.value[layer.id] || []).filter(item => item.id !== notice.id || item.timestamp !== notice.timestamp)
         requestNoticeTimers.delete(timerKey)
       }, duration))
     }
