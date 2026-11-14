@@ -33,8 +33,13 @@ func readCPUSnapshot() (systemTotal, systemIdle, processTotal uint64, err error)
 		return
 	}
 
+	processHandle, handleErr := windows.GetCurrentProcess()
+	if handleErr != nil {
+		err = handleErr
+		return
+	}
 	var creation, exit, processKernel, processUser windows.Filetime
-	if err = windows.GetProcessTimes(windows.GetCurrentProcess(), &creation, &exit, &processKernel, &processUser); err != nil {
+	if err = windows.GetProcessTimes(processHandle, &creation, &exit, &processKernel, &processUser); err != nil {
 		return
 	}
 	systemIdle = filetimeValue(idle)
