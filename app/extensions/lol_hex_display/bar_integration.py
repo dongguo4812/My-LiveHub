@@ -1182,7 +1182,7 @@ def register_bar_routes(
         if cached_path.is_file():
             try:
                 image_bytes = cached_path.read_bytes()
-                if image_bytes.startswith(b"\\x89PNG\\r\\n\\x1a\\n"):
+                if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
                     return Response(
                         image_bytes,
                         mimetype="image/png",
@@ -1196,7 +1196,7 @@ def register_bar_routes(
             if cached_path.is_file():
                 try:
                     image_bytes = cached_path.read_bytes()
-                    if image_bytes.startswith(b"\\x89PNG\\r\\n\\x1a\\n"):
+                    if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
                         return Response(
                             image_bytes,
                             mimetype="image/png",
@@ -1218,7 +1218,7 @@ def register_bar_routes(
                 )
                 response.raise_for_status()
                 image_bytes = response.content
-                if not image_bytes.startswith(b"\\x89PNG\\r\\n\\x1a\\n"):
+                if not image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
                     raise ValueError("英雄头像响应不是有效 PNG 图片")
                 temp_path = cached_path.with_suffix(".png.tmp")
                 temp_path.write_bytes(image_bytes)
