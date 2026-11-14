@@ -380,11 +380,22 @@ func (s *SceneService) handleLive2DMouth(w http.ResponseWriter, r *http.Request)
 	}
 	switch r.Method {
 	case http.MethodGet:
+		if s.live2d == nil || !s.live2d.IsEnabled() {
+			writeSceneJSON(w, map[string]float64{"value": 0})
+			return
+		}
 		s.mu.RLock()
 		value := s.mouthOpen
 		s.mu.RUnlock()
 		writeSceneJSON(w, map[string]float64{"value": value})
 	case http.MethodPost:
+		if s.live2d == nil || !s.live2d.IsEnabled() {
+			s.mu.Lock()
+			s.mouthOpen = 0
+			s.mu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		var payload struct { Value float64 `json:"value"` }
 		r.Body = http.MaxBytesReader(w, r.Body, 1024)
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
