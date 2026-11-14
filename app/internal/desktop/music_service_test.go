@@ -355,3 +355,70 @@ func TestStoppedMusicModuleStillReportsConfiguredCommands(t *testing.T) {
 		t.Fatal("stopped music module did not report its configured skip command")
 	}
 }
+
+
+// Song-request matching must reject a shorter, unrelated prefix result.
+func TestSelectSongRequestTrackRejectsReverseContainmentAndPrefersExact(t *testing.T) {
+	tracks := []music.Track{
+		{ID: "tx_short", Title: "太空", Artist: "歌手甲"},
+		{ID: "kg_extended", Title: "太空基米（完整版）", Artist: "歌手乙"},
+		{ID: "mg_exact", Title: "太空基米", Artist: "歌手丙"},
+	}
+	got, ok := selectSongRequestTrack(tracks, "太空基米", "")
+	if !ok || got.ID != "mg_exact" { t.Fatalf("selected %#v, matched=%v; want exact title", got, ok) }
+	if _, ok := selectSongRequestTrack(tracks[:1], "太空基米", ""); ok { t.Fatal("reverse containment must be rejected") }
+	got, ok = selectSongRequestTrack(tracks[1:2], "太空基米", "")
+	if !ok || got.ID != "kg_extended" { t.Fatalf("one-way containment should match, got %#v", got) }
+}
+
+func TestSelectSongRequestTrackChecksRequestedArtist(t *testing.T) {
+	tracks := []music.Track{
+		{ID: "wrong_artist", Title: "稻香", Artist: "其他歌手"},
+		{ID: "right_artist", Title: "稻香", Artist: "周杰伦"},
+	}
+	got, ok := selectSongRequestTrack(tracks, "稻香", "周杰伦")
+	if !ok || got.ID != "right_artist" { t.Fatalf("artist-constrained selection = %#v, matched=%v", got, ok) }
+	if _, ok := selectSongRequestTrack(tracks[:1], "稻香", "周杰伦"); ok { t.Fatal("different artist must be rejected") }
+}
+
+func TestSplitSongRequestArtist(t *testing.T) {
+	cases := []struct{ input, title, artist string }{
+		{"太空基米", "太空基米", ""},
+		{"稻香 - 周杰伦", "稻香", "周杰伦"},
+		{"稻香－周杰伦", "稻香", "周杰伦"},
+	}
+	for _, tt := range cases {
+		title, artist := splitSongRequestArtist(tt.input)
+		if title != tt.title || artist != tt.artist { t.Errorf("splitSongRequestArtist(%q)=(%q,%q), want (%q,%q)", tt.input, title, artist, tt.title, tt.artist) }
+	}
+}
+
+func TestSearchSongRequestAcrossSourcesFallsBackUntilValidMatch(t *testing.T) {
+	var attempted []string
+	track, matched, failures := searchSongRequestAcrossSources(context.Background(), []string{"tx", "kw", "kg", "wy"},
+		func(source string) ([]music.Track, error) {
+			attempted = append(attempted, source)
+			switch source {
+			case "tx": return nil, errors.New("provider unavailable")
+			case "kw": return []music.Track{}, nil
+			case "kg": return []music.Track{{ID: "kg_short", Title: "太空", Artist: "歌手"}}, nil
+			case "wy": return []music.Track{{ID: "wy_match", Title: "太空基米", Artist: "歌手"}}, nil
+			default: return nil, nil
+			}
+		}, "太空基米", "")
+	if !matched || track.ID != "wy_match" { t.Fatalf("track=%#v matched=%v; want wy_match", track, matched) }
+	if len(attempted) != 4 || attempted[0] != "tx" || attempted[1] != "kw" || attempted[2] != "kg" || attempted[3] != "wy" { t.Fatalf("attempted sources = %v", attempted) }
+	if len(failures) != 3 { t.Fatalf("failures = %v; want three diagnostics", failures) }
+}
+
+func TestSearchSongRequestAcrossSourcesStopsAfterFirstValidMatch(t *testing.T) {
+	var attempted []string
+	track, matched, _ := searchSongRequestAcrossSources(context.Background(), []string{"tx", "kw", "kg"},
+		func(source string) ([]music.Track, error) {
+			attempted = append(attempted, source)
+			if source == "tx" { return []music.Track{{ID: "tx_match", Title: "稻香", Artist: "周杰伦"}}, nil }
+			return nil, errors.New("should not be called")
+		}, "稻香", "")
+	if !matched || track.ID != "tx_match" { t.Fatalf("track=%#v matched=%v", track, matched) }
+	if len(attempted) != 1 || attempted[0] != "tx" { t.Fatalf("search continued after valid match: %v", attempted) }
+}
