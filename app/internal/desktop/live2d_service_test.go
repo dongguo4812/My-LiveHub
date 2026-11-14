@@ -68,3 +68,27 @@ func TestReadLive2DManifestMetadataSupportsMOC2LowercaseKeys(t *testing.T) {
 	if len(metadata.MotionGroups) != 1 || metadata.MotionGroups[0].Name != "idle" { t.Fatalf("unexpected MOC2 motions: %#v", metadata.MotionGroups) }
 	if !metadata.HasPhysics { t.Fatal("expected MOC2 physics capability") }
 }
+
+
+func TestLive2DServiceLifecycleControlsAssetsAndCanRestart(t *testing.T) {
+	root := t.TempDir()
+	modelDir := filepath.Join(root, "moc3", "avatar")
+	if err := os.MkdirAll(modelDir, 0o700); err != nil { t.Fatal(err) }
+	manifest := filepath.Join(modelDir, "model3.json")
+	if err := os.WriteFile(manifest, []byte("{}"), 0o600); err != nil { t.Fatal(err) }
+
+	service := NewLive2DService(nil, config.DefaultLive2DConfig(), root)
+	handler := WrapLive2DAssetHandler(service, http.NotFoundHandler())
+	request := func() int {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/models/moc3/avatar/model3.json", nil))
+		return recorder.Code
+	}
+	if got := request(); got != http.StatusServiceUnavailable { t.Fatalf("asset status before start = %d, want %d", got, http.StatusServiceUnavailable) }
+	if err := service.Start(); err != nil { t.Fatal(err) }
+	if got := request(); got != http.StatusOK { t.Fatalf("asset status after start = %d, want %d", got, http.StatusOK) }
+	if err := service.Stop(); err != nil { t.Fatal(err) }
+	if got := request(); got != http.StatusServiceUnavailable { t.Fatalf("asset status after stop = %d, want %d", got, http.StatusServiceUnavailable) }
+	if err := service.Start(); err != nil { t.Fatal(err) }
+	if got := request(); got != http.StatusOK { t.Fatalf("asset status after restart = %d, want %d", got, http.StatusOK) }
+}
