@@ -743,3 +743,35 @@ func TestAdapterResolvesLiveEmoticonToRoomResourceByURL(t *testing.T) {
 	if err := a.Disconnect(context.Background()); err != nil { t.Fatal(err) }
 	if err := catalog.Close(); err != nil { t.Fatal(err) }
 }
+
+
+func TestGiftCatalogForceRefreshBypassesMemoryTTL(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
+			"gift_config": map[string]any{"base_config": map[string]any{"list": []any{
+				map[string]any{"id": 30607, "name": "gift", "img_basic": "https://img.test/gift.png"},
+			}}},
+		}})
+	}))
+	defer server.Close()
+
+	catalog := newGiftCatalog(server.Client())
+	catalog.endpoint = server.URL
+	if err := catalog.Refresh(context.Background(), 12345); err != nil {
+		t.Fatal(err)
+	}
+	if err := catalog.Refresh(context.Background(), 12345); err != nil {
+		t.Fatal(err)
+	}
+	if requests != 1 {
+		t.Fatalf("normal refresh made %d requests, want 1 while cached", requests)
+	}
+	if err := catalog.ForceRefresh(context.Background(), 12345); err != nil {
+		t.Fatal(err)
+	}
+	if requests != 2 {
+		t.Fatalf("forced refresh made total %d requests, want 2", requests)
+	}
+}
