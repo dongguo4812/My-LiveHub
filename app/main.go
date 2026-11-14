@@ -228,6 +228,10 @@ func main() {
 		if workingDir, getwdErr := os.Getwd(); getwdErr == nil {
 			extensionRoot = filepath.Join(workingDir, "extensions", "lol_hex_display")
 		}
+	} else if _, statErr := os.Stat(extensionRoot); errors.Is(statErr, os.ErrNotExist) {
+		// Wails places the executable in app/bin; allow extensions to be shipped
+		// beside that bin directory in the application root.
+		extensionRoot = filepath.Join(filepath.Dir(filepath.Dir(applicationPath)), "extensions", "lol_hex_display")
 	}
 	lolHexService, err := desktop.NewLOLHexService(extensionRoot, filepath.Join(paths.LocalDir, "lol_hex_display.json"))
 	if err != nil {
