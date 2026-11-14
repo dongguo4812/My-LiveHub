@@ -18,7 +18,6 @@ type RequestNoticeBroker struct {
 	mu sync.Mutex
 	nextID uint64
 	subscribers map[uint64]chan RequestNotice
-	history []RequestNotice
 	nextSubscriber uint64
 }
 
@@ -32,8 +31,6 @@ func (b *RequestNoticeBroker) Publish(notice RequestNotice) {
 	b.nextID++
 	notice.ID = b.nextID
 	notice.Timestamp = time.Now().UnixMilli()
-	b.history = append(b.history, notice)
-	if len(b.history) > 32 { b.history = append([]RequestNotice(nil), b.history[len(b.history)-32:]...) }
 	for _, ch := range b.subscribers {
 		select { case ch <- notice: default: }
 	}
@@ -46,9 +43,6 @@ func (b *RequestNoticeBroker) Subscribe() (<-chan RequestNotice, func()) {
 	b.mu.Lock()
 	b.nextSubscriber++
 	id := b.nextSubscriber
-	// Replay recent notices before registering so no Publish can interleave
-	// between the replay and subscription while the broker lock is held.
-	for _, notice := range b.history { ch <- notice }
 	b.subscribers[id] = ch
 	b.mu.Unlock()
 	var once sync.Once
