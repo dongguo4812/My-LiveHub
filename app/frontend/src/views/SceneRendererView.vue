@@ -73,7 +73,11 @@ function handleMouthSyncMessage(event: MessageEvent) {
 }
 
 const danmaku = computed(() => liveEvents.value.filter(item => item.type === 'danmaku').slice(-8).reverse())
-function giftEvents(layer: Layer) {\n  const duration = Math.max(1, Math.min(120, layer.gift_display_duration || 8)) * 1000\n  const currentTime = now.value.getTime()\n  return liveEvents.value.filter(item => item.type === 'gift' && currentTime - item.timestamp <= duration).slice(-3).reverse()\n}
+function giftEvents(layer: Layer) {
+  const duration = Math.max(1, Math.min(120, layer.gift_display_duration || 8)) * 1000
+  const currentTime = now.value.getTime()
+  return liveEvents.value.filter(item => item.type === 'gift' && currentTime - item.timestamp <= duration).slice(-3).reverse()
+}
 const superChats = computed(() => liveEvents.value.filter(item => item.type === 'super_chat').slice(-3).reverse())
 const progress = computed(() => {
   const duration = playback.value?.duration_ms || playback.value?.track?.duration_ms || 0
