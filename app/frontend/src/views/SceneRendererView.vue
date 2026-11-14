@@ -215,6 +215,7 @@ function layerStyle(layer: Layer) {
     style.top = 'auto'
     style.bottom = ((current.height - layer.y - layer.height) / current.height * 100) + '%'
     style.width = 'max-content'
+    style.maxWidth = (layer.width / current.width * 100) + '%'
     style.height = 'auto'
   }
   return style
@@ -606,7 +607,7 @@ onUnmounted(() => {
 html,body,#app{width:100%;height:100%;margin:0;overflow:hidden;background:transparent!important}
 body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .scene-output{position:relative;width:100vw;height:100vh;overflow:hidden;container-type:size;background:transparent}
-.request-notice-output-layer{width:max-content!important;height:auto!important;min-width:0;min-height:0;max-width:none;overflow:visible;align-items:flex-start;justify-content:flex-end;white-space:nowrap;text-shadow:none}.request-notice-stack{display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-end;gap:.35em;width:max-content;height:auto;max-width:none;overflow:visible}.request-notice-widget{display:block;flex:none;box-sizing:border-box;width:max-content;height:auto;max-width:none;padding:.5em .8em;border:1px solid rgba(120,220,160,.6);border-radius:.55em;background:rgba(12,24,20,.94);color:var(--notice-color,#a7f3c0);font-weight:800;line-height:1.4;text-align:left;text-shadow:0 2px 5px #000;box-shadow:0 8px 24px #0006;white-space:nowrap;overflow:visible;pointer-events:none}.request-notice-widget.is-failed{border-color:rgba(255,125,125,.7);background:rgba(38,15,18,.95);color:#ffb2b2}
+.request-notice-output-layer{width:max-content!important;height:auto!important;min-width:0;min-height:0;overflow:visible;align-items:flex-start;justify-content:flex-end;white-space:normal;text-shadow:none}.request-notice-stack{display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-end;gap:.35em;width:max-content;height:auto;max-width:100%;overflow:visible}.request-notice-widget{display:block;flex:none;box-sizing:border-box;width:max-content;height:auto;max-width:100%;padding:.5em .8em;border:1px solid rgba(120,220,160,.6);border-radius:.55em;background:rgba(12,24,20,.94);color:var(--notice-color,#a7f3c0);font-weight:800;line-height:1.4;text-align:left;text-shadow:0 2px 5px #000;box-shadow:0 8px 24px #0006;white-space:normal;overflow-wrap:anywhere;word-break:break-word;overflow:visible;pointer-events:none}.request-notice-widget.is-failed{border-color:rgba(255,125,125,.7);background:rgba(38,15,18,.95);color:#ffb2b2}
 .output-layer{position:absolute;display:flex;align-items:flex-start;justify-content:flex-start;overflow:hidden;white-space:pre-wrap;word-break:break-word;font-weight:600;text-shadow:0 2px 6px #000b}
 .emoticon-output-layer{padding:0;white-space:normal;text-shadow:none}
 .floating-emoticon-layer{position:absolute;inset:0;overflow:hidden;pointer-events:none}
