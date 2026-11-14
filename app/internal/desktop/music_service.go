@@ -855,8 +855,7 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 	startedAt := time.Now()
-	sawEndPosition := false
-	sawPlaying := true
+	sawPlaying := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -864,91 +863,84 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 		case <-ticker.C:
 			snapshot, err := s.engine.Snapshot(ctx)
 			if err != nil { continue }
-			if snapshot.State == music.PlaybackPlaying { sawPlaying = true }
-			if snapshot.DurationMS > 0 {
-				threshold := snapshot.DurationMS - 1000
-				if threshold < snapshot.DurationMS/2 { threshold = snapshot.DurationMS/2 }
-				if snapshot.PositionMS >= threshold { sawEndPosition = true }
+			if snapshot.State == music.PlaybackPlaying {
+				sawPlaying = true
 			}
 			if snapshot.State == music.PlaybackError {
 				s.mu.RLock()
 				generationCurrent := s.playGeneration == generation
 				s.mu.RUnlock()
-				if !generationCurrent || ctx.Err() != nil {
-					return
-				}
+				if !generationCurrent || ctx.Err() != nil { return }
 				message := strings.TrimSpace(snapshot.Error)
-				if message == "" {
-					message = "洛雪播放器报告播放错误"
-				}
+				if message == "" { message = "洛雪播放器报告播放错误" }
 				s.setLastError(errors.New(message))
+				currentItem := s.queue.Snapshot().Current
+				if currentItem != nil { s.pushHistory(*currentItem) }
 				s.queue.FinishCurrent()
-				if advanceErr := s.advanceAfterPlaybackEnd(); advanceErr != nil {
+				if advanceErr := s.advanceAfterPlaybackEnd(snapshot, currentItem); advanceErr != nil {
 					s.setLastError(fmt.Errorf("播放失败后推进下一首失败：%w", advanceErr))
 				}
 				return
 			}
-			// 洛雪可能在歌曲结束时直接切到自己的下一首，状态仍保持 Playing。
-			// 如果洛雪当前歌曲已不是 My-LiveHub 正在管理的歌曲，立即接管：
-			// 有待播项就播放队列第一首；队列为空则保留洛雪已经切到的歌曲。
-			if currentItem := s.queue.Snapshot().Current; currentItem != nil &&
-				lxPlaybackMovedAwayFromCurrent(currentItem, snapshot) {
-				s.mu.RLock()
-				generationCurrent := s.playGeneration == generation
-				s.mu.RUnlock()
-				if !generationCurrent || ctx.Err() != nil {
+			// 暂停期间不根据进度判断结束。
+			if snapshot.State == music.PlaybackPaused { continue }
+			if !sawPlaying {
+				if time.Since(startedAt) >= 20*time.Second {
+					if ctx.Err() != nil { return }
+					s.setLastError(errors.New("播放器未能开始播放；请检查音源解析结果和网络连接"))
 					return
 				}
-				s.pushHistory(*currentItem)
-				s.queue.FinishCurrent()
-				if len(s.queue.Snapshot().Items) > 0 {
-					if advanceErr := s.PlayNext(); advanceErr != nil {
-						s.setLastError(fmt.Errorf("洛雪自动切歌后接管 My-LiveHub 待播队列失败：%w", advanceErr))
-					}
-				}
-				return
+				continue
 			}
-			if snapshot.State != music.PlaybackStopped || (!sawEndPosition && !sawPlaying) { continue }
+			if !playbackSnapshotEnded(snapshot) { continue }
+
 			s.mu.RLock()
-			current := s.playGeneration == generation
+			generationCurrent := s.playGeneration == generation
 			s.mu.RUnlock()
-			if !current { return }
-			if sawEndPosition {
-				currentItem := s.queue.Snapshot().Current
-				if currentItem != nil { s.pushHistory(*currentItem) }
-				s.queue.FinishCurrent()
-				if advanceErr := s.advanceAfterPlaybackEnd(); advanceErr != nil {
-					s.setLastError(fmt.Errorf("歌曲播放结束后推进下一首失败：%w", advanceErr))
-				}
-				return
+			if !generationCurrent || ctx.Err() != nil { return }
+
+			currentItem := s.queue.Snapshot().Current
+			if currentItem != nil { s.pushHistory(*currentItem) }
+			s.queue.FinishCurrent()
+			if advanceErr := s.advanceAfterPlaybackEnd(snapshot, currentItem); advanceErr != nil {
+				s.setLastError(fmt.Errorf("歌曲播放结束后推进下一首失败：%w", advanceErr))
 			}
-			if time.Since(startedAt) >= 20*time.Second {
-				if ctx.Err() != nil { return }
-				s.setLastError(errors.New("播放器未能开始播放；请检查音源解析结果和网络连接"))
-				return
-			}
+			return
 		}
 	}
 }
 
-// lxPlaybackMovedAwayFromCurrent detects 洛雪 auto-advancing its own playlist
-// while My-LiveHub still has a different track marked as current.
-func lxPlaybackMovedAwayFromCurrent(current *music.QueueItem, snapshot music.PlaybackSnapshot) bool {
+// playbackSnapshotEnded mirrors Bili_Live_Danmaku's wait_song_end:
+// after observing real playback, stopped or near-end progress means completion.
+func playbackSnapshotEnded(snapshot music.PlaybackSnapshot) bool {
+	if snapshot.State == music.PlaybackPaused { return false }
+	if snapshot.State == music.PlaybackStopped { return true }
+	return snapshot.State == music.PlaybackPlaying &&
+		snapshot.DurationMS > 0 &&
+		snapshot.PositionMS >= snapshot.DurationMS-2000
+}
+
+// lxAlreadyAdvancedPastCurrent is only a guard against skipping twice after
+// 洛雪 has already auto-advanced. It must not be used as an end-of-track signal.
+func lxAlreadyAdvancedPastCurrent(current *music.QueueItem, snapshot music.PlaybackSnapshot) bool {
 	return current != nil &&
 		snapshot.State == music.PlaybackPlaying &&
 		snapshot.Track != nil &&
 		!sameLXTrackIdentity(current.Track, *snapshot.Track)
 }
 
-// advanceAfterPlaybackEnd advances My-LiveHub's request queue first. Only when
-// that queue is empty does it delegate to 洛雪's own playlist.
-func (s *MusicService) advanceAfterPlaybackEnd() error {
+// advanceAfterPlaybackEnd always gives My-LiveHub's request queue priority.
+// Only an empty request queue may fall through to 洛雪's own playlist.
+func (s *MusicService) advanceAfterPlaybackEnd(snapshot music.PlaybackSnapshot, finished *music.QueueItem) error {
 	if s == nil || s.engine == nil || s.queue == nil {
 		return errors.New("music playback service is unavailable")
 	}
 	if len(s.queue.Snapshot().Items) > 0 {
 		return s.PlayNext()
 	}
+	// 洛雪 may already have started its own next song at the end boundary.
+	// Keep it playing instead of issuing a second skip-next.
+	if lxAlreadyAdvancedPastCurrent(finished, snapshot) { return nil }
 	nextTrack, ok := s.engine.(interface { NextTrack(context.Context) error })
 	if !ok {
 		return errors.New("当前播放引擎不支持切换洛雪队列")
