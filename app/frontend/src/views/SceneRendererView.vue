@@ -77,19 +77,22 @@ const danmaku = computed(() => liveEvents.value.filter(item => item.type === 'da
 function giftEvents(layer: Layer): GiftDisplayItem[] {
   const duration = Math.max(1, Math.min(120, layer.gift_display_duration || 8)) * 1000
   const currentTime = now.value.getTime()
+  const events = liveEvents.value
+    .filter(item => item.type === 'gift')
+    .slice()
+    .sort((a, b) => a.timestamp - b.timestamp)
   const grouped = new Map<string, GiftDisplayItem>()
-  for (const event of liveEvents.value) {
-    if (event.type !== 'gift') continue
+  for (const event of events) {
     const giftName = event.gift_name || '礼物'
     const imageKey = event.gift_animation_url || event.gift_image_url || event.gift_animation_cache_url || event.gift_image_cache_url || ''
     const key = JSON.stringify([event.user_name, giftName, imageKey])
     const existing = grouped.get(key)
-    if (existing) {
+    if (existing && event.timestamp - existing.timestamp <= duration) {
       existing.gift_count += Math.max(1, event.gift_count || 1)
-      if (event.timestamp >= existing.timestamp) existing.timestamp = event.timestamp
+      existing.timestamp = event.timestamp
     } else {
       grouped.set(key, {
-        id: key,
+        id: key + ':' + event.id,
         user_name: event.user_name,
         gift_name: giftName,
         gift_count: Math.max(1, event.gift_count || 1),
