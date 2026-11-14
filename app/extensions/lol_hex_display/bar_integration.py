@@ -153,12 +153,11 @@ def register_bar_routes(
                 active = get_active_account()
                 puuid = str(active.get("puuid") or "").strip()
                 if puuid:
-                    saved = read_json(account_cache_path(puuid), {})
-                    records = saved.get("matches", []) if isinstance(saved, dict) else []
+                    visible_games = snapshot().get("games", [])
                     schedule_champion_icon_prefetch(
                         (
-                            item.get("championId")
-                            for item in records
+                            item.get("champion_id")
+                            for item in visible_games
                             if isinstance(item, dict)
                         ),
                         credentials=get_lcu_credentials(),
@@ -726,13 +725,13 @@ def register_bar_routes(
                     ", ".join(sorted(newly_seen_ids)),
                 )
 
-            # 头像预取不阻塞战绩刷新和页面请求；覆盖账号缓存中的英雄，
-            # 因而首次启动、已有战绩缓存以及新增对局都会自动补齐本地资源。
-            cached_records = old.get("matches", []) if isinstance(old, dict) else []
+            # 与 lol-hexbar 的 EnsureAssetsForSnapshot 一样，只预取当前快照实际展示的英雄；
+            # 头像下载独立于刷新线程，不阻塞战绩刷新和页面请求。
+            visible_games = snapshot().get("games", [])
             schedule_champion_icon_prefetch(
                 (
-                    item.get("championId")
-                    for item in cached_records
+                    item.get("champion_id")
+                    for item in visible_games
                     if isinstance(item, dict)
                 ),
                 credentials=refresh_credentials,
