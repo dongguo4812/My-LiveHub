@@ -391,7 +391,7 @@ onUnmounted(() => {
             <button v-if="selectedLayerID === layer.id" class="layer-resize-handle" type="button" aria-label="调整图层大小" @pointerdown="startResize($event, layer)" />
           </div>
         </div>
-        <div class="canvas-hint">选择 Live2D 图层后，在右侧属性中调整模型大小和位置</div>
+        <div class="canvas-hint">选中图层后拖动右下角可调整显示尺寸；也可在右侧直接设置宽度和高度。Live2D 模型大小与位置在右侧单独调整。</div>
       </main>
       <aside class="studio-panel property-panel">
         <div class="panel-heading"><strong>属性</strong><el-button v-if="selectedLayer" text type="danger" @click="removeLayer">删除图层</el-button></div>
