@@ -6,7 +6,7 @@ import (
 )
 
 func testTrack(id string) Track {
-	return Track{ID:id, SourceID:"netease", Title:"测试歌曲", Artist:"测试歌手", DurationMS:180000}
+	return Track{ID:id, SourceID:"netease", Title:"测试歌曲-" + id, Artist:"测试歌手", DurationMS:180000}
 }
 
 func TestQueueEnqueueTakeNextAndFinish(t *testing.T) {
@@ -104,5 +104,29 @@ func TestQueueSetCurrentTrackDoesNotEnqueuePendingAudienceRequests(t *testing.T)
 	}
 	if len(snapshot.Items) != 2 || snapshot.Items[0].ID != first.ID || snapshot.Items[1].ID != second.ID {
 		t.Fatalf("immediate playback changed pending audience queue: %#v", snapshot.Items)
+	}
+}
+
+func TestQueueRejectsDuplicateSongByTitleAndArtist(t *testing.T) {
+	queue := NewQueue(5)
+	first := Track{ID:"song-1", SourceID:"provider-a", Title:"晴天", Artist:"周杰伦"}
+	if _, err := queue.Enqueue(first, "观众甲"); err != nil { t.Fatal(err) }
+	duplicate := Track{ID:"song-99", SourceID:"provider-b", Title:" 晴天 ", Artist:" 周杰伦 "}
+	if _, err := queue.Enqueue(duplicate, "观众乙"); !errors.Is(err, ErrDuplicateTrack) {
+		t.Fatalf("duplicate title+artist error = %v, want ErrDuplicateTrack", err)
+	}
+	differentArtist := Track{ID:"song-2", SourceID:"provider-a", Title:"晴天", Artist:"其他歌手"}
+	if _, err := queue.Enqueue(differentArtist, "观众丙"); err != nil {
+		t.Fatalf("same title by different artist should be allowed: %v", err)
+	}
+}
+
+func TestQueueRejectsDuplicateSongAlreadyPlaying(t *testing.T) {
+	queue := NewQueue(5)
+	current := QueueItem{ID:"current", Track:Track{ID:"current-track", SourceID:"provider-a", Title:"晴天", Artist:"周杰伦"}}
+	if err := queue.SetCurrent(current); err != nil { t.Fatal(err) }
+	requested := Track{ID:"other-id", SourceID:"provider-b", Title:"晴天", Artist:"周杰伦"}
+	if _, err := queue.Enqueue(requested, "观众"); !errors.Is(err, ErrDuplicateTrack) {
+		t.Fatalf("duplicate current song error = %v, want ErrDuplicateTrack", err)
 	}
 }

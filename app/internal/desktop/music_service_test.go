@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"errors"
 	"encoding/json"
 	"sync/atomic"
 	"testing"
@@ -12,6 +13,22 @@ import (
 	"github.com/dongguo4812/My-LiveHub/app/internal/events"
 	"github.com/dongguo4812/My-LiveHub/app/internal/music"
 )
+func TestSongRequestMatchesTrackRejectsUnrelatedSearchResult(t *testing.T) {
+	requested := "太空基米"
+	if songRequestMatchesTrack(requested, music.Track{Title: "光年之外", Artist: "邓紫棋"}) {
+		t.Fatal("unrelated first search result must not be treated as the requested song")
+	}
+	if !songRequestMatchesTrack(requested, music.Track{Title: "太空基米", Artist: "测试歌手"}) {
+		t.Fatal("exact title should match")
+	}
+	if !songRequestMatchesTrack("测试歌手 太空基米", music.Track{Title: "太空基米", Artist: "测试歌手"}) {
+		t.Fatal("query containing artist and title should match")
+	}
+	if !songRequestMatchesTrack("太空基米", music.Track{Title: "太空基米（DJ版）", Artist: "测试歌手"}) {
+		t.Fatal("title with edition suffix should match")
+	}
+}
+
 func TestParseSongRequest(t *testing.T){
  tests:=[]struct{content,prefix,want string;ok bool}{{"点歌 稻香","点歌","稻香",true},{"点歌稻香","点歌","",false},{"点歌   稻香 ","点歌","稻香",true},{"闲聊点歌 稻香","点歌","",false},{"点歌","点歌","",false}}
  for _,tt:=range tests{got,ok:=parseSongRequest(tt.content,tt.prefix);if got!=tt.want||ok!=tt.ok{t.Errorf("parseSongRequest(%q)=(%q,%v), want (%q,%v)",tt.content,got,ok,tt.want,tt.ok)}}
@@ -97,6 +114,124 @@ func TestNextWithoutPendingTrackDoesNotPauseCurrentPlayback(t *testing.T) {
 	}
 	if engine.stopCalls != 0 || engine.pauseCalls != 0 {
 		t.Fatalf("Next unexpectedly controlled playback: stop=%d pause=%d", engine.stopCalls, engine.pauseCalls)
+	}
+}
+
+func TestPlaybackSnapshotEnded(t *testing.T) {
+	tests := []struct {
+		name string
+		snapshot music.PlaybackSnapshot
+		sawPlaying bool
+		want bool
+	}{
+		{name: "stopped before playback observed", snapshot: music.PlaybackSnapshot{State: music.PlaybackStopped}, sawPlaying: false, want: false},
+		{name: "stopped after playback", snapshot: music.PlaybackSnapshot{State: music.PlaybackStopped}, sawPlaying: true, want: true},
+		{name: "playing at final two seconds", snapshot: music.PlaybackSnapshot{State: music.PlaybackPlaying, PositionMS: 98000, DurationMS: 100000}, sawPlaying: true, want: true},
+		{name: "playing before end threshold", snapshot: music.PlaybackSnapshot{State: music.PlaybackPlaying, PositionMS: 97000, DurationMS: 100000}, sawPlaying: true, want: false},
+		{name: "paused near end", snapshot: music.PlaybackSnapshot{State: music.PlaybackPaused, PositionMS: 99000, DurationMS: 100000}, sawPlaying: true, want: false},
+		{name: "playing without duration", snapshot: music.PlaybackSnapshot{State: music.PlaybackPlaying, PositionMS: 99000}, sawPlaying: true, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := playbackSnapshotEnded(tt.sawPlaying, tt.snapshot); got != tt.want {
+				t.Fatalf("playbackSnapshotEnded() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+type queueAdvanceTestEngine struct {
+	loadCalls atomic.Int32
+	nextCalls atomic.Int32
+}
+
+func (e *queueAdvanceTestEngine) Load(context.Context, music.Track) error {
+	e.loadCalls.Add(1)
+	return nil
+}
+func (e *queueAdvanceTestEngine) Pause(context.Context) error { return nil }
+func (e *queueAdvanceTestEngine) Resume(context.Context) error { return nil }
+func (e *queueAdvanceTestEngine) Stop(context.Context) error { return nil }
+func (e *queueAdvanceTestEngine) NextTrack(context.Context) error {
+	e.nextCalls.Add(1)
+	return nil
+}
+func (e *queueAdvanceTestEngine) Snapshot(context.Context) (music.PlaybackSnapshot, error) {
+	return music.PlaybackSnapshot{State: music.PlaybackIdle}, nil
+}
+
+func TestAdvanceAfterPlaybackEndPrioritizesMyLiveHubQueue(t *testing.T) {
+	value := config.DefaultMusicConfig()
+	value.Enabled = true
+	engine := &queueAdvanceTestEngine{}
+	service := NewMusicServiceWithDependencies(nil, value, nil, engine)
+	defer service.cancelPlaybackWatcher()
+
+	track := music.Track{ID: "tx_next", SourceID: "tx", LXSourceKey: "tx", Title: "待播歌曲", Artist: "测试歌手"}
+	if _, err := service.queue.Enqueue(track, "viewer"); err != nil { t.Fatal(err) }
+	finished := &music.QueueItem{Track: music.Track{Title: "当前歌曲", Artist: "测试歌手"}}
+	snapshot := music.PlaybackSnapshot{State: music.PlaybackPlaying, Track: &finished.Track}
+
+	if err := service.advanceAfterPlaybackEnd(snapshot, finished); err != nil {
+		t.Fatalf("advanceAfterPlaybackEnd returned error: %v", err)
+	}
+	current := service.queue.Snapshot().Current
+	if current == nil || current.Track.ID != track.ID {
+		t.Fatalf("My-LiveHub queue was not promoted to current: %#v", current)
+	}
+	if got := engine.loadCalls.Load(); got != 1 {
+		t.Fatalf("洛雪 Load calls = %d, want 1", got)
+	}
+	if got := engine.nextCalls.Load(); got != 0 {
+		t.Fatalf("洛雪 NextTrack calls = %d, want 0 when My-LiveHub queue has a song", got)
+	}
+}
+
+func TestAdvanceAfterPlaybackEndDoesNotSkipTwiceAfterLXAutoAdvance(t *testing.T) {
+	engine := &queueAdvanceTestEngine{}
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, engine)
+	finished := &music.QueueItem{Track: music.Track{Title: "当前歌曲", Artist: "测试歌手"}}
+	snapshot := music.PlaybackSnapshot{State: music.PlaybackPlaying, Track: &music.Track{Title: "洛雪下一首", Artist: "其他歌手"}}
+
+	if err := service.advanceAfterPlaybackEnd(snapshot, finished); err != nil {
+		t.Fatalf("advanceAfterPlaybackEnd returned error: %v", err)
+	}
+	if got := engine.nextCalls.Load(); got != 0 {
+		t.Fatalf("洛雪 NextTrack calls = %d, want 0 because 洛雪 already advanced", got)
+	}
+}
+
+func TestAdvanceAfterPlaybackEndUsesLXNextWhenRequestQueueEmpty(t *testing.T) {
+	engine := &queueAdvanceTestEngine{}
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, engine)
+	finished := &music.QueueItem{Track: music.Track{Title: "当前歌曲", Artist: "测试歌手"}}
+	snapshot := music.PlaybackSnapshot{State: music.PlaybackStopped}
+
+	if err := service.advanceAfterPlaybackEnd(snapshot, finished); err != nil {
+		t.Fatalf("advanceAfterPlaybackEnd returned error: %v", err)
+	}
+	if got := engine.nextCalls.Load(); got != 1 {
+		t.Fatalf("洛雪 NextTrack calls = %d, want 1 when My-LiveHub queue is empty", got)
+	}
+}
+
+func TestLXAlreadyAdvancedPastCurrentOnlyGuardsEmptyQueueSkip(t *testing.T) {
+	current := &music.QueueItem{Track: music.Track{Title: "稻香", Artist: "周杰伦"}}
+	changed := music.PlaybackSnapshot{State: music.PlaybackPlaying, Track: &music.Track{Title: "晴天", Artist: "周杰伦"}}
+	if !lxAlreadyAdvancedPastCurrent(current, changed) {
+		t.Fatal("a different song already playing in 洛雪 should prevent a duplicate skip-next")
+	}
+	same := music.PlaybackSnapshot{State: music.PlaybackPlaying, Track: &music.Track{Title: "稻香", Artist: "周杰伦"}}
+	if lxAlreadyAdvancedPastCurrent(current, same) {
+		t.Fatal("the same current song must still allow skip-next when the request queue is empty")
+	}
+	stopped := changed
+	stopped.State = music.PlaybackStopped
+	if lxAlreadyAdvancedPastCurrent(current, stopped) {
+		t.Fatal("a stopped player has not already advanced")
+	}
+	if lxAlreadyAdvancedPastCurrent(current, music.PlaybackSnapshot{State: music.PlaybackPlaying}) {
+		t.Fatal("a snapshot without track identity cannot prove that 洛雪 already advanced")
 	}
 }
 
@@ -337,5 +472,89 @@ func TestStoppedMusicModuleStillReportsConfiguredCommands(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("stopped music module did not report its configured skip command")
+	}
+}
+
+
+// Song-request matching must reject a shorter, unrelated prefix result.
+func TestSelectSongRequestTrackRejectsReverseContainmentAndPrefersExact(t *testing.T) {
+	tracks := []music.Track{
+		{ID: "tx_short", Title: "太空", Artist: "歌手甲"},
+		{ID: "kg_extended", Title: "太空基米（完整版）", Artist: "歌手乙"},
+		{ID: "mg_exact", Title: "太空基米", Artist: "歌手丙"},
+	}
+	got, ok := selectSongRequestTrack(tracks, "太空基米", "")
+	if !ok || got.ID != "mg_exact" { t.Fatalf("selected %#v, matched=%v; want exact title", got, ok) }
+	if _, ok := selectSongRequestTrack(tracks[:1], "太空基米", ""); ok { t.Fatal("reverse containment must be rejected") }
+	got, ok = selectSongRequestTrack(tracks[1:2], "太空基米", "")
+	if !ok || got.ID != "kg_extended" { t.Fatalf("one-way containment should match, got %#v", got) }
+}
+
+func TestSelectSongRequestTrackChecksRequestedArtist(t *testing.T) {
+	tracks := []music.Track{
+		{ID: "wrong_artist", Title: "稻香", Artist: "其他歌手"},
+		{ID: "right_artist", Title: "稻香", Artist: "周杰伦"},
+	}
+	got, ok := selectSongRequestTrack(tracks, "稻香", "周杰伦")
+	if !ok || got.ID != "right_artist" { t.Fatalf("artist-constrained selection = %#v, matched=%v", got, ok) }
+	if _, ok := selectSongRequestTrack(tracks[:1], "稻香", "周杰伦"); ok { t.Fatal("different artist must be rejected") }
+}
+
+func TestSplitSongRequestArtist(t *testing.T) {
+	cases := []struct{ input, title, artist string }{
+		{"太空基米", "太空基米", ""},
+		{"稻香 - 周杰伦", "稻香", "周杰伦"},
+		{"稻香－周杰伦", "稻香", "周杰伦"},
+		{"晴天 周杰伦", "晴天", "周杰伦"},
+		{"晴天  周杰伦", "晴天", "周杰伦"},
+		{"晴天　周杰伦", "晴天", "周杰伦"},
+	}
+	for _, tt := range cases {
+		title, artist := splitSongRequestArtist(tt.input)
+		if title != tt.title || artist != tt.artist { t.Errorf("splitSongRequestArtist(%q)=(%q,%q), want (%q,%q)", tt.input, title, artist, tt.title, tt.artist) }
+	}
+}
+
+func TestSearchSongRequestAcrossSourcesFallsBackUntilValidMatch(t *testing.T) {
+	var attempted []string
+	track, matched, failures := searchSongRequestAcrossSources(context.Background(), []string{"tx", "kw", "kg", "wy"},
+		func(source string) ([]music.Track, error) {
+			attempted = append(attempted, source)
+			switch source {
+			case "tx": return nil, errors.New("provider unavailable")
+			case "kw": return []music.Track{}, nil
+			case "kg": return []music.Track{{ID: "kg_short", Title: "太空", Artist: "歌手"}}, nil
+			case "wy": return []music.Track{{ID: "wy_match", Title: "太空基米", Artist: "歌手"}}, nil
+			default: return nil, nil
+			}
+		}, "太空基米", "")
+	if !matched || track.ID != "wy_match" { t.Fatalf("track=%#v matched=%v; want wy_match", track, matched) }
+	if len(attempted) != 4 || attempted[0] != "tx" || attempted[1] != "kw" || attempted[2] != "kg" || attempted[3] != "wy" { t.Fatalf("attempted sources = %v", attempted) }
+	if len(failures) != 3 { t.Fatalf("failures = %v; want three diagnostics", failures) }
+}
+
+func TestSearchSongRequestAcrossSourcesStopsAfterFirstValidMatch(t *testing.T) {
+	var attempted []string
+	track, matched, _ := searchSongRequestAcrossSources(context.Background(), []string{"tx", "kw", "kg"},
+		func(source string) ([]music.Track, error) {
+			attempted = append(attempted, source)
+			if source == "tx" { return []music.Track{{ID: "tx_match", Title: "稻香", Artist: "周杰伦"}}, nil }
+			return nil, errors.New("should not be called")
+		}, "稻香", "")
+	if !matched || track.ID != "tx_match" { t.Fatalf("track=%#v matched=%v", track, matched) }
+	if len(attempted) != 1 || attempted[0] != "tx" { t.Fatalf("search continued after valid match: %v", attempted) }
+}
+
+func TestSelectSongRequestTrackByCombinedText(t *testing.T) {
+	tracks := []music.Track{
+		{ID: "wrong", Title: "晴天", Artist: "其他歌手"},
+		{ID: "right", Title: "晴天", Artist: "周杰伦"},
+	}
+	got, ok := selectSongRequestTrackByCombinedText(tracks, "晴天 周杰伦")
+	if !ok || got.ID != "right" {
+		t.Fatalf("combined query selected %#v, matched=%v; want right", got, ok)
+	}
+	if _, ok := selectSongRequestTrackByCombinedText(tracks, "晴天 陈奕迅"); ok {
+		t.Fatal("combined query must not match an unrelated artist")
 	}
 }

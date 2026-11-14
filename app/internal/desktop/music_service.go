@@ -263,24 +263,158 @@ func (s *MusicService) processSongRequest(ctx context.Context, event events.Even
 		if checkErr != nil { reason := "粉丝勋章校验失败：" + checkErr.Error(); s.setLastError(fmt.Errorf("校验观众 %s 的主播粉丝勋章失败，已拒绝本次点播：%w", event.UserName, checkErr)); s.publishRequestNotice("music_request_failed", event.UserName, "", reason); return }
 		if !allowed { reason := fmt.Sprintf("粉丝勋章等级不足（当前 %d 级，要求 %d 级）", level, fanMedalLevel); s.setLastError(fmt.Errorf("观众 %s 的主播粉丝勋章等级不足（当前 %d，要求 %d）", event.UserName, level, fanMedalLevel)); s.publishRequestNotice("music_request_failed", event.UserName, "", reason); return }
 	}
-	result, err := s.search(ctx, keyword)
-	if err != nil {
-		s.setLastError(fmt.Errorf("搜索弹幕点歌失败：%w", err))
-		s.publishRequestNotice("music_request_failed", event.UserName, "", "歌曲搜索失败："+err.Error())
-		return
-	}
-	if len(result.Tracks) == 0 {
-		reason := "未找到歌曲：" + keyword
-		s.setLastError(fmt.Errorf("观众 %s 点播的歌曲未找到：%s", event.UserName, keyword))
+	track, matched, sourceFailures := s.searchSongRequestTrack(ctx, keyword, keyword, "")
+	if !matched {
+		reason := "所有已启用音源均未找到匹配歌曲：" + keyword
+		if len(sourceFailures) > 0 {
+			reason += "（" + strings.Join(sourceFailures, "；") + "）"
+		}
+		s.setLastError(fmt.Errorf("观众 %s 点播的歌曲未找到匹配结果：%s；音源尝试：%s", event.UserName, keyword, strings.Join(sourceFailures, "；")))
 		s.publishRequestNotice("music_request_failed", event.UserName, "", reason)
 		return
 	}
-	if _, err := s.Enqueue(result.Tracks[0], event.UserName); err != nil {
+	if _, err := s.Enqueue(track, event.UserName); err != nil {
 		s.setLastError(fmt.Errorf("加入观众点播队列失败：%w", err))
 		s.publishRequestNotice("music_request_failed", event.UserName, "", err.Error())
 	} else {
-		s.publishRequestNotice("music_request_success", event.UserName, result.Tracks[0].Title, "")
+		s.publishRequestNotice("music_request_success", event.UserName, track.Title, "")
 	}
+}
+
+// searchSongRequestTrack tries enabled sources in configured priority order.
+func (s *MusicService) searchSongRequestTrack(parent context.Context, keyword, requestedTitle, requestedArtist string) (music.Track, bool, []string) {
+	if s == nil || s.searcher == nil {
+		return music.Track{}, false, []string{"洛雪搜索 SDK 未初始化"}
+	}
+	if parent == nil { parent = context.Background() }
+	sourceIDs := s.enabledSearchSourceIDs()
+	if len(sourceIDs) == 0 { return music.Track{}, false, []string{"没有启用任何搜索音源"} }
+	return searchSongRequestAcrossSources(parent, sourceIDs, func(source string) ([]music.Track, error) {
+		ctx, cancel := context.WithTimeout(parent, 18*time.Second)
+		defer cancel()
+		result, err := s.searcher.SearchProvider(ctx, source, keyword, 1)
+		if err != nil { return nil, err }
+		return result.Tracks, nil
+	}, requestedTitle, requestedArtist)
+}
+
+// songRequestMatchesTrack mirrors the request matching policy used by the provider search path.
+// It first checks the complete query against title+artist, then treats the final whitespace
+// separated token as an optional artist constraint.
+func songRequestMatchesTrack(requested string, track music.Track) bool {
+	tracks := []music.Track{track}
+	if _, ok := selectSongRequestTrackByCombinedText(tracks, requested); ok {
+		return true
+	}
+	title, artist := splitSongRequestArtist(requested)
+	if _, ok := selectSongRequestTrack(tracks, title, artist); ok {
+		return true
+	}
+	// Also accept the legacy artist-first form used by older request tests and clients.
+	if artist != "" {
+		_, ok := selectSongRequestTrack(tracks, artist, title)
+		return ok
+	}
+	return false
+}
+
+// searchSongRequestAcrossSources keeps provider fallback deterministic and testable.
+func searchSongRequestAcrossSources(parent context.Context, sourceIDs []string, search func(string) ([]music.Track, error), requestedTitle, requestedArtist string) (music.Track, bool, []string) {
+	if parent == nil { parent = context.Background() }
+	failures := make([]string, 0)
+	for _, source := range sourceIDs {
+		if err := parent.Err(); err != nil {
+			failures = append(failures, "搜索已取消："+err.Error())
+			break
+		}
+		tracks, err := search(source)
+		if err != nil {
+			failures = append(failures, source+" 搜索失败："+err.Error())
+			continue
+		}
+		// First try the complete user query against the combined title and artist.
+		// Only if that fails, interpret the final whitespace-delimited token as artist.
+		if track, ok := selectSongRequestTrackByCombinedText(tracks, requestedTitle); ok {
+			return track, true, failures
+		}
+		title, artist := splitSongRequestArtist(requestedTitle)
+		if requestedArtist != "" {
+			title, artist = requestedTitle, requestedArtist
+		}
+		if track, ok := selectSongRequestTrack(tracks, title, artist); ok {
+			return track, true, failures
+		}
+		failures = append(failures, source+" 无匹配结果")
+	}
+	return music.Track{}, false, failures
+}
+
+// splitSongRequestArtist accepts an optional explicit separator or a final whitespace-delimited artist.
+func splitSongRequestArtist(keyword string) (string, string) {
+	keyword = strings.TrimSpace(keyword)
+	for _, separator := range []string{" - ", "－", "—"} {
+		if index := strings.LastIndex(keyword, separator); index >= 0 {
+			title := strings.TrimSpace(keyword[:index])
+			artist := strings.TrimSpace(keyword[index+len(separator):])
+			if title != "" && artist != "" { return title, artist }
+		}
+	}
+	// Unicode whitespace handling covers both ASCII spaces/tabs and full-width/ideographic spaces.
+	lastSpace := -1
+	for index, r := range keyword {
+		if unicode.IsSpace(r) { lastSpace = index }
+	}
+	if lastSpace >= 0 {
+		title := strings.TrimSpace(keyword[:lastSpace])
+		artist := strings.TrimSpace(keyword[lastSpace:])
+		if title != "" && artist != "" { return title, artist }
+	}
+	return keyword, ""
+}
+
+func selectSongRequestTrackByCombinedText(tracks []music.Track, keyword string) (music.Track, bool) {
+	wanted := normalizeSongRequestText(keyword)
+	if wanted == "" { return music.Track{}, false }
+	var containsMatch music.Track
+	hasContainsMatch := false
+	for _, track := range tracks {
+		combined := normalizeSongRequestText(track.Title + track.Artist)
+		if combined == "" { continue }
+		if combined == wanted { return track, true }
+		if !hasContainsMatch && strings.Contains(combined, wanted) {
+			containsMatch, hasContainsMatch = track, true
+		}
+	}
+	return containsMatch, hasContainsMatch
+}
+func normalizeSongRequestText(value string) string {
+	var normalized strings.Builder
+	for _, r := range strings.ToLower(strings.TrimSpace(value)) {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) { normalized.WriteRune(r) }
+	}
+	return normalized.String()
+}
+
+// Exact title wins; only candidate-title contains request-title is accepted.
+func selectSongRequestTrack(tracks []music.Track, requestedTitle, requestedArtist string) (music.Track, bool) {
+	wantedTitle := normalizeSongRequestText(requestedTitle)
+	wantedArtist := normalizeSongRequestText(requestedArtist)
+	if wantedTitle == "" { return music.Track{}, false }
+	var containsMatch music.Track
+	hasContainsMatch := false
+	for _, track := range tracks {
+		candidateTitle := normalizeSongRequestText(track.Title)
+		if candidateTitle == "" { continue }
+		if wantedArtist != "" {
+			candidateArtist := normalizeSongRequestText(track.Artist)
+			if candidateArtist == "" || !strings.Contains(candidateArtist, wantedArtist) { continue }
+		}
+		if candidateTitle == wantedTitle { return track, true }
+		if !hasContainsMatch && strings.Contains(candidateTitle, wantedTitle) {
+			containsMatch, hasContainsMatch = track, true
+		}
+	}
+	return containsMatch, hasContainsMatch
 }
 
 func isSkipCommand(content, command string) bool { return command != "" && strings.TrimSpace(content) == command }
@@ -741,8 +875,7 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 	startedAt := time.Now()
-	sawEndPosition := false
-	sawPlaying := true
+	sawPlaying := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -750,62 +883,92 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 		case <-ticker.C:
 			snapshot, err := s.engine.Snapshot(ctx)
 			if err != nil { continue }
-			if snapshot.State == music.PlaybackPlaying { sawPlaying = true }
-			if snapshot.DurationMS > 0 {
-				threshold := snapshot.DurationMS - 1000
-				if threshold < snapshot.DurationMS/2 { threshold = snapshot.DurationMS/2 }
-				if snapshot.PositionMS >= threshold { sawEndPosition = true }
+			if snapshot.State == music.PlaybackPlaying {
+				sawPlaying = true
 			}
 			if snapshot.State == music.PlaybackError {
 				s.mu.RLock()
 				generationCurrent := s.playGeneration == generation
 				s.mu.RUnlock()
-				if !generationCurrent || ctx.Err() != nil {
-					return
-				}
+				if !generationCurrent || ctx.Err() != nil { return }
 				message := strings.TrimSpace(snapshot.Error)
-				if message == "" { message = "洛雪无法播放当前歌曲" }
-				currentItem := s.queue.Snapshot().Current
-				if currentItem != nil {
-					if resolvedTrack, retryErr := s.resolveAndStartLXTrack(ctx, currentItem.Track, true); retryErr == nil {
-						if ctx.Err() != nil {
-							return
-						}
-						currentItem.Track = resolvedTrack
-						if updateErr := s.queue.SetCurrent(*currentItem); updateErr == nil {
-							s.startPlaybackWatcher()
-							return
-						} else {
-							message += "；更新换源结果失败：" + updateErr.Error()
-						}
-					} else {
-						message += "；自动换源失败：" + retryErr.Error()
-					}
-				}
+				if message == "" { message = "洛雪播放器报告播放错误" }
 				s.setLastError(errors.New(message))
-				s.queue.FinishCurrent()
-				if len(s.queue.Snapshot().Items) > 0 { _ = s.PlayNext() }
-				return
-			}
-			if snapshot.State != music.PlaybackStopped || (!sawEndPosition && !sawPlaying) { continue }
-			s.mu.RLock()
-			current := s.playGeneration == generation
-			s.mu.RUnlock()
-			if !current { return }
-			if sawEndPosition {
 				currentItem := s.queue.Snapshot().Current
 				if currentItem != nil { s.pushHistory(*currentItem) }
 				s.queue.FinishCurrent()
-				if len(s.queue.Snapshot().Items) > 0 { _ = s.PlayNext() }
+				if advanceErr := s.advanceAfterPlaybackEnd(snapshot, currentItem); advanceErr != nil {
+					s.setLastError(fmt.Errorf("播放失败后推进下一首失败：%w", advanceErr))
+				}
 				return
 			}
-			if time.Since(startedAt) >= 20*time.Second {
-				if ctx.Err() != nil { return }
-				s.setLastError(errors.New("播放器未能开始播放；请检查音源解析结果和网络连接"))
-				return
+			// 暂停期间不根据进度判断结束。
+			if snapshot.State == music.PlaybackPaused { continue }
+			if !sawPlaying {
+				if time.Since(startedAt) >= 20*time.Second {
+					if ctx.Err() != nil { return }
+					s.setLastError(errors.New("播放器未能开始播放；请检查音源解析结果和网络连接"))
+					return
+				}
+				continue
 			}
+			if !playbackSnapshotEnded(sawPlaying, snapshot) { continue }
+
+			s.mu.RLock()
+			generationCurrent := s.playGeneration == generation
+			s.mu.RUnlock()
+			if !generationCurrent || ctx.Err() != nil { return }
+
+			currentItem := s.queue.Snapshot().Current
+			if currentItem != nil { s.pushHistory(*currentItem) }
+			s.queue.FinishCurrent()
+			if advanceErr := s.advanceAfterPlaybackEnd(snapshot, currentItem); advanceErr != nil {
+				s.setLastError(fmt.Errorf("歌曲播放结束后推进下一首失败：%w", advanceErr))
+			}
+			return
 		}
 	}
+}
+
+// playbackSnapshotEnded mirrors Bili_Live_Danmaku's wait_song_end:
+// after observing real playback, stopped or near-end progress means completion.
+func playbackSnapshotEnded(sawPlaying bool, snapshot music.PlaybackSnapshot) bool {
+	if !sawPlaying || snapshot.State == music.PlaybackPaused { return false }
+	if snapshot.State == music.PlaybackStopped { return true }
+	return snapshot.State == music.PlaybackPlaying &&
+		snapshot.DurationMS > 0 &&
+		snapshot.PositionMS >= snapshot.DurationMS-2000
+}
+
+// lxAlreadyAdvancedPastCurrent is only a guard against skipping twice after
+// 洛雪 has already auto-advanced. It must not be used as an end-of-track signal.
+func lxAlreadyAdvancedPastCurrent(current *music.QueueItem, snapshot music.PlaybackSnapshot) bool {
+	return current != nil &&
+		snapshot.State == music.PlaybackPlaying &&
+		snapshot.Track != nil &&
+		!sameLXTrackIdentity(current.Track, *snapshot.Track)
+}
+
+// advanceAfterPlaybackEnd always gives My-LiveHub's request queue priority.
+// Only an empty request queue may fall through to 洛雪's own playlist.
+func (s *MusicService) advanceAfterPlaybackEnd(snapshot music.PlaybackSnapshot, finished *music.QueueItem) error {
+	if s == nil || s.engine == nil || s.queue == nil {
+		return errors.New("music playback service is unavailable")
+	}
+	if len(s.queue.Snapshot().Items) > 0 {
+		return s.PlayNext()
+	}
+	// 洛雪 may already have started its own next song at the end boundary.
+	// Keep it playing instead of issuing a second skip-next.
+	if lxAlreadyAdvancedPastCurrent(finished, snapshot) { return nil }
+	nextTrack, ok := s.engine.(interface { NextTrack(context.Context) error })
+	if !ok {
+		return errors.New("当前播放引擎不支持切换洛雪队列")
+	}
+	if err := nextTrack.NextTrack(context.Background()); err != nil {
+		return fmt.Errorf("My-LiveHub 队列为空，切换洛雪下一首失败：%w", err)
+	}
+	return nil
 }
 
 func cloneMusicConfig(value config.MusicConfig) config.MusicConfig { return value }

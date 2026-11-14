@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Akegarasu/blivedm-go/client"
@@ -625,10 +626,7 @@ func (a *Adapter) Connect(ctx context.Context) error {
 
 	credentials, err := a.auth.LoadCredentials(ctx)
 	if err != nil { return err }
-	ownerCtx, ownerCancel := context.WithTimeout(ctx, 3*time.Second)
-	roomOwnerUID, ownerErr := fetchRoomOwnerUID(ownerCtx, nil, "https://api.live.bilibili.com/room/v1/Room/room_init", roomID)
-	ownerCancel()
-	if ownerErr != nil { roomOwnerUID = 0 }
+	var roomOwnerUID atomic.Int64
 	stream := a.newStream(roomID)
 	stream.SetCookie(credentials.Cookie)
 	stream.OnRawEvent(func(cmd string, raw []byte) {
@@ -681,7 +679,7 @@ func (a *Adapter) Connect(ctx context.Context) error {
 			PlatformID: "bilibili", Source: "live", Type: "danmaku", RoomID: roomID,
 			UserID: d.Sender.Uid, UserName: d.Sender.Uname, Avatar: d.Sender.Face,
 			Content: d.Content, Emoticons: emoticons, Timestamp: timestamp, Color: d.Color,
-			IsModerator: d.Sender.Admin, IsRoomOwner: roomOwnerUID > 0 && d.Sender.Uid == roomOwnerUID, UserLevel: int(d.Sender.UserLevel), GuardLevel: d.Sender.GuardLevel,
+			IsModerator: d.Sender.Admin, IsRoomOwner: roomOwnerUID.Load() > 0 && int64(d.Sender.Uid) == roomOwnerUID.Load(), UserLevel: int(d.Sender.UserLevel), GuardLevel: d.Sender.GuardLevel,
 			FanMedalName: medalName(d.Sender.Medal), FanMedalLevel: medalLevel(d.Sender.Medal), FanMedalColor: medalColor(d.Sender.Medal),
 		})
 	})
@@ -802,6 +800,16 @@ func (a *Adapter) Connect(ctx context.Context) error {
 	}
 	a.client, a.cancel = stream, cancel
 	a.mu.Unlock()
+	// Room-owner lookup is optional metadata. Resolve it in the background so
+	// network latency cannot delay the live stream connection becoming ready.
+	go func() {
+		ownerCtx, ownerCancel := context.WithTimeout(runCtx, 3*time.Second)
+		defer ownerCancel()
+		uid, lookupErr := fetchRoomOwnerUID(ownerCtx, nil, "https://api.live.bilibili.com/room/v1/Room/room_init", roomID)
+		if lookupErr == nil && uid > 0 {
+			roomOwnerUID.Store(int64(uid))
+		}
+	}()
 	go a.refreshInitialLiveStatus(runCtx, roomID, initialLiveStatusRevision)
 	refreshCommonEmoticons := a.mediaCatalog != nil && !a.mediaCatalog.IsFresh("bilibili", "common", resource.TypeEmoticon, 24*time.Hour)
 	refreshRoomEmoticons := a.mediaCatalog != nil && !a.mediaCatalog.IsFresh("bilibili", strconv.Itoa(roomID), resource.TypeEmoticon, 6*time.Hour)

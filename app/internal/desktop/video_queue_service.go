@@ -209,6 +209,14 @@ func (s *VideoQueueService) addVideo(bvid, requester string, userID int, privile
 	return s.addVideoForGeneration(bvid, requester, userID, privileged, 0)
 }
 
+func (s *VideoQueueService) hasVideoLocked(bvid string) bool {
+	if s.current != nil && strings.EqualFold(s.current.BVID, bvid) { return true }
+	for _, item := range s.queue {
+		if strings.EqualFold(item.BVID, bvid) { return true }
+	}
+	return false
+}
+
 func (s *VideoQueueService) addVideoForGeneration(bvid, requester string, userID int, privileged bool, expectedGeneration uint64) error {
 	if s == nil { return errors.New("视频点播队列不可用") }
 	bvid = strings.TrimSpace(bvid)
@@ -219,8 +227,10 @@ func (s *VideoQueueService) addVideoForGeneration(bvid, requester string, userID
 	generation := s.generation
 	if expectedGeneration != 0 && expectedGeneration != generation { s.mu.Unlock(); return errors.New("视频点播请求已失效") }
 	if !s.settings.VideoRequestsEnabled { s.mu.Unlock(); return errors.New("视频点播当前已关闭") }
-	if s.current != nil && s.current.BVID == bvid { s.mu.Unlock(); return errors.New("该视频正在播放") }
-	for _, item := range s.queue { if item.BVID == bvid { s.mu.Unlock(); return errors.New("该视频已经在待播队列中") } }
+	if s.hasVideoLocked(bvid) {
+		s.mu.Unlock()
+		return errors.New("该视频正在播放或已在待播队列中")
+	}
 	if s.pending[bvid] { s.mu.Unlock(); return errors.New("该视频正在校验，请稍后") }
 	if len(s.queue)+len(s.pending) >= s.settings.VideoQueueLimit { s.mu.Unlock(); return fmt.Errorf("视频队列已满（最多 %d 条）", s.settings.VideoQueueLimit) }
 	s.pending[bvid] = true
@@ -235,8 +245,10 @@ func (s *VideoQueueService) addVideoForGeneration(bvid, requester string, userID
 	}
 	delete(s.pending, bvid)
 	if err != nil { s.mu.Unlock(); return err }
-	if s.current != nil && s.current.BVID == bvid { s.mu.Unlock(); return errors.New("该视频正在播放") }
-	for _, item := range s.queue { if item.BVID == bvid { s.mu.Unlock(); return errors.New("该视频已经在待播队列中") } }
+	if s.hasVideoLocked(bvid) {
+		s.mu.Unlock()
+		return errors.New("该视频正在播放或已在待播队列中")
+	}
 	if !privileged && duration > s.settings.VideoMaxDurationSeconds {
 		maxDuration := s.settings.VideoMaxDurationSeconds
 		s.mu.Unlock()
