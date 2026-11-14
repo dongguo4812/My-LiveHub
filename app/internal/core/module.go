@@ -114,6 +114,54 @@ func (m *ModuleManager) StartAll(ctx context.Context) error {
 	return nil
 }
 
+// StartModule starts one registered module without changing the lifecycle of others.
+func (m *ModuleManager) StartModule(ctx context.Context, name string) error {
+	if m == nil { return errors.New("module manager is required") }
+	if ctx == nil { return errors.New("module startup context is required") }
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+	m.mu.RLock()
+	if !m.started || m.stopped { m.mu.RUnlock(); return errors.New("application module lifecycle is not running") }
+	entry := m.byName[name]
+	m.mu.RUnlock()
+	if entry == nil { return fmt.Errorf("module %q is not registered", name) }
+	status := m.statusOf(entry)
+	if status == ModuleRunning { return nil }
+	if status == ModuleStarting || status == ModuleStopping { return fmt.Errorf("module %q is busy (status %q)", name, status) }
+	m.setStatus(entry, ModuleStarting, nil)
+	if err := entry.module.Start(ctx); err != nil {
+		startErr := fmt.Errorf("start module %q: %w", name, err)
+		m.setStatus(entry, ModuleFailed, startErr)
+		return startErr
+	}
+	m.setStatus(entry, ModuleRunning, nil)
+	return nil
+}
+
+// StopModule stops one registered module without shutting down the application.
+func (m *ModuleManager) StopModule(ctx context.Context, name string) error {
+	if m == nil { return errors.New("module manager is required") }
+	if ctx == nil { return errors.New("module shutdown context is required") }
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+	m.mu.RLock()
+	if !m.started || m.stopped { m.mu.RUnlock(); return errors.New("application module lifecycle is not running") }
+	entry := m.byName[name]
+	m.mu.RUnlock()
+	if entry == nil { return fmt.Errorf("module %q is not registered", name) }
+	status := m.statusOf(entry)
+	if status == ModuleStopped || status == ModuleRegistered { return nil }
+	if status != ModuleRunning { return fmt.Errorf("module %q cannot stop from status %q", name, status) }
+	m.setStatus(entry, ModuleStopping, nil)
+	if err := entry.module.Stop(ctx); err != nil {
+		stopErr := fmt.Errorf("stop module %q: %w", name, err)
+		m.setStatus(entry, ModuleFailed, stopErr)
+		return stopErr
+	}
+	m.setStatus(entry, ModuleStopped, nil)
+	return nil
+}
+
 func (m *ModuleManager) StopAll(ctx context.Context) error {
 	if m == nil {
 		return nil
