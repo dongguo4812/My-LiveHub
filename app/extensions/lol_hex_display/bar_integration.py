@@ -133,19 +133,20 @@ def register_bar_routes(
             if stop_event.is_set():
                 log.warning("[战绩条] 停止信号已设置，跳过后台线程启动")
                 return
-            worker = threading.Thread(
-                target=auto_refresh_worker,
-                name="lol-match-bar-auto-refresh",
-                daemon=True,
-            )
-            worker.start()
-            # 头像下载与战绩刷新解耦；多个常驻工作线程并发补齐资源。
+            # 先启动头像消费者，再启动会立即刷新战绩并提交预取任务的线程。
+            # 避免启动瞬间队列积压；队列本身虽可缓存任务，但此顺序更直观可靠。
             for index in range(CHAMPION_ICON_WORKER_COUNT):
                 threading.Thread(
                     target=champion_icon_prefetch_worker,
                     name=f"lol-champion-icon-prefetch-{index + 1}",
                     daemon=True,
                 ).start()
+            worker = threading.Thread(
+                target=auto_refresh_worker,
+                name="lol-match-bar-auto-refresh",
+                daemon=True,
+            )
+            worker.start()
 
             # 即使启动时客户端暂不可用，也先为磁盘中的历史战绩补齐 CDN 资源；
             # 若 LCU 已识别，则预取任务会优先走本地 LCU 接口。
@@ -1404,7 +1405,17 @@ def register_bar_routes(
 
     @bp.get("/api/snapshot")
     def bar_snapshot_api():
-        return jsonify(snapshot())
+        data = snapshot()
+        games = data.get("games", []) if isinstance(data, dict) else []
+        champion_ids = [
+            item.get("champion_id")
+            for item in games
+            if isinstance(item, dict)
+        ]
+        # 页面每次取得快照时同步登记所需头像，避免启动时账号尚未识别、
+        # 或历史缓存先于 LCU 初始化等时序导致头像从未进入预取队列。
+        schedule_champion_icon_prefetch(champion_ids)
+        return jsonify(data)
 
     @bp.get("/api/lobby-events")
     def bar_lobby_events():
