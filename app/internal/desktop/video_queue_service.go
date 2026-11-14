@@ -180,7 +180,7 @@ func (s *VideoQueueService) addVideo(bvid, requester string, userID int, privile
 	s.mu.Lock()
 	delete(s.pending, bvid)
 	if err != nil { s.mu.Unlock(); return err }
-	if s.closed { s.mu.Unlock(); return errors.New("视频点播模块已关闭") }
+	if !s.active { s.mu.Unlock(); return errors.New("视频点播模块已关闭") }
 	if s.current != nil && s.current.BVID == bvid { s.mu.Unlock(); return errors.New("该视频正在播放") }
 	for _, item := range s.queue { if item.BVID == bvid { s.mu.Unlock(); return errors.New("该视频已经在待播队列中") } }
 	if !privileged && duration > s.settings.VideoMaxDurationSeconds {
@@ -230,7 +230,7 @@ func (s *VideoQueueService) handlePlaybackState(state BilibiliWebViewPlaybackSta
 	}
 	if !state.IsEnded { return }
 	s.mu.Lock()
-	if s.closed || s.current == nil || (state.BVID != "" && state.BVID != s.current.BVID) { s.mu.Unlock(); return }
+	if !s.active || s.current == nil || (state.BVID != "" && state.BVID != s.current.BVID) { s.mu.Unlock(); return }
 	s.current = nil
 	if len(s.queue) > 0 {
 		s.startNextLocked()
