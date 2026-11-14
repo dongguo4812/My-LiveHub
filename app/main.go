@@ -200,6 +200,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("initialize voice service: %v", err)
 	}
+	interactionRuleService, err := desktop.NewInteractionRuleService(configManager, bilibiliEvents, voiceService)
+	if err != nil { log.Fatalf("initialize interaction rule service: %v", err) }
 	if err := coreApp.Modules().Register("voice", voice.NewModule(voiceService)); err != nil {
 		log.Fatalf("register voice module: %v", err)
 	}
@@ -283,6 +285,7 @@ func main() {
 			application.NewService(danmakuDisplayService),
 			application.NewService(sceneService),
 			application.NewService(voiceService),
+			application.NewService(interactionRuleService),
 			application.NewService(musicService),
 			application.NewService(musicLyricsWindowService),
 			application.NewService(videoQueueService),
