@@ -327,7 +327,7 @@ function renderBar(data, games) {
                             class="champ"
                             src="${iconUrl}"
                             alt=""
-                            onerror="this.style.display='none'"
+                            onerror="const id=this.dataset.championId||(this.dataset.championId=this.src.match(/champion\\/(\\d+)\\.png/)?.[1]||'');const n=Number(this.dataset.retryCount||0);if(id&&n<20){this.dataset.retryCount=String(n+1);setTimeout(()=>{this.src='/asset/champion/'+id+'.png?retry='+Date.now()},1500)}else{this.style.display='none'}"
                         >`
                         : ''
                 }
