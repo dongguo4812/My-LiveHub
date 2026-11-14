@@ -39,6 +39,8 @@ type streamClient interface {
 }
 
 
+const giftCatalogMetadataVersion = 2
+
 // giftCatalog caches the public gift-panel metadata separately for each room.
 type giftCatalog struct {
 	mu sync.RWMutex
@@ -174,7 +176,7 @@ func (c *giftCatalog) AnimationURL(roomID, giftID int) string {
 	entry, ok := c.rooms[roomID]; if !ok { return "" }; return entry.gifts[giftID].animationURL
 }
 
-func(c *giftCatalog)Resources(roomID int)[]resource.Resource{if c==nil||roomID<=0{return nil};c.mu.RLock();entry,ok:=c.rooms[roomID];c.mu.RUnlock();if !ok{return nil};out:=make([]resource.Resource,0,len(entry.gifts));for id,g:=range entry.gifts{out=append(out,resource.Resource{PlatformID:"bilibili",SourceID:fmt.Sprint(roomID),Type:resource.TypeGift,ID:fmt.Sprint(id),Name:g.name,ImageURL:g.imageURL,AnimationURL:g.animationURL,UnitPrice:g.unitPrice})};return out}
+func(c *giftCatalog)Resources(roomID int)[]resource.Resource{if c==nil||roomID<=0{return nil};c.mu.RLock();entry,ok:=c.rooms[roomID];c.mu.RUnlock();if !ok{return nil};out:=make([]resource.Resource,0,len(entry.gifts));for id,g:=range entry.gifts{out=append(out,resource.Resource{PlatformID:"bilibili",SourceID:fmt.Sprint(roomID),Type:resource.TypeGift,ID:fmt.Sprint(id),Name:g.name,ImageURL:g.imageURL,AnimationURL:g.animationURL,MetadataVersion:giftCatalogMetadataVersion,UnitPrice:g.unitPrice})};return out}
 
 type Adapter struct {
 	auth *AuthManager
@@ -475,6 +477,16 @@ func formatClockDiagnostic(at time.Time) string {
 		at.Unix(),
 		at.Location(),
 	)
+}
+
+func giftCatalogMetadataCurrent(c *resource.Catalog, roomID int) bool {
+	if c == nil || roomID <= 0 { return false }
+	items := c.List("bilibili", strconv.Itoa(roomID), resource.TypeGift)
+	if len(items) == 0 { return false }
+	for _, item := range items {
+		if item.MetadataVersion < giftCatalogMetadataVersion { return false }
+	}
+	return true
 }
 
 func (a *Adapter) SetMediaCatalog(c *resource.Catalog) {
@@ -817,7 +829,9 @@ func (a *Adapter) Connect(ctx context.Context) error {
 	if a.mediaCatalog != nil {
 		giftRefreshAt, hasGiftRefreshAt = a.mediaCatalog.LastRefreshed("bilibili", strconv.Itoa(roomID), resource.TypeGift)
 	}
-	giftCatalogFresh := a.mediaCatalog != nil && a.mediaCatalog.IsFresh("bilibili", strconv.Itoa(roomID), resource.TypeGift, 24*time.Hour)
+	giftCatalogFresh := a.mediaCatalog != nil &&
+		a.mediaCatalog.IsFresh("bilibili", strconv.Itoa(roomID), resource.TypeGift, 24*time.Hour) &&
+		giftCatalogMetadataCurrent(a.mediaCatalog, roomID)
 	if hasGiftRefreshAt {
 		log.Printf("[bilibili] room %d gift catalog refresh decision: last_successful_refresh=%s; current_clock=%s; fresh=%t",
 			roomID, formatClockDiagnostic(giftRefreshAt), formatClockDiagnostic(time.Now()), giftCatalogFresh)
