@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, onUpdated, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
-type Layer = { id: string; type: string; name: string; x: number; y: number; width: number; height: number; z_index: number; visible: boolean; opacity: number; text?: string; url?: string; color?: string; font_size?: number; queue_display_count?: number; gift_display_duration?: number; super_chat_display_duration?: number; live2d_scale?: number; live2d_x?: number; live2d_y?: number; emoticon_size?: number; emoticon_speed?: number; emoticon_drift?: number; emoticon_max_count?: number; content_scale?: number }
+type Layer = { id: string; type: string; name: string; x: number; y: number; width: number; height: number; z_index: number; visible: boolean; opacity: number; text?: string; url?: string; color?: string; font_size?: number; queue_display_count?: number; gift_display_duration?: number; super_chat_display_duration?: number; live2d_scale?: number; live2d_x?: number; live2d_y?: number; emoticon_size?: number; emoticon_speed?: number; emoticon_drift?: number; emoticon_max_count?: number; content_scale?: number; request_notice_display_duration?: number }
 type Scene = { id: string; name: string; width: number; height: number; background: string; layers: Layer[] }
 type EmoticonToken = { text: string; url: string; cache_url?: string; width?: number; height?: number }
 type LiveEvent = { id: number; type: string; user_name: string; content: string; gift_name?: string; gift_count?: number; gift_image_url?: string; gift_image_cache_url?: string; gift_animation_url?: string; gift_animation_cache_url?: string; amount?: number; timestamp: number; emoticons?: EmoticonToken[] }
@@ -88,10 +88,10 @@ const live2DFrameURL = computed(() => {
 })
 const musicDisplayConfig = ref<MusicDisplayConfig | null>(null)
 const musicError = ref('')
-const currentRequestNotice = ref<RequestNotice | null>(null)
-const pendingRequestNotices = ref<RequestNotice[]>([])
+const currentRequestNotices = ref<Record<string, RequestNotice | null>>({})
+const pendingRequestNotices = ref<Record<string, RequestNotice[]>>({})
+const requestNoticeTimers = new Map<string, ReturnType<typeof setTimeout>>()
 let requestNoticeSource: EventSource | undefined
-let requestNoticeTimer: ReturnType<typeof setTimeout> | undefined
 const musicAccentColor = ref('#A83232')
 const waveBars = Array.from({ length: 31 }, (_, index) => ({ height: 7 + Math.abs(Math.sin(index * 1.71) * 24), speed: 0.45 + (index % 7) * 0.13, delay: -(Math.random() * 1.8) }))
 const musicColors = ['#FF3B30', '#FF7A00', '#FFD000', '#39D353', '#00D6C9', '#00A6FF', '#4169FF', '#9B5CFF', '#FF4FA3', '#FF6B6B']
@@ -253,19 +253,29 @@ function spawnFloatingEmoticons(event: LiveEvent) {
     floatingEmoticons.value = [...keep, ...combined]
   }
 }
-function showNextRequestNotice() {
-  if (currentRequestNotice.value || !pendingRequestNotices.value.length) return
-  currentRequestNotice.value = pendingRequestNotices.value.shift() || null
-  requestNoticeTimer = setTimeout(() => {
-    currentRequestNotice.value = null
-    showNextRequestNotice()
-  }, 5000)
+function showNextRequestNotice(layer: Layer) {
+  if (currentRequestNotices.value[layer.id]) return
+  const queue = pendingRequestNotices.value[layer.id] || []
+  if (!queue.length) return
+  currentRequestNotices.value[layer.id] = queue.shift() || null
+  const duration = Math.max(1, Math.min(120, layer.request_notice_display_duration || 5)) * 1000
+  const previousTimer = requestNoticeTimers.get(layer.id)
+  if (previousTimer) clearTimeout(previousTimer)
+  requestNoticeTimers.set(layer.id, setTimeout(() => {
+    currentRequestNotices.value[layer.id] = null
+    requestNoticeTimers.delete(layer.id)
+    showNextRequestNotice(layer)
+  }, duration))
 }
 function handleRequestNotice(event: MessageEvent<string>) {
   try {
     const notice = JSON.parse(event.data) as RequestNotice
-    pendingRequestNotices.value.push(notice)
-    showNextRequestNotice()
+    for (const layer of scene.value?.layers || []) {
+      if (layer.type !== 'request_notice' || !layer.visible) continue
+      const queue = pendingRequestNotices.value[layer.id] || (pendingRequestNotices.value[layer.id] = [])
+      queue.push(notice)
+      showNextRequestNotice(layer)
+    }
   } catch { /* Ignore malformed request notice frames. */ }
 }
 function requestNoticeText(notice: RequestNotice) {
@@ -449,7 +459,8 @@ onUnmounted(() => {
   if (mouthSyncPollTimer) clearInterval(mouthSyncPollTimer)
   source?.close()
   requestNoticeSource?.close()
-  if (requestNoticeTimer) clearTimeout(requestNoticeTimer)
+  for (const timer of requestNoticeTimers.values()) clearTimeout(timer)
+  requestNoticeTimers.clear()
   if (clockTimer) clearInterval(clockTimer)
   if (sceneRefreshTimer) clearInterval(sceneRefreshTimer)
   if (musicRefreshTimer) clearInterval(musicRefreshTimer)
@@ -463,8 +474,8 @@ onUnmounted(() => {
 
 <template>
   <main v-if="scene" class="scene-output" :style="{ aspectRatio: scene.width + ' / ' + scene.height, background: scene.background === 'transparent' ? 'transparent' : scene.background }">
-    <div v-if="currentRequestNotice" class="request-result-notice" :class="{ 'is-failed': currentRequestNotice.kind.endsWith('_failed') }">{{ requestNoticeText(currentRequestNotice) }}</div>
     <div v-for="layer in scene.layers.filter(item => item.visible && (item.type !== 'music_queue' || musicDisplayConfig?.command_enabled === true) && (item.type !== 'video_queue' || (videoQueue.running === true && videoQueue.enabled === true)) && (item.type !== 'live2d' || Boolean(live2DFrameURL)))" :key="layer.id" class="output-layer" :class="{ 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue', 'video-queue-output-layer': layer.type === 'video_queue', 'emoticon-output-layer': layer.type === 'emoticon' }" :style="layerStyle(layer)">
+      <div v-if="layer.type === 'request_notice' && currentRequestNotices[layer.id]" class="request-notice-widget" :class="{ 'is-failed': currentRequestNotices[layer.id]?.kind.endsWith('_failed') }">{{ requestNoticeText(currentRequestNotices[layer.id]!) }}</div>
       <span v-if="layer.type === 'text'">{{ layer.text }}</span>
       <img v-else-if="layer.type === 'image' && layer.url" :src="layer.url" alt="" />
       <iframe v-else-if="(layer.type === 'lol_hex_display' || layer.type === 'lol_hex_bar') && lolHexFrameURLs[layer.id]" class="lol-hex-output-frame" :src="lolHexDisplayURL(layer)" :title="layer.name" :style="{ width: '100%', height: '100%', border: '0', background: 'transparent', pointerEvents: 'none' }" />
@@ -596,7 +607,7 @@ onUnmounted(() => {
 html,body,#app{width:100%;height:100%;margin:0;overflow:hidden;background:transparent!important}
 body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .scene-output{position:relative;width:100vw;height:100vh;overflow:hidden;container-type:size;background:transparent}
-.request-result-notice{position:absolute;z-index:2147483647;top:5%;left:50%;max-width:90%;padding:.65em 1.1em;border:1px solid rgba(120,220,160,.55);border-radius:.55em;background:rgba(12,24,20,.94);color:#a7f3c0;font-size:clamp(16px,2.1cqh,34px);font-weight:800;line-height:1.4;text-align:center;text-shadow:0 2px 5px #000;box-shadow:0 8px 24px #0006;transform:translateX(-50%);white-space:normal;overflow-wrap:anywhere;pointer-events:none}.request-result-notice.is-failed{border-color:rgba(255,125,125,.65);background:rgba(38,15,18,.95);color:#ffb2b2}
+.request-notice-widget{display:flex;align-items:center;justify-content:center;box-sizing:border-box;width:100%;height:100%;padding:.5em .8em;border:1px solid rgba(120,220,160,.6);border-radius:.55em;background:rgba(12,24,20,.94);color:var(--notice-color,#a7f3c0);font-weight:800;line-height:1.4;text-align:center;text-shadow:0 2px 5px #000;box-shadow:0 8px 24px #0006;white-space:normal;overflow-wrap:anywhere;pointer-events:none}.request-notice-widget.is-failed{border-color:rgba(255,125,125,.7);background:rgba(38,15,18,.95);color:#ffb2b2}
 .output-layer{position:absolute;display:flex;align-items:flex-start;justify-content:flex-start;overflow:hidden;white-space:pre-wrap;word-break:break-word;font-weight:600;text-shadow:0 2px 6px #000b}
 .emoticon-output-layer{padding:0;white-space:normal;text-shadow:none}
 .floating-emoticon-layer{position:absolute;inset:0;overflow:hidden;pointer-events:none}
