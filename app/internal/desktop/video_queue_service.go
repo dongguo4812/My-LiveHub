@@ -106,6 +106,15 @@ func (s *VideoQueueService) Stop() error {
 	return nil
 }
 
+func (s *VideoQueueService) closePlayerIfActive() {
+	s.playerMu.Lock()
+	defer s.playerMu.Unlock()
+	s.mu.Lock()
+	active := s.active
+	s.mu.Unlock()
+	if active { s.webview.CloseWindow() }
+}
+
 func (s *VideoQueueService) setFanMedalChecker(checker interface { Check(context.Context, int, int) (bool, int, error) }) {
 	if s == nil { return }
 	s.mu.Lock()
@@ -274,7 +283,7 @@ func (s *VideoQueueService) handlePlaybackState(state BilibiliWebViewPlaybackSta
 	s.mu.Unlock()
 	// Closing the WebView is the single point that restores music, and only
 	// happens after both current and waiting queue are empty.
-	s.webview.CloseWindow()
+	s.closePlayerIfActive()
 }
 
 func (s *VideoQueueService) SkipCurrent() error {
@@ -289,7 +298,7 @@ func (s *VideoQueueService) SkipCurrent() error {
 		return nil
 	}
 	s.mu.Unlock()
-	s.webview.CloseWindow()
+	s.closePlayerIfActive()
 	return nil
 }
 
