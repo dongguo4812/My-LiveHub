@@ -12,6 +12,12 @@ type Module interface {
 	Stop(context.Context) error
 }
 
+// ManualStartModule opts out of automatic application startup while remaining
+// available through StartModule/StopModule for explicit user control.
+type ManualStartModule interface {
+	StartOnApplicationLaunch() bool
+}
+
 type ModuleStatus string
 
 const (
@@ -98,6 +104,10 @@ func (m *ModuleManager) StartAll(ctx context.Context) error {
 
 	started := make([]*registeredModule, 0, len(modules))
 	for _, entry := range modules {
+		if manual, ok := entry.module.(ManualStartModule); ok && !manual.StartOnApplicationLaunch() {
+			m.setStatus(entry, ModuleStopped, nil)
+			continue
+		}
 		m.setStatus(entry, ModuleStarting, nil)
 		if err := entry.module.Start(ctx); err != nil {
 			startErr := fmt.Errorf("start module %q: %w", entry.name, err)
