@@ -355,13 +355,17 @@ func splitSongRequestArtist(keyword string) (string, string) {
 func selectSongRequestTrackByCombinedText(tracks []music.Track, keyword string) (music.Track, bool) {
 	wanted := normalizeSongRequestText(keyword)
 	if wanted == "" { return music.Track{}, false }
+	var containsMatch music.Track
+	hasContainsMatch := false
 	for _, track := range tracks {
 		combined := normalizeSongRequestText(track.Title + track.Artist)
-		if combined != "" && strings.Contains(combined, wanted) {
-			return track, true
+		if combined == "" { continue }
+		if combined == wanted { return track, true }
+		if !hasContainsMatch && strings.Contains(combined, wanted) {
+			containsMatch, hasContainsMatch = track, true
 		}
 	}
-	return music.Track{}, false
+	return containsMatch, hasContainsMatch
 }
 func normalizeSongRequestText(value string) string {
 	var normalized strings.Builder
