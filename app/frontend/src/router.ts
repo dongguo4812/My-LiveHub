@@ -11,6 +11,7 @@ import VideoView from './views/VideoView.vue'
 import Live2DView from './views/Live2DView.vue'
 import SimulatorView from './views/SimulatorView.vue'
 import PlaceholderView from './views/PlaceholderView.vue'
+import ExtensionsView from './views/ExtensionsView.vue'
 import LayoutsView from './views/LayoutsView.vue'
 import SceneRendererView from './views/SceneRendererView.vue'
 const routes=[
@@ -25,7 +26,7 @@ const routes=[
 {path:'/layouts',component:LayoutsView,meta:{title:'综合展示',section:'展示管理',description:'编辑多个独立展示布局，并管理对应 OBS 浏览器地址。'}},
 {path:'/scene/:sceneID',component:SceneRendererView,meta:{title:'场景输出',standalone:true}},
 {path:'/obs',component:PlaceholderView,meta:{title:'OBS 管理',section:'展示管理',description:'由核心统一管理 OBS WebSocket 连接和操作。'}},
-{path:'/extensions',component:PlaceholderView,meta:{title:'扩展管理',section:'扩展中心',description:'管理官方与第三方扩展、权限和独立进程状态。'}},
+{path:'/extensions',component:ExtensionsView,meta:{title:'扩展管理',section:'扩展中心',description:'管理官方与第三方扩展、权限和独立进程状态。'}},
 {path:'/danmaku',component:DanmakuView,meta:{title:'弹幕显示',section:'功能模块'}},
 {path:'/voice',component:VoiceView,meta:{title:'语音播报',section:'功能模块'}},
 {path:'/music',component:MusicView,meta:{title:'音乐播放',section:'功能模块'}},
