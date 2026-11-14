@@ -101,6 +101,7 @@ let live2DStatusEndpoint = ''
 let live2DModuleStatusTimer: ReturnType<typeof setInterval> | undefined
 const live2DModuleEnabled = ref(false)
 let microphoneStarting = false
+let resolvingLive2DEndpoint = false
 let lastKnownLive2DModuleEnabled: boolean | null = null
 
 function broadcastMouthOpen(value: number) {
@@ -117,6 +118,8 @@ function broadcastMouthOpen(value: number) {
 }
 
 async function resolveMouthSyncEndpoint() {
+  if (resolvingLive2DEndpoint || live2DStatusEndpoint) return
+  resolvingLive2DEndpoint = true
   try {
     const scenes = await getScenes()
     const scene = scenes[0]
@@ -127,6 +130,9 @@ async function resolveMouthSyncEndpoint() {
     await refreshLive2DModuleStatus()
   } catch {
     mouthSyncEndpoint = ''
+    live2DStatusEndpoint = ''
+  } finally {
+    resolvingLive2DEndpoint = false
   }
 }
 
@@ -547,7 +553,10 @@ onMounted(() => {
   runtimeMessageHandler = onRuntimeMessage
   window.addEventListener('message', runtimeMessageHandler)
   void refresh()
-  live2DModuleStatusTimer = setInterval(() => { void refreshLive2DModuleStatus() }, 1000)
+  live2DModuleStatusTimer = setInterval(() => {
+    if (!live2DStatusEndpoint) void resolveMouthSyncEndpoint()
+    else void refreshLive2DModuleStatus()
+  }, 1000)
 })
 onUnmounted(() => {
   if (live2DModuleStatusTimer) clearInterval(live2DModuleStatusTimer)
