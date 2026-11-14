@@ -47,6 +47,7 @@ type LayoutLayer struct {
 	URL      string  `json:"url,omitempty"`
 	Color    string  `json:"color,omitempty"`
 	FontSize int     `json:"font_size,omitempty"`
+	ContentScale int `json:"content_scale,omitempty"`
 	QueueDisplayCount int `json:"queue_display_count,omitempty"`
 	Live2DScale float64 `json:"live2d_scale,omitempty"`
 	Live2DX float64 `json:"live2d_x,omitempty"`
