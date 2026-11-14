@@ -90,6 +90,7 @@ func (s *VideoQueueService) Stop() error {
 	s.mu.Unlock()
 	if unsubscribe != nil { unsubscribe() }
 	s.webview.setPlaybackStateHandler(nil)
+	s.webview.CloseWindow()
 	return nil
 }
 
