@@ -1,0 +1,193 @@
+/* Shared visual language for the music and video centers. */
+.player-page {
+  --player-card-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+.player-page .page-heading {
+  align-items: center;
+  padding: 2px 0 4px;
+}
+.player-page .page-heading h2 {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -.025em;
+}
+.player-page .page-heading .description {
+  margin: 7px 0 0;
+  line-height: 1.65;
+}
+.player-page .eyebrow {
+  margin-bottom: 7px;
+  font-weight: 700;
+}
+.player-page .el-card.player-card {
+  overflow: hidden;
+  border: 1px solid var(--app-border);
+  border-radius: var(--player-card-radius);
+  background: var(--el-bg-color);
+  box-shadow: none;
+}
+.player-page .player-card > .el-card__header {
+  min-height: 52px;
+  padding: 15px 20px;
+  border-bottom: 1px solid var(--app-border);
+  background: var(--el-fill-color-lighter);
+}
+.player-page .player-card > .el-card__body {
+  padding: 20px;
+}
+.player-page .card-heading {
+  min-height: 22px;
+  font-size: 14px;
+}
+.player-page .player-tabs {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 48px;
+  padding: 4px 6px;
+  overflow-x: auto;
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  background: var(--el-fill-color-lighter);
+}
+.player-page .player-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--el-text-color-secondary);
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color .16s ease, background .16s ease, box-shadow .16s ease;
+}
+.player-page .player-tabs button:hover {
+  color: var(--el-text-color-primary);
+  background: var(--el-bg-color);
+}
+.player-page .player-tabs button.active {
+  color: var(--app-accent);
+  background: var(--el-bg-color);
+  box-shadow: 0 1px 4px #00000014;
+  font-weight: 650;
+}
+.player-page .player-tabs button span {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 20px;
+  background: var(--app-bg-control);
+  font-size: 11px;
+  text-align: center;
+}
+.player-page .section-description,
+.player-page .hint,
+.player-page .field-hint {
+  line-height: 1.65;
+}
+.player-page .search-row,
+.player-page .manual-add {
+  align-items: center;
+  gap: 10px;
+}
+.player-page .setting-row {
+  min-height: 66px;
+  padding: 14px 2px;
+}
+.player-page .setting-row > div:first-child,
+.player-page .setting-row > strong {
+  min-width: 180px;
+}
+.player-page .setting-row p {
+  max-width: 620px;
+  line-height: 1.6;
+}
+.player-page .card-actions {
+  padding-top: 16px;
+  border-top: 1px solid var(--app-border);
+}
+.player-page .player-settings-card + .player-settings-card {
+  margin-top: 0;
+}
+.player-page .player-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  max-width: none;
+}
+.player-page .player-settings-grid .el-form-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 0;
+  margin: 0;
+  padding: 15px 16px;
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  background: var(--el-fill-color-lighter);
+}
+.player-page .player-settings-grid .el-form-item__label {
+  height: auto;
+  margin-bottom: 10px;
+  color: var(--el-text-color-primary);
+  font-weight: 600;
+  line-height: 1.5;
+}
+.player-page .player-settings-grid .el-form-item__content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  line-height: 1.5;
+}
+.player-page .player-settings-grid .el-input-number {
+  width: min(100%, 220px);
+}
+.player-page .time-row {
+  font-variant-numeric: tabular-nums;
+}
+.player-page .el-table {
+  --el-table-border-color: var(--app-border);
+  --el-table-header-bg-color: var(--el-fill-color-lighter);
+  border-radius: 10px;
+}
+@media (max-width: 800px) {
+  .player-page .page-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .player-page .player-card > .el-card__body {
+    padding: 15px;
+  }
+  .player-page .player-settings-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .player-page .setting-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .player-page .setting-row > div:first-child,
+  .player-page .setting-row > strong {
+    min-width: 0;
+  }
+  .player-page .search-row,
+  .player-page .manual-add {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .player-page .search-row > *,
+  .player-page .manual-add > * {
+    width: 100% !important;
+    max-width: none !important;
+  }
+}
