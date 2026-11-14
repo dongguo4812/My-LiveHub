@@ -122,7 +122,7 @@ func (s *VideoQueueService) GetSnapshot() VideoQueueSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	items := append([]VideoQueueItem{}, s.queue...)
-	return VideoQueueSnapshot{Enabled:s.settings.VideoRequestsEnabled, Current:cloneVideoQueueItem(s.current),
+	return VideoQueueSnapshot{Enabled:s.active && s.settings.VideoRequestsEnabled, Current:cloneVideoQueueItem(s.current),
 		Items:items, QueueCount:len(items), Playback:s.webview.GetPlaybackState()}
 }
 
@@ -241,8 +241,10 @@ func (s *VideoQueueService) handlePlaybackState(state BilibiliWebViewPlaybackSta
 	s.mu.Unlock()
 	if !state.IsOpen {
 		s.mu.Lock()
-		s.current = nil
-		s.queue = s.queue[:0]
+		if s.active {
+			s.current = nil
+			s.queue = s.queue[:0]
+		}
 		s.mu.Unlock()
 		return
 	}
