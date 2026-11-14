@@ -49,7 +49,7 @@ type VideoQueueService struct {
 	lastRequest map[int]time.Time
 	pending map[string]bool
 	nextID uint64
-	closed bool
+	active bool
 	fanMedalChecker interface { Check(context.Context, int, int) (bool, int, error) }
 }
 
@@ -61,9 +61,36 @@ func NewVideoQueueService(manager *config.Manager, settings config.BilibiliConfi
 	}
 	s := &VideoQueueService{manager:manager, settings:settings, resolver:resolver, webview:webview,
 		events:eventBuffer, lastRequest:make(map[int]time.Time), pending:make(map[string]bool), queue:make([]VideoQueueItem,0)}
-	s.unsubscribe = eventBuffer.Subscribe(s.handleEvent)
-	webview.setPlaybackStateHandler(s.handlePlaybackState)
 	return s, nil
+}
+
+
+// Start enables event handling and playback telemetry. It is safe to call again after Stop.
+func (s *VideoQueueService) Start() error {
+	if s == nil { return errors.New("视频点播队列服务不可用") }
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.active { return nil }
+	s.unsubscribe = s.events.Subscribe(s.handleEvent)
+	s.webview.setPlaybackStateHandler(s.handlePlaybackState)
+	s.active = true
+	return nil
+}
+
+// Stop disables event handling and clears the active request queue while keeping the service restartable.
+func (s *VideoQueueService) Stop() error {
+	if s == nil { return nil }
+	s.mu.Lock()
+	if !s.active { s.mu.Unlock(); return nil }
+	s.active = false
+	s.queue = make([]VideoQueueItem, 0)
+	s.current = nil
+	unsubscribe := s.unsubscribe
+	s.unsubscribe = nil
+	s.mu.Unlock()
+	if unsubscribe != nil { unsubscribe() }
+	s.webview.setPlaybackStateHandler(nil)
+	return nil
 }
 
 func (s *VideoQueueService) setFanMedalChecker(checker interface { Check(context.Context, int, int) (bool, int, error) }) {
@@ -299,16 +326,4 @@ func (s *VideoQueueService) processVideoRequest(event eventstream.Event, bvid st
 	_ = s.addVideo(bvid, event.UserName, event.UserID, privileged)
 }
 
-func (s *VideoQueueService) Close() {
-	if s == nil { return }
-	s.mu.Lock()
-	if s.closed { s.mu.Unlock(); return }
-	s.closed = true
-	s.queue = nil
-	s.current = nil
-	unsubscribe := s.unsubscribe
-	s.unsubscribe = nil
-	s.mu.Unlock()
-	if unsubscribe != nil { unsubscribe() }
-	s.webview.setPlaybackStateHandler(nil)
-}
+func (s *VideoQueueService) Close() { _ = s.Stop() }
