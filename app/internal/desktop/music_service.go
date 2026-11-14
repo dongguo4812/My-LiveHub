@@ -264,16 +264,13 @@ func (s *MusicService) processSongRequest(ctx context.Context, event events.Even
 		if !allowed { reason := fmt.Sprintf("粉丝勋章等级不足（当前 %d 级，要求 %d 级）", level, fanMedalLevel); s.setLastError(fmt.Errorf("观众 %s 的主播粉丝勋章等级不足（当前 %d，要求 %d）", event.UserName, level, fanMedalLevel)); s.publishRequestNotice("music_request_failed", event.UserName, "", reason); return }
 	}
 	requestedTitle, requestedArtist := splitSongRequestArtist(keyword)
-	result, err := s.search(ctx, keyword)
-	if err != nil {
-		s.setLastError(fmt.Errorf("搜索弹幕点歌失败：%w", err))
-		s.publishRequestNotice("music_request_failed", event.UserName, "", "歌曲搜索失败："+err.Error())
-		return
-	}
-	track, matched := selectSongRequestTrack(result.Tracks, requestedTitle, requestedArtist)
+	track, matched, sourceFailures := s.searchSongRequestTrack(ctx, keyword, requestedTitle, requestedArtist)
 	if !matched {
-		reason := "未找到匹配歌曲：" + keyword
-		s.setLastError(fmt.Errorf("观众 %s 点播的歌曲未找到匹配结果：%s", event.UserName, keyword))
+		reason := "所有已启用音源均未找到匹配歌曲：" + keyword
+		if len(sourceFailures) > 0 {
+			reason += "（" + strings.Join(sourceFailures, "；") + "）"
+		}
+		s.setLastError(fmt.Errorf("观众 %s 点播的歌曲未找到匹配结果：%s；音源尝试：%s", event.UserName, keyword, strings.Join(sourceFailures, "；")))
 		s.publishRequestNotice("music_request_failed", event.UserName, "", reason)
 		return
 	}
@@ -283,6 +280,41 @@ func (s *MusicService) processSongRequest(ctx context.Context, event events.Even
 	} else {
 		s.publishRequestNotice("music_request_success", event.UserName, track.Title, "")
 	}
+}
+
+// searchSongRequestTrack tries enabled sources in configured priority order.
+ // A source error, empty result, or result set without a valid title/artist match
+ // falls through to the next source. Parent cancellation stops the fallback.
+func (s *MusicService) searchSongRequestTrack(parent context.Context, keyword, requestedTitle, requestedArtist string) (music.Track, bool, []string) {
+	if s == nil || s.searcher == nil {
+		return music.Track{}, false, []string{"洛雪搜索 SDK 未初始化"}
+	}
+	if parent == nil { parent = context.Background() }
+	return searchSongRequestAcrossSources(s.enabledSearchSourceIDs(), func(source string) ([]music.Track, error) {
+		ctx, cancel := context.WithTimeout(parent, 18*time.Second)
+		defer cancel()
+		result, err := s.searcher.SearchProvider(ctx, source, keyword, 1)
+		if err != nil { return nil, err }
+		return result.Tracks, nil
+	}, requestedTitle, requestedArtist)
+}
+
+// searchSongRequestAcrossSources is kept separate so fallback behavior can be tested
+// without making live requests to music providers.
+func searchSongRequestAcrossSources(sourceIDs []string, search func(string) ([]music.Track, error), requestedTitle, requestedArtist string) (music.Track, bool, []string) {
+	failures := make([]string, 0)
+	for _, source := range sourceIDs {
+		tracks, err := search(source)
+		if err != nil {
+			failures = append(failures, source+" 搜索失败："+err.Error())
+			continue
+		}
+		if track, ok := selectSongRequestTrack(tracks, requestedTitle, requestedArtist); ok {
+			return track, true, failures
+		}
+		failures = append(failures, source+" 无匹配结果")
+	}
+	return music.Track{}, false, failures
 }
 
 // splitSongRequestArtist accepts an optional "title - artist" suffix.
