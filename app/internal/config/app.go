@@ -44,7 +44,7 @@ func (c AppConfig) Validate() error {
 	default:
 		return fmt.Errorf("unsupported appearance accent color %q", c.Appearance.AccentColor)
 	}
-	if c.Logging.RetentionDays < MinLogRetentionDays || c.Logging.RetentionDays > MaxLogRetentionDays {
+	if c.Logging.RetentionDays != 0 && (c.Logging.RetentionDays < MinLogRetentionDays || c.Logging.RetentionDays > MaxLogRetentionDays) {
 		return fmt.Errorf("log retention days must be between %d and %d", MinLogRetentionDays, MaxLogRetentionDays)
 	}
 	return nil
