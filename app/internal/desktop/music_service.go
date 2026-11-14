@@ -290,7 +290,9 @@ func (s *MusicService) searchSongRequestTrack(parent context.Context, keyword, r
 		return music.Track{}, false, []string{"洛雪搜索 SDK 未初始化"}
 	}
 	if parent == nil { parent = context.Background() }
-	return searchSongRequestAcrossSources(parent, s.enabledSearchSourceIDs(), func(source string) ([]music.Track, error) {
+	sourceIDs := s.enabledSearchSourceIDs()
+	if len(sourceIDs) == 0 { return music.Track{}, false, []string{"没有启用任何搜索音源"} }
+	return searchSongRequestAcrossSources(parent, sourceIDs, func(source string) ([]music.Track, error) {
 		ctx, cancel := context.WithTimeout(parent, 18*time.Second)
 		defer cancel()
 		result, err := s.searcher.SearchProvider(ctx, source, keyword, 1)
