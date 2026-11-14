@@ -332,11 +332,32 @@ func main() {
 			}
 		}
 	})
-	// Keep the main window alive until the application-level quit is confirmed.
-	// This ensures OnShutdown closes auxiliary windows before the process exits.
+	// Closing the main window hides the application instead of stopping its services.
 	mainWindow.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
 		event.Cancel()
-		go app.Quit()
+		mainWindow.Hide()
+	})
+
+	// Keep the app available in the Windows notification area while its window is hidden.
+	tray := app.SystemTray.New()
+	tray.SetIcon(createTrayIcon()).SetTooltip("My-LiveHub")
+	trayMenu := app.NewMenu()
+	trayMenu.Add("显示主界面").OnClick(func(_ *application.Context) {
+		mainWindow.Show()
+		mainWindow.Focus()
+	})
+	trayMenu.AddSeparator()
+	trayMenu.Add("退出 My-LiveHub").OnClick(func(_ *application.Context) {
+		app.Quit()
+	})
+	tray.SetMenu(trayMenu)
+	tray.OnClick(func() {
+		if mainWindow.IsVisible() {
+			mainWindow.Hide()
+			return
+		}
+		mainWindow.Show()
+		mainWindow.Focus()
 	})
 	if err := app.Run(); err != nil {
 		log.Fatal(err)
