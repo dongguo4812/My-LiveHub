@@ -54,6 +54,7 @@ type VideoQueueService struct {
 	active bool
 	generation uint64
 	fanMedalChecker interface { Check(context.Context, int, int) (bool, int, error) }
+	notices *RequestNoticeBroker
 }
 
 var videoRequestBVPattern = regexp.MustCompile(`(?i)BV[0-9A-Za-z]{10}`)
@@ -115,6 +116,21 @@ func (s *VideoQueueService) closePlayerIfActive() {
 	idle := s.active && s.current == nil && len(s.queue) == 0
 	s.mu.Unlock()
 	if idle { s.webview.CloseWindow() }
+}
+
+func (s *VideoQueueService) SetRequestNoticeBroker(broker *RequestNoticeBroker) {
+	if s == nil { return }
+	s.mu.Lock()
+	s.notices = broker
+	s.mu.Unlock()
+}
+
+func (s *VideoQueueService) publishRequestNotice(kind, userName, itemName, reason string) {
+	if s == nil { return }
+	s.mu.Lock()
+	broker := s.notices
+	s.mu.Unlock()
+	if broker != nil { broker.Publish(RequestNotice{Kind:kind, UserName:userName, ItemName:itemName, Reason:reason}) }
 }
 
 func (s *VideoQueueService) setFanMedalChecker(checker interface { Check(context.Context, int, int) (bool, int, error) }) {
@@ -340,7 +356,13 @@ func (s *VideoQueueService) handleEvent(event eventstream.Event) {
 	requestPrefix := strings.TrimSpace(s.settings.VideoRequestPrefix)
 	s.mu.Unlock()
 	if skipEnabled && skipCommand != "" && text == skipCommand {
-		if event.IsModerator || event.IsRoomOwner { _ = s.SkipCurrent() }
+		if event.IsModerator || event.IsRoomOwner {
+			if err := s.SkipCurrent(); err != nil {
+				s.publishRequestNotice("video_skip_failed", event.UserName, "", err.Error())
+			} else {
+				s.publishRequestNotice("video_skip_success", event.UserName, "", "")
+			}
+		}
 		return
 	}
 	if strings.HasPrefix(text, "清空视频队列") {
@@ -348,7 +370,11 @@ func (s *VideoQueueService) handleEvent(event eventstream.Event) {
 		return
 	}
 	match := parseVideoRequest(text, requestPrefix)
-	if match == "" { return }
+	if !strings.HasPrefix(text, requestPrefix) { return }
+	if match == "" {
+		s.publishRequestNotice("video_request_failed", event.UserName, "", "未识别到有效的 B 站 BV 号")
+		return
+	}
 	go s.processVideoRequest(event, match, generation)
 }
 
@@ -370,15 +396,18 @@ func (s *VideoQueueService) processVideoRequest(event eventstream.Event, bvid st
 	minLevel := s.settings.VideoFanMedalLevel
 	checker := s.fanMedalChecker
 	s.mu.Unlock()
-	if !privileged && !requestsEnabled { return }
+	if !privileged && !requestsEnabled {
+		s.publishRequestNotice("video_request_failed", event.UserName, "", "视频点播功能未开启")
+		return
+	}
 	if !privileged && requireMedal {
 		if minLevel < 1 { minLevel = 1 }
-		if checker == nil { log.Printf("视频点播粉丝勋章校验服务不可用，拒绝用户 %d 的点播", event.UserID); return }
+		if checker == nil { reason := "视频点播粉丝勋章校验服务不可用"; log.Printf("%s，拒绝用户 %d 的点播", reason, event.UserID); s.publishRequestNotice("video_request_failed", event.UserName, "", reason); return }
 		ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
 		allowed, level, err := checker.Check(ctx, event.UserID, minLevel)
 		cancel()
-		if err != nil { log.Printf("校验视频点播用户 %d 的主播粉丝勋章失败，已拒绝：%v", event.UserID, err); return }
-		if !allowed { log.Printf("拒绝视频点播用户 %d：主播粉丝勋章等级 %d，要求 %d", event.UserID, level, minLevel); return }
+		if err != nil { reason := "粉丝勋章校验失败：" + err.Error(); log.Printf("校验视频点播用户 %d 的主播粉丝勋章失败，已拒绝：%v", event.UserID, err); s.publishRequestNotice("video_request_failed", event.UserName, "", reason); return }
+		if !allowed { reason := fmt.Sprintf("粉丝勋章等级不足（当前 %d 级，要求 %d 级）", level, minLevel); log.Printf("拒绝视频点播用户 %d：主播粉丝勋章等级 %d，要求 %d", event.UserID, level, minLevel); s.publishRequestNotice("video_request_failed", event.UserName, "", reason); return }
 	}
 	s.mu.Lock()
 	if !s.active || s.generation != generation { s.mu.Unlock(); return }
@@ -386,12 +415,22 @@ func (s *VideoQueueService) processVideoRequest(event eventstream.Event, bvid st
 		cooldown := time.Duration(s.settings.VideoRequestCooldownSeconds) * time.Second
 		if previous, ok := s.lastRequest[event.UserID]; ok && cooldown > 0 && time.Since(previous) < cooldown {
 			s.mu.Unlock()
+			s.publishRequestNotice("video_request_failed", event.UserName, "", "点播冷却中，请稍后再试")
 			return
 		}
 		s.lastRequest[event.UserID] = time.Now()
 	}
 	s.mu.Unlock()
-	_ = s.addVideoForGeneration(bvid, event.UserName, event.UserID, privileged, generation)
+	if err := s.addVideoForGeneration(bvid, event.UserName, event.UserID, privileged, generation); err != nil {
+		s.publishRequestNotice("video_request_failed", event.UserName, "", err.Error())
+	} else {
+		s.mu.Lock()
+		var title string
+		for _, item := range s.queue { if item.BVID == bvid { title = item.Title; break } }
+		if s.current != nil && s.current.BVID == bvid { title = s.current.Title }
+		s.mu.Unlock()
+		s.publishRequestNotice("video_request_success", event.UserName, title, "")
+	}
 }
 
 func (s *VideoQueueService) Close() { _ = s.Stop() }
