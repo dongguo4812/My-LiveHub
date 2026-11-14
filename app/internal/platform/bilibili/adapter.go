@@ -400,6 +400,17 @@ func extractDanmakuEmoticons(d *message.Danmaku) []eventstream.EmoticonToken {
 	return tokens
 }
 
+// formatClockDiagnostic makes the wall clock used for persisted timestamps
+// observable in both local time and UTC when investigating cache timestamps.
+func formatClockDiagnostic(at time.Time) string {
+	return fmt.Sprintf("local=%s utc=%s unix=%d location=%s",
+		at.Format(time.RFC3339Nano),
+		at.UTC().Format(time.RFC3339Nano),
+		at.Unix(),
+		at.Location(),
+	)
+}
+
 func (a *Adapter) SetMediaCatalog(c *resource.Catalog) {
 	if a == nil {
 		return
@@ -734,17 +745,21 @@ func (a *Adapter) Connect(ctx context.Context) error {
 	}
 	giftCatalogFresh := a.mediaCatalog != nil && a.mediaCatalog.IsFresh("bilibili", strconv.Itoa(roomID), resource.TypeGift, 24*time.Hour)
 	if a.giftCatalog != nil && !giftCatalogFresh {
-		log.Printf("[bilibili] room %d gift catalog refresh started (persistent catalog fresh=%t)", roomID, giftCatalogFresh)
+		refreshStartedAt := time.Now()
+		log.Printf("[bilibili] room %d gift catalog refresh started (persistent catalog fresh=%t; clock %s)", roomID, giftCatalogFresh, formatClockDiagnostic(refreshStartedAt))
 		go func() {
 			catalogCtx, catalogCancel := context.WithTimeout(runCtx, 8*time.Second)
 			defer catalogCancel()
 			if err := a.giftCatalog.ForceRefresh(catalogCtx, roomID); err != nil {
-				log.Printf("[bilibili] room %d gift catalog refresh failed: %v", roomID, err)
+				failedAt := time.Now()
+				log.Printf("[bilibili] room %d gift catalog refresh failed: %v (failed_at %s)", roomID, err, formatClockDiagnostic(failedAt))
 				return
 			}
+			refreshedAt := time.Now()
+			log.Printf("[bilibili] room %d gift catalog remote request succeeded (refresh_started_at %s; response_validated_at %s)", roomID, formatClockDiagnostic(refreshStartedAt), formatClockDiagnostic(refreshedAt))
 			items := a.giftCatalog.Resources(roomID)
 			if len(items) == 0 {
-				log.Printf("[bilibili] room %d gift catalog refresh returned no resources", roomID)
+				log.Printf("[bilibili] room %d gift catalog refresh returned no resources (validated_at %s)", roomID, formatClockDiagnostic(refreshedAt))
 				return
 			}
 			if a.mediaCatalog != nil {
@@ -757,13 +772,13 @@ func (a *Adapter) Connect(ctx context.Context) error {
 						a.events.UpdateGiftImage("bilibili", roomID, giftID, item.ImageURL)
 					}
 				}
-				if !a.mediaCatalog.MarkRefreshed("bilibili", strconv.Itoa(roomID), resource.TypeGift, time.Now()) {
-					log.Printf("[bilibili] room %d gift catalog fetched %d items but failed to mark refresh time", roomID, len(items))
+				if !a.mediaCatalog.MarkRefreshed("bilibili", strconv.Itoa(roomID), resource.TypeGift, refreshedAt) {
+					log.Printf("[bilibili] room %d gift catalog fetched %d items but failed to mark refresh time (attempted_timestamp %s)", roomID, len(items), formatClockDiagnostic(refreshedAt))
 					return
 				}
-				log.Printf("[bilibili] room %d gift catalog refreshed: %d items registered", roomID, registered)
+				log.Printf("[bilibili] room %d gift catalog refreshed: %d items registered; persisted_refresh_timestamp %s", roomID, registered, formatClockDiagnostic(refreshedAt))
 			} else {
-				log.Printf("[bilibili] room %d gift catalog fetched %d items; persistent media catalog unavailable", roomID, len(items))
+				log.Printf("[bilibili] room %d gift catalog fetched %d items; persistent media catalog unavailable (fetched_at %s)", roomID, len(items), formatClockDiagnostic(refreshedAt))
 			}
 		}()
 	} else if giftCatalogFresh {
