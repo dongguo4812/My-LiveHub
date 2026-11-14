@@ -147,6 +147,25 @@ def register_bar_routes(
                     daemon=True,
                 ).start()
 
+            # 即使启动时客户端暂不可用，也先为磁盘中的历史战绩补齐 CDN 资源；
+            # 若 LCU 已识别，则预取任务会优先走本地 LCU 接口。
+            try:
+                active = get_active_account()
+                puuid = str(active.get("puuid") or "").strip()
+                if puuid:
+                    saved = read_json(account_cache_path(puuid), {})
+                    records = saved.get("matches", []) if isinstance(saved, dict) else []
+                    schedule_champion_icon_prefetch(
+                        (
+                            item.get("championId")
+                            for item in records
+                            if isinstance(item, dict)
+                        ),
+                        credentials=get_lcu_credentials(),
+                    )
+            except Exception:
+                log.exception("[战绩条] 启动时安排历史英雄头像预取失败")
+
     def stop_worker():
         """通知刷新线程退出；有限等待当前缓存提交完成后再等待线程收尾。"""
         # 先发出停止信号，避免新刷新进入缓存提交区。
