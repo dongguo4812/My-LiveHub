@@ -12,7 +12,7 @@ import (
 var getSystemTimesProc = windows.NewLazySystemDLL("kernel32.dll").NewProc("GetSystemTimes")
 
 func filetimeValue(value windows.Filetime) uint64 {
-	return uint64(value.HighDateTime)<<32 | uint64(value.LowDateTime)
+	return uint64(uint32(value.HighDateTime))<<32 | uint64(value.LowDateTime)
 }
 
 // readCPUSnapshot returns Windows system times and this process' CPU time.
