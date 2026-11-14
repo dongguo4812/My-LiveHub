@@ -111,7 +111,7 @@ function spawnFloatingEmoticons(event: LiveEvent) {
     const size = Math.max(16, Math.min(configuredSize, layer.width * 0.4, layer.height * 0.4))
     const driftLimit = Math.max(0, Math.min(120, layer.emoticon_drift ?? 48, Math.max(0, (layer.width - size) / 2)))
     const speed = Math.max(20, Math.min(300, layer.emoticon_speed || 90))
-    const duration = Math.max(1, Math.min(30, layer.height / speed))
+    const duration = Math.max(1, Math.min(30, layer.height * 1.25 / speed))
     const incoming: FloatingEmoticon[] = []
     for (const token of event.emoticons) {
       if (!token.url || !token.text || !event.content.includes(token.text)) continue
