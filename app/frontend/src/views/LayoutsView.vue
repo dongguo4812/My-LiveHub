@@ -75,7 +75,7 @@ const canvas = ref<HTMLElement>()
 const scene = computed(() => scenes.value.find(item => item.id === activeSceneID.value) ?? scenes.value[0] ?? null)
 const selectedLayer = computed(() => scene.value?.layers.find(item => item.id === selectedLayerID.value) ?? null)
 const selectedQueueLayer = computed(() => selectedLayer.value as (LayoutLayer & { queue_display_count?: number }) | null)
-const selectedEmoticonLayer = computed(() => selectedLayer.value ? emoticonLayer(selectedLayer.value) : null)
+const selectedEmoticonLayer = computed(() => selectedLayer.value?.type === 'emoticon' ? emoticonLayer(selectedLayer.value) : null)
 const sortedLayers = computed(() => [...(scene.value?.layers ?? [])].sort((a, b) => b.z_index - a.z_index))
 const scale = ref(1)
 let drag: { x: number; y: number; layerX: number; layerY: number } | null = null
