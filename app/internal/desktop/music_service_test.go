@@ -140,6 +140,81 @@ func TestPlaybackSnapshotEnded(t *testing.T) {
 	}
 }
 
+type queueAdvanceTestEngine struct {
+	loadCalls atomic.Int32
+	nextCalls atomic.Int32
+}
+
+func (e *queueAdvanceTestEngine) Load(context.Context, music.Track) error {
+	e.loadCalls.Add(1)
+	return nil
+}
+func (e *queueAdvanceTestEngine) Pause(context.Context) error { return nil }
+func (e *queueAdvanceTestEngine) Resume(context.Context) error { return nil }
+func (e *queueAdvanceTestEngine) Stop(context.Context) error { return nil }
+func (e *queueAdvanceTestEngine) NextTrack(context.Context) error {
+	e.nextCalls.Add(1)
+	return nil
+}
+func (e *queueAdvanceTestEngine) Snapshot(context.Context) (music.PlaybackSnapshot, error) {
+	return music.PlaybackSnapshot{State: music.PlaybackIdle}, nil
+}
+
+func TestAdvanceAfterPlaybackEndPrioritizesMyLiveHubQueue(t *testing.T) {
+	value := config.DefaultMusicConfig()
+	value.Enabled = true
+	engine := &queueAdvanceTestEngine{}
+	service := NewMusicServiceWithDependencies(nil, value, nil, engine)
+	defer service.cancelPlaybackWatcher()
+
+	track := music.Track{ID: "tx_next", SourceID: "tx", LXSourceKey: "tx", Title: "待播歌曲", Artist: "测试歌手"}
+	if _, err := service.queue.Enqueue(track, "viewer"); err != nil { t.Fatal(err) }
+	finished := &music.QueueItem{Track: music.Track{Title: "当前歌曲", Artist: "测试歌手"}}
+	snapshot := music.PlaybackSnapshot{State: music.PlaybackPlaying, Track: &finished.Track}
+
+	if err := service.advanceAfterPlaybackEnd(snapshot, finished); err != nil {
+		t.Fatalf("advanceAfterPlaybackEnd returned error: %v", err)
+	}
+	current := service.queue.Snapshot().Current
+	if current == nil || current.Track.ID != track.ID {
+		t.Fatalf("My-LiveHub queue was not promoted to current: %#v", current)
+	}
+	if got := engine.loadCalls.Load(); got != 1 {
+		t.Fatalf("洛雪 Load calls = %d, want 1", got)
+	}
+	if got := engine.nextCalls.Load(); got != 0 {
+		t.Fatalf("洛雪 NextTrack calls = %d, want 0 when My-LiveHub queue has a song", got)
+	}
+}
+
+func TestAdvanceAfterPlaybackEndDoesNotSkipTwiceAfterLXAutoAdvance(t *testing.T) {
+	engine := &queueAdvanceTestEngine{}
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, engine)
+	finished := &music.QueueItem{Track: music.Track{Title: "当前歌曲", Artist: "测试歌手"}}
+	snapshot := music.PlaybackSnapshot{State: music.PlaybackPlaying, Track: &music.Track{Title: "洛雪下一首", Artist: "其他歌手"}}
+
+	if err := service.advanceAfterPlaybackEnd(snapshot, finished); err != nil {
+		t.Fatalf("advanceAfterPlaybackEnd returned error: %v", err)
+	}
+	if got := engine.nextCalls.Load(); got != 0 {
+		t.Fatalf("洛雪 NextTrack calls = %d, want 0 because 洛雪 already advanced", got)
+	}
+}
+
+func TestAdvanceAfterPlaybackEndUsesLXNextWhenRequestQueueEmpty(t *testing.T) {
+	engine := &queueAdvanceTestEngine{}
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, engine)
+	finished := &music.QueueItem{Track: music.Track{Title: "当前歌曲", Artist: "测试歌手"}}
+	snapshot := music.PlaybackSnapshot{State: music.PlaybackStopped}
+
+	if err := service.advanceAfterPlaybackEnd(snapshot, finished); err != nil {
+		t.Fatalf("advanceAfterPlaybackEnd returned error: %v", err)
+	}
+	if got := engine.nextCalls.Load(); got != 1 {
+		t.Fatalf("洛雪 NextTrack calls = %d, want 1 when My-LiveHub queue is empty", got)
+	}
+}
+
 func TestLXAlreadyAdvancedPastCurrentOnlyGuardsEmptyQueueSkip(t *testing.T) {
 	current := &music.QueueItem{Track: music.Track{Title: "稻香", Artist: "周杰伦"}}
 	changed := music.PlaybackSnapshot{State: music.PlaybackPlaying, Track: &music.Track{Title: "晴天", Artist: "周杰伦"}}
