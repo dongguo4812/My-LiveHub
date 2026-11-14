@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, onUpdated, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
-type Layer = { id: string; type: string; name: string; x: number; y: number; width: number; height: number; z_index: number; visible: boolean; opacity: number; text?: string; url?: string; color?: string; font_size?: number; queue_display_count?: number; live2d_scale?: number; live2d_x?: number; live2d_y?: number; emoticon_size?: number; emoticon_speed?: number; emoticon_drift?: number; emoticon_max_count?: number }
+type Layer = { id: string; type: string; name: string; x: number; y: number; width: number; height: number; z_index: number; visible: boolean; opacity: number; text?: string; url?: string; color?: string; font_size?: number; queue_display_count?: number; gift_display_duration?: number; live2d_scale?: number; live2d_x?: number; live2d_y?: number; emoticon_size?: number; emoticon_speed?: number; emoticon_drift?: number; emoticon_max_count?: number }
 type Scene = { id: string; name: string; width: number; height: number; background: string; layers: Layer[] }
 type EmoticonToken = { text: string; url: string; cache_url?: string; width?: number; height?: number }
 type LiveEvent = { id: number; type: string; user_name: string; content: string; gift_name?: string; gift_count?: number; gift_image_url?: string; gift_image_cache_url?: string; gift_animation_url?: string; gift_animation_cache_url?: string; amount?: number; timestamp: number; emoticons?: EmoticonToken[] }
@@ -73,7 +73,7 @@ function handleMouthSyncMessage(event: MessageEvent) {
 }
 
 const danmaku = computed(() => liveEvents.value.filter(item => item.type === 'danmaku').slice(-8).reverse())
-const gifts = computed(() => liveEvents.value.filter(item => item.type === 'gift').slice(-3).reverse())
+function giftEvents(layer: Layer) {\n  const duration = Math.max(1, Math.min(120, layer.gift_display_duration || 8)) * 1000\n  const currentTime = now.value.getTime()\n  return liveEvents.value.filter(item => item.type === 'gift' && currentTime - item.timestamp <= duration).slice(-3).reverse()\n}
 const superChats = computed(() => liveEvents.value.filter(item => item.type === 'super_chat').slice(-3).reverse())
 const progress = computed(() => {
   const duration = playback.value?.duration_ms || playback.value?.track?.duration_ms || 0
@@ -324,7 +324,7 @@ onUnmounted(() => {
         <div v-for="item in danmaku" :key="item.id" class="event-line"><strong>{{ item.user_name }}</strong><span>{{ item.content }}</span></div>
       </div>
       <div v-else-if="layer.type === 'gift'" class="gift-event-stack">
-        <article v-for="item in gifts" :key="item.id" class="gift-event-card">
+        <article v-for="item in giftEvents(layer)" :key="item.id" class="gift-event-card">
           <img v-if="item.gift_animation_cache_url || item.gift_animation_url || item.gift_image_cache_url || item.gift_image_url"
             class="gift-event-image"
             :src="item.gift_animation_cache_url || item.gift_animation_url || item.gift_image_cache_url || item.gift_image_url"
