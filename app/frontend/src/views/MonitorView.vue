@@ -5,7 +5,6 @@ import * as PlatformService from '../../bindings/github.com/dongguo4812/My-LiveH
 import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
 import * as VideoQueueService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/videoqueueservice.js'
 import * as LOLHexService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/lolhexservice.js'
-import * as MonitorService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/monitorservice.js'
 
 type CoreStatus = Awaited<ReturnType<typeof CoreService.GetStatus>>
 type ModuleStatus = Awaited<ReturnType<typeof CoreService.GetModules>>[number]
@@ -16,7 +15,6 @@ type MusicPlayback = Awaited<ReturnType<typeof MusicService.GetPlaybackStatus>>
 type VideoSnapshot = Awaited<ReturnType<typeof VideoQueueService.GetSnapshot>>
 type HexStatus = Awaited<ReturnType<typeof LOLHexService.GetStatus>>
 type Metrics = Awaited<ReturnType<typeof MonitorService.GetSystemMetrics>>
-type LogEntry = Awaited<ReturnType<typeof MonitorService.GetRecentLogs>>[number]
 
 const core = ref<CoreStatus | null>(null)
 const modules = ref<ModuleStatus[]>([])
@@ -27,12 +25,10 @@ const musicPlayback = ref<MusicPlayback | null>(null)
 const video = ref<VideoSnapshot | null>(null)
 const hex = ref<HexStatus | null>(null)
 const metrics = ref<Metrics | null>(null)
-const logs = ref<LogEntry[]>([])
 const errors = ref<Record<string, string>>({})
 const refreshing = ref(false)
 const lastUpdated = ref<Date | null>(null)
 let timer: ReturnType<typeof setInterval> | undefined
-let logTimer: ReturnType<typeof setInterval> | undefined
 
 const connectedPlatforms = computed(() => platforms.value.filter(item => item.status === 'connected').length)
 const runningModules = computed(() => modules.value.filter(item => item.status === 'running').length)
@@ -96,19 +92,12 @@ async function refreshAll() {
   lastUpdated.value = new Date()
   refreshing.value = false
 }
-async function refreshLogs() {
-  try { logs.value = await MonitorService.GetRecentLogs(100) }
-  catch (error) { errors.value = { ...errors.value, 日志: error instanceof Error ? error.message : String(error) } }
-}
 onMounted(() => {
   void refreshAll()
-  void refreshLogs()
   timer = setInterval(() => void refreshAll(), 2000)
-  logTimer = setInterval(() => void refreshLogs(), 5000)
 })
 onUnmounted(() => {
   if (timer) clearInterval(timer)
-  if (logTimer) clearInterval(logTimer)
 })
 </script>
 
@@ -118,10 +107,10 @@ onUnmounted(() => {
       <div>
         <p class="eyebrow">LIVE SYSTEM OBSERVABILITY</p>
         <h2>实时监控</h2>
-        <p class="muted">只读查看服务、直播连接、互动事件、点播状态和运行日志，不在此页面执行控制操作。</p>
+        <p class="muted">只读查看服务、直播连接、互动事件和点播状态，不在此页面执行控制操作。</p>
       </div>
       <div class="refresh-meta">
-        <span>自动刷新：状态 2 秒 / 日志 5 秒</span>
+        <span>自动刷新：每 2 秒</span>
         <span>最近更新：{{ lastUpdated?.toLocaleTimeString() ?? '—' }}</span>
         <el-button :loading="refreshing" @click="refreshAll">立即刷新</el-button>
       </div>
@@ -202,21 +191,12 @@ onUnmounted(() => {
           <el-table-column prop="platform_id" label="平台" width="90" />
         </el-table>
       </el-card>
-      <el-card shadow="never">
-        <template #header><div class="card-heading"><strong>运行日志</strong><el-tag size="small">{{ logs.length }} 条</el-tag></div></template>
-        <div v-if="logs.length" class="log-list">
-          <div v-for="(entry, index) in logs" :key="index" class="log-entry">
-            <span class="log-time">{{ entry.time }}</span><el-tag size="small" :type="entry.level === 'ERROR' ? 'danger' : entry.level === 'WARN' ? 'warning' : 'info'">{{ entry.level }}</el-tag><span class="log-message">{{ entry.message }}</span>
-          </div>
-        </div>
-        <el-empty v-else description="暂无日志或日志文件尚未生成" :image-size="56" />
-      </el-card>
     </div>
   </section>
 </template>
 
 <style scoped>
-.monitor-page{display:flex;flex-direction:column;gap:18px}.page-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}.eyebrow{margin:0 0 8px;color:var(--el-color-primary);font-size:11px;letter-spacing:.15em}.page-heading h2{margin:0;font-size:25px}.muted,.hint{color:var(--el-text-color-secondary);font-size:13px}.muted{margin:8px 0 0}.refresh-meta{display:flex;align-items:flex-end;flex-direction:column;gap:7px;color:var(--el-text-color-secondary);font-size:12px}.summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.metric-card{min-width:0}.metric-card span,.system-grid span{display:block;color:var(--el-text-color-secondary);font-size:12px}.metric-card strong{display:block;margin:13px 0 6px;font-size:22px}.metric-card small{color:var(--el-text-color-secondary);font-size:11px}.content-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.card-heading{display:flex;align-items:center;justify-content:space-between}.now-playing{display:flex;flex-direction:column;gap:6px;min-height:58px}.now-playing span{color:var(--el-text-color-secondary);font-size:12px}.queue-meta{display:flex;justify-content:space-between;align-items:center;padding-top:12px;margin-top:12px;border-top:1px solid var(--el-border-color-lighter);font-size:13px}.hex-details{display:flex;flex-direction:column;gap:9px;font-size:13px}.error-text{color:var(--el-color-danger);font-size:12px}.system-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.system-grid strong{display:block;margin-top:7px;font-size:18px;font-variant-numeric:tabular-nums}.hint{margin:16px 0 0;font-size:12px}.log-list{max-height:360px;overflow:auto}.log-entry{display:grid;grid-template-columns:145px 62px minmax(0,1fr);align-items:start;gap:8px;padding:7px 0;border-bottom:1px solid var(--el-border-color-lighter);font-size:12px}.log-time{color:var(--el-text-color-secondary);font-variant-numeric:tabular-nums}.log-message{overflow-wrap:anywhere;white-space:pre-wrap}.refresh-meta span{white-space:nowrap}
+.monitor-page{display:flex;flex-direction:column;gap:18px}.page-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}.eyebrow{margin:0 0 8px;color:var(--el-color-primary);font-size:11px;letter-spacing:.15em}.page-heading h2{margin:0;font-size:25px}.muted,.hint{color:var(--el-text-color-secondary);font-size:13px}.muted{margin:8px 0 0}.refresh-meta{display:flex;align-items:flex-end;flex-direction:column;gap:7px;color:var(--el-text-color-secondary);font-size:12px}.summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.metric-card{min-width:0}.metric-card span,.system-grid span{display:block;color:var(--el-text-color-secondary);font-size:12px}.metric-card strong{display:block;margin:13px 0 6px;font-size:22px}.metric-card small{color:var(--el-text-color-secondary);font-size:11px}.content-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.card-heading{display:flex;align-items:center;justify-content:space-between}.now-playing{display:flex;flex-direction:column;gap:6px;min-height:58px}.now-playing span{color:var(--el-text-color-secondary);font-size:12px}.queue-meta{display:flex;justify-content:space-between;align-items:center;padding-top:12px;margin-top:12px;border-top:1px solid var(--el-border-color-lighter);font-size:13px}.hex-details{display:flex;flex-direction:column;gap:9px;font-size:13px}.error-text{color:var(--el-color-danger);font-size:12px}.system-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.system-grid strong{display:block;margin-top:7px;font-size:18px;font-variant-numeric:tabular-nums}.hint{margin:16px 0 0;font-size:12px}.refresh-meta span{white-space:nowrap}
 @media(max-width:1100px){.summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.content-grid{grid-template-columns:1fr}.system-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:700px){.page-heading{flex-direction:column}.refresh-meta{align-items:flex-start}.summary-grid{grid-template-columns:1fr 1fr}.system-grid{grid-template-columns:1fr 1fr}.log-entry{grid-template-columns:1fr}.log-time{display:none}}
+@media(max-width:700px){.page-heading{flex-direction:column}.refresh-meta{align-items:flex-start}.summary-grid{grid-template-columns:1fr 1fr}.system-grid{grid-template-columns:1fr 1fr}}
 </style>
