@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Headset, VideoPause, VideoPlay } from '@element-plus/icons-vue'
+import '../styles/player-center.css'
 import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
 
 type MusicConfig = Awaited<ReturnType<typeof MusicService.GetConfig>>
@@ -291,8 +292,8 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="music-page">
-    <header class="page-heading">
+  <section class="music-page player-page">
+    <header class="page-heading player-heading">
       <div>
         <p class="eyebrow">MUSIC PLAYER</p>
         <h2>音乐中心</h2>
@@ -306,14 +307,14 @@ onUnmounted(() => {
     <el-alert v-if="playback?.error" :title="playback.error" type="error" :closable="false" show-icon />
     <el-alert v-if="success" :title="success" type="success" :closable="true" show-icon @close="success = ''" />
 
-    <nav class="music-tabs" aria-label="音乐页面导航">
+    <nav class="music-tabs player-tabs" aria-label="音乐页面导航">
       <button :class="{ active: activeTab === 'now-playing' }" @click="activeTab = 'now-playing'">正在播放</button>
       <button :class="{ active: activeTab === 'search' }" @click="activeTab = 'search'">歌曲搜索</button>
       <button :class="{ active: activeTab === 'visitor-requests' }" @click="activeTab = 'visitor-requests'">观众点播 <span>{{ queue?.items.length ?? 0 }}</span></button>
       <button :class="{ active: activeTab === 'settings' }" @click="activeTab = 'settings'">音乐设置</button>
     </nav>
 
-    <el-card v-if="activeTab === 'now-playing'" shadow="never">
+    <el-card v-if="activeTab === 'now-playing'" class="player-card" shadow="never">
       <template #header><div class="card-heading"><strong>正在播放</strong><el-tag :type="playback?.state === 'playing' ? 'success' : playback?.state === 'error' ? 'danger' : 'info'">{{ playback?.state === 'error' ? '播放失败' : playback?.state ?? '播放器未启动' }}</el-tag></div></template>
       <div class="now-playing">
         <div class="track-cover">
@@ -338,7 +339,7 @@ onUnmounted(() => {
       <p class="hint">播放由本机洛雪客户端负责。请先启动洛雪，并在配置页填写其本地 API 地址。</p>
     </el-card>
 
-    <el-card v-if="activeTab === 'search'" shadow="never">
+    <el-card v-if="activeTab === 'search'" class="player-card" shadow="never">
       <template #header><strong>搜索歌曲</strong></template>
       <p class="section-description">搜索平台及优先级在音乐设置中统一管理。</p>
       <div class="search-row">
@@ -374,7 +375,7 @@ onUnmounted(() => {
       <el-empty v-else-if="!searching && results.length === 0" description="搜索结果将在这里显示" :image-size="76" />
     </el-card>
 
-    <el-card v-if="activeTab === 'visitor-requests'" shadow="never">
+    <el-card v-if="activeTab === 'visitor-requests'" class="player-card" shadow="never">
       <template #header>
         <div class="card-heading">
           <div class="card-heading"><strong>观众点播队列</strong><el-tag effect="plain">{{ queue?.items.length ?? 0 }} 首待播</el-tag></div>
@@ -408,7 +409,7 @@ onUnmounted(() => {
       <p v-if="queue?.items.length" class="hint">拖动歌曲左侧的拖动图标即可调整待播顺序；当前播放歌曲不受影响。</p>
     </el-card>
 
-    <el-card v-if="activeTab === 'settings'" shadow="never">
+    <el-card v-if="activeTab === 'settings'" class="player-card player-settings-card" shadow="never">
       <template #header><strong>洛雪客户端连接与搜索音源</strong></template>
       <p class="section-description">洛雪客户端需运行在本机。地址按从上到下的顺序尝试，前一个不可用时自动切换到下一个；播放通过 lxmusic:// 协议发起。</p>
       <div v-if="config" class="setting-list">
@@ -445,7 +446,7 @@ onUnmounted(() => {
       <div class="card-actions"><el-button type="primary" :loading="saving" :disabled="!config" @click="saveConfig">保存音乐配置</el-button></div>
     </el-card>
 
-    <el-card v-if="activeTab === 'settings'" shadow="never">
+    <el-card v-if="activeTab === 'settings'" class="player-card player-settings-card" shadow="never">
       <template #header><strong>点歌设置</strong></template>
       <div v-if="config" class="setting-list">
         <div class="setting-row"><div><strong>启用音乐模块</strong><p>关闭后无法加入歌曲队列或播放歌曲，也不会处理弹幕点歌；MV 视频播放不受影响。</p></div><el-switch v-model="config.enabled" /></div>
