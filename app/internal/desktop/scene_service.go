@@ -51,6 +51,10 @@ type LayoutLayer struct {
 	Live2DScale float64 `json:"live2d_scale,omitempty"`
 	Live2DX float64 `json:"live2d_x,omitempty"`
 	Live2DY float64 `json:"live2d_y,omitempty"`
+	EmoticonSize float64 `json:"emoticon_size,omitempty"`
+	EmoticonSpeed float64 `json:"emoticon_speed,omitempty"`
+	EmoticonDrift float64 `json:"emoticon_drift,omitempty"`
+	EmoticonMaxCount int `json:"emoticon_max_count,omitempty"`
 }
 
 type sceneVideoProvider interface {
@@ -162,7 +166,7 @@ func validateLayoutConfig(value LayoutConfig) error {
 			}
 			layerIDs[layer.ID] = true
 			switch layer.Type {
-			case "text", "image", "clock", "danmaku", "gift", "super_chat", "music", "music_queue", "video_queue", "music_prompt", "live2d":
+			case "text", "image", "clock", "danmaku", "gift", "super_chat", "music", "music_queue", "video_queue", "music_prompt", "live2d", "emoticon":
 			default:
 				return fmt.Errorf("不支持的图层类型：%s", layer.Type)
 			}
