@@ -27,3 +27,5 @@
 /extensions/lol_hex_display/build/
 /extensions/lol_hex_display/dist/
 /extensions/lol_hex_display/*.spec
+
+/extensions/lol_hex_display/.venv/
