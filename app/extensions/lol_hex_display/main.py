@@ -1768,6 +1768,11 @@ def write_pid_file():
         'pid': os.getpid(),
         'creation_time': _current_process_creation_time(),
     }
+    # My-LiveHub supplies a one-run token to distinguish its elevated worker
+    # from an independently started or pre-existing LOL Hex instance.
+    manager_token = os.environ.get('LOL_HEX_MANAGER_TOKEN', '').strip()
+    if manager_token:
+        record['manager_token'] = manager_token
     temp_path = PID_FILE.with_suffix('.pid.tmp')
     temp_path.write_text(json.dumps(record, separators=(',', ':')), encoding='utf-8')
     os.replace(temp_path, PID_FILE)
