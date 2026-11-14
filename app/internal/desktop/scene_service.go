@@ -517,10 +517,10 @@ func (s *SceneService) handleRequestNotices(w http.ResponseWriter, r *http.Reque
 		case notice := <-channel:
 			data, err := json.Marshal(notice)
 			if err != nil { continue }
-			_, _ = fmt.Fprintf(w, "data: %s\\n\\n", data)
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 			flusher.Flush()
 		case <-heartbeat.C:
-			_, _ = fmt.Fprint(w, ": keep-alive\\n\\n")
+			_, _ = fmt.Fprint(w, ": keep-alive\n\n")
 			flusher.Flush()
 		}
 	}
