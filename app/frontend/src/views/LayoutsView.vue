@@ -12,6 +12,7 @@ type Live2DLayer = LayoutLayer & { live2d_scale?: number; live2d_x?: number; liv
 type EmoticonLayer = LayoutLayer & { emoticon_size?: number; emoticon_speed?: number; emoticon_drift?: number; emoticon_max_count?: number }
 type GiftLayer = LayoutLayer & { gift_display_duration?: number }
 type SuperChatLayer = LayoutLayer & { super_chat_display_duration?: number }
+type RequestNoticeLayer = LayoutLayer & { request_notice_display_duration?: number }
 type ContentScaleLayer = LayoutLayer & { content_scale?: number }
 function contentScaleLayer(layer: LayoutLayer) { return layer as ContentScaleLayer }
 function contentScale(layer: LayoutLayer) { return contentScaleLayer(layer).content_scale ?? 100 }
@@ -82,6 +83,7 @@ const canvas = ref<HTMLElement>()
 const scene = computed(() => scenes.value.find(item => item.id === activeSceneID.value) ?? scenes.value[0] ?? null)
 const selectedLayer = computed(() => scene.value?.layers.find(item => item.id === selectedLayerID.value) ?? null)
 const selectedQueueLayer = computed(() => selectedLayer.value as (LayoutLayer & { queue_display_count?: number }) | null)
+const selectedRequestNoticeLayer = computed(() => selectedLayer.value?.type === 'request_notice' ? selectedLayer.value as RequestNoticeLayer : null)
 const selectedEmoticonLayer = computed(() => selectedLayer.value?.type === 'emoticon' ? emoticonLayer(selectedLayer.value) : null)
 const sortedLayers = computed(() => [...(scene.value?.layers ?? [])].sort((a, b) => b.z_index - a.z_index))
 const scale = ref(1)
@@ -421,7 +423,7 @@ onUnmounted(() => {
             <el-form-item v-if="selectedLayer !== null && (selectedLayer!.type === 'music_queue' || selectedLayer!.type === 'video_queue')" label="待播显示数量"><el-input-number v-model="selectedQueueLayer!.queue_display_count" :min="1" :max="1000" /><div class="el-form-item__description">仅控制此队列组件显示的待播条数；队列标题仍显示实际数量。</div></el-form-item>
             <el-form-item v-if="selectedLayer!.type === 'gift'" label="显示时间"><el-input-number v-model="giftLayer(selectedLayer!).gift_display_duration" :min="1" :max="120" :step="1" controls-position="right" /> <span class="el-form-item__description">礼物出现后保留的秒数（1–120 秒）</span></el-form-item>
             <el-form-item v-if="selectedLayer!.type === 'super_chat'" label="显示时间"><el-input-number v-model="superChatLayer(selectedLayer!).super_chat_display_duration" :min="1" :max="120" :step="1" controls-position="right" /> <span class="el-form-item__description">SC 留言出现后保留的秒数（1–120 秒）</span></el-form-item>
-            <el-form-item v-if="selectedLayer!.type === 'request_notice'" label="单条显示时间"><el-input-number v-model="(selectedLayer as LayoutLayer & { request_notice_display_duration?: number }).request_notice_display_duration" :min="1" :max="120" :step="1" controls-position="right" /><div class="el-form-item__description">每条点播结果通知显示的秒数，通知按顺序依次展示。</div></el-form-item>
+            <el-form-item v-if="selectedLayer!.type === 'request_notice'" label="单条显示时间"><el-input-number v-model="selectedRequestNoticeLayer!.request_notice_display_duration" :min="1" :max="120" :step="1" controls-position="right" /><div class="el-form-item__description">每条点播结果通知显示的秒数，通知按顺序依次展示。</div></el-form-item>
             <template v-if="selectedEmoticonLayer">
               <el-form-item label="表情大小"><div class="live2d-adjustment"><strong>{{ selectedEmoticonLayer.emoticon_size ?? 64 }} px</strong><el-slider v-model="selectedEmoticonLayer.emoticon_size" :min="24" :max="160" :step="4" /></div></el-form-item>
               <el-form-item label="上升速度"><div class="live2d-adjustment"><strong>{{ selectedEmoticonLayer.emoticon_speed ?? 90 }} px/s</strong><el-slider v-model="selectedEmoticonLayer.emoticon_speed" :min="20" :max="300" :step="5" /></div></el-form-item>
