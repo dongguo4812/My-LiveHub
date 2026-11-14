@@ -201,11 +201,13 @@ func (s *LOLHexService) Start() (LOLHexStatus, error) {
 
 func (s *LOLHexService) GetStatusUnlocked() LOLHexStatus {
 	healthy, _ := s.health()
-	pid := s.readPID()
+	record := s.readPIDRecord()
+	pid := record.PID
+	owned := s.owned && s.token != "" && record.ManagerToken == s.token
 	state := "stopped"
 	if s.owned && !healthy { state = "starting" }
 	if healthy { state = "running" }
-	return LOLHexStatus{State: state, Running: healthy, Owned: s.owned, External: healthy && !s.owned, Port: s.port, BaseURL: s.baseURL(), PID: pid, Error: s.lastErr}
+	return LOLHexStatus{State: state, Running: healthy, Owned: owned, External: healthy && !owned, Port: s.port, BaseURL: s.baseURL(), PID: pid, Error: s.lastErr}
 }
 
 func (s *LOLHexService) Stop() (LOLHexStatus, error) {
@@ -249,6 +251,10 @@ func (s *LOLHexService) StopIfOwned() {
 	owned := s.owned
 	s.mu.Unlock()
 	if owned {
-		if _, err := s.Stop(); err != nil { s.lastErr = err.Error() }
+		if _, err := s.Stop(); err != nil {
+			s.mu.Lock()
+			s.lastErr = err.Error()
+			s.mu.Unlock()
+		}
 	}
 }
