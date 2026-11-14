@@ -80,12 +80,22 @@ func newGiftCatalog(client *http.Client) *giftCatalog {
 }
 
 func (c *giftCatalog) Refresh(ctx context.Context, roomID int) error {
+	return c.refresh(ctx, roomID, false)
+}
+
+// ForceRefresh bypasses the in-memory TTL. It is used when the persistent
+// resource catalog says the last successful remote refresh has expired.
+func (c *giftCatalog) ForceRefresh(ctx context.Context, roomID int) error {
+	return c.refresh(ctx, roomID, true)
+}
+
+func (c *giftCatalog) refresh(ctx context.Context, roomID int, force bool) error {
 	if c == nil { return nil }
 	if roomID <= 0 { return errors.New("invalid Bilibili room ID for gift catalog") }
 	c.mu.RLock()
 	cached, ok := c.rooms[roomID]
 	c.mu.RUnlock()
-	if ok && time.Now().Before(cached.expiresAt) { return nil }
+	if !force && ok && time.Now().Before(cached.expiresAt) { return nil }
 
 	requestURL, err := url.Parse(c.endpoint)
 	if err != nil { return err }
@@ -726,7 +736,7 @@ func (a *Adapter) Connect(ctx context.Context) error {
 		go func() {
 			catalogCtx, catalogCancel := context.WithTimeout(runCtx, 8*time.Second)
 			defer catalogCancel()
-			if err := a.giftCatalog.Refresh(catalogCtx, roomID); err != nil {
+			if err := a.giftCatalog.ForceRefresh(catalogCtx, roomID); err != nil {
 				return
 			}
 			if a.mediaCatalog != nil {
