@@ -27,7 +27,8 @@ func (s *CoreService) GetModules() []core.ModuleSnapshot {
 }
 
 func (s *CoreService) StartModule(name string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// LOL Hex may need up to 35 seconds to spawn and verify its local service.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	return s.app.Modules().StartModule(ctx, name)
 }
