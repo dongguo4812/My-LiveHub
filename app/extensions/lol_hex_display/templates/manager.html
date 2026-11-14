@@ -1,0 +1,762 @@
+
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>lol_hex_display 管理页</title>
+<link rel="stylesheet" href="/static/style.css">
+
+<style>
+  /*
+   * 战绩条尺寸：
+   * 卡片宽度 71px，间距 5px
+   * 20 张卡片：20 × 71 + 19 × 5 = 1515px
+   * 面板总宽：1515 + 左右内边距 32 + 边框 2 = 1549px
+   */
+
+/* 所有管理内容统一宽度，并整体居中 */
+	main:has(#barAdminPanel) {
+	  width: 1549px !important;
+	  max-width: calc(100vw - 32px) !important;
+	  margin: 18px auto !important;
+	  box-sizing: border-box;
+	  overflow: visible !important;
+	}
+
+	/* 战绩条管理 */
+	#barAdminPanel {
+	  width: 100% !important;
+	  max-width: none !important;
+	  margin: 18px 0 !important;
+	  padding: 16px !important;
+	  box-sizing: border-box !important;
+	  overflow: visible !important;
+	}
+
+	/* 截图与数据管理工具栏 */
+	/* 截图与数据管理工具栏：三行纵向排列，每行内部横向排列 */
+	main:has(#barAdminPanel) > .toolbar {
+	  display: flex;
+	  flex-direction: column;
+	  align-items: stretch;
+	  justify-content: flex-start;
+	  gap: 10px;
+	}
+
+	main:has(#barAdminPanel) > .toolbar {
+	  width: 100% !important;
+	  max-width: none !important;
+	  box-sizing: border-box !important;
+	}
+
+	.toolbar .toolbar-row {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 16px;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.toolbar .toolbar-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* 带操作按钮的行：说明文字靠左，按钮组贴齐工具栏最右侧。 */
+.toolbar .toolbar-row:has(> div) {
+  justify-content: space-between;
+}
+
+.toolbar .toolbar-row > div {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 900px) {
+  .toolbar .toolbar-row {
+    flex-wrap: wrap;
+  }
+}
+
+/* 海克斯卡片列表 */
+	main:has(#barAdminPanel) > #cards {
+	  width: 100% !important;
+	  max-width: none !important;
+	  box-sizing: border-box !important;
+	}
+
+	/* 空状态提示 */
+	main:has(#barAdminPanel) > #empty {
+	  width: 100% !important;
+	  max-width: none !important;
+	  box-sizing: border-box !important;
+	}
+
+  #barAdminPanel {
+    width: 1549px !important;
+    max-width: calc(100vw - 32px) !important;
+    margin: 18px auto !important;
+    padding: 16px !important;
+    box-sizing: border-box !important;
+    overflow: visible !important;
+  }
+
+  #barAdminPreview {
+    width: 1515px !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    overflow-x: auto !important;
+    overflow-y: visible !important;
+  }
+
+  #barAdminPreview .bar-admin-header {
+    width: 1515px;
+    max-width: none;
+    box-sizing: border-box;
+  }
+
+  #barAdminPreview .bar-admin-games {
+    display: grid;
+    grid-template-columns: repeat(20, 71px);
+    grid-auto-rows: 90px;
+    gap: 5px;
+    align-content: start;
+    align-items: start;
+    width: 1515px;
+    max-width: none;
+    overflow: visible;
+  }
+
+  @media (max-width: 1580px) {
+    #barAdminPanel {
+      margin-left: auto !important;
+      margin-right: auto !important;
+    }
+  }
+</style>
+</head>
+
+<body>
+<header>
+  <div>
+    <h1>LOL 海克斯卡片管理</h1>
+    <p id="meta" aria-live="polite" style="display:none">正在连接本地服务…</p>
+    <p id="clientStatus" style="margin:6px 0 0;font-size:13px;color:#aab4c5">正在识别英雄联盟客户端…</p>
+  </div>
+  <nav>
+    <a href="/display" target="_blank">海克斯展示页</a>
+    <a href="/bar" target="_blank" rel="noopener">战绩条展示</a>
+  </nav>
+</header>
+
+<main>
+
+  <section id="barAdminPanel">
+    <h3 style="margin:0 0 14px">战绩条管理</h3>
+
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+      <label>
+        显示局数
+        <input id="barMaxGames" type="number" min="1" max="100" value="5" style="width:75px">
+      </label>
+
+      <label>
+        模式过滤
+        <select id="barModeFilter">
+          <option value="1">1 - 海克斯大乱斗</option>
+          <option value="2">2 - 所有匹配模式</option>
+        </select>
+      </label>
+
+      <label>
+        批次间隔（分钟）
+        <input id="barGapMin" type="number" min="1" max="100000" value="100000" style="width:100px">
+      </label>
+
+      <label style="display:inline-flex;align-items:center;gap:6px">
+        <input id="barShowLobbyMemberCount" type="checkbox" checked>
+        显示组队人数
+      </label>
+
+      <button type="button" onclick="saveBarConfig()">保存配置</button>
+      <button type="button" onclick="barAction('refresh')">刷新战绩</button>
+      <button type="button" onclick="barAction('new_batch')">开启新批次</button>
+    </div>
+
+    <p id="barAdminStatus" aria-live="polite"></p>
+    <p id="barLastUpdated" style="margin:8px 0;color:#8992a3">最近更新时间：暂无</p>
+    <div id="barAdminPreview"></div>
+  </section>
+
+  <section class="toolbar">
+    <div class="toolbar-row">
+      <b>截图与数据管理</b>
+      <span>游戏中按 F1 冻结画面并框选；再次按 F1 或按 ESC 取消。</span>
+    </div>
+
+    <div class="toolbar-row">
+      <span id="assetCount">海克斯索引：读取中…</span>
+      <div id="assetDataActions">
+        <button id="updateBtn" onclick="updateAssets()">检查并更新海克斯索引</button>
+        <button id="resetUpdateBtn" class="danger" onclick="resetAndUpdateAssets()">重置海克斯索引</button>
+      </div>
+    </div>
+
+    <div class="toolbar-row">
+      <span id="screenshotDir">截图目录：读取中…</span>
+      <div id="cardScreenshotActions">
+        <button class="danger" onclick="act('clear')">清空卡片和截图</button>
+      </div>
+    </div>
+  </section>
+
+  <div id="cards" class="cards"></div>
+
+  <p id="empty" class="empty" hidden>
+    还没有截图卡片。启动程序后，在游戏中按 F1 框选海克斯卡片。
+  </p>
+</main>
+
+<script>
+async function act(action, key = '') {
+  if (
+    action === 'clear' &&
+    !confirm('确定清空全部卡片记录，并删除截图目录下所有图片文件？海克斯图标缓存不会删除。')
+  ) {
+    return;
+  }
+
+  try {
+    const r = await fetch('/api/action', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({action, key})
+    });
+
+    const d = await r.json();
+
+    if (!d.ok || d.delete_failures?.length) {
+      alert(
+        '操作结果：' +
+        (d.error || '部分图片删除失败：\n' +
+        (d.delete_failures || []).join('\n'))
+      );
+    }
+
+    load();
+  } catch (e) {
+    alert('操作失败：' + e);
+  }
+}
+
+async function updateAssets() {
+  const buttons = [
+    document.getElementById('updateBtn'),
+    document.getElementById('resetUpdateBtn')
+  ];
+  buttons.forEach(button => button.disabled = true);
+
+  try {
+    const r = await fetch('/api/update-assets', {method: 'POST'});
+    const d = await r.json();
+
+    document.getElementById('meta').textContent =
+      d.message || '已启动更新';
+
+    pollUpdate();
+  } catch (e) {
+    alert('无法启动更新：' + e);
+    buttons.forEach(button => button.disabled = false);
+  }
+}
+
+async function resetAndUpdateAssets() {
+  const confirmed = confirm(
+    '确定重置海克斯索引吗？\n\n' +
+    '将删除内存索引和本地 hex_assets.json。\n' +
+    '图标缓存、截图和卡片记录不会删除。\n\n' +
+    '如果数据源请求失败，索引会保持为空，需要稍后重新更新。'
+  );
+
+  if (!confirmed) return;
+
+  const buttons = [
+    document.getElementById('updateBtn'),
+    document.getElementById('resetUpdateBtn')
+  ];
+  buttons.forEach(button => button.disabled = true);
+  document.getElementById('meta').textContent = '正在清空并重建海克斯索引…';
+
+  try {
+    const response = await fetch('/api/reset-update-assets', {method: 'POST'});
+    const result = await response.json();
+
+    if (!response.ok || !result.ok) {
+      throw new Error(result.message || '无法启动清空与重建操作');
+    }
+
+    document.getElementById('meta').textContent =
+      result.message || '已开始清空并重新建立海克斯索引';
+    pollUpdate();
+  } catch (error) {
+    alert('重置海克斯索引失败：' + error.message);
+    buttons.forEach(button => button.disabled = false);
+  }
+}
+
+async function pollUpdate() {
+  try {
+    const d = await (await fetch('/api/update-status')).json();
+
+    document.getElementById('meta').textContent =
+      d.message + (d.running ? '（进行中）' : '');
+
+    if (d.running) {
+      setTimeout(pollUpdate, 1000);
+    } else {
+      document.getElementById('updateBtn').disabled = false;
+      document.getElementById('resetUpdateBtn').disabled = false;
+      load();
+    }
+  } catch (e) {
+    document.getElementById('updateBtn').disabled = false;
+    document.getElementById('resetUpdateBtn').disabled = false;
+  }
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[c]));
+}
+
+async function loadClientStatus() {
+  const el = document.getElementById('clientStatus');
+  try {
+    const response = await fetch('/api/client-status', {cache: 'no-store'});
+    if (!response.ok) throw new Error('状态接口请求失败');
+    const d = await response.json();
+    if (d.recognized && d.available) {
+      const source = d.source === 'log' ? '客户端日志' : '客户端进程';
+      el.textContent = `客户端已识别（${source}）｜LCU 可用${d.account ? '｜账号：' + d.account : ''}`;
+      el.style.color = '#55c98a';
+    } else {
+      el.textContent = d.message || '尚未识别到可用客户端凭据';
+      el.style.color = '#e0ad62';
+    }
+  } catch (e) {
+    el.textContent = '客户端状态读取失败：' + e.message;
+    el.style.color = '#e08b8b';
+  }
+}
+
+let lastRenderedAt = null;
+
+async function load() {
+  try {
+    const d = await (await fetch('/api/state', {cache: 'no-store'})).json();
+
+    document.getElementById('screenshotDir').textContent =
+      `截图目录：${d.screenshot_dir}`;
+    document.getElementById('assetCount').textContent =
+      `海克斯索引：${d.asset_count} 条`;
+
+    if (lastRenderedAt !== null && d.updated_at === lastRenderedAt) return;
+    lastRenderedAt = d.updated_at;
+
+    const root = document.getElementById('cards');
+    root.innerHTML = '';
+
+    document.getElementById('empty').hidden = d.cards.length > 0;
+
+    d.cards.forEach((c, i) => {
+      const el = document.createElement('article');
+
+      const qualityClass = ({
+        kSilver: 'quality-silver',
+        kGold: 'quality-gold',
+        kPrismatic: 'quality-prismatic'
+      })[c.level] || '';
+
+      el.className = ('card ' + qualityClass).trim();
+
+      const img = c.augment_id
+        ? `/asset/hex/${encodeURIComponent(c.augment_id)}.png`
+        : `/asset/screenshot/${encodeURIComponent(c.filename)}`;
+
+      el.innerHTML = `
+        <div class="thumb">
+          <img
+            src="${img}"
+            onerror="this.onerror=null;this.src='/asset/screenshot/${encodeURIComponent(c.filename)}'"
+            alt="卡片">
+        </div>
+        <div class="info">
+		<h2>${c.name ? (/^已质变\s*[:：]/.test((c.ocr_text || '').trim()) ? '已质变：' : '') + esc(c.name) : '未匹配到海克斯名称'}</h2>
+		<p>OCR：${esc((c.ocr_text || '（无文字）').replace(/^已质变\s*[:：]\s*/, '').trim())}</p>
+          <p>${esc(c.filename)} · ${esc(c.created_at)}</p>
+          ${c.reason ? `<p class="reason">${esc(c.reason)}</p>` : ''}
+        </div>
+        <div class="actions">
+          <button onclick="act('up','${esc(c.key)}')" ${i === 0 ? 'disabled' : ''}>上移</button>
+          <button onclick="act('down','${esc(c.key)}')" ${i === d.cards.length - 1 ? 'disabled' : ''}>下移</button>
+          <button class="danger" onclick="act('delete','${esc(c.key)}')">删除</button>
+        </div>
+      `;
+
+      root.appendChild(el);
+    });
+  } catch (e) {
+    document.getElementById('meta').textContent = '连接失败：' + e;
+  }
+}
+
+let lastBarPreviewSignature = null;
+
+async function loadBarConfig() {
+  const status = document.getElementById('barAdminStatus');
+
+  try {
+    const response = await fetch('/api/bar-config', {cache: 'no-store'});
+    if (!response.ok) throw new Error('战绩条配置读取失败');
+
+    const config = await response.json();
+
+    document.getElementById('barMaxGames').value =
+      config.max_games ?? 5;
+
+    document.getElementById('barModeFilter').value =
+      String(config.mode_filter ?? 1);
+
+    document.getElementById('barGapMin').value =
+      config.batch_gap_min ?? 100000;
+
+    document.getElementById('barShowLobbyMemberCount').checked =
+      config.show_lobby_member_count !== false;
+  } catch (error) {
+    status.textContent = '配置读取失败：' + error.message;
+    status.style.color = '#e08b8b';
+  }
+}
+
+async function loadBarAdmin() {
+  try {
+    const snapshotResponse = await fetch('/api/snapshot', {cache: 'no-store'});
+
+    if (!snapshotResponse.ok) {
+      throw new Error('战绩条数据接口请求失败');
+    }
+
+    const snapshot = await snapshotResponse.json();
+
+    const fetchedAt = Number(snapshot.fetched_at || 0);
+    const updatedEl = document.getElementById('barLastUpdated');
+    updatedEl.textContent = fetchedAt > 0 && Number.isFinite(fetchedAt)
+      ? `最近更新时间：${new Date(fetchedAt * 1000).toLocaleString()}`
+      : '最近更新时间：暂无战绩数据更新记录';
+
+    const preview = document.getElementById('barAdminPreview');
+    const games = Array.isArray(snapshot.games) ? snapshot.games : [];
+    const previewSignature = JSON.stringify({
+      account: snapshot.account,
+      region: snapshot.region,
+      wins: snapshot.wins,
+      losses: snapshot.losses,
+      games: games.map(game => [
+        game.gameId,
+        game.champion_id,
+        game.win,
+        game.k,
+        game.d,
+        game.a
+      ])
+    });
+
+    // 预览内容没有变化时保留现有 DOM，避免重复销毁和加载英雄头像。
+    if (previewSignature === lastBarPreviewSignature) return;
+
+    if (!games.length) {
+      preview.replaceChildren();
+      lastBarPreviewSignature = previewSignature;
+      return;
+    }
+
+    preview.innerHTML = `
+      <style>
+        #barAdminPreview {
+          width: 1515px !important;
+          max-width: 100% !important;
+          overflow-x: auto !important;
+          overflow-y: visible !important;
+          box-sizing: border-box;
+        }
+
+        #barAdminPreview .bar-admin-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 16px;
+          width: 1515px;
+          max-width: none;
+          margin-bottom: 12px;
+          box-sizing: border-box;
+        }
+
+        #barAdminPreview .bar-admin-account {
+          min-width: 0;
+          overflow-wrap: anywhere;
+        }
+
+        #barAdminPreview .bar-admin-account-name {
+          font-size: 18px;
+          font-weight: bold;
+        }
+
+        #barAdminPreview .bar-admin-region {
+          margin-top: 4px;
+          color: #8992a3;
+        }
+
+        #barAdminPreview .bar-admin-record {
+          flex: 0 0 auto;
+          padding: 10px 14px;
+          border: 1px solid #888;
+          border-radius: 6px;
+          font-weight: bold;
+          white-space: nowrap;
+        }
+
+        #barAdminPreview .bar-admin-wins {
+          color: #38a889;
+        }
+
+        #barAdminPreview .bar-admin-losses {
+          color: #df6570;
+        }
+
+        #barAdminPreview .bar-admin-games {
+          display: grid;
+          grid-template-columns: repeat(20, 71px);
+          grid-auto-rows: 90px;
+          gap: 5px;
+          align-content: start;
+          align-items: start;
+          width: 1515px;
+          max-width: none;
+          overflow: visible;
+        }
+
+        #barAdminPreview .bar-admin-game {
+          width: 71px;
+          height: 90px;
+          min-width: 71px;
+          min-height: 90px;
+          padding: 4px 2px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 4px;
+          box-sizing: border-box;
+          border: 3px solid rgba(180, 190, 210, 0.45);
+          border-radius: 12px;
+          overflow: hidden;
+          background: transparent;
+        }
+
+        #barAdminPreview .bar-admin-game.win {
+          border-color: #00df78;
+        }
+
+        #barAdminPreview .bar-admin-game.loss {
+          border-color: #ff3948;
+        }
+
+        #barAdminPreview .bar-admin-champ {
+          display: block;
+          flex: 0 0 auto;
+          width: 44px;
+          height: 44px;
+          object-fit: cover;
+          border-radius: 50%;
+          border: 1px solid rgba(255, 255, 255, 0.25);
+        }
+
+        #barAdminPreview .bar-admin-kda {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 2px;
+          font-size: 12px;
+          line-height: 1.3;
+          font-weight: bold;
+          white-space: nowrap;
+          font-variant-numeric: tabular-nums;
+        }
+
+        #barAdminPreview .bar-admin-kills {
+          color: #4ade80;
+        }
+
+        #barAdminPreview .bar-admin-deaths {
+          color: #ff5c65;
+        }
+
+        #barAdminPreview .bar-admin-assists {
+          color: #60a5fa;
+        }
+
+        #barAdminPreview .bar-admin-separator {
+          color: rgba(255, 255, 255, 0.8);
+        }
+      </style>
+
+      <div class="bar-admin-header">
+        <div class="bar-admin-account">
+          <div class="bar-admin-account-name">
+            ${esc(snapshot.account)}
+          </div>
+          <div class="bar-admin-region">
+            ${esc(snapshot.region)}
+          </div>
+        </div>
+
+        <div class="bar-admin-record">
+          <span class="bar-admin-wins">
+            胜 ${esc(snapshot.wins)}
+          </span>
+          <span style="margin:0 6px;color:#8992a3;">/</span>
+          <span class="bar-admin-losses">
+            负 ${esc(snapshot.losses)}
+          </span>
+        </div>
+      </div>
+
+      <div class="bar-admin-games">
+        ${games.map(game => {
+          const championId = Number(game.champion_id || 0);
+          const resultClass = game.win ? 'win' : 'loss';
+
+          const iconUrl = championId
+            ? 'https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/champion-icons/'
+              + championId + '.png'
+            : '';
+
+          return `
+            <div class="bar-admin-game ${resultClass}">
+              ${
+                iconUrl
+                  ? `<img
+                      class="bar-admin-champ"
+                      src="${iconUrl}"
+                      alt=""
+                      onerror="this.onerror=null;this.style.display='none'"
+                    >`
+                  : ''
+              }
+
+              <div class="bar-admin-kda">
+                <span class="bar-admin-kills">${esc(game.k)}</span>
+                <span class="bar-admin-separator">/</span>
+                <span class="bar-admin-deaths">${esc(game.d)}</span>
+                <span class="bar-admin-separator">/</span>
+                <span class="bar-admin-assists">${esc(game.a)}</span>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+    lastBarPreviewSignature = previewSignature;
+  } catch (error) {
+    document.getElementById('barAdminStatus').textContent =
+      '战绩条数据读取失败：' + error.message;
+  }
+}
+
+async function saveBarConfig() {
+  const body = {
+    max_games: Number(document.getElementById('barMaxGames').value || 5),
+    mode_filter: Number(document.getElementById('barModeFilter').value || 1),
+    batch_gap_min: Number(document.getElementById('barGapMin').value || 100000),
+    show_lobby_member_count: document.getElementById('barShowLobbyMemberCount').checked
+  };
+
+  const status = document.getElementById('barAdminStatus');
+  status.textContent = '正在保存……';
+  status.style.color = '#e0ad62';
+
+  try {
+    const response = await fetch('/api/bar-config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+
+    const result = await response.json();
+
+    if (result.ok) {
+      status.textContent = '战绩条配置已保存';
+      status.style.color = '#55c98a';
+    } else {
+      status.textContent = '保存失败：' + (result.error || '服务端未能保存配置');
+      status.style.color = '#e08b8b';
+    }
+  } catch (error) {
+    status.textContent = '保存失败：' + error.message;
+    status.style.color = '#e08b8b';
+  }
+}
+
+async function barAction(action) {
+  const status = document.getElementById('barAdminStatus');
+
+  if (
+    action === 'new_batch' &&
+    !confirm('确定开启新批次吗？战绩条将等待下一局符合模式的对局。')
+  ) {
+    return;
+  }
+
+  status.textContent =
+    action === 'refresh' ? '正在刷新战绩……' : '正在开启新批次……';
+
+  try {
+    const response = await fetch('/api/bar-action', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({action})
+    });
+
+    const result = await response.json();
+
+    status.textContent = result.message || result.error || '操作完成';
+    await loadBarAdmin();
+  } catch (error) {
+    status.textContent = '操作失败：' + error.message;
+  }
+}
+
+loadBarConfig();
+loadBarAdmin();
+setInterval(loadBarAdmin, 5000);
+
+loadClientStatus();
+setInterval(loadClientStatus, 5000);
+
+load();
+setInterval(load, 2000);
+</script>
+</body>
+</html>
