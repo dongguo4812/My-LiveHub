@@ -307,8 +307,15 @@ func songRequestMatchesTrack(requested string, track music.Track) bool {
 		return true
 	}
 	title, artist := splitSongRequestArtist(requested)
-	_, ok := selectSongRequestTrack(tracks, title, artist)
-	return ok
+	if _, ok := selectSongRequestTrack(tracks, title, artist); ok {
+		return true
+	}
+	// Also accept the legacy artist-first form used by older request tests and clients.
+	if artist != "" {
+		_, ok := selectSongRequestTrack(tracks, artist, title)
+		return ok
+	}
+	return false
 }
 
 // searchSongRequestAcrossSources keeps provider fallback deterministic and testable.
