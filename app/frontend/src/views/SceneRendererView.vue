@@ -104,6 +104,13 @@ let mouthSyncChannel: BroadcastChannel | null = null
 let mouthSyncPollTimer: ReturnType<typeof setInterval> | undefined
 let currentMouthOpen = 0
 async function pollMouthSync() {
+  if (!live2DDisplay.value?.enabled) {
+    currentMouthOpen = 0
+    document.querySelectorAll<HTMLIFrameElement>('.live2d-output-frame').forEach(frame => {
+      (frame.contentWindow as Live2DWindow | null)?.live2dSetMouthOpen?.(0)
+    })
+    return
+  }
   try {
     const response = await fetch('/api/live2d/mouth', { cache: 'no-store' })
     if (!response.ok) return
@@ -118,6 +125,10 @@ async function pollMouthSync() {
 }
 function handleMouthSyncMessage(event: MessageEvent) {
   if (event.data?.type !== 'live2d-mouth-open') return
+  if (!live2DDisplay.value?.enabled) {
+    currentMouthOpen = 0
+    return
+  }
   currentMouthOpen = Math.max(0, Math.min(1, Number(event.data.value) || 0))
   document.querySelectorAll<HTMLIFrameElement>('.live2d-output-frame').forEach(frame => {
     (frame.contentWindow as Live2DWindow | null)?.live2dSetMouthOpen?.(currentMouthOpen)
@@ -284,7 +295,15 @@ function audienceQueueDisplayItems(layer: Layer) {
 async function loadLive2DDisplay() {
   try {
     const response = await fetch('/api/live2d', { cache: 'no-store' })
-    if (response.ok) live2DDisplay.value = await response.json() as Live2DDisplay
+    if (response.ok) {
+      live2DDisplay.value = await response.json() as Live2DDisplay
+      if (!live2DDisplay.value.enabled) {
+        currentMouthOpen = 0
+        document.querySelectorAll<HTMLIFrameElement>('.live2d-output-frame').forEach(frame => {
+          (frame.contentWindow as Live2DWindow | null)?.live2dSetMouthOpen?.(0)
+        })
+      }
+    }
   } catch { /* Keep the last known Live2D configuration. */ }
 }
 function applyLive2DFrameTransforms() {
