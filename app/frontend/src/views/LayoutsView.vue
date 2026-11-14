@@ -371,7 +371,6 @@ onUnmounted(() => {
             <div v-else-if="layer.type === 'lol_hex_bar'" class="extension-layer-preview">LOL HEX<br><strong>对局战绩条</strong></div>
             <iframe v-else-if="layer.type === 'live2d' && live2DFrameURL" class="live2d-layer-frame" :data-layer-id="layer.id" :src="live2DFrameURL" title="Live2D 预览" allowtransparency="true" :style="{ backgroundColor: 'transparent' }" @load="applyLive2DFrameTransform" />
             <span v-else-if="layer.type === 'live2d'" class="live2d-layer-empty">请先在 Live2D 页面配置并启用默认模型</span>
-            <button v-if="selectedLayerID === layer.id" class="layer-resize-handle" type="button" aria-label="调整图层大小" @pointerdown="startResize($event, layer)" />
             <div v-else-if="layer.type === 'music'" class="music-layer-preview"><div class="music-cover-preview">♫</div><div><strong>歌曲名称 · 歌手</strong><span>━━━━━━━●━━━━  01:23 / 04:12</span><p>当前歌词 · 歌词翻译</p></div></div>
             <div v-else-if="layer.type === 'video_queue'" class="video-queue-layer-preview">
               <div class="queue-preview-prompt"><strong>▸ 视频点播指令</strong><span>点播 BV号</span></div>
@@ -389,6 +388,7 @@ onUnmounted(() => {
               <div class="queue-preview-pending"><strong>Ⅱ 待播队列 <small>2 首</small></strong><span>01　歌曲名称 · 歌手 <small>观众昵称</small></span><span>02　歌曲名称 · 歌手 <small>观众昵称</small></span></div>
             </div>
             <span v-else>{{ layerLabel(layer.type) }}组件</span>
+            <button v-if="selectedLayerID === layer.id" class="layer-resize-handle" type="button" aria-label="调整图层大小" @pointerdown="startResize($event, layer)" />
           </div>
         </div>
         <div class="canvas-hint">选择 Live2D 图层后，在右侧属性中调整模型大小和位置</div>
