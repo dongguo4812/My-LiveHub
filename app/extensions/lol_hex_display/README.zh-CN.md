@@ -45,7 +45,8 @@ My-LiveHub 托管模式使用：
 - 默认配置模板：`config/default/lol_hex_display.json`
 - 本机配置文件：`config/local/lol_hex_display.json`
 - 在 My-LiveHub 的「扩展管理」页面手动启动或停止；不会随主程序启动而自动运行。
-- 开发环境优先使用当前 Python 环境启动 `launcher.py`；可通过 `MY_LIVEHUB_PYTHON` 指定 Python 解释器。
+- 开发环境优先使用扩展目录下的 `.venv\\Scripts\\python.exe`；没有该虚拟环境时才使用 `python` 命令，也可通过 `MY_LIVEHUB_PYTHON` 指定解释器。
+- 首次源码运行可在此目录执行：`py -3.10 -m venv .venv`，然后执行 `.venv\\Scripts\\python.exe -m pip install -r requirements.txt`。
 - 已打包时优先启动 `dist/lol_hex_display/lol_hex_display.exe`。
 
 本机 JSON 配置包含服务监听地址与端口、截图目录、扫描间隔、资源/版本/游戏流程检查间隔，以及英雄联盟客户端安装目录等机器相关设置。不同机器的路径应写入本机配置，不要写入受版本控制的默认模板。
