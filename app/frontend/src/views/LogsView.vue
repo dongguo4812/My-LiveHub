@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { ArrowDown } from '@element-plus/icons-vue'
 import * as MonitorService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/monitorservice.js'
 
 type LogEntry = Awaited<ReturnType<typeof MonitorService.GetRecentLogs>>[number]
@@ -53,6 +54,10 @@ function exportLogs(format: 'txt' | 'json') {
   anchor.download = `my-livehub-logs-${new Date().toISOString().replace(/[:.]/g, '-')}. ${format}`.replace(' ', '')
   anchor.click()
   URL.revokeObjectURL(url)
+}
+function copySelected() {
+  if (!selected.value) return
+  void navigator.clipboard?.writeText('[' + selected.value.time + '] [' + selected.value.level + '] ' + selected.value.message)
 }
 function levelType(value: string) {
   return value === 'ERROR' ? 'danger' : value === 'WARN' ? 'warning' : value === 'DEBUG' ? 'info' : 'success'
@@ -115,20 +120,15 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
       <p class="footnote">点击任意日志行可查看完整内容。日志文件按日期滚动保存，保留期限可在「系统设置」中调整。</p>
     </el-card>
 
-    <el-drawer v-model="selected" title="日志详情" size="min(680px, 92vw)">
+    <el-drawer :model-value="!!selected" title="日志详情" size="min(680px, 92vw)" @close="selected = null">
       <template v-if="selected">
         <div class="detail-meta"><el-tag :type="levelType(selected.level)">{{ selected.level }}</el-tag><span>{{ selected.time || '时间未知' }}</span></div>
         <pre class="detail-message">{{ selected.message }}</pre>
-        <el-button @click="navigator.clipboard?.writeText(`[${selected.time}] [${selected.level}] ${selected.message}`)">复制日志内容</el-button>
+        <el-button @click="copySelected">复制日志内容</el-button>
       </template>
     </el-drawer>
   </section>
 </template>
-
-<script lang="ts">
-import { ArrowDown } from '@element-plus/icons-vue'
-export default { components: { ArrowDown } }
-</script>
 
 <style scoped>
 .logs-page{display:flex;flex-direction:column;gap:18px;min-width:0}.page-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 8px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.updated,.footnote,.table-meta{color:var(--el-text-color-secondary);font-size:13px}.toolbar,.filters,.table-meta,.detail-meta{display:flex;align-items:center;gap:12px}.toolbar{flex-wrap:wrap;justify-content:flex-end}.summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.summary{min-width:0}.summary span,.summary small{display:block;color:var(--el-text-color-secondary);font-size:12px}.summary strong{display:block;margin:8px 0;font-size:26px;font-variant-numeric:tabular-nums}.summary .danger{color:var(--el-color-danger)}.summary .warning{color:var(--el-color-warning)}.filters{flex-wrap:wrap;margin-bottom:14px}.search{max-width:360px;flex:1}.table-meta{justify-content:space-between;margin:4px 0 10px}.footnote{margin:12px 0 0}.detail-meta{margin-bottom:18px}.detail-message{white-space:pre-wrap;overflow-wrap:anywhere;padding:14px;border:1px solid var(--app-border);border-radius:8px;background:var(--app-bg-control);font:13px/1.7 ui-monospace,Consolas,monospace;max-height:60vh;overflow:auto}@media(max-width:900px){.summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.page-heading{flex-direction:column}.toolbar{justify-content:flex-start}}
