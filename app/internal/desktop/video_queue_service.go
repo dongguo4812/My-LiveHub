@@ -110,9 +110,9 @@ func (s *VideoQueueService) closePlayerIfActive() {
 	s.playerMu.Lock()
 	defer s.playerMu.Unlock()
 	s.mu.Lock()
-	active := s.active
+	idle := s.active && s.current == nil && len(s.queue) == 0
 	s.mu.Unlock()
-	if active { s.webview.CloseWindow() }
+	if idle { s.webview.CloseWindow() }
 }
 
 func (s *VideoQueueService) setFanMedalChecker(checker interface { Check(context.Context, int, int) (bool, int, error) }) {
