@@ -1,7 +1,6 @@
 package desktop
 
 import (
-	"encoding/json"
 	"sync"
 	"time"
 )
@@ -51,10 +50,3 @@ func (b *RequestNoticeBroker) Subscribe() (<-chan RequestNotice, func()) {
 	return ch, cancel
 }
 
-func writeRequestNotice(w interface{ Write([]byte)(int,error) }, notice RequestNotice) {
-	_, _ = w.Write([]byte("data: "))
-	data, err := json.Marshal(notice)
-	if err != nil { return }
-	_, _ = w.Write(data)
-	_, _ = w.Write([]byte("\n\n"))
-}
