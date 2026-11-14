@@ -17,8 +17,8 @@ async function start() {
   try {
     await CoreService.StartModule('lol-hex-display')
     await refresh()
-    if (status.value.running) ElMessage.success('LOL Hex 已启动')
-    else if (status.value.error) ElMessage.warning(status.value.error)
+    if (status.value?.running) ElMessage.success('LOL Hex 已启动')
+    else if (status.value?.error) ElMessage.warning(status.value.error)
   } catch (error) {
     await refresh()
     ElMessage.error(error instanceof Error ? error.message : String(error))
