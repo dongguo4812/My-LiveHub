@@ -368,7 +368,7 @@ func TestSelectSongRequestTrackChecksRequestedArtist(t *testing.T) {
 func TestSearchSongRequestAcrossSourcesFallsBackUntilValidMatch(t *testing.T) {
 	var attempted []string
 	track, matched, failures := searchSongRequestAcrossSources(
-		[]string{"tx", "kw", "kg", "wy"},
+		context.Background(), []string{"tx", "kw", "kg", "wy"},
 		func(source string) ([]music.Track, error) {
 			attempted = append(attempted, source)
 			switch source {
@@ -400,7 +400,7 @@ func TestSearchSongRequestAcrossSourcesFallsBackUntilValidMatch(t *testing.T) {
 func TestSearchSongRequestAcrossSourcesStopsAfterFirstValidMatch(t *testing.T) {
 	var attempted []string
 	track, matched, _ := searchSongRequestAcrossSources(
-		[]string{"tx", "kw", "kg"},
+		context.Background(), []string{"tx", "kw", "kg"},
 		func(source string) ([]music.Track, error) {
 			attempted = append(attempted, source)
 			if source == "tx" {
