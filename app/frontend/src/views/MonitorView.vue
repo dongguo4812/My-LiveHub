@@ -5,6 +5,7 @@ import * as PlatformService from '../../bindings/github.com/dongguo4812/My-LiveH
 import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
 import * as VideoQueueService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/videoqueueservice.js'
 import * as LOLHexService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/lolhexservice.js'
+import * as MonitorService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/monitorservice.js'
 
 type CoreStatus = Awaited<ReturnType<typeof CoreService.GetStatus>>
 type ModuleStatus = Awaited<ReturnType<typeof CoreService.GetModules>>[number]
