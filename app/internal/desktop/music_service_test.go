@@ -339,3 +339,37 @@ func TestStoppedMusicModuleStillReportsConfiguredCommands(t *testing.T) {
 		t.Fatal("stopped music module did not report its configured skip command")
 	}
 }
+
+func TestSelectSongRequestTrackPrefersExactTitleAndRejectsReverseContainment(t *testing.T) {
+	tracks := []music.Track{
+		{ID:"tx_short", SourceID:"tx", Title:"太空", Artist:"歌手甲"},
+		{ID:"kg_extended", SourceID:"kg", Title:"太空基米（完整版）", Artist:"歌手乙"},
+		{ID:"mg_exact", SourceID:"mg", Title:"太空基米", Artist:"歌手丙"},
+	}
+	got, ok := selectSongRequestTrack(tracks, "太空基米", "")
+	if !ok || got.ID != "mg_exact" { t.Fatalf("selected %#v, matched=%v; want exact title", got, ok) }
+	if _, ok := selectSongRequestTrack(tracks[:1], "太空基米", ""); ok { t.Fatal("reverse containment must be rejected") }
+	got, ok = selectSongRequestTrack(tracks[1:2], "太空基米", "")
+	if !ok || got.ID != "kg_extended" { t.Fatalf("one-way containment should match, got %#v", got) }
+}
+
+func TestSelectSongRequestTrackChecksRequestedArtist(t *testing.T) {
+	tracks := []music.Track{
+		{ID:"wrong_artist", Title:"稻香", Artist:"其他歌手"},
+		{ID:"right_artist", Title:"稻香", Artist:"周杰伦"},
+	}
+	got, ok := selectSongRequestTrack(tracks, "稻香", "周杰伦")
+	if !ok || got.ID != "right_artist" { t.Fatalf("artist-constrained selection = %#v, matched=%v", got, ok) }
+	if _, ok := selectSongRequestTrack(tracks[:1], "稻香", "周杰伦"); ok { t.Fatal("different artist must be rejected") }
+}
+
+func TestSplitSongRequestArtist(t *testing.T) {
+	for _, test := range []struct{ input, title, artist string }{
+		{"太空基米", "太空基米", ""},
+		{"稻香 - 周杰伦", "稻香", "周杰伦"},
+		{"稻香－周杰伦", "稻香", "周杰伦"},
+	} {
+		title, artist := splitSongRequestArtist(test.input)
+		if title != test.title || artist != test.artist { t.Errorf("splitSongRequestArtist(%q)=(%q,%q), want (%q,%q)", test.input, title, artist, test.title, test.artist) }
+	}
+}
