@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/hex"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
