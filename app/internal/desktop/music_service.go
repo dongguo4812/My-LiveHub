@@ -877,6 +877,10 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 				if !generationCurrent || ctx.Err() != nil {
 					return
 				}
+				message := strings.TrimSpace(snapshot.Error)
+				if message == "" {
+					message = "洛雪播放器报告播放错误"
+				}
 				s.setLastError(errors.New(message))
 				s.queue.FinishCurrent()
 				if advanceErr := s.advanceAfterPlaybackEnd(); advanceErr != nil {
