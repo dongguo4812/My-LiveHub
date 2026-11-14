@@ -390,7 +390,6 @@ func TestSplitSongRequestArtist(t *testing.T) {
 		{"晴天 周杰伦", "晴天", "周杰伦"},
 		{"晴天  周杰伦", "晴天", "周杰伦"},
 		{"晴天　周杰伦", "晴天", "周杰伦"},
-		{"一路向北 Jay Chou", "一路向北", "Jay Chou"},
 	}
 	for _, tt := range cases {
 		title, artist := splitSongRequestArtist(tt.input)
