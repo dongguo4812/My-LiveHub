@@ -372,7 +372,7 @@ onUnmounted(() => {
         <div class="canvas-caption"><span>画布预览</span><span>{{ scene?.width }} × {{ scene?.height }} · 16:9</span></div>
         <div ref="canvas" class="scene-canvas" :style="{ background: scene?.background === 'transparent' ? 'transparent' : scene?.background }" @click.self="selectedLayerID=''">
           <div class="checkerboard"></div>
-          <div v-for="layer in scene?.layers.filter(item => item.visible && (item.type !== 'music_queue' || musicCommandEnabled === true) && (item.type !== 'video_queue' || videoQueueSnapshot?.enabled === true))" :key="layer.id" class="canvas-layer" :class="{ active: selectedLayerID === layer.id, 'live2d-canvas-layer': layer.type === 'live2d' }"
+          <div v-for="layer in scene?.layers.filter(item => item.visible && (item.type !== 'music_queue' || musicCommandEnabled === true))" :key="layer.id" class="canvas-layer" :class="{ active: selectedLayerID === layer.id, 'live2d-canvas-layer': layer.type === 'live2d' }"
             :style="{ left: (layer.x / (scene?.width ?? 1920) * 100) + '%', top: (layer.y / (scene?.height ?? 1080) * 100) + '%', width: (layer.width / (scene?.width ?? 1920) * 100) + '%', height: (layer.height / (scene?.height ?? 1080) * 100) + '%', zIndex: layer.z_index, opacity: layer.opacity, color: layer.color || '#fff', fontSize: ((layer.font_size || 24) / (scene?.height ?? 1080) * 100) + 'cqh' }"
             @pointerdown="startDrag($event, layer)">
             <span v-if="layer.type === 'text'">{{ layer.text }}</span>
