@@ -38,6 +38,7 @@ type VideoQueueSnapshot struct {
 
 type VideoQueueService struct {
 	mu sync.Mutex
+	playerMu sync.Mutex
 	manager *config.Manager
 	settings config.BilibiliConfig
 	resolver bilibiliVideoInfoResolver
@@ -81,15 +82,23 @@ func (s *VideoQueueService) Start() error {
 func (s *VideoQueueService) Stop() error {
 	if s == nil { return nil }
 	s.mu.Lock()
+	wasActive := s.active
 	s.active = false
 	s.queue = make([]VideoQueueItem, 0)
 	s.current = nil
+	s.pending = make(map[string]bool)
 	unsubscribe := s.unsubscribe
 	s.unsubscribe = nil
 	s.mu.Unlock()
 	if unsubscribe != nil { unsubscribe() }
 	s.webview.setPlaybackStateHandler(nil)
-	s.webview.CloseWindow()
+	if wasActive {
+		// Wait for an in-flight OpenVideo call so it cannot reopen the player
+		// after the module has been stopped.
+		s.playerMu.Lock()
+		s.webview.CloseWindow()
+		s.playerMu.Unlock()
+	}
 	return nil
 }
 
@@ -209,10 +218,16 @@ func (s *VideoQueueService) startNextLocked() {
 	s.queue = s.queue[1:]
 	s.current = cloneVideoQueueItem(&item)
 	go func() {
+		s.playerMu.Lock()
+		defer s.playerMu.Unlock()
+		s.mu.Lock()
+		shouldOpen := s.active && s.current != nil && s.current.ID == item.ID
+		s.mu.Unlock()
+		if !shouldOpen { return }
 		if err := s.webview.OpenVideo(item.BVID); err != nil {
 			s.mu.Lock()
 			if s.current != nil && s.current.ID == item.ID { s.current = nil }
-			hasNext := len(s.queue) > 0
+			hasNext := s.active && len(s.queue) > 0
 			if hasNext { s.startNextLocked() }
 			s.mu.Unlock()
 			if !hasNext { s.webview.CloseWindow() }
@@ -221,6 +236,9 @@ func (s *VideoQueueService) startNextLocked() {
 }
 
 func (s *VideoQueueService) handlePlaybackState(state BilibiliWebViewPlaybackState) {
+	s.mu.Lock()
+	if !s.active { s.mu.Unlock(); return }
+	s.mu.Unlock()
 	if !state.IsOpen {
 		s.mu.Lock()
 		s.current = nil
@@ -246,6 +264,7 @@ func (s *VideoQueueService) handlePlaybackState(state BilibiliWebViewPlaybackSta
 func (s *VideoQueueService) SkipCurrent() error {
 	if s == nil { return errors.New("视频点播队列不可用") }
 	s.mu.Lock()
+	if !s.active { s.mu.Unlock(); return errors.New("视频点播模块已停止") }
 	if s.current == nil { s.mu.Unlock(); return errors.New("当前没有正在播放的视频") }
 	s.current = nil
 	if len(s.queue) > 0 {
@@ -262,6 +281,7 @@ func (s *VideoQueueService) RemoveQueued(id uint64) error {
 	if s == nil { return errors.New("视频点播队列不可用") }
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.active { return errors.New("视频点播模块已停止") }
 	for i := range s.queue {
 		if s.queue[i].ID == id {
 			s.queue = append(s.queue[:i], s.queue[i+1:]...)
@@ -274,7 +294,7 @@ func (s *VideoQueueService) RemoveQueued(id uint64) error {
 func (s *VideoQueueService) ClearQueue() {
 	if s == nil { return }
 	s.mu.Lock()
-	s.queue = s.queue[:0]
+	if s.active { s.queue = s.queue[:0] }
 	s.mu.Unlock()
 }
 
