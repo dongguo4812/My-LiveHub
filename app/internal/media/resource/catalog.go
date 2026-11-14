@@ -22,6 +22,7 @@ type Resource struct {
 	Name        string    `json:"name"`
 	ImageURL    string    `json:"image_url"`
 	AnimationURL string   `json:"animation_url,omitempty"`
+	MetadataVersion int    `json:"metadata_version,omitempty"`
 	UnitPrice   float64   `json:"unit_price,omitempty"`
 	Width       int       `json:"width,omitempty"`
 	Height      int       `json:"height,omitempty"`
@@ -155,7 +156,7 @@ func (c *Catalog) Register(r Resource) bool {
 		// Live events may update an existing directory entry without carrying
 		// its source ordering. Preserve the last known directory position.
 		if r.SortOrder <= 0 && old.SortOrder > 0 { r.SortOrder = old.SortOrder }
-		if !promoted && old.Name == r.Name && old.ImageURL == r.ImageURL && old.UnitPrice == r.UnitPrice && old.AnimationURL == r.AnimationURL && old.Width == r.Width && old.Height == r.Height && old.SortOrder == r.SortOrder {
+		if !promoted && old.Name == r.Name && old.ImageURL == r.ImageURL && old.UnitPrice == r.UnitPrice && old.AnimationURL == r.AnimationURL && old.MetadataVersion == r.MetadataVersion && old.Width == r.Width && old.Height == r.Height && old.SortOrder == r.SortOrder {
 			c.addImageIndex(key, old)
 			return true
 		}
