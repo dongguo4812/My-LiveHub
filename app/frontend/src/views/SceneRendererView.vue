@@ -89,7 +89,6 @@ const live2DFrameURL = computed(() => {
 const musicDisplayConfig = ref<MusicDisplayConfig | null>(null)
 const musicError = ref('')
 const currentRequestNotices = ref<RequestNotice[]>([])
-const requestNoticeTimers = new Map<string, ReturnType<typeof setTimeout>>()
 let requestNoticeSource: EventSource | undefined
 const musicAccentColor = ref('#A83232')
 const waveBars = Array.from({ length: 31 }, (_, index) => ({ height: 7 + Math.abs(Math.sin(index * 1.71) * 24), speed: 0.45 + (index % 7) * 0.13, delay: -(Math.random() * 1.8) }))
@@ -264,14 +263,13 @@ function handleRequestNotice(event: MessageEvent<string>) {
   try {
     const notice = JSON.parse(event.data) as RequestNotice
     if (currentRequestNotices.value.some(item => item.id === notice.id && item.timestamp === notice.timestamp)) return
-    currentRequestNotices.value.push(notice)
-    const timerKey = notice.id + ':' + notice.timestamp
-    const duration = Math.max(1, Math.min(120, scene.value?.layers.find(layer => layer.type === 'request_notice' && layer.visible)?.request_notice_display_duration || 5)) * 1000
-    requestNoticeTimers.set(timerKey, setTimeout(() => {
-      currentRequestNotices.value = currentRequestNotices.value.filter(item => item.id !== notice.id || item.timestamp !== notice.timestamp)
-      requestNoticeTimers.delete(timerKey)
-    }, duration))
+    currentRequestNotices.value = [...currentRequestNotices.value, notice].slice(-32)
   } catch { /* Ignore malformed request notice frames. */ }
+}
+function requestNoticesForLayer(layer: Layer) {
+  const duration = Math.max(1, Math.min(120, layer.request_notice_display_duration || 5)) * 1000
+  const currentTime = now.value.getTime()
+  return currentRequestNotices.value.filter(notice => currentTime - notice.timestamp <= duration)
 }
 function requestNoticeText(notice: RequestNotice) {
   const music = notice.kind.startsWith('music')
@@ -454,8 +452,6 @@ onUnmounted(() => {
   if (mouthSyncPollTimer) clearInterval(mouthSyncPollTimer)
   source?.close()
   requestNoticeSource?.close()
-  for (const timer of requestNoticeTimers.values()) clearTimeout(timer)
-  requestNoticeTimers.clear()
   if (clockTimer) clearInterval(clockTimer)
   if (sceneRefreshTimer) clearInterval(sceneRefreshTimer)
   if (musicRefreshTimer) clearInterval(musicRefreshTimer)
