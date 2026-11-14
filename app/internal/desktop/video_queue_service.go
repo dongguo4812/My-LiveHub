@@ -391,7 +391,11 @@ func (s *VideoQueueService) handleEvent(event eventstream.Event) {
 	skipCommand := strings.TrimSpace(s.settings.VideoSkipCommand)
 	requestPrefix := strings.TrimSpace(s.settings.VideoRequestPrefix)
 	s.mu.Unlock()
-	if skipEnabled && skipCommand != "" && text == skipCommand {
+	if skipCommand != "" && text == skipCommand {
+		if !skipEnabled {
+			s.publishRequestNotice("video_skip_failed", event.UserName, "", "视频切换指令当前已关闭")
+			return
+		}
 		if !event.IsModerator && !event.IsRoomOwner {
 			s.publishRequestNotice("video_skip_failed", event.UserName, "", "仅主播或房管可以切换视频")
 			return
