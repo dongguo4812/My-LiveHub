@@ -85,3 +85,31 @@ func TestStoppedVideoModuleReportsSkipCommandDisabled(t *testing.T) {
 		t.Fatal("expected a disabled-module notice for the skip command")
 	}
 }
+
+func TestStoppedVideoModuleReportsRequestDisabled(t *testing.T) {
+	manager, err := config.NewManager(fstest.MapFS{}, t.TempDir())
+	if err != nil { t.Fatal(err) }
+	buffer := eventstream.NewBuffer(eventstream.NewBus())
+	service, err := NewVideoQueueService(manager, config.DefaultBilibiliConfig(), lifecycleVideoResolver{}, &BilibiliWebViewService{}, buffer)
+	if err != nil { t.Fatal(err) }
+	broker := NewRequestNoticeBroker()
+	service.SetRequestNoticeBroker(broker)
+	notices, cancel := broker.Subscribe()
+	defer cancel()
+
+	buffer.Add(eventstream.Event{
+		PlatformID: "bilibili",
+		Source: "live",
+		Type: "danmaku",
+		UserName: "观众",
+		Content: "点播 BV1234567890",
+	})
+	select {
+	case notice := <-notices:
+		if notice.Kind != "video_request_failed" || notice.Reason != "视频点播功能未开启" {
+			t.Fatalf("unexpected disabled request notice: %+v", notice)
+		}
+	default:
+		t.Fatal("expected a disabled-module notice for the video request")
+	}
+}
