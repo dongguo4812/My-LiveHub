@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getLOLHexStatus, startLOLHex, stopLOLHex, type LOLHexStatus } from '../services/lolHex'
+import { getLOLHexStatus, type LOLHexStatus } from '../services/lolHex'
+import * as CoreService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/coreservice.js'
 
 const status = ref<LOLHexStatus | null>(null)
 const loading = ref(false)
@@ -14,7 +15,8 @@ async function refresh() {
 async function start() {
   loading.value = true
   try {
-    status.value = await startLOLHex()
+    await CoreService.StartModule('lol-hex-display')
+    await refresh()
     if (status.value.running) ElMessage.success('LOL Hex 已启动')
     else if (status.value.error) ElMessage.warning(status.value.error)
   } catch (error) {
@@ -25,8 +27,9 @@ async function start() {
 async function stop() {
   loading.value = true
   try {
-    status.value = await stopLOLHex()
-    ElMessage.success('已向 LOL Hex 发送停止请求')
+    await CoreService.StopModule('lol-hex-display')
+    await refresh()
+    ElMessage.success('LOL Hex 已停止')
   } catch (error) {
     await refresh()
     ElMessage.error(error instanceof Error ? error.message : String(error))
