@@ -63,6 +63,7 @@ type MusicService struct {
 	lyricsMu sync.Mutex
 	lyricsCache map[string]string
 	fanMedalChecker interface { Check(context.Context, int, int) (bool, int, error) }
+	notices *RequestNoticeBroker
 }
 
 func NewMusicService(manager *config.Manager, value config.MusicConfig, buffers ...*events.Buffer) *MusicService {
@@ -172,6 +173,21 @@ func (s *MusicService) worker() {
 	}
 }
 
+func (s *MusicService) SetRequestNoticeBroker(broker *RequestNoticeBroker) {
+	if s == nil { return }
+	s.mu.Lock()
+	s.notices = broker
+	s.mu.Unlock()
+}
+
+func (s *MusicService) publishRequestNotice(kind, userName, itemName, reason string) {
+	if s == nil { return }
+	s.mu.RLock()
+	broker := s.notices
+	s.mu.RUnlock()
+	if broker != nil { broker.Publish(RequestNotice{Kind:kind, UserName:userName, ItemName:itemName, Reason:reason}) }
+}
+
 func (s *MusicService) setFanMedalChecker(checker interface { Check(context.Context, int, int) (bool, int, error) }) {
 	if s == nil { return }
 	s.mu.Lock()
@@ -193,29 +209,40 @@ func (s *MusicService) processSongRequest(ctx context.Context, event events.Even
 	if !enabled { return }
 	if skipEnabled && isSkipCommand(event.Content, skipCommand) {
 		if !canSkipMusic(event) { return }
-		if err := s.Next(); err != nil { s.setLastError(fmt.Errorf("执行弹幕切歌失败：%w", err)) }
+		if err := s.Next(); err != nil {
+			s.setLastError(fmt.Errorf("执行弹幕切歌失败：%w", err))
+			s.publishRequestNotice("music_skip_failed", event.UserName, "", err.Error())
+		} else {
+			s.publishRequestNotice("music_skip_success", event.UserName, "", "")
+		}
 		return
 	}
 	if !commandEnabled { return }
 	keyword, ok := parseSongRequest(event.Content, prefix)
 	if !ok { return }
 	if requireFanMedal && !event.IsRoomOwner && !event.IsModerator {
-		if checker == nil { s.setLastError(errors.New("音乐点播粉丝勋章校验服务不可用，已拒绝本次点播")); return }
+		if checker == nil { reason := "音乐点播粉丝勋章校验服务不可用"; s.setLastError(errors.New(reason)); s.publishRequestNotice("music_request_failed", event.UserName, "", reason); return }
 		allowed, level, checkErr := checker.Check(ctx, event.UserID, fanMedalLevel)
-		if checkErr != nil { s.setLastError(fmt.Errorf("校验观众 %s 的主播粉丝勋章失败，已拒绝本次点播：%w", event.UserName, checkErr)); return }
-		if !allowed { s.setLastError(fmt.Errorf("观众 %s 的主播粉丝勋章等级不足（当前 %d，要求 %d）", event.UserName, level, fanMedalLevel)); return }
+		if checkErr != nil { reason := "粉丝勋章校验失败：" + checkErr.Error(); s.setLastError(fmt.Errorf("校验观众 %s 的主播粉丝勋章失败，已拒绝本次点播：%w", event.UserName, checkErr)); s.publishRequestNotice("music_request_failed", event.UserName, "", reason); return }
+		if !allowed { reason := fmt.Sprintf("粉丝勋章等级不足（当前 %d 级，要求 %d 级）", level, fanMedalLevel); s.setLastError(fmt.Errorf("观众 %s 的主播粉丝勋章等级不足（当前 %d，要求 %d）", event.UserName, level, fanMedalLevel)); s.publishRequestNotice("music_request_failed", event.UserName, "", reason); return }
 	}
 	result, err := s.search(ctx, keyword)
 	if err != nil {
 		s.setLastError(fmt.Errorf("搜索弹幕点歌失败：%w", err))
+		s.publishRequestNotice("music_request_failed", event.UserName, "", "歌曲搜索失败："+err.Error())
 		return
 	}
 	if len(result.Tracks) == 0 {
+		reason := "未找到歌曲：" + keyword
 		s.setLastError(fmt.Errorf("观众 %s 点播的歌曲未找到：%s", event.UserName, keyword))
+		s.publishRequestNotice("music_request_failed", event.UserName, "", reason)
 		return
 	}
 	if _, err := s.Enqueue(result.Tracks[0], event.UserName); err != nil {
 		s.setLastError(fmt.Errorf("加入观众点播队列失败：%w", err))
+		s.publishRequestNotice("music_request_failed", event.UserName, "", err.Error())
+	} else {
+		s.publishRequestNotice("music_request_success", event.UserName, result.Tracks[0].Title, "")
 	}
 }
 
