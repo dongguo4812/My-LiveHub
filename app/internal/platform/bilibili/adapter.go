@@ -258,7 +258,7 @@ func (a *Adapter) addGiftEventImage(roomID int, raw []byte) {
 	if imageURL == "" { imageURL = animationURL }
 	if id <= 0 || imageURL == "" { return }
 	if a.mediaCatalog != nil {
-		a.mediaCatalog.Register(resource.Resource{PlatformID:"bilibili", SourceID:strconv.Itoa(roomID), Type:resource.TypeGift, ID:strconv.Itoa(id), Name:name, ImageURL:imageURL, AnimationURL:animationURL, UnitPrice:float64(data.GiftInfo.Price)/1000})
+		a.mediaCatalog.Register(resource.Resource{PlatformID:"bilibili", SourceID:strconv.Itoa(roomID), Type:resource.TypeGift, ID:strconv.Itoa(id), Name:name, ImageURL:imageURL, AnimationURL:animationURL, MetadataVersion:giftCatalogMetadataVersion, UnitPrice:float64(data.GiftInfo.Price)/1000})
 	}
 	a.events.UpdateGiftImage("bilibili", roomID, id, imageURL, animationURL)
 }
