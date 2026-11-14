@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Events } from '@wailsio/runtime'
 import * as QueueService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/videoqueueservice.js'
 import * as WebViewService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/bilibiliwebviewservice.js'
+import '../styles/player-center.css'
 
 interface QueueItem {
   id: number
@@ -143,27 +144,28 @@ onUnmounted(() => { unsubscribe?.(); if (timer) clearInterval(timer) })
 </script>
 
 <template>
-  <section class="video-page">
-    <header class="page-heading">
+  <section class="video-page player-page">
+    <header class="page-heading player-heading">
       <div>
         <p class="eyebrow">BILIBILI VIDEO REQUEST</p>
         <h2>视频点播</h2>
         <p class="description">使用 B 站原生网页播放器，观众通过直播间弹幕提交 BV 号。</p>
       </div>
-      <div class="heading-actions">
-        <el-tag :type="snapshot.playback.is_playing ? 'success' : snapshot.current ? 'warning' : 'info'">
-          {{ statusText }}
-        </el-tag>
-        <el-button :type="activeTab === 'queue' ? 'primary' : 'default'" @click="activeTab = 'queue'">点播队列</el-button>
-        <el-button :type="activeTab === 'settings' ? 'primary' : 'default'" @click="activeTab = 'settings'">设置</el-button>
+      <div class="video-heading-tools">
+        <el-tag :type="snapshot.playback.is_playing ? 'success' : snapshot.current ? 'warning' : 'info'">{{ statusText }}</el-tag>
       </div>
     </header>
+
+    <nav class="video-tabs player-tabs" aria-label="视频页面导航">
+      <button :class="{ active: activeTab === 'queue' }" @click="activeTab = 'queue'">点播队列</button>
+      <button :class="{ active: activeTab === 'settings' }" @click="activeTab = 'settings'">视频设置</button>
+    </nav>
 
     <el-alert v-if="error" :title="error" type="error" :closable="true" show-icon @close="error = ''" />
     <el-alert v-if="success" :title="success" type="success" :closable="true" show-icon @close="success = ''" />
 
     <template v-if="activeTab === 'queue'">
-      <el-card shadow="never">
+      <el-card class="player-card" shadow="never">
         <template #header>
           <div class="card-heading"><strong>当前播放</strong><el-tag :type="snapshot.current ? 'success' : 'info'">{{ snapshot.current ? '播放中' : '空闲' }}</el-tag></div>
         </template>
@@ -184,7 +186,7 @@ onUnmounted(() => { unsubscribe?.(); if (timer) clearInterval(timer) })
         <el-empty v-else description="当前没有正在播放的视频" :image-size="72" />
       </el-card>
 
-      <el-card shadow="never">
+      <el-card class="player-card" shadow="never">
         <template #header>
           <div class="card-heading"><strong>待播队列</strong><div class="queue-actions"><el-tag>{{ snapshot.queue_count }} / {{ settings.video_queue_limit }}</el-tag><el-button size="small" type="danger" plain :disabled="snapshot.queue_count === 0" @click="clearQueue">清空队列</el-button></div></div>
         </template>
@@ -207,9 +209,9 @@ onUnmounted(() => { unsubscribe?.(); if (timer) clearInterval(timer) })
     </template>
 
     <template v-else>
-      <el-card shadow="never">
+      <el-card class="player-card" shadow="never">
         <template #header><strong>视频点播规则</strong></template>
-        <el-form label-position="top" class="settings-form">
+        <el-form label-position="top" class="settings-form player-settings-grid">
           <el-form-item label="允许观众点播">
             <el-switch v-model="settings.video_requests_enabled" active-text="开启" inactive-text="关闭" />
           </el-form-item>
