@@ -405,7 +405,7 @@ onUnmounted(() => {
 
 <template>
   <main v-if="scene" class="scene-output" :style="{ aspectRatio: scene.width + ' / ' + scene.height, background: scene.background === 'transparent' ? 'transparent' : scene.background }">
-    <div v-for="layer in scene.layers.filter(item => item.visible && (item.type !== 'music_queue' || musicDisplayConfig?.command_enabled === true) && (item.type !== 'video_queue' || videoQueue.running === true) && (item.type !== 'live2d' || Boolean(live2DFrameURL)))" :key="layer.id" class="output-layer" :class="{ 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue', 'video-queue-output-layer': layer.type === 'video_queue', 'emoticon-output-layer': layer.type === 'emoticon' }" :style="layerStyle(layer)">
+    <div v-for="layer in scene.layers.filter(item => item.visible && (item.type !== 'music_queue' || musicDisplayConfig?.command_enabled === true) && (item.type !== 'live2d' || Boolean(live2DFrameURL)))" :key="layer.id" class="output-layer" :class="{ 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue', 'video-queue-output-layer': layer.type === 'video_queue', 'emoticon-output-layer': layer.type === 'emoticon' }" :style="layerStyle(layer)">
       <span v-if="layer.type === 'text'">{{ layer.text }}</span>
       <img v-else-if="layer.type === 'image' && layer.url" :src="layer.url" alt="" />
       <iframe v-else-if="(layer.type === 'lol_hex_display' || layer.type === 'lol_hex_bar') && lolHexFrameURLs[layer.id]" class="lol-hex-output-frame" :src="lolHexDisplayURL(layer)" :title="layer.name" :style="{ width: '100%', height: '100%', border: '0', background: 'transparent', pointerEvents: 'none' }" />
