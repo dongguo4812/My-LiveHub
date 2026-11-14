@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {onMounted,ref,watch} from 'vue'
-import {appearance,appearanceBusy,appearanceError,loadAppearance,saveAppearance,logRetentionDays,logRetentionBusy,logRetentionError,saveLogRetentionDays,windowCloseBehavior,windowCloseBehaviorBusy,windowCloseBehaviorError,saveWindowCloseBehavior} from '../services/appearance'
+import {appearance,appearanceBusy,appearanceError,loadAppearance,saveAppearance,logRetentionDays,logRetentionBusy,logRetentionError,saveLogRetentionDays,windowCloseBehavior,windowCloseBehaviorError,saveWindowCloseBehavior} from '../services/appearance'
 const theme=ref('dark'),accentColor=ref('indigo')
 const accents=[{value:'indigo',label:'蓝紫',color:'#7c8cff'},{value:'blue',label:'蓝色',color:'#5798e8'},{value:'violet',label:'紫色',color:'#a184e8'},{value:'teal',label:'青绿',color:'#43b9a6'},{value:'rose',label:'玫瑰',color:'#df829b'}]
 watch(appearance,v=>{theme.value=v.theme;accentColor.value=v.accent_color},{immediate:true})
