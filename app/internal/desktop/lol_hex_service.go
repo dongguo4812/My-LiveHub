@@ -2,6 +2,8 @@ package desktop
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"context"
 	"encoding/json"
 	"errors"
@@ -40,6 +42,7 @@ type LOLHexService struct {
 	owned    bool
 	launch   *exec.Cmd
 	lastErr  string
+	token    string
 }
 
 func NewLOLHexService(extensionDir, configPath string) (*LOLHexService, error) {
@@ -101,13 +104,20 @@ func (s *LOLHexService) health() (bool, int) {
 	return true, 0
 }
 
-func (s *LOLHexService) readPID() int {
-	data, err := os.ReadFile(filepath.Join(s.extensionDir, "lol_hex_display.pid"))
-	if err != nil { return 0 }
-	var record struct { PID int `json:"pid"` }
-	if json.Unmarshal(data, &record) != nil || record.PID <= 0 { return 0 }
-	return record.PID
+type lolHexPIDRecord struct {
+	PID int `json:"pid"`
+	ManagerToken string `json:"manager_token"`
 }
+
+func (s *LOLHexService) readPIDRecord() lolHexPIDRecord {
+	data, err := os.ReadFile(filepath.Join(s.extensionDir, "lol_hex_display.pid"))
+	if err != nil { return lolHexPIDRecord{} }
+	var record lolHexPIDRecord
+	if json.Unmarshal(data, &record) != nil || record.PID <= 0 { return lolHexPIDRecord{} }
+	return record
+}
+
+func (s *LOLHexService) readPID() int { return s.readPIDRecord().PID }
 
 func (s *LOLHexService) GetStatus() LOLHexStatus {
 	if s == nil { return LOLHexStatus{State: "unavailable", Error: "LOL Hex 服务不可用"} }
@@ -119,7 +129,8 @@ func (s *LOLHexService) GetStatus() LOLHexStatus {
 	status := LOLHexStatus{State: "stopped", Owned: false, External: false, Port: s.port, BaseURL: s.baseURL(), PID: pid, Error: lastErr}
 	if healthy {
 		status.State, status.Running = "running", true
-		status.Owned, status.External = owned, !owned
+		status.Owned = owned && s.token != "" && s.readPIDRecord().ManagerToken == s.token
+		status.External = !status.Owned
 		return status
 	}
 	if owned {
@@ -134,6 +145,7 @@ func (s *LOLHexService) Start() (LOLHexStatus, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if healthy, _ := s.health(); healthy {
+		s.owned = false
 		return s.GetStatusUnlocked(), nil
 	}
 	if s.owned {
@@ -154,7 +166,10 @@ func (s *LOLHexService) Start() (LOLHexStatus, error) {
 		command = exec.Command(python, "launcher.py", "--config", s.configPath)
 	}
 	command.Dir = s.extensionDir
-	command.Env = append(os.Environ(), "PYTHONUNBUFFERED=1", "LOL_HEX_MANAGED_BY_MY_LIVEHUB=1")
+	tokenBytes := make([]byte, 24)
+	if _, err := rand.Read(tokenBytes); err != nil { return LOLHexStatus{}, fmt.Errorf("生成扩展进程身份令牌失败：%w", err) }
+	s.token = hex.EncodeToString(tokenBytes)
+	command.Env = append(os.Environ(), "PYTHONUNBUFFERED=1", "LOL_HEX_MANAGED_BY_MY_LIVEHUB=1", "LOL_HEX_MANAGER_TOKEN="+s.token)
 	command.Stdout, command.Stderr = nil, nil
 	if err := command.Start(); err != nil {
 		s.lastErr = err.Error()
@@ -168,7 +183,15 @@ func (s *LOLHexService) Start() (LOLHexStatus, error) {
 	deadline := time.Now().Add(35 * time.Second)
 	for time.Now().Before(deadline) {
 		if healthy, _ := s.health(); healthy {
-			return s.GetStatusUnlocked(), nil
+			record := s.readPIDRecord()
+			if record.ManagerToken == s.token {
+				return s.GetStatusUnlocked(), nil
+			}
+			if record.PID > 0 {
+				s.owned = false
+				s.lastErr = "检测到已有独立启动的 LOL Hex 实例；为避免接管或关闭外部进程，本次启动不会认领该实例。"
+				return s.GetStatusUnlocked(), errors.New(s.lastErr)
+			}
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
@@ -195,6 +218,10 @@ func (s *LOLHexService) Stop() (LOLHexStatus, error) {
 		return s.GetStatusUnlocked(), nil
 	}
 	if healthy {
+		record := s.readPIDRecord()
+		if s.token == "" || record.ManagerToken != s.token {
+			return s.GetStatusUnlocked(), errors.New("无法核验 LOL Hex 进程属于本次 My-LiveHub 启动；拒绝发送关闭请求")
+		}
 		payload, _ := json.Marshal(map[string]string{"action": "shutdown"})
 		request, _ := http.NewRequest(http.MethodPost, s.baseURL()+"/api/action", bytes.NewReader(payload))
 		request.Header.Set("Content-Type", "application/json")
