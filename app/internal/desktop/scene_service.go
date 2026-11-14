@@ -58,6 +58,7 @@ type LayoutLayer struct {
 	EmoticonMaxCount int `json:"emoticon_max_count,omitempty"`
 	GiftDisplayDuration int `json:"gift_display_duration,omitempty"`
 	SuperChatDisplayDuration int `json:"super_chat_display_duration,omitempty"`
+	RequestNoticeDisplayDuration int `json:"request_notice_display_duration,omitempty"`
 }
 
 type sceneVideoProvider interface {
