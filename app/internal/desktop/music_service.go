@@ -275,12 +275,36 @@ func (s *MusicService) processSongRequest(ctx context.Context, event events.Even
 		s.publishRequestNotice("music_request_failed", event.UserName, "", reason)
 		return
 	}
-	if _, err := s.Enqueue(result.Tracks[0], event.UserName); err != nil {
+	// A provider's first result is only a search suggestion, not proof that it
+	// matches the audience request. Never enqueue an unrelated song.
+	var matched *music.Track
+	for i := range result.Tracks {
+		if songRequestMatchesTrack(keyword, result.Tracks[i]) {
+			matched = &result.Tracks[i]
+			break
+		}
+	}
+	if matched == nil {
+		reason := fmt.Sprintf("搜索结果中没有与“%s”匹配的歌曲，未加入播放队列", keyword)
+		s.setLastError(errors.New(reason))
+		s.publishRequestNotice("music_request_failed", event.UserName, "", reason)
+		return
+	}
+	if _, err := s.Enqueue(*matched, event.UserName); err != nil {
 		s.setLastError(fmt.Errorf("加入观众点播队列失败：%w", err))
 		s.publishRequestNotice("music_request_failed", event.UserName, "", err.Error())
 	} else {
-		s.publishRequestNotice("music_request_success", event.UserName, result.Tracks[0].Title, "")
+		s.publishRequestNotice("music_request_success", event.UserName, matched.Title, "")
 	}
+}
+
+func songRequestMatchesTrack(keyword string, track music.Track) bool {
+	query := normalizeLXTrackIdentity(keyword)
+	title := normalizeLXTrackIdentity(track.Title)
+	if query == "" || title == "" { return false }
+	// Allow the requested title with extra version/edition text, and queries
+	// that also include the artist. Do not accept a merely high-ranked result.
+	return query == title || strings.Contains(query, title) || strings.Contains(title, query)
 }
 
 func isSkipCommand(content, command string) bool { return command != "" && strings.TrimSpace(content) == command }
