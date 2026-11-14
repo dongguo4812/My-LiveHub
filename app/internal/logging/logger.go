@@ -5,35 +5,39 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sync"
+	"time"
 )
 
 const (
 	defaultMaxBytes = 10 << 20
 	defaultBackups  = 5
+	defaultRetentionDays = 14
 )
 
-// Logger owns the application's rotating log file. The standard library logger
-// writes to both stderr and this file after New succeeds.
+var datedLogName = regexp.MustCompile(`^my-livehub-(\d{4}-\d{2}-\d{2})\.log(?:\.\d+)?$`)
+
+// Logger writes each calendar day's entries to its own file and prunes old files.
 type Logger struct {
-	file *rotatingWriter
+	file *dailyWriter
 }
 
-func New(directory string) (*Logger, error) {
+func New(directory string, retentionDays ...int) (*Logger, error) {
 	if directory == "" {
 		return nil, fmt.Errorf("log directory is required")
 	}
-	if err := os.MkdirAll(directory, 0o755); err != nil {
-		return nil, fmt.Errorf("create log directory: %w", err)
+	days := defaultRetentionDays
+	if len(retentionDays) > 0 {
+		days = retentionDays[0]
 	}
-	file, err := newRotatingWriter(filepath.Join(directory, "my-livehub.log"), defaultMaxBytes, defaultBackups)
+	writer, err := newDailyWriter(directory, days, defaultMaxBytes, defaultBackups, time.Now)
 	if err != nil {
 		return nil, err
 	}
-	return &Logger{file: file}, nil
+	return &Logger{file: writer}, nil
 }
 
-// Output returns a writer that duplicates log entries to the terminal and file.
 func (l *Logger) Output() io.Writer {
 	if l == nil || l.file == nil {
 		return os.Stderr
@@ -45,7 +49,14 @@ func (l *Logger) Path() string {
 	if l == nil || l.file == nil {
 		return ""
 	}
-	return l.file.path
+	return l.file.Path()
+}
+
+func (l *Logger) SetRetentionDays(days int) error {
+	if l == nil || l.file == nil {
+		return fmt.Errorf("logger is unavailable")
+	}
+	return l.file.SetRetentionDays(days)
 }
 
 func (l *Logger) Close() error {
@@ -55,41 +66,99 @@ func (l *Logger) Close() error {
 	return l.file.Close()
 }
 
-type rotatingWriter struct {
-	mu       sync.Mutex
-	path     string
-	file     *os.File
-	size     int64
+type dailyWriter struct {
+	mu sync.Mutex
+	directory string
+	file *os.File
+	path string
+	date string
+	size int64
 	maxBytes int64
-	backups  int
+	backups int
+	retentionDays int
+	now func() time.Time
 }
 
-func newRotatingWriter(path string, maxBytes int64, backups int) (*rotatingWriter, error) {
-	if maxBytes <= 0 {
-		return nil, fmt.Errorf("maximum log file size must be positive")
+func newDailyWriter(directory string, retentionDays int, maxBytes int64, backups int, now func() time.Time) (*dailyWriter, error) {
+	if retentionDays < 1 || retentionDays > 365 {
+		return nil, fmt.Errorf("log retention days must be between 1 and 365")
 	}
-	if backups < 0 {
-		return nil, fmt.Errorf("log backup count cannot be negative")
+	if maxBytes <= 0 || backups < 0 {
+		return nil, fmt.Errorf("invalid log rotation limits")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(directory, 0o755); err != nil {
 		return nil, fmt.Errorf("create log directory: %w", err)
 	}
-	writer := &rotatingWriter{path: path, maxBytes: maxBytes, backups: backups}
-	info, err := os.Stat(path)
-	if err == nil && info.Size() >= maxBytes {
-		if err := writer.rotate(); err != nil {
-			return nil, err
-		}
-	} else if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("inspect log file: %w", err)
+	if now == nil {
+		now = time.Now
 	}
-	if err := writer.open(); err != nil {
+	w := &dailyWriter{directory: directory, retentionDays: retentionDays, maxBytes: maxBytes, backups: backups, now: now}
+	if err := w.cleanup(now()); err != nil {
 		return nil, err
 	}
-	return writer, nil
+	if err := w.ensureFile(now()); err != nil {
+		return nil, err
+	}
+	return w, nil
 }
 
-func (w *rotatingWriter) open() error {
+func (w *dailyWriter) Path() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.path
+}
+
+func (w *dailyWriter) SetRetentionDays(days int) error {
+	if days < 1 || days > 365 {
+		return fmt.Errorf("log retention days must be between 1 and 365")
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.retentionDays = days
+	return w.cleanup(w.now())
+}
+
+func (w *dailyWriter) cleanup(now time.Time) error {
+	entries, err := os.ReadDir(w.directory)
+	if err != nil {
+		return fmt.Errorf("read log directory: %w", err)
+	}
+	cutoff := now.Local().Truncate(24*time.Hour)
+	cutoff = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -(w.retentionDays - 1))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		match := datedLogName.FindStringSubmatch(entry.Name())
+		if len(match) != 2 {
+			continue
+		}
+		date, parseErr := time.ParseInLocation("2006-01-02", match[1], now.Location())
+		if parseErr == nil && date.Before(cutoff) {
+			if err := os.Remove(filepath.Join(w.directory, entry.Name())); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("remove expired log %q: %w", entry.Name(), err)
+			}
+		}
+	}
+	return nil
+}
+
+func (w *dailyWriter) ensureFile(now time.Time) error {
+	date := now.Format("2006-01-02")
+	if w.file != nil && w.date == date {
+		return nil
+	}
+	if w.file != nil {
+		if err := w.file.Close(); err != nil {
+			return fmt.Errorf("close previous daily log: %w", err)
+		}
+		w.file = nil
+	}
+	w.date = date
+	w.path = filepath.Join(w.directory, "my-livehub-"+date+".log")
+	if err := w.rotateIfNeeded(); err != nil {
+		return err
+	}
 	file, err := os.OpenFile(w.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("open log file %q: %w", w.path, err)
@@ -97,75 +166,74 @@ func (w *rotatingWriter) open() error {
 	info, err := file.Stat()
 	if err != nil {
 		_ = file.Close()
-		return fmt.Errorf("inspect log file %q: %w", w.path, err)
+		return fmt.Errorf("inspect log file: %w", err)
 	}
-	w.file = file
-	w.size = info.Size()
+	w.file, w.size = file, info.Size()
 	return nil
 }
 
-func (w *rotatingWriter) rotate() error {
-	if w.file != nil {
-		if err := w.file.Close(); err != nil {
-			return fmt.Errorf("close log file before rotation: %w", err)
-		}
-		w.file = nil
+func (w *dailyWriter) rotateIfNeeded() error {
+	info, err := os.Stat(w.path)
+	if err != nil {
+		if os.IsNotExist(err) { return nil }
+		return fmt.Errorf("inspect log file: %w", err)
 	}
+	if info.Size() < w.maxBytes { return nil }
 	if w.backups == 0 {
-		if err := os.Remove(w.path); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("remove old log file: %w", err)
-		}
-		w.size = 0
-		return nil
+		return os.Remove(w.path)
 	}
 	oldest := fmt.Sprintf("%s.%d", w.path, w.backups)
-	if err := os.Remove(oldest); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove oldest log backup: %w", err)
+	if err := os.Remove(oldest); err != nil && !os.IsNotExist(err) { return err }
+	for i := w.backups - 1; i >= 1; i-- {
+		source, target := fmt.Sprintf("%s.%d", w.path, i), fmt.Sprintf("%s.%d", w.path, i+1)
+		if err := os.Rename(source, target); err != nil && !os.IsNotExist(err) { return err }
 	}
-	for index := w.backups - 1; index >= 1; index-- {
-		source := fmt.Sprintf("%s.%d", w.path, index)
-		target := fmt.Sprintf("%s.%d", w.path, index+1)
-		if err := os.Rename(source, target); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("rotate log backup %d: %w", index, err)
-		}
-	}
-	if err := os.Rename(w.path, w.path+".1"); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("rotate current log file: %w", err)
-	}
-	w.size = 0
+	if err := os.Rename(w.path, w.path+".1"); err != nil && !os.IsNotExist(err) { return err }
 	return nil
 }
 
-func (w *rotatingWriter) Write(data []byte) (int, error) {
+func (w *dailyWriter) Write(data []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.file == nil {
-		return 0, os.ErrClosed
+	now := w.now()
+	if now.Format("2006-01-02") != w.date {
+		if err := w.cleanup(now); err != nil { return 0, err }
 	}
+	if err := w.ensureFile(now); err != nil { return 0, err }
 	if w.size > 0 && w.size+int64(len(data)) > w.maxBytes {
-		if err := w.rotate(); err != nil {
-			return 0, err
-		}
-		if err := w.open(); err != nil {
-			return 0, err
-		}
+		if err := w.file.Close(); err != nil { return 0, err }
+		w.file = nil
+		if err := w.rotateIfNeededForce(); err != nil { return 0, err }
+		file, err := os.OpenFile(w.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+		if err != nil { return 0, err }
+		w.file, w.size = file, 0
 	}
 	n, err := w.file.Write(data)
 	w.size += int64(n)
 	return n, err
 }
 
-func (w *rotatingWriter) Close() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.file == nil {
+func (w *dailyWriter) rotateIfNeededForce() error {
+	if w.backups == 0 {
+		if err := os.Remove(w.path); err != nil && !os.IsNotExist(err) { return err }
 		return nil
 	}
-	err := w.file.Sync()
-	closeErr := w.file.Close()
-	w.file = nil
-	if err != nil {
-		return err
+	oldest := fmt.Sprintf("%s.%d", w.path, w.backups)
+	if err := os.Remove(oldest); err != nil && !os.IsNotExist(err) { return err }
+	for i := w.backups - 1; i >= 1; i-- {
+		source, target := fmt.Sprintf("%s.%d", w.path, i), fmt.Sprintf("%s.%d", w.path, i+1)
+		if err := os.Rename(source, target); err != nil && !os.IsNotExist(err) { return err }
 	}
-	return closeErr
+	if err := os.Rename(w.path, w.path+".1"); err != nil && !os.IsNotExist(err) { return err }
+	return nil
+}
+
+func (w *dailyWriter) Close() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.file == nil { return nil }
+	if err := w.file.Sync(); err != nil { _ = w.file.Close(); w.file = nil; return err }
+	err := w.file.Close()
+	w.file = nil
+	return err
 }
