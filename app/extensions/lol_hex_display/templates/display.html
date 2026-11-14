@@ -12,6 +12,8 @@
 </main>
 
 <script>
+const contentScale = Math.max(25, Math.min(300, Number(new URLSearchParams(location.search).get('content_scale')) || 100)) / 100;
+document.documentElement.style.setProperty('--content-scale', String(contentScale));
 function esc(s){
     return String(s||'').replace(/[&<>"']/g,c=>({
         '&':'&amp;',
