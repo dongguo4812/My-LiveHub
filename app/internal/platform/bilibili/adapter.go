@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"sort"
@@ -38,6 +39,8 @@ type streamClient interface {
 }
 
 
+const giftCatalogMetadataVersion = 2
+
 // giftCatalog caches the public gift-panel metadata separately for each room.
 type giftCatalog struct {
 	mu sync.RWMutex
@@ -48,7 +51,7 @@ type giftCatalog struct {
 }
 
 type giftCatalogEntry struct { gifts map[int]giftCatalogResource; expiresAt time.Time }
-type giftCatalogResource struct { name string; imageURL string; unitPrice float64 }
+type giftCatalogResource struct { name string; imageURL string; animationURL string; unitPrice float64 }
 
 type roomGiftListResponse struct {
 	Code int `json:"code"`
@@ -60,6 +63,7 @@ type roomGiftListResponse struct {
 					ID int `json:"id"`
 					Name string `json:"name"`
 					ImgBasic string `json:"img_basic"`
+					Gif string `json:"gif"`
 					Price int `json:"price"`
 				} `json:"list"`
 			} `json:"base_config"`
@@ -80,57 +84,106 @@ func newGiftCatalog(client *http.Client) *giftCatalog {
 }
 
 func (c *giftCatalog) Refresh(ctx context.Context, roomID int) error {
+	return c.refresh(ctx, roomID, false)
+}
+
+// ForceRefresh bypasses the in-memory TTL. It is used when the persistent
+// resource catalog says the last successful remote refresh has expired.
+func (c *giftCatalog) ForceRefresh(ctx context.Context, roomID int) error {
+	return c.refresh(ctx, roomID, true)
+}
+
+func (c *giftCatalog) refresh(ctx context.Context, roomID int, force bool) error {
 	if c == nil { return nil }
 	if roomID <= 0 { return errors.New("invalid Bilibili room ID for gift catalog") }
-	c.mu.RLock()
-	cached, ok := c.rooms[roomID]
-	c.mu.RUnlock()
-	if ok && time.Now().Before(cached.expiresAt) { return nil }
-
-	requestURL, err := url.Parse(c.endpoint)
-	if err != nil { return err }
-	query := requestURL.Query()
-	query.Set("platform", "pc")
-	query.Set("room_id", fmt.Sprint(roomID))
-	requestURL.RawQuery = query.Encode()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL.String(), nil)
-	if err != nil { return err }
-	request.Header.Set("User-Agent", "My-LiveHub/1.0")
-	response, err := c.client.Do(request)
-	if err != nil { return err }
-	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return fmt.Errorf("Bilibili gift catalog returned HTTP %d", response.StatusCode)
+	c.mu.RLock(); cached, ok := c.rooms[roomID]; c.mu.RUnlock()
+	if !force && ok && time.Now().Before(cached.expiresAt) { return nil }
+	parentAreaID, areaID := 0, 0
+	usePlatformEndpoints := strings.Contains(c.endpoint, "api.live.bilibili.com")
+	if usePlatformEndpoints {
+		var areaErr error
+		parentAreaID, areaID, areaErr = fetchRoomAreaIDs(ctx, c.client, roomID)
+		if areaErr != nil { log.Printf("[bilibili] room %d gift catalog could not resolve area IDs; continuing without them: %v", roomID, areaErr) }
 	}
-	var payload roomGiftListResponse
-	if err := json.NewDecoder(io.LimitReader(response.Body, 4<<20)).Decode(&payload); err != nil { return err }
-	if payload.Code != 0 {
-		return fmt.Errorf("Bilibili gift catalog API error %d: %s", payload.Code, payload.Message)
-	}
-	gifts := make(map[int]giftCatalogResource, len(payload.Data.GiftConfig.BaseConfig.List))
-	for _, gift := range payload.Data.GiftConfig.BaseConfig.List {
-		if gift.ID <= 0 { continue }
-		if imageURL := normalizeEmoticonURL(gift.ImgBasic); imageURL != "" {
-			gifts[gift.ID] = giftCatalogResource{name:gift.Name,imageURL:imageURL,unitPrice:float64(gift.Price)/1000}
+	gifts := make(map[int]giftCatalogResource)
+	if err := c.fetchGiftEndpoint(ctx, c.endpoint, roomID, parentAreaID, areaID, gifts, 0); err != nil { return err }
+	if usePlatformEndpoints {
+		// giftConfig is a broader room gift metadata endpoint. The room panel
+		// endpoint may omit campaign and customized gifts that are still
+		// selectable in the live-room gift picker.
+		giftConfigEndpoint := "https://api.live.bilibili.com/xlive/web-room/v1/giftPanel/giftConfig"
+		if err := c.fetchGiftEndpoint(ctx, giftConfigEndpoint, roomID, parentAreaID, areaID, gifts, 0); err != nil {
+			log.Printf("[bilibili] room %d supplementary gift config unavailable: %v", roomID, err)
+		}
+		for _, tabID := range []int{2, 3} {
+			endpoint := "https://api.live.bilibili.com/xlive/web-room/v1/giftPanel/tabRoomGiftList"
+			if err := c.fetchGiftEndpoint(ctx, endpoint, roomID, parentAreaID, areaID, gifts, tabID); err != nil {
+				log.Printf("[bilibili] room %d optional gift tab %d unavailable: %v", roomID, tabID, err)
+			}
 		}
 	}
 	if len(gifts) == 0 { return errors.New("Bilibili gift catalog contains no usable gift images") }
-	c.mu.Lock()
-	c.rooms[roomID] = giftCatalogEntry{gifts: gifts, expiresAt: time.Now().Add(c.ttl)}
-	c.mu.Unlock()
+	c.mu.Lock(); c.rooms[roomID] = giftCatalogEntry{gifts:gifts, expiresAt:time.Now().Add(c.ttl)}; c.mu.Unlock()
 	return nil
+}
+
+func fetchRoomAreaIDs(ctx context.Context, httpClient *http.Client, roomID int) (int, int, error) {
+	if httpClient == nil { httpClient = &http.Client{Timeout:3*time.Second} }
+	u, err := url.Parse("https://api.live.bilibili.com/room/v1/Room/get_info"); if err != nil { return 0,0,err }
+	q:=u.Query(); q.Set("room_id",strconv.Itoa(roomID)); u.RawQuery=q.Encode()
+	req,err:=http.NewRequestWithContext(ctx,http.MethodGet,u.String(),nil); if err!=nil{return 0,0,err}
+	resp,err:=httpClient.Do(req); if err!=nil{return 0,0,err}; defer resp.Body.Close()
+	if resp.StatusCode<200||resp.StatusCode>=300{return 0,0,fmt.Errorf("Bilibili room info returned HTTP %d",resp.StatusCode)}
+	var payload struct { Code int `json:"code"`; Data struct { RoomInfo struct { ParentAreaID int `json:"parent_area_id"`; AreaID int `json:"area_id"` } `json:"room_info"` } `json:"data"` }
+	if err:=json.NewDecoder(io.LimitReader(resp.Body,1<<20)).Decode(&payload);err!=nil{return 0,0,err}
+	if payload.Code!=0{return 0,0,fmt.Errorf("Bilibili room info API error %d",payload.Code)}
+	return payload.Data.RoomInfo.ParentAreaID,payload.Data.RoomInfo.AreaID,nil
+}
+
+func (c *giftCatalog) fetchGiftEndpoint(ctx context.Context, endpoint string, roomID, parentAreaID, areaID int, gifts map[int]giftCatalogResource, tabID int) error {
+	u,err:=url.Parse(endpoint);if err!=nil{return err};q:=u.Query()
+	q.Set("platform","pc");q.Set("room_id",strconv.Itoa(roomID));q.Set("source","live")
+	if parentAreaID>0{q.Set("area_parent_id",strconv.Itoa(parentAreaID))}
+	if areaID>0{q.Set("area_id",strconv.Itoa(areaID))}
+	if tabID>0{q.Set("tab_id",strconv.Itoa(tabID));q.Set("build","1")}
+	u.RawQuery=q.Encode()
+	req,err:=http.NewRequestWithContext(ctx,http.MethodGet,u.String(),nil);if err!=nil{return err};req.Header.Set("User-Agent","My-LiveHub/1.0")
+	resp,err:=c.client.Do(req);if err!=nil{return err};defer resp.Body.Close()
+	if resp.StatusCode<200||resp.StatusCode>=300{return fmt.Errorf("Bilibili gift endpoint returned HTTP %d",resp.StatusCode)}
+	body,err:=io.ReadAll(io.LimitReader(resp.Body,4<<20));if err!=nil{return err}
+	var envelope struct{Code int `json:"code"`;Message string `json:"message"`}
+	if err:=json.Unmarshal(body,&envelope);err!=nil{return err};if envelope.Code!=0{return fmt.Errorf("Bilibili gift API error %d: %s",envelope.Code,envelope.Message)}
+	var generic any;if err:=json.Unmarshal(body,&generic);err!=nil{return err}
+	collectGiftCatalogResources(generic,gifts)
+	return nil
+}
+
+func collectGiftCatalogResources(value any, gifts map[int]giftCatalogResource) {
+	switch item:=value.(type){
+	case []any: for _,child:=range item{collectGiftCatalogResources(child,gifts)}
+	case map[string]any:
+		id,_:=item["id"].(float64);if id==0{id,_=item["gift_id"].(float64)}
+		name,_:=item["name"].(string);if name==""{name,_=item["gift_name"].(string)}
+		image,_:=item["img_basic"].(string);if image==""{image,_=item["gift_img"].(string)}
+		animation,_:=item["gif"].(string);if animation==""{animation,_=item["gif_url"].(string)}
+		price,_:=item["price"].(float64)
+		if id>0&&(image!=""||animation!=""){image=normalizeEmoticonURL(image);animation=normalizeEmoticonURL(animation);if image==""{image=animation};if image!=""{gifts[int(id)]=giftCatalogResource{name:strings.TrimSpace(name),imageURL:image,animationURL:animation,unitPrice:price/1000}}}
+		for _,child:=range item{collectGiftCatalogResources(child,gifts)}
+	}
 }
 
 func (c *giftCatalog) ImageURL(roomID, giftID int) string {
 	if c == nil || roomID <= 0 || giftID <= 0 { return "" }
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	entry, ok := c.rooms[roomID]
-	if !ok { return "" }
-	return entry.gifts[giftID].imageURL
+	c.mu.RLock(); defer c.mu.RUnlock()
+	entry, ok := c.rooms[roomID]; if !ok { return "" }; return entry.gifts[giftID].imageURL
+}
+func (c *giftCatalog) AnimationURL(roomID, giftID int) string {
+	if c == nil || roomID <= 0 || giftID <= 0 { return "" }
+	c.mu.RLock(); defer c.mu.RUnlock()
+	entry, ok := c.rooms[roomID]; if !ok { return "" }; return entry.gifts[giftID].animationURL
 }
 
-func(c *giftCatalog)Resources(roomID int)[]resource.Resource{if c==nil||roomID<=0{return nil};c.mu.RLock();entry,ok:=c.rooms[roomID];c.mu.RUnlock();if !ok{return nil};out:=make([]resource.Resource,0,len(entry.gifts));for id,g:=range entry.gifts{out=append(out,resource.Resource{PlatformID:"bilibili",SourceID:fmt.Sprint(roomID),Type:resource.TypeGift,ID:fmt.Sprint(id),Name:g.name,ImageURL:g.imageURL,UnitPrice:g.unitPrice})};return out}
+func(c *giftCatalog)Resources(roomID int)[]resource.Resource{if c==nil||roomID<=0{return nil};c.mu.RLock();entry,ok:=c.rooms[roomID];c.mu.RUnlock();if !ok{return nil};out:=make([]resource.Resource,0,len(entry.gifts));for id,g:=range entry.gifts{out=append(out,resource.Resource{PlatformID:"bilibili",SourceID:fmt.Sprint(roomID),Type:resource.TypeGift,ID:fmt.Sprint(id),Name:g.name,ImageURL:g.imageURL,AnimationURL:g.animationURL,MetadataVersion:giftCatalogMetadataVersion,UnitPrice:g.unitPrice})};return out}
 
 type Adapter struct {
 	auth *AuthManager
@@ -184,6 +237,39 @@ func guardEventKey(uid, level, months, startTime int) string {
 
 // addLikeEvent maps Bilibili's per-user LIKE_INFO_V3_CLICK notification.
 // LIKE_INFO_V3_UPDATE is deliberately ignored because it only reports room totals.
+func (a *Adapter) addGiftEventImage(roomID int, raw []byte) {
+	if a == nil { return }
+	var envelope struct {
+		Data struct {
+			GiftID int `json:"giftId"`
+			GiftIDAlt int `json:"gift_id"`
+			GiftName string `json:"giftName"`
+			GiftNameAlt string `json:"gift_name"`
+			GiftInfo struct {
+				ID int `json:"id"`
+				Name string `json:"name"`
+				ImgBasic string `json:"img_basic"`
+				Gif string `json:"gif"`
+				Price int `json:"price"`
+			} `json:"gift_info"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(raw, &envelope) != nil { return }
+	data := envelope.Data
+	id := data.GiftInfo.ID
+	if id <= 0 { id = data.GiftID }
+	if id <= 0 { id = data.GiftIDAlt }
+	name := firstNonEmpty(data.GiftInfo.Name, data.GiftName, data.GiftNameAlt)
+	imageURL := normalizeEmoticonURL(data.GiftInfo.ImgBasic)
+	animationURL := normalizeEmoticonURL(data.GiftInfo.Gif)
+	if imageURL == "" { imageURL = animationURL }
+	if id <= 0 || imageURL == "" { return }
+	if a.mediaCatalog != nil {
+		a.mediaCatalog.Register(resource.Resource{PlatformID:"bilibili", SourceID:strconv.Itoa(roomID), Type:resource.TypeGift, ID:strconv.Itoa(id), Name:name, ImageURL:imageURL, AnimationURL:animationURL, MetadataVersion:giftCatalogMetadataVersion, UnitPrice:float64(data.GiftInfo.Price)/1000})
+	}
+	a.events.UpdateGiftImage("bilibili", roomID, id, imageURL, animationURL)
+}
+
 func (a *Adapter) addLikeEvent(roomID int, raw []byte) {
 	if a == nil || a.events == nil {
 		return
@@ -389,6 +475,27 @@ func extractDanmakuEmoticons(d *message.Danmaku) []eventstream.EmoticonToken {
 	return tokens
 }
 
+// formatClockDiagnostic makes the wall clock used for persisted timestamps
+// observable in both local time and UTC when investigating cache timestamps.
+func formatClockDiagnostic(at time.Time) string {
+	return fmt.Sprintf("local=%s utc=%s unix=%d location=%s",
+		at.Format(time.RFC3339Nano),
+		at.UTC().Format(time.RFC3339Nano),
+		at.Unix(),
+		at.Location(),
+	)
+}
+
+func giftCatalogMetadataCurrent(c *resource.Catalog, roomID int) bool {
+	if c == nil || roomID <= 0 { return false }
+	items := c.List("bilibili", strconv.Itoa(roomID), resource.TypeGift)
+	if len(items) == 0 { return false }
+	for _, item := range items {
+		if item.MetadataVersion < giftCatalogMetadataVersion { return false }
+	}
+	return true
+}
+
 func (a *Adapter) SetMediaCatalog(c *resource.Catalog) {
 	if a == nil {
 		return
@@ -526,10 +633,12 @@ func (a *Adapter) Connect(ctx context.Context) error {
 	stream.SetCookie(credentials.Cookie)
 	stream.OnRawEvent(func(cmd string, raw []byte) {
 		baseCmd, _, _ := strings.Cut(cmd, ":")
-		if baseCmd != "LIKE_INFO_V3_CLICK" {
-			return
+		switch baseCmd {
+		case "LIKE_INFO_V3_CLICK":
+			a.addLikeEvent(roomID, raw)
+		case "SEND_GIFT":
+			a.addGiftEventImage(roomID, raw)
 		}
-		a.addLikeEvent(roomID, raw)
 	})
 	stream.OnLiveStart(func(*message.LiveStart) { a.setLiveStatus("live") })
 	stream.OnLiveStop(func(*message.LiveStop) { a.setLiveStatus("offline") })
@@ -655,9 +764,11 @@ func (a *Adapter) Connect(ctx context.Context) error {
 			}
 		}
 		giftImageURL := a.giftCatalog.ImageURL(roomID, g.GiftId)
+		giftAnimationURL := a.giftCatalog.AnimationURL(roomID, g.GiftId)
 		if a.mediaCatalog != nil {
 			if item, ok := a.mediaCatalog.Find("bilibili", strconv.Itoa(roomID), resource.TypeGift, strconv.Itoa(g.GiftId)); ok {
 				giftImageURL = item.ImageURL
+				giftAnimationURL = item.AnimationURL
 			}
 		}
 		a.events.Add(eventstream.Event{
@@ -666,7 +777,7 @@ func (a *Adapter) Connect(ctx context.Context) error {
 			Content: fmt.Sprintf("赠送了 %s × %d", g.GiftName, count),
 			Timestamp: timestamp, GiftID: g.GiftId, GiftResourceID: strconv.Itoa(g.GiftId), GiftName: g.GiftName,
 			GiftCount: count, UnitPrice: unitPrice, TotalPrice: totalPrice,
-			GiftImageURL: giftImageURL,
+			GiftImageURL: giftImageURL, GiftAnimationURL: giftAnimationURL,
 		})
 	})
 
@@ -721,24 +832,59 @@ func (a *Adapter) Connect(ctx context.Context) error {
 			}
 		}()
 	}
-	if a.giftCatalog != nil && (a.mediaCatalog == nil ||
-		!a.mediaCatalog.IsFresh("bilibili", strconv.Itoa(roomID), resource.TypeGift, 24*time.Hour)) {
+	giftRefreshAt, hasGiftRefreshAt := time.Time{}, false
+	if a.mediaCatalog != nil {
+		giftRefreshAt, hasGiftRefreshAt = a.mediaCatalog.LastRefreshed("bilibili", strconv.Itoa(roomID), resource.TypeGift)
+	}
+	giftCatalogFresh := a.mediaCatalog != nil &&
+		a.mediaCatalog.IsFresh("bilibili", strconv.Itoa(roomID), resource.TypeGift, 24*time.Hour) &&
+		giftCatalogMetadataCurrent(a.mediaCatalog, roomID)
+	if hasGiftRefreshAt {
+		log.Printf("[bilibili] room %d gift catalog refresh decision: last_successful_refresh=%s; current_clock=%s; fresh=%t",
+			roomID, formatClockDiagnostic(giftRefreshAt), formatClockDiagnostic(time.Now()), giftCatalogFresh)
+	} else {
+		log.Printf("[bilibili] room %d gift catalog refresh decision: no persisted refresh timestamp; current_clock=%s; fresh=%t",
+			roomID, formatClockDiagnostic(time.Now()), giftCatalogFresh)
+	}
+	if a.giftCatalog != nil && !giftCatalogFresh {
+		refreshStartedAt := time.Now()
+		log.Printf("[bilibili] room %d gift catalog refresh started (persistent catalog fresh=%t; clock %s)", roomID, giftCatalogFresh, formatClockDiagnostic(refreshStartedAt))
 		go func() {
 			catalogCtx, catalogCancel := context.WithTimeout(runCtx, 8*time.Second)
 			defer catalogCancel()
-			if err := a.giftCatalog.Refresh(catalogCtx, roomID); err != nil {
+			if err := a.giftCatalog.ForceRefresh(catalogCtx, roomID); err != nil {
+				failedAt := time.Now()
+				log.Printf("[bilibili] room %d gift catalog refresh failed: %v (failed_at %s)", roomID, err, formatClockDiagnostic(failedAt))
+				return
+			}
+			refreshedAt := time.Now()
+			log.Printf("[bilibili] room %d gift catalog remote request succeeded (refresh_started_at %s; response_validated_at %s)", roomID, formatClockDiagnostic(refreshStartedAt), formatClockDiagnostic(refreshedAt))
+			items := a.giftCatalog.Resources(roomID)
+			if len(items) == 0 {
+				log.Printf("[bilibili] room %d gift catalog refresh returned no resources (validated_at %s)", roomID, formatClockDiagnostic(refreshedAt))
 				return
 			}
 			if a.mediaCatalog != nil {
-				for _, item := range a.giftCatalog.Resources(roomID) {
-					a.mediaCatalog.Register(item)
+				registered := 0
+				for _, item := range items {
+					if a.mediaCatalog.Register(item) {
+						registered++
+					}
 					if giftID, parseErr := strconv.Atoi(item.ID); parseErr == nil {
-						a.events.UpdateGiftImage("bilibili", roomID, giftID, item.ImageURL)
+						a.events.UpdateGiftImage("bilibili", roomID, giftID, item.ImageURL, item.AnimationURL)
 					}
 				}
-				a.mediaCatalog.MarkRefreshed("bilibili", strconv.Itoa(roomID), resource.TypeGift, time.Now())
+				if !a.mediaCatalog.MarkRefreshed("bilibili", strconv.Itoa(roomID), resource.TypeGift, refreshedAt) {
+					log.Printf("[bilibili] room %d gift catalog fetched %d items but failed to mark refresh time (attempted_timestamp %s)", roomID, len(items), formatClockDiagnostic(refreshedAt))
+					return
+				}
+				log.Printf("[bilibili] room %d gift catalog refreshed: %d items registered; persisted_refresh_timestamp %s", roomID, registered, formatClockDiagnostic(refreshedAt))
+			} else {
+				log.Printf("[bilibili] room %d gift catalog fetched %d items; persistent media catalog unavailable (fetched_at %s)", roomID, len(items), formatClockDiagnostic(refreshedAt))
 			}
 		}()
+	} else if giftCatalogFresh {
+		log.Printf("[bilibili] room %d gift catalog refresh skipped: persistent catalog is fresh", roomID)
 	}
 
 	go func() {

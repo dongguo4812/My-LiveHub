@@ -111,6 +111,26 @@ func TestValidateLayoutConfig(t *testing.T) {
 	}
 }
 
+func TestLayoutLayerEmoticonSettingsJSON(t *testing.T) {
+	layer := LayoutLayer{
+		ID: "emoticon", Type: "emoticon", Name: "互动表情",
+		EmoticonSize: 72, EmoticonSpeed: 120, EmoticonDrift: 36, EmoticonMaxCount: 16,
+	}
+	data, err := json.Marshal(layer)
+	if err != nil { t.Fatalf("marshal layout layer: %v", err) }
+	var decoded LayoutLayer
+	if err := json.Unmarshal(data, &decoded); err != nil { t.Fatalf("unmarshal layout layer: %v", err) }
+	if decoded.EmoticonSize != 72 || decoded.EmoticonSpeed != 120 || decoded.EmoticonDrift != 36 || decoded.EmoticonMaxCount != 16 {
+		t.Fatalf("emoticon settings were not persisted: %#v", decoded)
+	}
+	if err := validateLayoutConfig(LayoutConfig{Scenes: []LayoutScene{{
+		ID: "main", Name: "主场景", Width: 1920, Height: 1080,
+		Layers: []LayoutLayer{{ID: "emoticon", Type: "emoticon", Width: 520, Height: 420, Opacity: 1}},
+	}}}); err != nil {
+		t.Fatalf("valid emoticon layer rejected: %v", err)
+	}
+}
+
 func TestLayoutLayerQueueDisplayCountJSON(t *testing.T) {
 	layer := LayoutLayer{ID: "queue", Type: "music_queue", Name: "点播队列", QueueDisplayCount: 8}
 	data, err := json.Marshal(layer)

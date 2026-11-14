@@ -14,11 +14,12 @@ import (
 	"github.com/dongguo4812/My-LiveHub/app/internal/core"
 	"github.com/dongguo4812/My-LiveHub/app/internal/desktop"
 	eventstream "github.com/dongguo4812/My-LiveHub/app/internal/events"
+	applogging "github.com/dongguo4812/My-LiveHub/app/internal/logging"
+	"github.com/dongguo4812/My-LiveHub/app/internal/media/imagecache"
+	"github.com/dongguo4812/My-LiveHub/app/internal/media/resource"
 	"github.com/dongguo4812/My-LiveHub/app/internal/platform"
 	"github.com/dongguo4812/My-LiveHub/app/internal/platform/bilibili"
 	"github.com/dongguo4812/My-LiveHub/app/internal/voice"
-	"github.com/dongguo4812/My-LiveHub/app/internal/media/imagecache"
-	"github.com/dongguo4812/My-LiveHub/app/internal/media/resource"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
@@ -31,6 +32,37 @@ var embeddedDefaultConfig embed.FS
 
 func main() {
 	environment := config.ResolveEnvironment(os.Args[1:])
+	logDirectory := ""
+	var applicationLogger *applogging.Logger
+	if environment == config.EnvironmentDevelopment {
+		if workingDir, getwdErr := os.Getwd(); getwdErr == nil {
+			logDirectory = filepath.Join(workingDir, "logs")
+		} else {
+			log.Printf("resolve development log directory: %v", getwdErr)
+		}
+	} else if userConfigDir, configDirErr := os.UserConfigDir(); configDirErr == nil {
+		logDirectory = filepath.Join(userConfigDir, "My-LiveHub", "logs")
+	} else {
+		log.Printf("resolve application log directory: %v", configDirErr)
+	}
+	if logDirectory != "" {
+		var loggerErr error
+		applicationLogger, loggerErr = applogging.New(logDirectory)
+		if loggerErr != nil {
+			log.Printf("initialize application file logging: %v", loggerErr)
+		} else {
+			log.SetOutput(applicationLogger.Output())
+			log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
+			defer func() {
+				if closeErr := applicationLogger.Close(); closeErr != nil {
+					log.Printf("close application log file: %v", closeErr)
+				}
+			}()
+			log.Printf("application logging initialized; file=%s", applicationLogger.Path())
+		}
+	}
+	log.Printf("starting My-LiveHub (environment=%s)", environment)
+
 	paths, err := config.ResolveRuntimePaths(environment)
 	if err != nil {
 		log.Fatalf("initialize configuration paths: %v", err)
@@ -54,6 +86,15 @@ func main() {
 	})
 	if err != nil {
 		log.Fatalf("load application configuration: %v", err)
+	}
+	if applicationLogger != nil {
+		retentionDays := appConfig.Logging.RetentionDays
+		if retentionDays == 0 { retentionDays = config.DefaultLogRetentionDays }
+		if retentionErr := applicationLogger.SetRetentionDays(retentionDays); retentionErr != nil {
+			log.Printf("apply configured log retention (%d days): %v", retentionDays, retentionErr)
+		} else {
+			log.Printf("log retention configured: %d days", retentionDays)
+		}
 	}
 	danmakuDisplayConfig, err := config.LoadTyped[config.DanmakuDisplayConfig](configManager, "danmaku_display.json", func(value config.DanmakuDisplayConfig) error {
 		return value.Validate()
@@ -224,6 +265,7 @@ func main() {
 	desktop.AttachMusicLyricsWindowApplication(musicLyricsWindowService, app)
 	desktop.AttachBilibiliWebViewApplication(bilibiliWebViewService, app)
 	app.OnShutdown(func() {
+		log.Printf("application shutdown started")
 		danmakuDisplayService.CloseWindowForShutdown()
 		if err := sceneService.Shutdown(); err != nil { log.Printf("stop scene browser source service: %v", err) }
 		musicLyricsWindowService.CloseWindowForShutdown()

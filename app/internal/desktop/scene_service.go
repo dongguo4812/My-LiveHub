@@ -51,6 +51,12 @@ type LayoutLayer struct {
 	Live2DScale float64 `json:"live2d_scale,omitempty"`
 	Live2DX float64 `json:"live2d_x,omitempty"`
 	Live2DY float64 `json:"live2d_y,omitempty"`
+	EmoticonSize float64 `json:"emoticon_size,omitempty"`
+	EmoticonSpeed float64 `json:"emoticon_speed,omitempty"`
+	EmoticonDrift float64 `json:"emoticon_drift,omitempty"`
+	EmoticonMaxCount int `json:"emoticon_max_count,omitempty"`
+	GiftDisplayDuration int `json:"gift_display_duration,omitempty"`
+	SuperChatDisplayDuration int `json:"super_chat_display_duration,omitempty"`
 }
 
 type sceneVideoProvider interface {
@@ -162,7 +168,7 @@ func validateLayoutConfig(value LayoutConfig) error {
 			}
 			layerIDs[layer.ID] = true
 			switch layer.Type {
-			case "text", "image", "clock", "danmaku", "gift", "super_chat", "music", "music_queue", "video_queue", "music_prompt", "live2d":
+			case "text", "image", "clock", "danmaku", "gift", "super_chat", "music", "music_queue", "video_queue", "music_prompt", "live2d", "emoticon":
 			default:
 				return fmt.Errorf("不支持的图层类型：%s", layer.Type)
 			}
@@ -171,6 +177,12 @@ func validateLayoutConfig(value LayoutConfig) error {
 			}
 			if (layer.Type == "music_queue" || layer.Type == "video_queue") && layer.QueueDisplayCount != 0 && (layer.QueueDisplayCount < 1 || layer.QueueDisplayCount > 1000) {
 				return fmt.Errorf("图层 %q 的待播显示数量必须在 1 到 1000 之间", layer.Name)
+			}
+			if layer.Type == "gift" && layer.GiftDisplayDuration != 0 && (layer.GiftDisplayDuration < 1 || layer.GiftDisplayDuration > 120) {
+				return fmt.Errorf("图层 %q 的礼物显示时间必须在 1 到 120 秒之间", layer.Name)
+			}
+			if layer.Type == "super_chat" && layer.SuperChatDisplayDuration != 0 && (layer.SuperChatDisplayDuration < 1 || layer.SuperChatDisplayDuration > 120) {
+				return fmt.Errorf("图层 %q 的 SC 显示时间必须在 1 到 120 秒之间", layer.Name)
 			}
 		}
 	}

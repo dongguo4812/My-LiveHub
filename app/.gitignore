@@ -14,5 +14,6 @@
 # Per-workspace local configuration must never be committed
 /config/local/
 
-# Runtime media cache is local-only and must never enter Git or release packages
+# Runtime media cache and logs are local-only
 /cache/
+/logs/

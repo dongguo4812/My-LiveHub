@@ -95,7 +95,7 @@ func TestGiftCatalogRefreshCachesByRoomAndNormalizesImageURL(t *testing.T) {
 		if r.URL.Query().Get("platform") != "pc" || r.URL.Query().Get("room_id") == "" {
 			t.Errorf("unexpected gift catalog query: %s", r.URL.RawQuery)
 		}
-		_, _ = w.Write([]byte(`{"code":0,"message":"0","data":{"gift_config":{"base_config":{"list":[{"id":30607,"price":1000,"img_basic":"http://i0.hdslb.com/bfs/live/gift.png"}]}}}}`))
+		_, _ = w.Write([]byte(`{"code":0,"message":"0","data":{"gift_config":{"base_config":{"list":[{"id":30607,"name":"小心心","price":1000,"img_basic":"http://i0.hdslb.com/bfs/live/gift.png","gif":"http://i0.hdslb.com/bfs/live/gift.gif"}]}}}}`))
 	}))
 	defer server.Close()
 	catalog := newGiftCatalog(server.Client())
@@ -103,6 +103,12 @@ func TestGiftCatalogRefreshCachesByRoomAndNormalizesImageURL(t *testing.T) {
 	if err := catalog.Refresh(context.Background(), 12345); err != nil { t.Fatal(err) }
 	if got := catalog.ImageURL(12345, 30607); got != "https://i0.hdslb.com/bfs/live/gift.png" {
 		t.Fatalf("unexpected gift image URL: %q", got)
+	}
+	if got := catalog.AnimationURL(12345, 30607); got != "https://i0.hdslb.com/bfs/live/gift.gif" {
+		t.Fatalf("unexpected gift animation URL: %q", got)
+	}
+	if resources := catalog.Resources(12345); len(resources) != 1 || resources[0].AnimationURL != "https://i0.hdslb.com/bfs/live/gift.gif" {
+		t.Fatalf("gift animation metadata was not exposed: %+v", resources)
 	}
 	if err := catalog.Refresh(context.Background(), 12345); err != nil { t.Fatal(err) }
 	if requests != 1 { t.Fatalf("same room refresh made %d requests, want 1", requests) }
@@ -566,7 +572,8 @@ func TestAdapterSkipsFreshPersistedCatalogRefreshes(t *testing.T) {
 	catalog := resource.NewCatalog()
 	catalog.Register(resource.Resource{
 		PlatformID: "bilibili", SourceID: "12345", Type: resource.TypeGift,
-		ID: "30607", Name: "小心心", ImageURL: "https://i0.hdslb.com/bfs/live/gift.png", UnitPrice: 1,
+		ID: "30607", Name: "小心心", ImageURL: "https://i0.hdslb.com/bfs/live/gift.png",
+		MetadataVersion: giftCatalogMetadataVersion, UnitPrice: 1,
 	})
 	now := time.Now()
 	catalog.MarkRefreshed("bilibili", "12345", resource.TypeGift, now)
@@ -742,4 +749,53 @@ func TestAdapterResolvesLiveEmoticonToRoomResourceByURL(t *testing.T) {
 	}
 	if err := a.Disconnect(context.Background()); err != nil { t.Fatal(err) }
 	if err := catalog.Close(); err != nil { t.Fatal(err) }
+}
+
+
+func TestGiftCatalogForceRefreshBypassesMemoryTTL(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
+			"gift_config": map[string]any{"base_config": map[string]any{"list": []any{
+				map[string]any{"id": 30607, "name": "gift", "img_basic": "https://img.test/gift.png"},
+			}}},
+		}})
+	}))
+	defer server.Close()
+
+	catalog := newGiftCatalog(server.Client())
+	catalog.endpoint = server.URL
+	if err := catalog.Refresh(context.Background(), 12345); err != nil {
+		t.Fatal(err)
+	}
+	if err := catalog.Refresh(context.Background(), 12345); err != nil {
+		t.Fatal(err)
+	}
+	if requests != 1 {
+		t.Fatalf("normal refresh made %d requests, want 1 while cached", requests)
+	}
+	if err := catalog.ForceRefresh(context.Background(), 12345); err != nil {
+		t.Fatal(err)
+	}
+	if requests != 2 {
+		t.Fatalf("forced refresh made total %d requests, want 2", requests)
+	}
+}
+
+
+func TestAdapterResolvesGiftImageFromRawSendGift(t *testing.T) {
+	buffer := eventstream.NewBuffer()
+	buffer.Add(eventstream.Event{PlatformID:"bilibili", Source:"live", Type:"gift", RoomID:12345, GiftID:30607, GiftName:"活动礼物"})
+	catalog := resource.NewCatalog()
+	a := &Adapter{events:buffer, mediaCatalog:catalog}
+	a.addGiftEventImage(12345, []byte(`{"data":{"giftId":30607,"giftName":"活动礼物","gift_info":{"id":30607,"name":"活动礼物","img_basic":"http://i0.hdslb.com/bfs/live/activity.png","gif":"http://i0.hdslb.com/bfs/live/activity.gif","price":1000}}}`))
+	events := buffer.Snapshot()
+	if len(events)!=1 || events[0].GiftImageURL!="https://i0.hdslb.com/bfs/live/activity.png" || events[0].GiftAnimationURL!="https://i0.hdslb.com/bfs/live/activity.gif" {
+		t.Fatalf("raw SEND_GIFT image metadata was not applied: %+v",events)
+	}
+	item,ok:=catalog.Find("bilibili","12345",resource.TypeGift,"30607")
+	if !ok || item.AnimationURL!="https://i0.hdslb.com/bfs/live/activity.gif" {
+		t.Fatalf("raw SEND_GIFT resource was not registered: %+v, found=%t",item,ok)
+	}
 }

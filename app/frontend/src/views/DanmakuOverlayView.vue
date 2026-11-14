@@ -75,6 +75,9 @@ function markImageFailed(url: string) {
 }
 
 function giftImageSource(event: DanmakuDisplayEvent['event']) {
+  const gift = event as typeof event & { gift_animation_url?: string; gift_animation_cache_url?: string }
+  if (gift.gift_animation_cache_url && !failedImageURLs.value.has(gift.gift_animation_cache_url)) return gift.gift_animation_cache_url
+  if (gift.gift_animation_url && !failedImageURLs.value.has(gift.gift_animation_url)) return gift.gift_animation_url
   return event.gift_image_cache_url && !failedImageURLs.value.has(event.gift_image_cache_url)
     ? event.gift_image_cache_url
     : event.gift_image_url

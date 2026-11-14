@@ -39,6 +39,8 @@ type Event struct {
 	FanMedalColor  uint32          `json:"fan_medal_color,omitempty"`
 	GiftImageURL   string          `json:"gift_image_url,omitempty"`
 	GiftImageCacheURL string       `json:"gift_image_cache_url,omitempty"`
+	GiftAnimationURL string        `json:"gift_animation_url,omitempty"`
+	GiftAnimationCacheURL string   `json:"gift_animation_cache_url,omitempty"`
 	GiftID         int             `json:"gift_id,omitempty"`
 	GiftResourceID string          `json:"gift_resource_id,omitempty"`
 	Emoticons      []EmoticonToken `json:"emoticons,omitempty"`
@@ -199,7 +201,7 @@ func (b *Buffer) EnrichGuardEvent(eventID uint64, userName, avatar string, actua
 }
 
 // UpdateGiftImage enriches recent gift events after the asynchronous gift catalog refresh.
-func (b *Buffer) UpdateGiftImage(platformID string, roomID, giftID int, imageURL string) int {
+func (b *Buffer) UpdateGiftImage(platformID string, roomID, giftID int, imageURL string, animationURL ...string) int {
 	if b == nil || platformID == "" || roomID <= 0 || giftID <= 0 || imageURL == "" { return 0 }
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -208,6 +210,7 @@ func (b *Buffer) UpdateGiftImage(platformID string, roomID, giftID int, imageURL
 		item := &b.items[i]
 		if item.PlatformID == platformID && item.RoomID == roomID && item.Type == "gift" && item.GiftID == giftID {
 			item.GiftImageURL = imageURL
+			if len(animationURL) > 0 && animationURL[0] != "" { item.GiftAnimationURL = animationURL[0] }
 			updated++
 		}
 	}

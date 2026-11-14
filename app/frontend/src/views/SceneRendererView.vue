@@ -2,9 +2,12 @@
 import { computed, onMounted, onUnmounted, onUpdated, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
-type Layer = { id: string; type: string; name: string; x: number; y: number; width: number; height: number; z_index: number; visible: boolean; opacity: number; text?: string; url?: string; color?: string; font_size?: number; queue_display_count?: number; live2d_scale?: number; live2d_x?: number; live2d_y?: number }
+type Layer = { id: string; type: string; name: string; x: number; y: number; width: number; height: number; z_index: number; visible: boolean; opacity: number; text?: string; url?: string; color?: string; font_size?: number; queue_display_count?: number; gift_display_duration?: number; super_chat_display_duration?: number; live2d_scale?: number; live2d_x?: number; live2d_y?: number; emoticon_size?: number; emoticon_speed?: number; emoticon_drift?: number; emoticon_max_count?: number }
 type Scene = { id: string; name: string; width: number; height: number; background: string; layers: Layer[] }
-type LiveEvent = { id: number; type: string; user_name: string; content: string; gift_name?: string; gift_count?: number; amount?: number; timestamp: number }
+type EmoticonToken = { text: string; url: string; cache_url?: string; width?: number; height?: number }
+type LiveEvent = { id: number; type: string; user_name: string; content: string; gift_name?: string; gift_count?: number; gift_image_url?: string; gift_image_cache_url?: string; gift_animation_url?: string; gift_animation_cache_url?: string; amount?: number; timestamp: number; emoticons?: EmoticonToken[] }
+type GiftDisplayItem = { id: string; user_name: string; gift_name: string; gift_count: number; gift_image_url?: string; gift_image_cache_url?: string; gift_animation_url?: string; gift_animation_cache_url?: string; timestamp: number }
+type FloatingEmoticon = { id: number; layerId: string; url: string; cacheURL?: string; x: number; size: number; drift: number; duration: number }
 type Track = { id: string; source_id: string; title: string; artist?: string; album?: string; duration_ms: number; cover_url?: string }
 type Playback = { state: string; track?: Track; position_ms: number; duration_ms: number }
 type MusicQueueItem = { id: string; track: Track; requested_by?: string }
@@ -17,6 +20,8 @@ type MusicDisplayConfig = { enabled: boolean; command_enabled: boolean; command_
 const route = useRoute()
 const scene = ref<Scene | null>(null)
 const liveEvents = ref<LiveEvent[]>([])
+const floatingEmoticons = ref<FloatingEmoticon[]>([])
+let nextFloatingEmoticonID = 0
 const now = ref(new Date())
 const error = ref('')
 const playback = ref<Playback | null>(null)
@@ -69,8 +74,55 @@ function handleMouthSyncMessage(event: MessageEvent) {
 }
 
 const danmaku = computed(() => liveEvents.value.filter(item => item.type === 'danmaku').slice(-8).reverse())
-const gifts = computed(() => liveEvents.value.filter(item => item.type === 'gift').slice(-3).reverse())
-const superChats = computed(() => liveEvents.value.filter(item => item.type === 'super_chat').slice(-3).reverse())
+function giftEvents(layer: Layer): GiftDisplayItem[] {
+  const duration = Math.max(1, Math.min(120, layer.gift_display_duration || 8)) * 1000
+  const currentTime = now.value.getTime()
+  const events = liveEvents.value
+    .filter(item => item.type === 'gift')
+    .slice()
+    .sort((a, b) => a.timestamp - b.timestamp)
+  const grouped = new Map<string, GiftDisplayItem>()
+  for (const event of events) {
+    const giftName = event.gift_name || '礼物'
+    const imageKey = event.gift_animation_url || event.gift_image_url || event.gift_animation_cache_url || event.gift_image_cache_url || ''
+    const key = JSON.stringify([event.user_name, giftName, imageKey])
+    const existing = grouped.get(key)
+    if (existing && event.timestamp - existing.timestamp <= duration) {
+      existing.gift_count += Math.max(1, event.gift_count || 1)
+      existing.timestamp = event.timestamp
+    } else {
+      grouped.set(key, {
+        id: key + ':' + event.id,
+        user_name: event.user_name,
+        gift_name: giftName,
+        gift_count: Math.max(1, event.gift_count || 1),
+        gift_image_url: event.gift_image_url,
+        gift_image_cache_url: event.gift_image_cache_url,
+        gift_animation_url: event.gift_animation_url,
+        gift_animation_cache_url: event.gift_animation_cache_url,
+        timestamp: event.timestamp,
+      })
+    }
+  }
+  return [...grouped.values()]
+    .filter(item => currentTime - item.timestamp <= duration)
+    .sort((a, b) => a.timestamp - b.timestamp)
+}
+function giftNeedsScroll(layer: Layer, items: GiftDisplayItem[]) {
+  if (!scene.value || items.length < 2) return false
+  const cardWidth = scene.value.height * 0.3
+  const gap = scene.value.height * 0.005
+  return items.length * (cardWidth + gap) - gap > layer.width
+}
+function giftScrollDuration(items: GiftDisplayItem[]) {
+  return Math.max(8, items.length * 4) + 's'
+}
+function superChatEvents(layer: Layer) {
+  const duration = Math.max(1, Math.min(120, layer.super_chat_display_duration || 8)) * 1000
+  const currentTime = now.value.getTime()
+  return liveEvents.value
+    .filter(item => item.type === 'super_chat' && currentTime - item.timestamp <= duration)
+}
 const progress = computed(() => {
   const duration = playback.value?.duration_ms || playback.value?.track?.duration_ms || 0
   if (!duration) return 0
@@ -95,10 +147,50 @@ function layerStyle(layer: Layer) {
   }
 }
 function formatClock() { return now.value.toLocaleTimeString('zh-CN', { hour12: false }) }
+function removeFloatingEmoticon(id: number) {
+  floatingEmoticons.value = floatingEmoticons.value.filter(item => item.id !== id)
+}
+function spawnFloatingEmoticons(event: LiveEvent) {
+  if (event.type !== 'danmaku' || !event.emoticons?.length || !scene.value) return
+  for (const layer of scene.value.layers) {
+    if (layer.type !== 'emoticon' || !layer.visible || layer.width <= 0 || layer.height <= 0) continue
+    const maxCount = Math.max(1, Math.min(40, layer.emoticon_max_count || 12))
+    const configuredSize = Math.max(24, Math.min(160, layer.emoticon_size || 64))
+    const size = Math.max(16, Math.min(configuredSize, layer.width * 0.4, layer.height * 0.4))
+    const driftLimit = Math.max(0, Math.min(120, layer.emoticon_drift ?? 48, Math.max(0, (layer.width - size) / 2)))
+    const speed = Math.max(20, Math.min(300, layer.emoticon_speed || 90))
+    const duration = Math.max(1, Math.min(30, layer.height * 1.25 / speed))
+    const incoming: FloatingEmoticon[] = []
+    for (const token of event.emoticons) {
+      if (!token.url || !token.text || !event.content.includes(token.text)) continue
+      const occurrences = Math.min(8, event.content.split(token.text).length - 1)
+      for (let index = 0; index < occurrences; index++) {
+        const minX = size / 2 + driftLimit
+        const maxX = Math.max(minX, layer.width - size / 2 - driftLimit)
+        incoming.push({
+          id: ++nextFloatingEmoticonID,
+          layerId: layer.id,
+          url: token.url,
+          cacheURL: token.cache_url,
+          x: minX + Math.random() * (maxX - minX),
+          size,
+          drift: driftLimit ? Math.random() * driftLimit : 0,
+          duration,
+        })
+      }
+    }
+    if (!incoming.length) continue
+    const existing = floatingEmoticons.value.filter(item => item.layerId === layer.id)
+    const keep = floatingEmoticons.value.filter(item => item.layerId !== layer.id)
+    const combined = [...existing, ...incoming].slice(-maxCount)
+    floatingEmoticons.value = [...keep, ...combined]
+  }
+}
 function handleEvent(event: MessageEvent<string>) {
   try {
     const value = JSON.parse(event.data) as LiveEvent
     if (liveEvents.value.some(item => item.id === value.id)) return
+    spawnFloatingEmoticons(value)
     liveEvents.value.push(value)
     liveEvents.value.sort((a, b) => a.id - b.id)
     if (liveEvents.value.length > 100) liveEvents.value.splice(0, liveEvents.value.length - 100)
@@ -259,19 +351,43 @@ onUnmounted(() => {
 
 <template>
   <main v-if="scene" class="scene-output" :style="{ aspectRatio: scene.width + ' / ' + scene.height, background: scene.background === 'transparent' ? 'transparent' : scene.background }">
-    <div v-for="layer in scene.layers.filter(item => item.visible && (item.type !== 'music_queue' || musicDisplayConfig?.command_enabled === true) && (item.type !== 'video_queue' || videoQueue.enabled === true) && (item.type !== 'live2d' || Boolean(live2DFrameURL)))" :key="layer.id" class="output-layer" :class="{ 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue', 'video-queue-output-layer': layer.type === 'video_queue' }" :style="layerStyle(layer)">
+    <div v-for="layer in scene.layers.filter(item => item.visible && (item.type !== 'music_queue' || musicDisplayConfig?.command_enabled === true) && (item.type !== 'video_queue' || videoQueue.enabled === true) && (item.type !== 'live2d' || Boolean(live2DFrameURL)))" :key="layer.id" class="output-layer" :class="{ 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue', 'video-queue-output-layer': layer.type === 'video_queue', 'emoticon-output-layer': layer.type === 'emoticon' }" :style="layerStyle(layer)">
       <span v-if="layer.type === 'text'">{{ layer.text }}</span>
       <img v-else-if="layer.type === 'image' && layer.url" :src="layer.url" alt="" />
       <time v-else-if="layer.type === 'clock'">{{ formatClock() }}</time>
+      <div v-else-if="layer.type === 'emoticon'" class="floating-emoticon-layer">
+        <img
+          v-for="particle in floatingEmoticons.filter(item => item.layerId === layer.id)"
+          :key="particle.id"
+          class="floating-emoticon"
+          :src="particle.cacheURL || particle.url"
+          alt=""
+          referrerpolicy="no-referrer"
+          :style="{ left: particle.x + 'px', width: particle.size + 'px', height: particle.size + 'px', '--emoticon-drift': particle.drift + 'px', '--emoticon-duration': particle.duration + 's' }"
+          @animationend="removeFloatingEmoticon(particle.id)"
+        />
+      </div>
       <iframe v-else-if="layer.type === 'live2d' && live2DFrameURL" class="live2d-output-frame" :data-layer-id="layer.id" :src="live2DFrameURL" title="Live2D" allowtransparency="true" :style="{ backgroundColor: 'transparent' }" />
       <div v-else-if="layer.type === 'danmaku'" class="event-stack">
         <div v-for="item in danmaku" :key="item.id" class="event-line"><strong>{{ item.user_name }}</strong><span>{{ item.content }}</span></div>
       </div>
-      <div v-else-if="layer.type === 'gift'" class="event-stack">
-        <div v-for="item in gifts" :key="item.id" class="event-line gift-line"><strong>{{ item.user_name }}</strong><span>赠送 {{ item.gift_name }} × {{ item.gift_count || 1 }}</span></div>
+      <div v-else-if="layer.type === 'gift'" class="gift-event-stack">
+        <div class="gift-event-track" :class="{ 'is-scrolling': giftNeedsScroll(layer, giftEvents(layer)) }" :style="{ '--gift-scroll-duration': giftScrollDuration(giftEvents(layer)) }">
+          <template v-for="(item, index) in (giftNeedsScroll(layer, giftEvents(layer)) ? [...giftEvents(layer), ...giftEvents(layer)] : giftEvents(layer))" :key="item.id + '-' + index">
+            <article class="gift-event-card">
+              <img v-if="item.gift_animation_cache_url || item.gift_animation_url || item.gift_image_cache_url || item.gift_image_url"
+                class="gift-event-image"
+                :src="item.gift_animation_cache_url || item.gift_animation_url || item.gift_image_cache_url || item.gift_image_url"
+                :alt="item.gift_name"
+                referrerpolicy="no-referrer" />
+              <div v-else class="gift-event-image-fallback">🎁</div>
+              <div class="gift-event-caption"><strong>{{ item.gift_name }} × {{ item.gift_count }}</strong><span>{{ item.user_name }} 赠送</span></div>
+            </article>
+          </template>
+        </div>
       </div>
-      <div v-else-if="layer.type === 'super_chat'" class="event-stack">
-        <div v-for="item in superChats" :key="item.id" class="event-line sc-line"><strong>{{ item.user_name }} · ¥{{ Number(item.amount || 0).toFixed(2) }}</strong><span>{{ item.content }}</span></div>
+      <div v-else-if="layer.type === 'super_chat'" class="event-stack sc-event-stack">
+        <div v-for="item in superChatEvents(layer)" :key="item.id" class="event-line sc-line"><strong>{{ item.user_name }} · ¥{{ Number(item.amount || 0).toFixed(2) }}</strong><span>{{ item.content }}</span></div>
       </div>
       <section v-else-if="layer.type === 'video_queue'" class="music-queue-widget video-queue-widget" :style="{ '--queue-accent': layer.color || '#9fc0ff', fontSize: ((layer.font_size || 22) / (scene?.height || 1080) * 100) + 'cqh' }">
         <section class="music-queue-section music-queue-prompt">
@@ -367,12 +483,40 @@ html,body,#app{width:100%;height:100%;margin:0;overflow:hidden;background:transp
 body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .scene-output{position:relative;width:100vw;height:100vh;overflow:hidden;container-type:size;background:transparent}
 .output-layer{position:absolute;display:flex;align-items:flex-start;justify-content:flex-start;overflow:hidden;white-space:pre-wrap;word-break:break-word;font-weight:600;text-shadow:0 2px 6px #000b}
+.emoticon-output-layer{padding:0;white-space:normal;text-shadow:none}
+.floating-emoticon-layer{position:absolute;inset:0;overflow:hidden;pointer-events:none}
+.floating-emoticon{position:absolute;top:100%;display:block;max-width:40%;max-height:40%;object-fit:contain;transform:translateX(-50%);opacity:0;pointer-events:none;animation:emoticon-rise var(--emoticon-duration) linear both}
+@keyframes emoticon-rise{
+  0%{top:100%;opacity:0;transform:translate3d(-50%,0,0)}
+  10%{opacity:1}
+  25%{transform:translate3d(calc(-50% + var(--emoticon-drift)),0,0)}
+  50%{transform:translate3d(-50%,0,0)}
+  75%{transform:translate3d(calc(-50% - var(--emoticon-drift)),0,0)}
+  82%{opacity:1}
+  100%{top:-25%;opacity:0;transform:translate3d(-50%,0,0)}
+}
 .output-layer img{width:100%;height:100%;object-fit:contain}.output-layer iframe.live2d-output-frame{display:block;width:100%;height:100%;border:0;background:transparent!important;background-color:transparent!important;pointer-events:none}
 .event-stack{display:flex;flex-direction:column;gap:.35em;width:100%;height:100%;overflow:hidden}
+.sc-event-stack{justify-content:flex-end}
+.sc-event-stack .sc-line{flex:0 0 auto}
 .event-line{display:flex;gap:.5em;align-items:baseline;padding:.2em .4em;border-radius:.3em;background:#10131ac9;font-size:1em;line-height:1.35}
+.sc-line{display:block;overflow-wrap:anywhere;white-space:normal}
+.sc-line strong{display:inline;margin-right:.5em}
+.sc-line span{display:inline;min-width:0;overflow-wrap:anywhere}
 .event-line strong{color:#ffe08a;flex:none}
 .event-line span{min-width:0;overflow-wrap:anywhere}
 .gift-line{background:#382448dc}.sc-line{background:#603c1edc}
+.gift-event-stack{display:flex;justify-content:flex-end;width:100%;height:100%;overflow:hidden;white-space:normal}
+.gift-event-track{display:flex;flex-direction:row;direction:rtl;align-items:stretch;gap:.5cqh;width:max-content;min-width:100%;height:100%}
+.gift-event-track.is-scrolling{animation:gift-event-marquee var(--gift-scroll-duration,12s) linear infinite}
+.gift-event-card{box-sizing:border-box;display:flex;flex:0 0 30cqh;width:30cqh;height:100%;min-width:30cqh;max-width:30cqh;flex-direction:column;align-items:center;justify-content:flex-start;gap:.18em;padding:.25em .35em;border:0;border-radius:0;background:transparent;text-align:center;direction:ltr;line-height:1.25;overflow:hidden}
+.gift-event-image{display:block;width:auto!important;height:auto!important;max-width:100%;max-height:65%;min-height:0;object-fit:contain}
+.gift-event-image-fallback{display:grid;place-items:center;min-height:2.2em;font-size:2em}
+.gift-event-caption{display:flex;flex-direction:column;align-items:center;gap:.1em;width:100%;max-width:100%;min-width:0;font-size:.72em}
+.gift-event-caption strong,.gift-event-caption span{display:block;width:100%;max-width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gift-event-caption span{font-size:.85em;color:#d8cce3}
+@keyframes gift-event-marquee{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+
 .music-output-layer{padding:0;text-shadow:none;white-space:normal;overflow:visible;font-family:Arial,"Microsoft YaHei",sans-serif;color:#e7c89d}
 .music-queue-output-layer,.video-queue-output-layer{padding:0;text-shadow:none;white-space:normal;overflow:hidden;font-family:Arial,"Microsoft YaHei",sans-serif}
 .music-simple-widget{display:flex;flex-direction:column;gap:.45em;width:100%;height:100%;overflow:hidden;color:inherit;text-shadow:none;white-space:normal;font-family:Arial,"Microsoft YaHei",sans-serif}

@@ -21,6 +21,8 @@ type Resource struct {
 	ID          string    `json:"resource_id,omitempty"`
 	Name        string    `json:"name"`
 	ImageURL    string    `json:"image_url"`
+	AnimationURL string   `json:"animation_url,omitempty"`
+	MetadataVersion int    `json:"metadata_version,omitempty"`
 	UnitPrice   float64   `json:"unit_price,omitempty"`
 	Width       int       `json:"width,omitempty"`
 	Height      int       `json:"height,omitempty"`
@@ -118,6 +120,7 @@ func (c *Catalog) Register(r Resource) bool {
 	r.ID = strings.TrimSpace(r.ID)
 	r.Name = strings.TrimSpace(r.Name)
 	r.ImageURL = strings.TrimSpace(r.ImageURL)
+	r.AnimationURL = strings.TrimSpace(r.AnimationURL)
 	if r.PlatformID == "" || (r.Type != TypeEmoticon && r.Type != TypeGift) || r.ImageURL == "" {
 		return false
 	}
@@ -153,7 +156,7 @@ func (c *Catalog) Register(r Resource) bool {
 		// Live events may update an existing directory entry without carrying
 		// its source ordering. Preserve the last known directory position.
 		if r.SortOrder <= 0 && old.SortOrder > 0 { r.SortOrder = old.SortOrder }
-		if !promoted && old.Name == r.Name && old.ImageURL == r.ImageURL && old.UnitPrice == r.UnitPrice && old.Width == r.Width && old.Height == r.Height && old.SortOrder == r.SortOrder {
+		if !promoted && old.Name == r.Name && old.ImageURL == r.ImageURL && old.UnitPrice == r.UnitPrice && old.AnimationURL == r.AnimationURL && old.MetadataVersion == r.MetadataVersion && old.Width == r.Width && old.Height == r.Height && old.SortOrder == r.SortOrder {
 			c.addImageIndex(key, old)
 			return true
 		}
@@ -168,6 +171,18 @@ func (c *Catalog) Register(r Resource) bool {
 		c.persistence.markDirty()
 	}
 	return true
+}
+
+// LastRefreshed returns the timestamp of the last successful directory refresh.
+// The boolean is false when no refresh timestamp has been recorded.
+func (c *Catalog) LastRefreshed(platformID, sourceID string, kind Type) (time.Time, bool) {
+	if c == nil || strings.TrimSpace(platformID) == "" || (kind != TypeEmoticon && kind != TypeGift) {
+		return time.Time{}, false
+	}
+	c.mu.RLock()
+	refreshedAt, ok := c.refreshes[refreshIdentity(platformID, sourceID, kind)]
+	c.mu.RUnlock()
+	return refreshedAt, ok && !refreshedAt.IsZero()
 }
 
 // IsFresh reports whether a source's last successful directory refresh is within ttl.
