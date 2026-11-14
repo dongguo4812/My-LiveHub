@@ -250,7 +250,7 @@ DEFAULT_CONFIG = {
     'lol_client_path': r'D:\WeGameApps\英雄联盟（含经典模式）',
 }
 def check_admin_privileges():
-    """源码运行时确保 LOL Hex 以管理员权限启动；打包版由 EXE 清单强制提权。"""
+    """确保源码版和打包版均通过 UAC 以管理员权限运行。"""
     if os.name != "nt":
         return True
 
@@ -262,8 +262,8 @@ def check_admin_privileges():
         log.exception("[权限检查] 无法检查 Windows 管理员权限")
         return False
 
-    # PyInstaller 打包版由 requireAdministrator 清单负责触发 UAC。
-    # 若清单未生效，仍使用此处作为兜底，避免普通权限继续运行。
+    # 使用 ShellExecuteW 请求 UAC，避免宿主进程直接 CreateProcess
+    # requireAdministrator EXE 时遇到 ERROR_ELEVATION_REQUIRED。
     try:
         if getattr(sys, "frozen", False):
             executable = sys.executable
