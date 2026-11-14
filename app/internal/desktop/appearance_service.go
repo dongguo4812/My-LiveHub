@@ -15,7 +15,9 @@ type AppearanceService struct {
 
 func NewAppearanceService(manager *config.Manager, current config.AppConfig, logger ...*applogging.Logger) *AppearanceService {
 	service := &AppearanceService{manager: manager, current: current}
-	if len(logger) > 0 { service.logger = logger[0] }
+	if len(logger) > 0 {
+		service.logger = logger[0]
+	}
 	return service
 }
 
@@ -59,14 +61,41 @@ func (s *AppearanceService) UpdateLogRetentionDays(days int) (int, error) {
 	}
 	previousDays := s.GetLogRetentionDays()
 	if s.logger != nil {
-		if err := s.logger.SetRetentionDays(days); err != nil { return 0, err }
+		if err := s.logger.SetRetentionDays(days); err != nil {
+			return 0, err
+		}
 	}
 	updated := s.current
 	updated.Logging.RetentionDays = days
 	if err := config.SaveTyped(s.manager, "app.json", updated, func(value config.AppConfig) error { return value.Validate() }); err != nil {
-		if s.logger != nil { _ = s.logger.SetRetentionDays(previousDays) }
+		if s.logger != nil {
+			_ = s.logger.SetRetentionDays(previousDays)
+		}
 		return 0, err
 	}
 	s.current = updated
 	return days, nil
+}
+
+func (s *AppearanceService) GetWindowCloseBehavior() string {
+	if s == nil || s.current.Window.CloseBehavior == "" {
+		return config.WindowCloseMinimizeToTray
+	}
+	return s.current.Window.CloseBehavior
+}
+
+func (s *AppearanceService) UpdateWindowCloseBehavior(behavior string) (string, error) {
+	if s == nil || s.manager == nil {
+		return "", errors.New("window configuration service is unavailable")
+	}
+	if behavior != config.WindowCloseMinimizeToTray && behavior != config.WindowCloseExit {
+		return "", errors.New("unsupported window close behavior")
+	}
+	updated := s.current
+	updated.Window.CloseBehavior = behavior
+	if err := config.SaveTyped(s.manager, "app.json", updated, func(value config.AppConfig) error { return value.Validate() }); err != nil {
+		return "", err
+	}
+	s.current = updated
+	return behavior, nil
 }
