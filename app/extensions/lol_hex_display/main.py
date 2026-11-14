@@ -448,13 +448,30 @@ def normalize_cdragon_assets(payload):
 
 
 def merge_cdragon_assets(tencent_assets,payload):
-    """只补齐腾讯缺失的 ID；已有腾讯记录不被覆盖。"""
+    """补齐腾讯缺失的 ID，并用 CommunityDragon 稀有度补全腾讯记录。"""
     supplements=normalize_cdragon_assets(payload)
     added=0
+    rarity_updated=0
+    valid_rarities=('kSilver','kGold','kPrismatic')
     for aid,item in supplements.items():
         if aid not in tencent_assets:
             tencent_assets[aid]=item
             added+=1
+            continue
+
+        # 腾讯主数据通常缺少稀有度字段。保留腾讯名称和图标，
+        # 仅在稀有度缺失/无效时使用 CommunityDragon 的 rarity。
+        current=tencent_assets[aid]
+        if (
+            isinstance(current,dict)
+            and str(current.get('level') or '').strip() not in valid_rarities
+            and item.get('level') in valid_rarities
+        ):
+            current['level']=item['level']
+            rarity_updated+=1
+
+    if rarity_updated:
+        log.info('CommunityDragon 补全腾讯海克斯稀有度：%d 条',rarity_updated)
     return added
 
 assets_lock=threading.RLock(); assets={}
