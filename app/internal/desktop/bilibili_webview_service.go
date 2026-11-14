@@ -244,6 +244,9 @@ func (s *BilibiliWebViewService) CloseWindow() {
 	}
 	window := s.currentWindow()
 	if window != nil {
+		// Hide immediately so an ended/ skipped video is no longer visible
+		// even while the native close event is being dispatched.
+		window.Hide()
 		window.Close()
 	}
 }
