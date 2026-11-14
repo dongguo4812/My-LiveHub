@@ -337,6 +337,8 @@ func (s *SceneService) handleMusicQueue(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *SceneService) handleLive2D(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Cache-Control", "no-store")
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
