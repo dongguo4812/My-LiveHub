@@ -162,9 +162,12 @@ func (s *LOLHexService) Start() (LOLHexStatus, error) {
 	if _, err := os.Stat(exePath); err == nil {
 		command = exec.Command(exePath, "--config", s.configPath)
 	} else {
-		python, err := exec.LookPath(s.pythonPath)
-		if err != nil {
-			return LOLHexStatus{}, fmt.Errorf("未找到 Python 运行环境。请安装 Python 3.10+，或设置 MY_LIVEHUB_PYTHON：%w", err)
+		python := filepath.Join(s.extensionDir, ".venv", "Scripts", "python.exe")
+		if _, err := os.Stat(python); err != nil {
+			python, err = exec.LookPath(s.pythonPath)
+			if err != nil {
+				return LOLHexStatus{}, fmt.Errorf("未找到 Python 运行环境。请在扩展目录创建 .venv，或设置 MY_LIVEHUB_PYTHON：%w", err)
+			}
 		}
 		command = exec.Command(python, "launcher.py", "--config", s.configPath)
 	}
