@@ -244,9 +244,8 @@ func (s *BilibiliWebViewService) CloseWindow() {
 	}
 	window := s.currentWindow()
 	if window != nil {
-		// Hide immediately so an ended/ skipped video is no longer visible
-		// even while the native close event is being dispatched.
-		window.Hide()
+		// Let the native close lifecycle run. Hiding first can leave some
+		// WebView2 hosts in a hidden-but-still-open state.
 		window.Close()
 	}
 }
