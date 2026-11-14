@@ -39,7 +39,6 @@ const eventCounts = computed(() => {
   for (const item of events.value) counts[item.type] = (counts[item.type] ?? 0) + 1
   return counts
 })
-const recentEvents = computed(() => [...events.value].sort((a, b) => Number(b.timestamp) - Number(a.timestamp)).slice(0, 30))
 const currentTrack = computed(() => musicPlayback.value?.track ?? musicQueue.value?.current?.track ?? null)
 const musicState = computed(() => musicPlayback.value?.state ?? 'unavailable')
 const videoState = computed(() => {
@@ -66,12 +65,7 @@ const formatDuration = (seconds?: number) => {
   const minutes = Math.floor(value / 60); const rest = value % 60
   return hours ? `${hours}小时${minutes}分` : minutes ? `${minutes}分${rest}秒` : `${rest}秒`
 }
-const formatTime = (timestamp: number | string) => {
-  const date = new Date(typeof timestamp === 'number' ? timestamp : timestamp)
-  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleTimeString()
-}
 const moduleLabel = (id: string) => ({ 'platform-connections': '直播平台连接', voice: '语音播报', music: '音乐播放', video: '视频点播', live2d: 'Live2D', 'lol-hex-display': 'LOL Hex Display' } as Record<string, string>)[id] ?? id
-const eventLabel = (type: string) => ({ danmaku: '弹幕', gift: '礼物', super_chat: '醒目留言', guard: '舰队', like: '点赞', entry: '进入直播间' } as Record<string, string>)[type] ?? type
 const statusType = (status: string) => status === 'running' || status === 'connected' ? 'success' : status === 'failed' ? 'danger' : status === 'starting' || status === 'connecting' ? 'warning' : 'info'
 
 async function refreshAll() {
@@ -181,18 +175,7 @@ onUnmounted(() => {
       <p class="hint">CPU 为 Go 运行时采样值，按逻辑 CPU 总容量归一化；内存为 Go 堆内存，不等同于 Windows 进程总内存。</p>
     </el-card>
 
-    <div class="content-grid">
-      <el-card shadow="never">
-        <template #header><div class="card-heading"><strong>实时互动事件</strong><el-tag size="small">{{ recentEvents.length }} 条</el-tag></div></template>
-        <el-table :data="recentEvents" size="small" max-height="360" empty-text="等待直播间事件">
-          <el-table-column label="时间" width="100"><template #default="{ row }">{{ formatTime(row.timestamp) }}</template></el-table-column>
-          <el-table-column label="类型" width="90"><template #default="{ row }">{{ eventLabel(row.type) }}</template></el-table-column>
-          <el-table-column prop="user_name" label="用户" width="120" show-overflow-tooltip />
-          <el-table-column label="内容" min-width="180" show-overflow-tooltip><template #default="{ row }">{{ row.content || row.gift_name || '—' }}</template></el-table-column>
-          <el-table-column prop="platform_id" label="平台" width="90" />
-        </el-table>
-      </el-card>
-    </div>
+
   </section>
 </template>
 
