@@ -279,7 +279,7 @@ func main() {
 			application.NewService(platformService),
 			application.NewService(desktop.NewBilibiliAuthService(bilibiliAuth, platformManager)),
 			application.NewService(bilibiliSettingsService),
-			application.NewService(desktop.NewAppearanceService(configManager, appConfig)),
+			application.NewService(desktop.NewAppearanceService(configManager, appConfig, applicationLogger)),
 			application.NewService(danmakuDisplayService),
 			application.NewService(sceneService),
 			application.NewService(voiceService),
