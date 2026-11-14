@@ -370,7 +370,7 @@ func (s *VideoQueueService) handleEvent(event eventstream.Event) {
 		return
 	}
 	match := parseVideoRequest(text, requestPrefix)
-	if !strings.HasPrefix(text, requestPrefix) { return }
+	if requestPrefix == "" || !strings.HasPrefix(text, requestPrefix) { return }
 	if match == "" {
 		s.publishRequestNotice("video_request_failed", event.UserName, "", "未识别到有效的 B 站 BV 号")
 		return
