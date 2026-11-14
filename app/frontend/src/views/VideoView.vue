@@ -33,6 +33,9 @@ interface QueueSnapshot {
 interface VideoSettings {
   room_id: number
   video_requests_enabled: boolean
+  video_request_prefix: string
+  video_skip_command_enabled: boolean
+  video_skip_command: string
   video_request_cooldown_seconds: number
   video_queue_limit: number
   video_max_duration_seconds: number
@@ -215,7 +218,18 @@ onUnmounted(() => { unsubscribe?.(); if (timer) clearInterval(timer) })
           <el-form-item label="允许观众点播">
             <el-switch v-model="settings.video_requests_enabled" active-text="开启" inactive-text="关闭" />
           </el-form-item>
-          <el-form-item label="点播指令前缀">\n            <el-input v-model="settings.video_request_prefix" maxlength="16" placeholder="点播" />\n            <div class="field-hint">例如：点播 BV号；修改后观众使用新前缀提交视频。</div>\n          </el-form-item>\n          <el-form-item label="允许主播和房管切换视频">\n            <el-switch v-model="settings.video_skip_command_enabled" active-text="开启" inactive-text="关闭" />\n          </el-form-item>\n          <el-form-item label="切换视频指令">\n            <el-input v-model="settings.video_skip_command" maxlength="16" placeholder="下一个" />\n            <div class="field-hint">仅直播间主播或房管发送该完整指令时，切换到下一个视频。</div>\n          </el-form-item>\n          <el-form-item label="普通观众点播冷却时间（秒）">
+          <el-form-item label="点播指令前缀">
+            <el-input v-model="settings.video_request_prefix" maxlength="16" placeholder="点播" />
+            <div class="field-hint">例如：点播 BV号；修改后观众使用新前缀提交视频。</div>
+          </el-form-item>
+          <el-form-item label="允许主播和房管切换视频">
+            <el-switch v-model="settings.video_skip_command_enabled" active-text="开启" inactive-text="关闭" />
+          </el-form-item>
+          <el-form-item label="切换视频指令">
+            <el-input v-model="settings.video_skip_command" maxlength="16" placeholder="下一个" />
+            <div class="field-hint">仅直播间主播或房管发送该完整指令时，切换到下一个视频。</div>
+          </el-form-item>
+          <el-form-item label="普通观众点播冷却时间（秒）">
             <el-input-number v-model="settings.video_request_cooldown_seconds" :min="0" :max="3600" />
             <div class="field-hint">0 表示不限制；主播和房管不受冷却限制。</div>
           </el-form-item>
