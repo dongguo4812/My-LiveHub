@@ -123,6 +123,9 @@ function addLayer(type: string) {
 }
 function selectLayer(layer: LayoutLayer) {
   selectedLayerID.value = layer.id
+  if (layer.type === 'lol_hex_display' || layer.type === 'lol_hex_bar') {
+    contentScaleLayer(layer).content_scale ??= 100
+  }
   if (layer.type === 'live2d') {
     const value = live2DLayer(layer)
     value.live2d_scale ??= 100
