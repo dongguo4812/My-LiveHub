@@ -1403,6 +1403,14 @@ def register_bar_routes(
     def bar_page():
         return render_template("bar.html")
 
+    @bp.get("/api/health")
+    def bar_health_api():
+        response = jsonify({"ready": True})
+        # 综合展示运行在 My-LiveHub 的 8769 端口，需要跨端口探测 LOL Hex。
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
     @bp.get("/api/snapshot")
     def bar_snapshot_api():
         data = snapshot()
