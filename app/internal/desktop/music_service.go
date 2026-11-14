@@ -263,8 +263,7 @@ func (s *MusicService) processSongRequest(ctx context.Context, event events.Even
 		if checkErr != nil { reason := "粉丝勋章校验失败：" + checkErr.Error(); s.setLastError(fmt.Errorf("校验观众 %s 的主播粉丝勋章失败，已拒绝本次点播：%w", event.UserName, checkErr)); s.publishRequestNotice("music_request_failed", event.UserName, "", reason); return }
 		if !allowed { reason := fmt.Sprintf("粉丝勋章等级不足（当前 %d 级，要求 %d 级）", level, fanMedalLevel); s.setLastError(fmt.Errorf("观众 %s 的主播粉丝勋章等级不足（当前 %d，要求 %d）", event.UserName, level, fanMedalLevel)); s.publishRequestNotice("music_request_failed", event.UserName, "", reason); return }
 	}
-	requestedTitle, requestedArtist := splitSongRequestArtist(keyword)
-	track, matched, sourceFailures := s.searchSongRequestTrack(ctx, keyword, requestedTitle, requestedArtist)
+	track, matched, sourceFailures := s.searchSongRequestTrack(ctx, keyword, keyword, "")
 	if !matched {
 		reason := "所有已启用音源均未找到匹配歌曲：" + keyword
 		if len(sourceFailures) > 0 {
@@ -313,7 +312,16 @@ func searchSongRequestAcrossSources(parent context.Context, sourceIDs []string, 
 			failures = append(failures, source+" 搜索失败："+err.Error())
 			continue
 		}
-		if track, ok := selectSongRequestTrack(tracks, requestedTitle, requestedArtist); ok {
+		// First try the complete user query against the combined title and artist.
+		// Only if that fails, interpret the final whitespace-delimited token as artist.
+		if track, ok := selectSongRequestTrackByCombinedText(tracks, requestedTitle); ok {
+			return track, true, failures
+		}
+		title, artist := splitSongRequestArtist(requestedTitle)
+		if requestedArtist != "" {
+			title, artist = requestedTitle, requestedArtist
+		}
+		if track, ok := selectSongRequestTrack(tracks, title, artist); ok {
 			return track, true, failures
 		}
 		failures = append(failures, source+" 无匹配结果")
@@ -321,7 +329,7 @@ func searchSongRequestAcrossSources(parent context.Context, sourceIDs []string, 
 	return music.Track{}, false, failures
 }
 
-// splitSongRequestArtist accepts an optional "title - artist" suffix.
+// splitSongRequestArtist accepts an optional explicit separator or a final whitespace-delimited artist.
 func splitSongRequestArtist(keyword string) (string, string) {
 	keyword = strings.TrimSpace(keyword)
 	for _, separator := range []string{" - ", "－", "—"} {
@@ -331,9 +339,30 @@ func splitSongRequestArtist(keyword string) (string, string) {
 			if title != "" && artist != "" { return title, artist }
 		}
 	}
+	// Unicode whitespace handling covers both ASCII spaces/tabs and full-width/ideographic spaces.
+	lastSpace := -1
+	for index, r := range keyword {
+		if unicode.IsSpace(r) { lastSpace = index }
+	}
+	if lastSpace >= 0 {
+		title := strings.TrimSpace(keyword[:lastSpace])
+		artist := strings.TrimSpace(keyword[lastSpace:])
+		if title != "" && artist != "" { return title, artist }
+	}
 	return keyword, ""
 }
 
+func selectSongRequestTrackByCombinedText(tracks []music.Track, keyword string) (music.Track, bool) {
+	wanted := normalizeSongRequestText(keyword)
+	if wanted == "" { return music.Track{}, false }
+	for _, track := range tracks {
+		combined := normalizeSongRequestText(track.Title + track.Artist)
+		if combined != "" && strings.Contains(combined, wanted) {
+			return track, true
+		}
+	}
+	return music.Track{}, false
+}
 func normalizeSongRequestText(value string) string {
 	var normalized strings.Builder
 	for _, r := range strings.ToLower(strings.TrimSpace(value)) {
