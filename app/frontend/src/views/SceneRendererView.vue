@@ -122,8 +122,6 @@ function superChatEvents(layer: Layer) {
   const currentTime = now.value.getTime()
   return liveEvents.value
     .filter(item => item.type === 'super_chat' && currentTime - item.timestamp <= duration)
-    .slice(-3)
-    .reverse()
 }
 const progress = computed(() => {
   const duration = playback.value?.duration_ms || playback.value?.track?.duration_ms || 0
@@ -388,7 +386,7 @@ onUnmounted(() => {
           </template>
         </div>
       </div>
-      <div v-else-if="layer.type === 'super_chat'" class="event-stack">
+      <div v-else-if="layer.type === 'super_chat'" class="event-stack sc-event-stack">
         <div v-for="item in superChatEvents(layer)" :key="item.id" class="event-line sc-line"><strong>{{ item.user_name }} · ¥{{ Number(item.amount || 0).toFixed(2) }}</strong><span>{{ item.content }}</span></div>
       </div>
       <section v-else-if="layer.type === 'video_queue'" class="music-queue-widget video-queue-widget" :style="{ '--queue-accent': layer.color || '#9fc0ff', fontSize: ((layer.font_size || 22) / (scene?.height || 1080) * 100) + 'cqh' }">
@@ -499,6 +497,8 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 }
 .output-layer img{width:100%;height:100%;object-fit:contain}.output-layer iframe.live2d-output-frame{display:block;width:100%;height:100%;border:0;background:transparent!important;background-color:transparent!important;pointer-events:none}
 .event-stack{display:flex;flex-direction:column;gap:.35em;width:100%;height:100%;overflow:hidden}
+.sc-event-stack{justify-content:flex-end}
+.sc-event-stack .sc-line{flex:0 0 auto}
 .event-line{display:flex;gap:.5em;align-items:baseline;padding:.2em .4em;border-radius:.3em;background:#10131ac9;font-size:1em;line-height:1.35}
 .sc-line{display:block;overflow-wrap:anywhere;white-space:normal}
 .sc-line strong{display:inline;margin-right:.5em}
