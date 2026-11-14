@@ -15,6 +15,7 @@ import PlaceholderView from './views/PlaceholderView.vue'
 import ExtensionsView from './views/ExtensionsView.vue'
 import ModulesView from './views/ModulesView.vue'
 import LayoutsView from './views/LayoutsView.vue'
+import LogsView from './views/LogsView.vue'
 import SceneRendererView from './views/SceneRendererView.vue'
 const routes=[
 {path:'/',name:'overview',component:DashboardView,meta:{title:'总览',section:'工作台'}},
@@ -36,5 +37,5 @@ const routes=[
 {path:'/danmaku/overlay',component:DanmakuOverlayView,meta:{title:'弹幕展示',standalone:true}},
 {path:'/music/lyrics-overlay',component:MusicLyricsOverlayView,meta:{title:'桌面歌词',standalone:true}},
 {path:'/settings',component:SettingsView,meta:{title:'系统设置',section:'系统管理'}},
-{path:'/logs',component:PlaceholderView,meta:{title:'日志诊断',section:'系统管理',description:'查看核心、平台适配器和扩展的运行日志。'}}]
+{path:'/logs',component:LogsView,meta:{title:'日志诊断',section:'系统管理',description:'检索核心、平台适配器和扩展的运行日志。'}}]
 export default createRouter({history:createWebHashHistory(),routes})
