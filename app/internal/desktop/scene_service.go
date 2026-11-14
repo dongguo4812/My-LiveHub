@@ -168,7 +168,7 @@ func validateLayoutConfig(value LayoutConfig) error {
 			}
 			layerIDs[layer.ID] = true
 			switch layer.Type {
-			case "text", "image", "clock", "danmaku", "gift", "super_chat", "music", "music_queue", "video_queue", "music_prompt", "live2d", "emoticon":
+			case "text", "image", "clock", "danmaku", "gift", "super_chat", "music", "music_queue", "video_queue", "music_prompt", "live2d", "emoticon", "lol_hex_display", "lol_hex_bar":
 			default:
 				return fmt.Errorf("不支持的图层类型：%s", layer.Type)
 			}
