@@ -81,7 +81,6 @@ func (s *VideoQueueService) Start() error {
 func (s *VideoQueueService) Stop() error {
 	if s == nil { return nil }
 	s.mu.Lock()
-	if !s.active { s.mu.Unlock(); return nil }
 	s.active = false
 	s.queue = make([]VideoQueueItem, 0)
 	s.current = nil
@@ -168,7 +167,7 @@ func (s *VideoQueueService) addVideo(bvid, requester string, userID int, privile
 	if len(bvid) == 12 { bvid = "BV" + bvid[2:] }
 	if !bilibiliBVPattern.MatchString(bvid) { return errors.New("请输入有效的 B 站 BV 号") }
 	s.mu.Lock()
-	if s.closed { s.mu.Unlock(); return errors.New("视频点播模块已关闭") }
+	if !s.active { s.mu.Unlock(); return errors.New("视频点播模块已关闭") }
 	if !privileged && !s.settings.VideoRequestsEnabled { s.mu.Unlock(); return errors.New("视频点播当前已关闭") }
 	if s.current != nil && s.current.BVID == bvid { s.mu.Unlock(); return errors.New("该视频正在播放") }
 	for _, item := range s.queue { if item.BVID == bvid { s.mu.Unlock(); return errors.New("该视频已经在待播队列中") } }
@@ -205,7 +204,7 @@ func formatVideoDuration(seconds int) string {
 }
 
 func (s *VideoQueueService) startNextLocked() {
-	if s.current != nil || len(s.queue) == 0 || s.closed { return }
+	if s.current != nil || len(s.queue) == 0 || !s.active { return }
 	item := s.queue[0]
 	s.queue = s.queue[1:]
 	s.current = cloneVideoQueueItem(&item)
