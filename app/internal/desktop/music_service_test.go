@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"errors"
 	"encoding/json"
 	"sync/atomic"
 	"testing"
@@ -386,6 +387,10 @@ func TestSplitSongRequestArtist(t *testing.T) {
 		{"太空基米", "太空基米", ""},
 		{"稻香 - 周杰伦", "稻香", "周杰伦"},
 		{"稻香－周杰伦", "稻香", "周杰伦"},
+		{"晴天 周杰伦", "晴天", "周杰伦"},
+		{"晴天  周杰伦", "晴天", "周杰伦"},
+		{"晴天　周杰伦", "晴天", "周杰伦"},
+		{"一路向北 Jay Chou", "一路向北", "Jay Chou"},
 	}
 	for _, tt := range cases {
 		title, artist := splitSongRequestArtist(tt.input)
@@ -421,4 +426,18 @@ func TestSearchSongRequestAcrossSourcesStopsAfterFirstValidMatch(t *testing.T) {
 		}, "稻香", "")
 	if !matched || track.ID != "tx_match" { t.Fatalf("track=%#v matched=%v", track, matched) }
 	if len(attempted) != 1 || attempted[0] != "tx" { t.Fatalf("search continued after valid match: %v", attempted) }
+}
+
+func TestSelectSongRequestTrackByCombinedText(t *testing.T) {
+	tracks := []music.Track{
+		{ID: "wrong", Title: "晴天", Artist: "其他歌手"},
+		{ID: "right", Title: "晴天", Artist: "周杰伦"},
+	}
+	got, ok := selectSongRequestTrackByCombinedText(tracks, "晴天 周杰伦")
+	if !ok || got.ID != "right" {
+		t.Fatalf("combined query selected %#v, matched=%v; want right", got, ok)
+	}
+	if _, ok := selectSongRequestTrackByCombinedText(tracks, "晴天 陈奕迅"); ok {
+		t.Fatal("combined query must not match an unrelated artist")
+	}
 }
