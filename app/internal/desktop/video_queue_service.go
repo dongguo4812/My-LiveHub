@@ -310,7 +310,9 @@ func (s *VideoQueueService) SkipCurrent() error {
 	if s == nil { return errors.New("视频点播队列不可用") }
 	s.mu.Lock()
 	if !s.active { s.mu.Unlock(); return errors.New("视频点播模块已停止") }
-	if s.current == nil { s.mu.Unlock(); return errors.New("当前没有正在播放的视频") }
+
+	// Prefer the waiting queue even if playback telemetry briefly cleared
+	// current while Bilibili was navigating or reloading the player.
 	s.current = nil
 	if len(s.queue) > 0 {
 		s.startNextLocked()
@@ -318,8 +320,15 @@ func (s *VideoQueueService) SkipCurrent() error {
 		return nil
 	}
 	s.mu.Unlock()
-	s.closePlayerIfActive()
-	return nil
+
+	// A player window can still be open when its last telemetry frame has
+	// already reset current. In that case "next" means end playback and close
+	// the player, rather than silently doing nothing.
+	if s.webview.GetWindowState().IsOpen {
+		s.closePlayerIfActive()
+		return nil
+	}
+	return errors.New("当前没有正在播放的视频，也没有下一个待播视频")
 }
 
 func (s *VideoQueueService) RemoveQueued(id uint64) error {
@@ -356,12 +365,14 @@ func (s *VideoQueueService) handleEvent(event eventstream.Event) {
 	requestPrefix := strings.TrimSpace(s.settings.VideoRequestPrefix)
 	s.mu.Unlock()
 	if skipEnabled && skipCommand != "" && text == skipCommand {
-		if event.IsModerator || event.IsRoomOwner {
-			if err := s.SkipCurrent(); err != nil {
-				s.publishRequestNotice("video_skip_failed", event.UserName, "", err.Error())
-			} else {
-				s.publishRequestNotice("video_skip_success", event.UserName, "", "")
-			}
+		if !event.IsModerator && !event.IsRoomOwner {
+			s.publishRequestNotice("video_skip_failed", event.UserName, "", "仅主播或房管可以切换视频")
+			return
+		}
+		if err := s.SkipCurrent(); err != nil {
+			s.publishRequestNotice("video_skip_failed", event.UserName, "", err.Error())
+		} else {
+			s.publishRequestNotice("video_skip_success", event.UserName, "", "")
 		}
 		return
 	}
