@@ -42,7 +42,7 @@ async function refresh() {
     loading.value = false
   }
 }
-function exportLogs(format: 'txt' | 'json') {
+function exportLogs(format: string) {
   const data = filtered.value
   const content = format === 'json'
     ? JSON.stringify(data, null, 2)
@@ -62,8 +62,8 @@ function copySelected() {
 function levelType(value: string) {
   return value === 'ERROR' ? 'danger' : value === 'WARN' ? 'warning' : value === 'DEBUG' ? 'info' : 'success'
 }
-function setAutoRefresh(value: boolean) {
-  autoRefresh.value = value
+function setAutoRefresh(value: string | number | boolean) {
+  autoRefresh.value = Boolean(value)
   if (timer) clearInterval(timer)
   timer = value ? setInterval(() => void refresh(), 5000) : undefined
 }
