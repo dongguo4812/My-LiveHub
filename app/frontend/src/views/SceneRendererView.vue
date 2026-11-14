@@ -88,7 +88,7 @@ const live2DFrameURL = computed(() => {
 })
 const musicDisplayConfig = ref<MusicDisplayConfig | null>(null)
 const musicError = ref('')
-const currentRequestNotices = ref<Record<string, RequestNotice[]>>({})
+const currentRequestNotices = ref<RequestNotice[]>([])
 const requestNoticeTimers = new Map<string, ReturnType<typeof setTimeout>>()
 let requestNoticeSource: EventSource | undefined
 const musicAccentColor = ref('#A83232')
@@ -263,17 +263,14 @@ function spawnFloatingEmoticons(event: LiveEvent) {
 function handleRequestNotice(event: MessageEvent<string>) {
   try {
     const notice = JSON.parse(event.data) as RequestNotice
-    for (const layer of scene.value?.layers || []) {
-      if (layer.type !== 'request_notice' || !layer.visible) continue
-      const notices = currentRequestNotices.value[layer.id] || (currentRequestNotices.value[layer.id] = [])
-      notices.push(notice)
-      const timerKey = layer.id + ':' + notice.id + ':' + notice.timestamp
-      const duration = Math.max(1, Math.min(120, layer.request_notice_display_duration || 5)) * 1000
-      requestNoticeTimers.set(timerKey, setTimeout(() => {
-        currentRequestNotices.value[layer.id] = (currentRequestNotices.value[layer.id] || []).filter(item => item.id !== notice.id || item.timestamp !== notice.timestamp)
-        requestNoticeTimers.delete(timerKey)
-      }, duration))
-    }
+    if (currentRequestNotices.value.some(item => item.id === notice.id && item.timestamp === notice.timestamp)) return
+    currentRequestNotices.value.push(notice)
+    const timerKey = notice.id + ':' + notice.timestamp
+    const duration = Math.max(1, Math.min(120, scene.value?.layers.find(layer => layer.type === 'request_notice' && layer.visible)?.request_notice_display_duration || 5)) * 1000
+    requestNoticeTimers.set(timerKey, setTimeout(() => {
+      currentRequestNotices.value = currentRequestNotices.value.filter(item => item.id !== notice.id || item.timestamp !== notice.timestamp)
+      requestNoticeTimers.delete(timerKey)
+    }, duration))
   } catch { /* Ignore malformed request notice frames. */ }
 }
 function requestNoticeText(notice: RequestNotice) {
@@ -474,7 +471,7 @@ onUnmounted(() => {
   <main v-if="scene" class="scene-output" :style="{ aspectRatio: scene.width + ' / ' + scene.height, background: scene.background === 'transparent' ? 'transparent' : scene.background }">
     <div v-for="layer in scene.layers.filter(item => item.visible && (item.type !== 'music_queue' || musicDisplayConfig?.command_enabled === true) && (item.type !== 'video_queue' || (videoQueue.running === true && videoQueue.enabled === true)) && (item.type !== 'live2d' || Boolean(live2DFrameURL)))" :key="layer.id" class="output-layer" :class="{ 'request-notice-output-layer': layer.type === 'request_notice', 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue', 'video-queue-output-layer': layer.type === 'video_queue', 'emoticon-output-layer': layer.type === 'emoticon' }" :style="layerStyle(layer)">
       <div v-if="layer.type === 'request_notice'" class="request-notice-stack">
-        <div v-for="notice in currentRequestNotices[layer.id] || []" :key="notice.id + ':' + notice.timestamp" class="request-notice-widget" :class="{ 'is-failed': notice.kind.endsWith('_failed') }" :style="{ color: notice.kind.endsWith('_failed') ? '#ffb2b2' : (layer.color || '#a7f3c0') }">{{ requestNoticeText(notice) }}</div>
+        <div v-for="notice in currentRequestNotices" :key="notice.id + ':' + notice.timestamp" class="request-notice-widget" :class="{ 'is-failed': notice.kind.endsWith('_failed') }" :style="{ color: notice.kind.endsWith('_failed') ? '#ffb2b2' : (layer.color || '#a7f3c0') }">{{ requestNoticeText(notice) }}</div>
       </div>
       <span v-else-if="layer.type === 'text'">{{ layer.text }}</span>
       <img v-else-if="layer.type === 'image' && layer.url" :src="layer.url" alt="" />
