@@ -95,7 +95,7 @@ func TestGiftCatalogRefreshCachesByRoomAndNormalizesImageURL(t *testing.T) {
 		if r.URL.Query().Get("platform") != "pc" || r.URL.Query().Get("room_id") == "" {
 			t.Errorf("unexpected gift catalog query: %s", r.URL.RawQuery)
 		}
-		_, _ = w.Write([]byte(`{"code":0,"message":"0","data":{"gift_config":{"base_config":{"list":[{"id":30607,"price":1000,"img_basic":"http://i0.hdslb.com/bfs/live/gift.png"}]}}}}`))
+		_, _ = w.Write([]byte(`{"code":0,"message":"0","data":{"gift_config":{"base_config":{"list":[{"id":30607,"name":"小心心","price":1000,"img_basic":"http://i0.hdslb.com/bfs/live/gift.png","gif":"http://i0.hdslb.com/bfs/live/gift.gif"}]}}}}`))
 	}))
 	defer server.Close()
 	catalog := newGiftCatalog(server.Client())
@@ -103,6 +103,12 @@ func TestGiftCatalogRefreshCachesByRoomAndNormalizesImageURL(t *testing.T) {
 	if err := catalog.Refresh(context.Background(), 12345); err != nil { t.Fatal(err) }
 	if got := catalog.ImageURL(12345, 30607); got != "https://i0.hdslb.com/bfs/live/gift.png" {
 		t.Fatalf("unexpected gift image URL: %q", got)
+	}
+	if got := catalog.AnimationURL(12345, 30607); got != "https://i0.hdslb.com/bfs/live/gift.gif" {
+		t.Fatalf("unexpected gift animation URL: %q", got)
+	}
+	if resources := catalog.Resources(12345); len(resources) != 1 || resources[0].AnimationURL != "https://i0.hdslb.com/bfs/live/gift.gif" {
+		t.Fatalf("gift animation metadata was not exposed: %+v", resources)
 	}
 	if err := catalog.Refresh(context.Background(), 12345); err != nil { t.Fatal(err) }
 	if requests != 1 { t.Fatalf("same room refresh made %d requests, want 1", requests) }
