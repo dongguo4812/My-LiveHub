@@ -21,7 +21,7 @@ func (m *LOLHexModule) Start(context.Context) error {
 
 func (m *LOLHexModule) Stop(context.Context) error {
 	if m != nil && m.service != nil {
-		m.service.StopIfOwned()
+		return m.service.StopIfOwned()
 	}
 	return nil
 }
