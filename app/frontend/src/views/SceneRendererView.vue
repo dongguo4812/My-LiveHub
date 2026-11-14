@@ -2,9 +2,11 @@
 import { computed, onMounted, onUnmounted, onUpdated, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
-type Layer = { id: string; type: string; name: string; x: number; y: number; width: number; height: number; z_index: number; visible: boolean; opacity: number; text?: string; url?: string; color?: string; font_size?: number; queue_display_count?: number; live2d_scale?: number; live2d_x?: number; live2d_y?: number }
+type Layer = { id: string; type: string; name: string; x: number; y: number; width: number; height: number; z_index: number; visible: boolean; opacity: number; text?: string; url?: string; color?: string; font_size?: number; queue_display_count?: number; live2d_scale?: number; live2d_x?: number; live2d_y?: number; emoticon_size?: number; emoticon_speed?: number; emoticon_drift?: number; emoticon_max_count?: number }
 type Scene = { id: string; name: string; width: number; height: number; background: string; layers: Layer[] }
-type LiveEvent = { id: number; type: string; user_name: string; content: string; gift_name?: string; gift_count?: number; amount?: number; timestamp: number }
+type EmoticonToken = { text: string; url: string; cache_url?: string; width?: number; height?: number }
+type LiveEvent = { id: number; type: string; user_name: string; content: string; gift_name?: string; gift_count?: number; amount?: number; timestamp: number; emoticons?: EmoticonToken[] }
+type FloatingEmoticon = { id: number; layerId: string; url: string; cacheURL?: string; x: number; size: number; drift: number; duration: number }
 type Track = { id: string; source_id: string; title: string; artist?: string; album?: string; duration_ms: number; cover_url?: string }
 type Playback = { state: string; track?: Track; position_ms: number; duration_ms: number }
 type MusicQueueItem = { id: string; track: Track; requested_by?: string }
@@ -17,6 +19,8 @@ type MusicDisplayConfig = { enabled: boolean; command_enabled: boolean; command_
 const route = useRoute()
 const scene = ref<Scene | null>(null)
 const liveEvents = ref<LiveEvent[]>([])
+const floatingEmoticons = ref<FloatingEmoticon[]>([])
+let nextFloatingEmoticonID = 0
 const now = ref(new Date())
 const error = ref('')
 const playback = ref<Playback | null>(null)
@@ -95,10 +99,50 @@ function layerStyle(layer: Layer) {
   }
 }
 function formatClock() { return now.value.toLocaleTimeString('zh-CN', { hour12: false }) }
+function removeFloatingEmoticon(id: number) {
+  floatingEmoticons.value = floatingEmoticons.value.filter(item => item.id !== id)
+}
+function spawnFloatingEmoticons(event: LiveEvent) {
+  if (event.type !== 'danmaku' || !event.emoticons?.length || !scene.value) return
+  for (const layer of scene.value.layers) {
+    if (layer.type !== 'emoticon' || !layer.visible || layer.width <= 0 || layer.height <= 0) continue
+    const maxCount = Math.max(1, Math.min(40, layer.emoticon_max_count || 12))
+    const configuredSize = Math.max(24, Math.min(160, layer.emoticon_size || 64))
+    const size = Math.max(16, Math.min(configuredSize, layer.width * 0.4, layer.height * 0.4))
+    const driftLimit = Math.max(0, Math.min(120, layer.emoticon_drift ?? 48, Math.max(0, (layer.width - size) / 2)))
+    const speed = Math.max(20, Math.min(300, layer.emoticon_speed || 90))
+    const duration = Math.max(1, Math.min(30, layer.height / speed))
+    const incoming: FloatingEmoticon[] = []
+    for (const token of event.emoticons) {
+      if (!token.url || !token.text || !event.content.includes(token.text)) continue
+      const occurrences = Math.min(8, event.content.split(token.text).length - 1)
+      for (let index = 0; index < occurrences; index++) {
+        const minX = size / 2 + driftLimit
+        const maxX = Math.max(minX, layer.width - size / 2 - driftLimit)
+        incoming.push({
+          id: ++nextFloatingEmoticonID,
+          layerId: layer.id,
+          url: token.url,
+          cacheURL: token.cache_url,
+          x: minX + Math.random() * (maxX - minX),
+          size,
+          drift: driftLimit ? (Math.random() * 2 - 1) * driftLimit : 0,
+          duration,
+        })
+      }
+    }
+    if (!incoming.length) continue
+    const existing = floatingEmoticons.value.filter(item => item.layerId === layer.id)
+    const keep = floatingEmoticons.value.filter(item => item.layerId !== layer.id)
+    const combined = [...existing, ...incoming].slice(-maxCount)
+    floatingEmoticons.value = [...keep, ...combined]
+  }
+}
 function handleEvent(event: MessageEvent<string>) {
   try {
     const value = JSON.parse(event.data) as LiveEvent
     if (liveEvents.value.some(item => item.id === value.id)) return
+    spawnFloatingEmoticons(value)
     liveEvents.value.push(value)
     liveEvents.value.sort((a, b) => a.id - b.id)
     if (liveEvents.value.length > 100) liveEvents.value.splice(0, liveEvents.value.length - 100)
@@ -259,10 +303,22 @@ onUnmounted(() => {
 
 <template>
   <main v-if="scene" class="scene-output" :style="{ aspectRatio: scene.width + ' / ' + scene.height, background: scene.background === 'transparent' ? 'transparent' : scene.background }">
-    <div v-for="layer in scene.layers.filter(item => item.visible && (item.type !== 'music_queue' || musicDisplayConfig?.command_enabled === true) && (item.type !== 'video_queue' || videoQueue.enabled === true) && (item.type !== 'live2d' || Boolean(live2DFrameURL)))" :key="layer.id" class="output-layer" :class="{ 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue', 'video-queue-output-layer': layer.type === 'video_queue' }" :style="layerStyle(layer)">
+    <div v-for="layer in scene.layers.filter(item => item.visible && (item.type !== 'music_queue' || musicDisplayConfig?.command_enabled === true) && (item.type !== 'video_queue' || videoQueue.enabled === true) && (item.type !== 'live2d' || Boolean(live2DFrameURL)))" :key="layer.id" class="output-layer" :class="{ 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue', 'video-queue-output-layer': layer.type === 'video_queue', 'emoticon-output-layer': layer.type === 'emoticon' }" :style="layerStyle(layer)">
       <span v-if="layer.type === 'text'">{{ layer.text }}</span>
       <img v-else-if="layer.type === 'image' && layer.url" :src="layer.url" alt="" />
       <time v-else-if="layer.type === 'clock'">{{ formatClock() }}</time>
+      <div v-else-if="layer.type === 'emoticon'" class="floating-emoticon-layer">
+        <img
+          v-for="particle in floatingEmoticons.filter(item => item.layerId === layer.id)"
+          :key="particle.id"
+          class="floating-emoticon"
+          :src="particle.cacheURL || particle.url"
+          alt=""
+          referrerpolicy="no-referrer"
+          :style="{ left: particle.x + 'px', width: particle.size + 'px', height: particle.size + 'px', '--emoticon-drift': particle.drift + 'px', '--emoticon-duration': particle.duration + 's' }"
+          @animationend="removeFloatingEmoticon(particle.id)"
+        />
+      </div>
       <iframe v-else-if="layer.type === 'live2d' && live2DFrameURL" class="live2d-output-frame" :data-layer-id="layer.id" :src="live2DFrameURL" title="Live2D" allowtransparency="true" :style="{ backgroundColor: 'transparent' }" />
       <div v-else-if="layer.type === 'danmaku'" class="event-stack">
         <div v-for="item in danmaku" :key="item.id" class="event-line"><strong>{{ item.user_name }}</strong><span>{{ item.content }}</span></div>
@@ -367,6 +423,15 @@ html,body,#app{width:100%;height:100%;margin:0;overflow:hidden;background:transp
 body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .scene-output{position:relative;width:100vw;height:100vh;overflow:hidden;container-type:size;background:transparent}
 .output-layer{position:absolute;display:flex;align-items:flex-start;justify-content:flex-start;overflow:hidden;white-space:pre-wrap;word-break:break-word;font-weight:600;text-shadow:0 2px 6px #000b}
+.emoticon-output-layer{padding:0;white-space:normal;text-shadow:none}
+.floating-emoticon-layer{position:absolute;inset:0;overflow:hidden;pointer-events:none}
+.floating-emoticon{position:absolute;top:100%;display:block;max-width:40%;max-height:40%;object-fit:contain;transform:translateX(-50%);opacity:0;pointer-events:none;animation:emoticon-rise var(--emoticon-duration) linear both}
+@keyframes emoticon-rise{
+  0%{top:100%;opacity:0;transform:translate3d(-50%,0,0)}
+  10%{opacity:1}
+  82%{opacity:1}
+  100%{top:-25%;opacity:0;transform:translate3d(calc(-50% + var(--emoticon-drift)),0,0)}
+}
 .output-layer img{width:100%;height:100%;object-fit:contain}.output-layer iframe.live2d-output-frame{display:block;width:100%;height:100%;border:0;background:transparent!important;background-color:transparent!important;pointer-events:none}
 .event-stack{display:flex;flex-direction:column;gap:.35em;width:100%;height:100%;overflow:hidden}
 .event-line{display:flex;gap:.5em;align-items:baseline;padding:.2em .4em;border-radius:.3em;background:#10131ac9;font-size:1em;line-height:1.35}
