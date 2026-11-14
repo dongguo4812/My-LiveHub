@@ -51,6 +51,7 @@ type VideoQueueService struct {
 	pending map[string]bool
 	nextID uint64
 	active bool
+	generation uint64
 	fanMedalChecker interface { Check(context.Context, int, int) (bool, int, error) }
 }
 
@@ -72,6 +73,7 @@ func (s *VideoQueueService) Start() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.active { return nil }
+	s.generation++
 	s.unsubscribe = s.events.Subscribe(s.handleEvent)
 	s.webview.setPlaybackStateHandler(s.handlePlaybackState)
 	s.active = true
@@ -84,6 +86,7 @@ func (s *VideoQueueService) Stop() error {
 	s.mu.Lock()
 	wasActive := s.active
 	s.active = false
+	s.generation++
 	s.queue = make([]VideoQueueItem, 0)
 	s.current = nil
 	s.pending = make(map[string]bool)
@@ -171,12 +174,18 @@ func (s *VideoQueueService) AddVideo(bvid, requester string, userID int) error {
 }
 
 func (s *VideoQueueService) addVideo(bvid, requester string, userID int, privileged bool) error {
+	return s.addVideoForGeneration(bvid, requester, userID, privileged, 0)
+}
+
+func (s *VideoQueueService) addVideoForGeneration(bvid, requester string, userID int, privileged bool, expectedGeneration uint64) error {
 	if s == nil { return errors.New("视频点播队列不可用") }
 	bvid = strings.TrimSpace(bvid)
 	if len(bvid) == 12 { bvid = "BV" + bvid[2:] }
 	if !bilibiliBVPattern.MatchString(bvid) { return errors.New("请输入有效的 B 站 BV 号") }
 	s.mu.Lock()
 	if !s.active { s.mu.Unlock(); return errors.New("视频点播模块已关闭") }
+	generation := s.generation
+	if expectedGeneration != 0 && expectedGeneration != generation { s.mu.Unlock(); return errors.New("视频点播请求已失效") }
 	if !privileged && !s.settings.VideoRequestsEnabled { s.mu.Unlock(); return errors.New("视频点播当前已关闭") }
 	if s.current != nil && s.current.BVID == bvid { s.mu.Unlock(); return errors.New("该视频正在播放") }
 	for _, item := range s.queue { if item.BVID == bvid { s.mu.Unlock(); return errors.New("该视频已经在待播队列中") } }
@@ -187,9 +196,13 @@ func (s *VideoQueueService) addVideo(bvid, requester string, userID int, privile
 
 	title, duration, err := s.resolver.GetVideoInfo(context.Background(), bvid)
 	s.mu.Lock()
+	if s.generation != generation || !s.active {
+		if s.generation == generation { delete(s.pending, bvid) }
+		s.mu.Unlock()
+		return errors.New("视频点播请求已因模块停止而取消")
+	}
 	delete(s.pending, bvid)
 	if err != nil { s.mu.Unlock(); return err }
-	if !s.active { s.mu.Unlock(); return errors.New("视频点播模块已关闭") }
 	if s.current != nil && s.current.BVID == bvid { s.mu.Unlock(); return errors.New("该视频正在播放") }
 	for _, item := range s.queue { if item.BVID == bvid { s.mu.Unlock(); return errors.New("该视频已经在待播队列中") } }
 	if !privileged && duration > s.settings.VideoMaxDurationSeconds {
@@ -301,8 +314,10 @@ func (s *VideoQueueService) ClearQueue() {
 }
 
 func (s *VideoQueueService) handleEvent(event eventstream.Event) {
-	s.mu.Lock(); active := s.active; s.mu.Unlock()
-	if !active { return }
+	s.mu.Lock()
+	if !s.active { s.mu.Unlock(); return }
+	generation := s.generation
+	s.mu.Unlock()
 	if event.PlatformID != "bilibili" || event.Source != "live" || event.Type != "danmaku" { return }
 	text := strings.TrimSpace(event.Content)
 	if text == "下一个" {
@@ -316,13 +331,13 @@ func (s *VideoQueueService) handleEvent(event eventstream.Event) {
 	if !strings.HasPrefix(text, "点播") { return }
 	match := videoRequestBVPattern.FindString(text)
 	if match == "" { return }
-	go s.processVideoRequest(event, match)
+	go s.processVideoRequest(event, match, generation)
 }
 
-func (s *VideoQueueService) processVideoRequest(event eventstream.Event, bvid string) {
+func (s *VideoQueueService) processVideoRequest(event eventstream.Event, bvid string, generation uint64) {
 	privileged := event.IsModerator || event.IsRoomOwner
 	s.mu.Lock()
-	if !s.active { s.mu.Unlock(); return }
+	if !s.active || s.generation != generation { s.mu.Unlock(); return }
 	requestsEnabled := s.settings.VideoRequestsEnabled
 	requireMedal := s.settings.VideoRequireFanMedal
 	minLevel := s.settings.VideoFanMedalLevel
@@ -339,6 +354,7 @@ func (s *VideoQueueService) processVideoRequest(event eventstream.Event, bvid st
 		if !allowed { log.Printf("拒绝视频点播用户 %d：主播粉丝勋章等级 %d，要求 %d", event.UserID, level, minLevel); return }
 	}
 	s.mu.Lock()
+	if !s.active || s.generation != generation { s.mu.Unlock(); return }
 	if !privileged {
 		cooldown := time.Duration(s.settings.VideoRequestCooldownSeconds) * time.Second
 		if previous, ok := s.lastRequest[event.UserID]; ok && cooldown > 0 && time.Since(previous) < cooldown {
@@ -348,7 +364,7 @@ func (s *VideoQueueService) processVideoRequest(event eventstream.Event, bvid st
 		s.lastRequest[event.UserID] = time.Now()
 	}
 	s.mu.Unlock()
-	_ = s.addVideo(bvid, event.UserName, event.UserID, privileged)
+	_ = s.addVideoForGeneration(bvid, event.UserName, event.UserID, privileged, generation)
 }
 
 func (s *VideoQueueService) Close() { _ = s.Stop() }
