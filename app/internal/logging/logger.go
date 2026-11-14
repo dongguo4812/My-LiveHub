@@ -123,8 +123,7 @@ func (w *dailyWriter) cleanup(now time.Time) error {
 	if err != nil {
 		return fmt.Errorf("read log directory: %w", err)
 	}
-	cutoff := now.Local().Truncate(24*time.Hour)
-	cutoff = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -(w.retentionDays - 1))
+	cutoff := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -(w.retentionDays - 1))
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -197,6 +196,10 @@ func (w *dailyWriter) Write(data []byte) (int, error) {
 	defer w.mu.Unlock()
 	now := w.now()
 	if now.Format("2006-01-02") != w.date {
+		if w.file != nil {
+			if err := w.file.Close(); err != nil { return 0, err }
+			w.file = nil
+		}
 		if err := w.cleanup(now); err != nil { return 0, err }
 	}
 	if err := w.ensureFile(now); err != nil { return 0, err }
