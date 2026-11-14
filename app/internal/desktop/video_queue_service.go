@@ -30,6 +30,7 @@ type VideoQueueItem struct {
 
 type VideoQueueSnapshot struct {
 	Enabled bool `json:"enabled"`
+	Running bool `json:"running"`
 	Current *VideoQueueItem `json:"current,omitempty"`
 	Items []VideoQueueItem `json:"items"`
 	QueueCount int `json:"queue_count"`
@@ -125,7 +126,7 @@ func (s *VideoQueueService) GetSnapshot() VideoQueueSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	items := append([]VideoQueueItem{}, s.queue...)
-	return VideoQueueSnapshot{Enabled:s.active && s.settings.VideoRequestsEnabled, Current:cloneVideoQueueItem(s.current),
+	return VideoQueueSnapshot{Enabled:s.settings.VideoRequestsEnabled, Running:s.active, Current:cloneVideoQueueItem(s.current),
 		Items:items, QueueCount:len(items), Playback:s.webview.GetPlaybackState()}
 }
 
