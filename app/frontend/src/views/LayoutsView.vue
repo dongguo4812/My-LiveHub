@@ -11,9 +11,11 @@ type Live2DDisplay = { enabled: boolean; runtime_version: 'moc2' | 'moc3'; model
 type Live2DLayer = LayoutLayer & { live2d_scale?: number; live2d_x?: number; live2d_y?: number }
 type EmoticonLayer = LayoutLayer & { emoticon_size?: number; emoticon_speed?: number; emoticon_drift?: number; emoticon_max_count?: number }
 type GiftLayer = LayoutLayer & { gift_display_duration?: number }
+type SuperChatLayer = LayoutLayer & { super_chat_display_duration?: number }
 function live2DLayer(layer: LayoutLayer) { return layer as Live2DLayer }
 function emoticonLayer(layer: LayoutLayer) { return layer as EmoticonLayer }
 function giftLayer(layer: LayoutLayer) { return layer as GiftLayer }
+function superChatLayer(layer: LayoutLayer) { return layer as SuperChatLayer }
 function live2DScale(layer: LayoutLayer) { return live2DLayer(layer).live2d_scale || 100 }
 const live2DDisplay = ref<Live2DDisplay | null>(null)
 let live2DRefreshTimer: ReturnType<typeof setInterval> | undefined
@@ -109,6 +111,7 @@ function addLayer(type: string) {
   if (type === 'live2d') Object.assign(layer, { live2d_scale: 100, live2d_x: 0, live2d_y: 0 })
   if (type === 'emoticon') Object.assign(layer, { emoticon_size: 64, emoticon_speed: 90, emoticon_drift: 48, emoticon_max_count: 12 })
   if (type === 'gift') Object.assign(layer, { gift_display_duration: 8 })
+  if (type === 'super_chat') Object.assign(layer, { super_chat_display_duration: 8 })
   scene.value.layers.push(layer)
   selectedLayerID.value = layer.id
 }
@@ -368,6 +371,7 @@ onUnmounted(() => {
             <el-form-item v-if="selectedLayer!.type === 'image'" label="图片 URL"><el-input v-model="selectedLayer!.url" placeholder="https://..." /></el-form-item>
             <el-form-item v-if="selectedLayer !== null && (selectedLayer!.type === 'music_queue' || selectedLayer!.type === 'video_queue')" label="待播显示数量"><el-input-number v-model="selectedQueueLayer!.queue_display_count" :min="1" :max="1000" /><div class="el-form-item__description">仅控制此队列组件显示的待播条数；队列标题仍显示实际数量。</div></el-form-item>
             <el-form-item v-if="selectedLayer!.type === 'gift'" label="显示时间"><el-input-number v-model="giftLayer(selectedLayer!).gift_display_duration" :min="1" :max="120" :step="1" controls-position="right" /> <span class="el-form-item__description">礼物出现后保留的秒数（1–120 秒）</span></el-form-item>
+            <el-form-item v-if="selectedLayer!.type === 'super_chat'" label="显示时间"><el-input-number v-model="superChatLayer(selectedLayer!).super_chat_display_duration" :min="1" :max="120" :step="1" controls-position="right" /> <span class="el-form-item__description">SC 留言出现后保留的秒数（1–120 秒）</span></el-form-item>
             <template v-if="selectedEmoticonLayer">
               <el-form-item label="表情大小"><div class="live2d-adjustment"><strong>{{ selectedEmoticonLayer.emoticon_size ?? 64 }} px</strong><el-slider v-model="selectedEmoticonLayer.emoticon_size" :min="24" :max="160" :step="4" /></div></el-form-item>
               <el-form-item label="上升速度"><div class="live2d-adjustment"><strong>{{ selectedEmoticonLayer.emoticon_speed ?? 90 }} px/s</strong><el-slider v-model="selectedEmoticonLayer.emoticon_speed" :min="20" :max="300" :step="5" /></div></el-form-item>
