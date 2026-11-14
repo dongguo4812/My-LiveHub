@@ -450,7 +450,7 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .event-line span{min-width:0;overflow-wrap:anywhere}
 .gift-line{background:#382448dc}.sc-line{background:#603c1edc}
 .gift-event-stack{display:flex;flex-wrap:wrap;align-content:flex-start;align-items:flex-start;gap:.5em;width:100%;height:100%;overflow:hidden}
-.gift-event-card{display:flex;flex:0 0 auto;flex-direction:column;align-items:center;justify-content:flex-start;gap:.18em;min-width:0;max-width:48%;padding:.25em .45em;border:1px solid rgba(255,255,255,.16);border-radius:.5em;background:linear-gradient(145deg,rgba(56,36,72,.9),rgba(25,22,36,.82));text-align:center;line-height:1.25}
+.gift-event-card{box-sizing:border-box;display:flex;flex:1 1 28%;height:100%;flex-direction:column;align-items:center;justify-content:flex-start;gap:.18em;min-width:0;max-width:48%;padding:.25em .45em;border:1px solid rgba(255,255,255,.16);border-radius:.5em;background:linear-gradient(145deg,rgba(56,36,72,.9),rgba(25,22,36,.82));text-align:center;line-height:1.25}
 .gift-event-image{display:block;width:auto!important;height:auto!important;max-width:100%;max-height:65%;min-height:0;object-fit:contain}
 .gift-event-image-fallback{display:grid;place-items:center;min-height:2.2em;font-size:2em}
 .gift-event-caption{display:flex;flex-direction:column;align-items:center;gap:.1em;max-width:100%;font-size:.72em}
