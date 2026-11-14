@@ -220,7 +220,7 @@ func safeLive2DPathPart(value string) bool {
 func WrapLive2DAssetHandler(service *Live2DService, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if service != nil && strings.HasPrefix(r.URL.Path, "/models/") {
-			if !service.IsEnabled() { http.Error(w, "Live2D module is stopped", http.StatusServiceUnavailable); return }
+			// Keep model-management previews available while the scene module is stopped.
 			service.serveModelAsset(w, r)
 			return
 		}
