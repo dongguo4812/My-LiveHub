@@ -33,6 +33,7 @@ var embeddedDefaultConfig embed.FS
 func main() {
 	environment := config.ResolveEnvironment(os.Args[1:])
 	logDirectory := ""
+	var applicationLogger *applogging.Logger
 	if environment == config.EnvironmentDevelopment {
 		if workingDir, getwdErr := os.Getwd(); getwdErr == nil {
 			logDirectory = filepath.Join(workingDir, "logs")
@@ -45,7 +46,8 @@ func main() {
 		log.Printf("resolve application log directory: %v", configDirErr)
 	}
 	if logDirectory != "" {
-		applicationLogger, loggerErr := applogging.New(logDirectory)
+		var loggerErr error
+		applicationLogger, loggerErr = applogging.New(logDirectory)
 		if loggerErr != nil {
 			log.Printf("initialize application file logging: %v", loggerErr)
 		} else {
@@ -84,6 +86,15 @@ func main() {
 	})
 	if err != nil {
 		log.Fatalf("load application configuration: %v", err)
+	}
+	if applicationLogger != nil {
+		retentionDays := appConfig.Logging.RetentionDays
+		if retentionDays == 0 { retentionDays = config.DefaultLogRetentionDays }
+		if retentionErr := applicationLogger.SetRetentionDays(retentionDays); retentionErr != nil {
+			log.Printf("apply configured log retention (%d days): %v", retentionDays, retentionErr)
+		} else {
+			log.Printf("log retention configured: %d days", retentionDays)
+		}
 	}
 	danmakuDisplayConfig, err := config.LoadTyped[config.DanmakuDisplayConfig](configManager, "danmaku_display.json", func(value config.DanmakuDisplayConfig) error {
 		return value.Validate()
