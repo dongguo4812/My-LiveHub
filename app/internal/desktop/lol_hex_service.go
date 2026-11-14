@@ -155,7 +155,10 @@ func (s *LOLHexService) Start() (LOLHexStatus, error) {
 		return LOLHexStatus{}, fmt.Errorf("找不到 LOL Hex 启动入口：%w", err)
 	}
 	var command *exec.Cmd
-	exePath := filepath.Join(s.extensionDir, "lol_hex_display.exe")
+	exePath := filepath.Join(s.extensionDir, "dist", "lol_hex_display", "lol_hex_display.exe")
+	if _, err := os.Stat(exePath); err != nil {
+		exePath = filepath.Join(s.extensionDir, "lol_hex_display.exe")
+	}
 	if _, err := os.Stat(exePath); err == nil {
 		command = exec.Command(exePath, "--config", s.configPath)
 	} else {
