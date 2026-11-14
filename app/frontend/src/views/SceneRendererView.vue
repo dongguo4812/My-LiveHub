@@ -500,6 +500,9 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .output-layer img{width:100%;height:100%;object-fit:contain}.output-layer iframe.live2d-output-frame{display:block;width:100%;height:100%;border:0;background:transparent!important;background-color:transparent!important;pointer-events:none}
 .event-stack{display:flex;flex-direction:column;gap:.35em;width:100%;height:100%;overflow:hidden}
 .event-line{display:flex;gap:.5em;align-items:baseline;padding:.2em .4em;border-radius:.3em;background:#10131ac9;font-size:1em;line-height:1.35}
+.sc-line{display:block;overflow-wrap:anywhere;white-space:normal}
+.sc-line strong{display:inline;margin-right:.5em}
+.sc-line span{display:inline;min-width:0;overflow-wrap:anywhere}
 .event-line strong{color:#ffe08a;flex:none}
 .event-line span{min-width:0;overflow-wrap:anywhere}
 .gift-line{background:#382448dc}.sc-line{background:#603c1edc}
