@@ -67,6 +67,9 @@ func NewVideoQueueService(manager *config.Manager, settings config.BilibiliConfi
 	if strings.TrimSpace(settings.VideoSkipCommand) == "" { settings.VideoSkipCommand = "下一个" }
 	s := &VideoQueueService{manager:manager, settings:settings, resolver:resolver, webview:webview,
 		events:eventBuffer, lastRequest:make(map[int]time.Time), pending:make(map[string]bool), queue:make([]VideoQueueItem,0)}
+	// Keep a lightweight command listener alive while the optional video module
+	// is stopped, so moderators receive an explicit "feature disabled" result.
+	s.unsubscribe = eventBuffer.Subscribe(s.handleEvent)
 	return s, nil
 }
 
@@ -78,7 +81,7 @@ func (s *VideoQueueService) Start() error {
 	defer s.mu.Unlock()
 	if s.active { return nil }
 	s.generation++
-	s.unsubscribe = s.events.Subscribe(s.handleEvent)
+	if s.unsubscribe == nil { s.unsubscribe = s.events.Subscribe(s.handleEvent) }
 	s.webview.setPlaybackStateHandler(s.handlePlaybackState)
 	s.active = true
 	return nil
@@ -94,10 +97,9 @@ func (s *VideoQueueService) Stop() error {
 	s.queue = make([]VideoQueueItem, 0)
 	s.current = nil
 	s.pending = make(map[string]bool)
-	unsubscribe := s.unsubscribe
-	s.unsubscribe = nil
+	// Keep the event subscription alive while stopped: handleEvent filters
+	// ordinary requests but can still report that the video module is disabled.
 	s.mu.Unlock()
-	if unsubscribe != nil { unsubscribe() }
 	s.webview.setPlaybackStateHandler(nil)
 	if wasActive {
 		// Wait for an in-flight OpenVideo call so it cannot reopen the player
@@ -255,19 +257,23 @@ func formatVideoDuration(seconds int) string {
 	return fmt.Sprintf("%d:%02d", seconds/60, seconds%60)
 }
 
+func (s *VideoQueueService) openVideoItem(item VideoQueueItem) error {
+	s.playerMu.Lock()
+	defer s.playerMu.Unlock()
+	s.mu.Lock()
+	shouldOpen := s.active && s.current != nil && s.current.ID == item.ID
+	s.mu.Unlock()
+	if !shouldOpen { return errors.New("视频点播请求已取消") }
+	return s.webview.OpenVideo(item.BVID)
+}
+
 func (s *VideoQueueService) startNextLocked() {
 	if s.current != nil || len(s.queue) == 0 || !s.active { return }
 	item := s.queue[0]
 	s.queue = s.queue[1:]
 	s.current = cloneVideoQueueItem(&item)
 	go func() {
-		s.playerMu.Lock()
-		defer s.playerMu.Unlock()
-		s.mu.Lock()
-		shouldOpen := s.active && s.current != nil && s.current.ID == item.ID
-		s.mu.Unlock()
-		if !shouldOpen { return }
-		if err := s.webview.OpenVideo(item.BVID); err != nil {
+		if err := s.openVideoItem(item); err != nil {
 			s.mu.Lock()
 			if s.current != nil && s.current.ID == item.ID { s.current = nil }
 			hasNext := s.active && len(s.queue) > 0
@@ -307,28 +313,51 @@ func (s *VideoQueueService) handlePlaybackState(state BilibiliWebViewPlaybackSta
 }
 
 func (s *VideoQueueService) SkipCurrent() error {
-	if s == nil { return errors.New("视频点播队列不可用") }
-	s.mu.Lock()
-	if !s.active { s.mu.Unlock(); return errors.New("视频点播模块已停止") }
+	_, err := s.SkipCurrentWithResult()
+	return err
+}
 
-	// Prefer the waiting queue even if playback telemetry briefly cleared
-	// current while Bilibili was navigating or reloading the player.
+// SkipCurrentWithResult reports whether the command ended playback because
+// the queue was empty. When a next item exists, it waits for OpenVideo to
+// return so callers never announce success before startup has succeeded.
+func (s *VideoQueueService) SkipCurrentWithResult() (finished bool, err error) {
+	if s == nil { return false, errors.New("视频点播队列不可用") }
+	s.mu.Lock()
+	if !s.active { s.mu.Unlock(); return false, errors.New("视频点播功能未开启") }
+
+	// Retire the current item and reserve the next one before releasing the
+	// queue lock. The player itself is opened synchronously for this command.
 	s.current = nil
 	if len(s.queue) > 0 {
-		s.startNextLocked()
+		item := s.queue[0]
+		s.queue = s.queue[1:]
+		s.current = cloneVideoQueueItem(&item)
 		s.mu.Unlock()
-		return nil
+		if openErr := s.openVideoItem(item); openErr != nil {
+			s.mu.Lock()
+			if s.current != nil && s.current.ID == item.ID { s.current = nil }
+			hasNext := s.active && len(s.queue) > 0
+			if hasNext { s.startNextLocked() }
+			s.mu.Unlock()
+			if !hasNext { s.webview.CloseWindow() }
+			return false, fmt.Errorf("启动下一条视频失败：%w", openErr)
+		}
+		return false, nil
 	}
 	s.mu.Unlock()
 
-	// A player window can still be open when its last telemetry frame has
-	// already reset current. In that case "next" means end playback and close
-	// the player, rather than silently doing nothing.
-	if s.webview.GetWindowState().IsOpen {
-		s.closePlayerIfActive()
-		return nil
+	// No waiting item means the command ends the current playback. Close only
+	// if the player is still open; an absent player and empty queue is a failure.
+	s.playerMu.Lock()
+	defer s.playerMu.Unlock()
+	s.mu.Lock()
+	idle := s.active && s.current == nil && len(s.queue) == 0
+	s.mu.Unlock()
+	if idle && s.webview.GetWindowState().IsOpen {
+		s.webview.CloseWindow()
+		return true, nil
 	}
-	return errors.New("当前没有正在播放的视频，也没有下一个待播视频")
+	return false, errors.New("当前没有正在播放的视频，也没有下一个待播视频")
 }
 
 func (s *VideoQueueService) RemoveQueued(id uint64) error {
@@ -353,13 +382,11 @@ func (s *VideoQueueService) ClearQueue() {
 }
 
 func (s *VideoQueueService) handleEvent(event eventstream.Event) {
-	s.mu.Lock()
-	if !s.active { s.mu.Unlock(); return }
-	generation := s.generation
-	s.mu.Unlock()
 	if event.PlatformID != "bilibili" || event.Source != "live" || event.Type != "danmaku" { return }
 	text := strings.TrimSpace(event.Content)
 	s.mu.Lock()
+	active := s.active
+	generation := s.generation
 	skipEnabled := s.settings.VideoSkipCommandEnabled
 	skipCommand := strings.TrimSpace(s.settings.VideoSkipCommand)
 	requestPrefix := strings.TrimSpace(s.settings.VideoRequestPrefix)
@@ -369,13 +396,21 @@ func (s *VideoQueueService) handleEvent(event eventstream.Event) {
 			s.publishRequestNotice("video_skip_failed", event.UserName, "", "仅主播或房管可以切换视频")
 			return
 		}
-		if err := s.SkipCurrent(); err != nil {
+		if !active {
+			s.publishRequestNotice("video_skip_failed", event.UserName, "", "视频点播功能未开启")
+			return
+		}
+		finished, err := s.SkipCurrentWithResult()
+		if err != nil {
 			s.publishRequestNotice("video_skip_failed", event.UserName, "", err.Error())
+		} else if finished {
+			s.publishRequestNotice("video_skip_finished", event.UserName, "", "没有下一条视频，播放已结束")
 		} else {
 			s.publishRequestNotice("video_skip_success", event.UserName, "", "")
 		}
 		return
 	}
+	if !active { return }
 	if strings.HasPrefix(text, "清空视频队列") {
 		if event.IsModerator || event.IsRoomOwner { s.ClearQueue() }
 		return
