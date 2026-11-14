@@ -126,7 +126,7 @@ function spawnFloatingEmoticons(event: LiveEvent) {
           cacheURL: token.cache_url,
           x: minX + Math.random() * (maxX - minX),
           size,
-          drift: driftLimit ? (Math.random() * 2 - 1) * driftLimit : 0,
+          drift: driftLimit ? Math.random() * driftLimit : 0,
           duration,
         })
       }
@@ -429,8 +429,11 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 @keyframes emoticon-rise{
   0%{top:100%;opacity:0;transform:translate3d(-50%,0,0)}
   10%{opacity:1}
+  25%{transform:translate3d(calc(-50% + var(--emoticon-drift)),0,0)}
+  50%{transform:translate3d(-50%,0,0)}
+  75%{transform:translate3d(calc(-50% - var(--emoticon-drift)),0,0)}
   82%{opacity:1}
-  100%{top:-25%;opacity:0;transform:translate3d(calc(-50% + var(--emoticon-drift)),0,0)}
+  100%{top:-25%;opacity:0;transform:translate3d(-50%,0,0)}
 }
 .output-layer img{width:100%;height:100%;object-fit:contain}.output-layer iframe.live2d-output-frame{display:block;width:100%;height:100%;border:0;background:transparent!important;background-color:transparent!important;pointer-events:none}
 .event-stack{display:flex;flex-direction:column;gap:.35em;width:100%;height:100%;overflow:hidden}
