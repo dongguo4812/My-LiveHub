@@ -103,7 +103,7 @@ function addLayer(type: string) {
     danmaku: { name: '弹幕列表', width: 760, height: 260, font_size: 24, color: '#ffffff' },
     gift: { name: '礼物展示', width: 520, height: 180, font_size: 28, color: '#ffffff' },
     super_chat: { name: 'SC 展示', width: 520, height: 180, font_size: 28, color: '#ffffff' },
-    request_notice: { name: '点播结果通知', width: 620, height: 100, font_size: 30, color: '#ffffff' },
+    request_notice: { name: '点播结果通知', width: 620, height: 100, font_size: 30, color: '#a7f3c0' },
 
     music: { name: '音乐展示', width: 620, height: 190, font_size: 24, color: '#ffffff' },
     music_queue: { name: '歌曲点播队列', width: 500, height: 360, font_size: 22, color: '#ffffff' },
