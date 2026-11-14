@@ -52,6 +52,8 @@ body {
     border: none;
     border-radius: 0;
     box-shadow: none;
+    transform: scale(var(--content-scale, 1));
+    transform-origin: top left;
 }
 
 /* 左侧固定信息区：只显示在第一行 */
@@ -231,6 +233,8 @@ body {
 <body>
 <div id="bar"></div>
 <script>
+const contentScale = Math.max(25, Math.min(300, Number(new URLSearchParams(location.search).get('content_scale')) || 100)) / 100;
+document.documentElement.style.setProperty('--content-scale', String(contentScale));
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({
     '&': '&amp;',
     '<': '&lt;',
