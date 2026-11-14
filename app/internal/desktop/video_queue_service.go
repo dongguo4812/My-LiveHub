@@ -410,15 +410,18 @@ func (s *VideoQueueService) handleEvent(event eventstream.Event) {
 		}
 		return
 	}
-	if !active { return }
 	if strings.HasPrefix(text, "清空视频队列") {
-		if event.IsModerator || event.IsRoomOwner { s.ClearQueue() }
+		if active && (event.IsModerator || event.IsRoomOwner) { s.ClearQueue() }
 		return
 	}
-	match := parseVideoRequest(text, requestPrefix)
 	if requestPrefix == "" || !strings.HasPrefix(text, requestPrefix) { return }
+	match := parseVideoRequest(text, requestPrefix)
 	if match == "" {
 		s.publishRequestNotice("video_request_failed", event.UserName, "", "未识别到有效的 B 站 BV 号")
+		return
+	}
+	if !active {
+		s.publishRequestNotice("video_request_failed", event.UserName, "", "视频点播功能未开启")
 		return
 	}
 	go s.processVideoRequest(event, match, generation)
