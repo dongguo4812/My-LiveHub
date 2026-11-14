@@ -27,16 +27,25 @@ async function waitForLolHexService(layerId: string, pageURL: string) {
   lolHexReadyChecks.set(layerId, pageURL)
   const healthURL = new URL('/api/health', pageURL).toString()
   while (!sceneRendererUnmounted && lolHexReadyChecks.get(layerId) === pageURL) {
+    let ready = false
     try {
       const response = await fetch(healthURL, { cache: 'no-store', mode: 'cors' })
       if (response.ok) {
         const status = await response.json() as { ready?: boolean }
-        if (status.ready === true) {
-          lolHexFrameURLs.value = { ...lolHexFrameURLs.value, [layerId]: pageURL }
-          return
-        }
+        ready = status.ready === true
       }
-    } catch { /* LOL Hex 尚未启动或端口暂不可访问，稍后重试。 */ }
+    } catch { /* LOL Hex 未启动或已关闭，隐藏对应展示并继续等待启动。 */ }
+
+    if (ready) {
+      if (lolHexFrameURLs.value[layerId] !== pageURL) {
+        lolHexFrameURLs.value = { ...lolHexFrameURLs.value, [layerId]: pageURL }
+      }
+    } else if (lolHexFrameURLs.value[layerId]) {
+      const next = { ...lolHexFrameURLs.value }
+      delete next[layerId]
+      lolHexFrameURLs.value = next
+    }
+
     await new Promise(resolve => setTimeout(resolve, 1200))
   }
 }
