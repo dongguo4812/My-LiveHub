@@ -1,6 +1,8 @@
 package desktop
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -67,4 +69,30 @@ func TestReadLive2DManifestMetadataSupportsMOC2LowercaseKeys(t *testing.T) {
 	if len(metadata.Expressions) != 1 || metadata.Expressions[0] != "smile" { t.Fatalf("unexpected MOC2 expressions: %#v", metadata.Expressions) }
 	if len(metadata.MotionGroups) != 1 || metadata.MotionGroups[0].Name != "idle" { t.Fatalf("unexpected MOC2 motions: %#v", metadata.MotionGroups) }
 	if !metadata.HasPhysics { t.Fatal("expected MOC2 physics capability") }
+}
+
+
+func TestLive2DServiceLifecycleKeepsModelAssetsAvailable(t *testing.T) {
+	root := t.TempDir()
+	modelDir := filepath.Join(root, "moc3", "avatar")
+	if err := os.MkdirAll(modelDir, 0o700); err != nil { t.Fatal(err) }
+	manifest := filepath.Join(modelDir, "model3.json")
+	if err := os.WriteFile(manifest, []byte("{}"), 0o600); err != nil { t.Fatal(err) }
+
+	service := NewLive2DService(nil, config.DefaultLive2DConfig(), root)
+	handler := WrapLive2DAssetHandler(service, http.NotFoundHandler())
+	request := func() int {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/models/moc3/avatar/model3.json", nil))
+		return recorder.Code
+	}
+	if service.IsEnabled() { t.Fatal("Live2D should begin stopped before module startup") }
+	if got := request(); got != http.StatusOK { t.Fatalf("model management asset status while stopped = %d, want %d", got, http.StatusOK) }
+	if err := service.Start(); err != nil { t.Fatal(err) }
+	if !service.IsEnabled() { t.Fatal("Live2D should be enabled after start") }
+	if err := service.Stop(); err != nil { t.Fatal(err) }
+	if service.IsEnabled() { t.Fatal("Live2D should be disabled after stop") }
+	if got := request(); got != http.StatusOK { t.Fatalf("model management asset status after stop = %d, want %d", got, http.StatusOK) }
+	if err := service.Start(); err != nil { t.Fatal(err) }
+	if !service.IsEnabled() { t.Fatal("Live2D should be enabled after restart") }
 }

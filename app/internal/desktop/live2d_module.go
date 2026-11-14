@@ -11,7 +11,10 @@ func NewLive2DModule(service *Live2DService) *Live2DModule { return &Live2DModul
 
 func (m *Live2DModule) Start(context.Context) error {
 	if m == nil || m.service == nil { return errors.New("Live2D service is unavailable") }
-	return nil
+	return m.service.Start()
 }
 
-func (m *Live2DModule) Stop(context.Context) error { return nil }
+func (m *Live2DModule) Stop(context.Context) error {
+	if m == nil || m.service == nil { return nil }
+	return m.service.Stop()
+}

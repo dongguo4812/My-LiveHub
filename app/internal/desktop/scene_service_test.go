@@ -173,3 +173,28 @@ func TestValidateLayoutConfigRejectsInvalidScenes(t *testing.T) {
 		})
 	}
 }
+
+
+func TestSceneLive2DDisplayFollowsModuleState(t *testing.T) {
+	settings := config.DefaultLive2DConfig()
+	settings.Enabled = true
+	service := NewLive2DService(nil, settings, t.TempDir())
+	scene := &SceneService{live2d: service}
+	request := func() bool {
+		recorder := httptest.NewRecorder()
+		scene.handleLive2D(recorder, httptest.NewRequest(http.MethodGet, "/api/live2d", nil))
+		if recorder.Code != http.StatusOK { t.Fatalf("Live2D scene status = %d: %s", recorder.Code, recorder.Body.String()) }
+		var payload map[string]any
+		if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil { t.Fatal(err) }
+		enabled, ok := payload["enabled"].(bool)
+		if !ok { t.Fatalf("Live2D enabled flag missing: %#v", payload) }
+		return enabled
+	}
+	if request() { t.Fatal("scene should hide Live2D before module startup") }
+	if err := service.Start(); err != nil { t.Fatal(err) }
+	if !request() { t.Fatal("scene should display Live2D after module startup") }
+	if err := service.Stop(); err != nil { t.Fatal(err) }
+	if request() { t.Fatal("scene should hide Live2D after module stop") }
+	if err := service.Start(); err != nil { t.Fatal(err) }
+	if !request() { t.Fatal("scene should display Live2D after module restart") }
+}

@@ -97,6 +97,11 @@ let legacyScriptPromise: Promise<void> | null = null
 let runtimeMessageHandler: ((event: MessageEvent) => void) | null = null
 let mouthSyncChannel: BroadcastChannel | null = null
 let mouthSyncEndpoint = ''
+let live2DStatusEndpoint = ''
+let live2DModuleStatusTimer: ReturnType<typeof setInterval> | undefined
+const live2DModuleEnabled = ref(false)
+let microphoneStarting = false
+let lastKnownLive2DModuleEnabled: boolean | null = null
 
 function broadcastMouthOpen(value: number) {
   const bounded = Math.max(0, Math.min(1, value))
@@ -118,8 +123,31 @@ async function resolveMouthSyncEndpoint() {
     if (!scene) return
     const sourceURL = await getBrowserSourceURL(scene.id)
     mouthSyncEndpoint = new URL('/api/live2d/mouth', sourceURL).toString()
+    live2DStatusEndpoint = new URL('/api/live2d', sourceURL).toString()
+    await refreshLive2DModuleStatus()
   } catch {
     mouthSyncEndpoint = ''
+  }
+}
+
+async function refreshLive2DModuleStatus() {
+  if (!live2DStatusEndpoint) {
+    live2DModuleEnabled.value = false
+    return
+  }
+  try {
+    const response = await fetch(live2DStatusEndpoint, { cache: 'no-store' })
+    const data = response.ok ? await response.json() as { enabled?: boolean } : null
+    live2DModuleEnabled.value = data?.enabled === true
+  } catch {
+    // A temporary status request failure must not disable manual microphone control.
+    return
+  }
+  if (lastKnownLive2DModuleEnabled === true && !live2DModuleEnabled.value && micActive.value) stopMicrophone()
+  lastKnownLive2DModuleEnabled = live2DModuleEnabled.value
+  // Preserve the user's microphone preference across Live2D module restarts.
+  if (live2DModuleEnabled.value && settings.value?.microphone_enabled && !micActive.value && !microphoneStarting) {
+    await startMicrophone()
   }
 }
 
@@ -458,9 +486,12 @@ function analyseMicrophone() {
 }
 
 async function startMicrophone() {
+  if (micActive.value || microphoneStarting) return
+  microphoneStarting = true
   micError.value = ''
   if (!navigator.mediaDevices?.getUserMedia) {
     micError.value = '当前 WebView 不支持麦克风采集'
+    microphoneStarting = false
     return
   }
   try {
@@ -486,6 +517,8 @@ async function startMicrophone() {
   } catch (error) {
     stopMicrophone()
     micError.value = String(error)
+  } finally {
+    microphoneStarting = false
   }
 }
 
@@ -514,8 +547,11 @@ onMounted(() => {
   runtimeMessageHandler = onRuntimeMessage
   window.addEventListener('message', runtimeMessageHandler)
   void refresh()
+  live2DModuleStatusTimer = setInterval(() => { void refreshLive2DModuleStatus() }, 1000)
 })
 onUnmounted(() => {
+  if (live2DModuleStatusTimer) clearInterval(live2DModuleStatusTimer)
+  live2DModuleStatusTimer = undefined
   stopMicrophone()
   mouthSyncChannel?.close()
   mouthSyncChannel = null
@@ -609,7 +645,7 @@ onUnmounted(() => {
         <el-progress :percentage="levelPercent" :show-text="false" />
         <div class="meter-label mouth-label"><span>实时嘴型开合</span><strong>{{ mouthPercent }}%</strong></div>
         <el-progress :percentage="mouthPercent" :show-text="false" status="success" />
-        <p class="hint">麦克风 RMS 音量实时映射到已检测到的模型嘴型参数。模型不支持时会明确显示检测结果。</p>
+        <p class="hint">{{ live2DModuleEnabled ? '麦克风 RMS 音量实时映射到已检测到的模型嘴型参数。' : 'Live2D 模块未运行，口型同步已暂停；启动模块后可启用麦克风。' }}模型不支持时会明确显示检测结果。</p>
       </div>
       <div class="tuning-row">
         <div><span>麦克风灵敏度</span><el-slider v-if="settings" :model-value="settings.microphone_sensitivity" :min="0.1" :max="10" :step="0.1" @input="previewMicrophoneTuning({ microphone_sensitivity: Number($event) })" @change="save({ microphone_sensitivity: Number($event) })" /></div>

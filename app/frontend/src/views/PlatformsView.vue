@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { connectPlatform, disconnectPlatform, platformActionError, platforms, platformEvents, platformsError, refreshPlatforms, refreshEvents } from '../services/platforms'
+import { connectPlatform, disconnectPlatform, platformActionError, platforms, platformsError, refreshPlatforms } from '../services/platforms'
 import { bilibiliAccount, bilibiliAuthBusy, bilibiliAuthError, bilibiliCookieBusy, bilibiliLoginSession, bilibiliLoginStatus, logoutBilibili, pollBilibiliLogin, refreshBilibiliAccount, startBilibiliLogin, loginBilibiliWithCookie } from '../services/bilibiliAuth'
 import { bilibiliSettings, bilibiliSettingsBusy, bilibiliSettingsError, loadBilibiliSettings, saveBilibiliRoomID } from '../services/bilibiliSettings'
 
@@ -25,7 +25,6 @@ const liveStatusTypes: Record<string, 'info'|'success'> = { live: 'success', off
 let pollTimer: ReturnType<typeof setInterval> | undefined
 let eventTimer: ReturnType<typeof setInterval> | undefined
 const bilibiliConnected = computed(() => platforms.value.some(item => item.platform_id === 'bilibili' && ['connecting', 'connected', 'disconnecting'].includes(item.status)))
-const bilibiliDanmakuEvents = computed(() => platformEvents.value.filter(event => event.platform_id === 'bilibili' && event.type === 'danmaku'))
 
 async function submitBrowserCookie() {
   const ok = await loginBilibiliWithCookie(browserCookie.value)
@@ -34,7 +33,6 @@ async function submitBrowserCookie() {
 async function saveRoomID() {
   if (await saveBilibiliRoomID(roomID.value)) await loadBilibiliSettings()
 }
-function formatEventTime(timestamp: number) { return new Date(timestamp).toLocaleTimeString() }
 async function runAction(platformID: string, action: 'connect' | 'disconnect') {
   busyPlatformID.value = platformID
   try {
@@ -49,13 +47,11 @@ onMounted(() => {
   void refreshPlatforms()
   void refreshBilibiliAccount()
   void loadBilibiliSettings().then(() => { roomID.value = bilibiliSettings.value.room_id })
-  void refreshEvents()
   pollTimer = setInterval(() => { if (bilibiliLoginSession.value) void pollBilibiliLogin() }, 2000)
-  eventTimer = setInterval(() => { void refreshPlatforms(); void refreshEvents() }, 1500)
+  eventTimer = setInterval(() => { void refreshPlatforms() }, 1500)
 })
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
-  if (eventTimer) clearInterval(eventTimer)
 })
 </script>
 
@@ -94,11 +90,7 @@ onUnmounted(() => {
         <el-table-column label="操作" width="250" fixed="right"><template #default="{ row }"><el-button v-if="row.status === 'disconnected' || row.status === 'failed'" type="primary" plain size="small" :loading="busyPlatformID === row.platform_id" :disabled="!!busyPlatformID" @click="runAction(row.platform_id, 'connect')">连接</el-button><el-button v-else-if="row.status === 'connected'" type="danger" plain size="small" :loading="busyPlatformID === row.platform_id" :disabled="!!busyPlatformID" @click="runAction(row.platform_id, 'disconnect')">断开连接</el-button><el-button v-else size="small" disabled>处理中</el-button></template></el-table-column>
       </el-table>
     </el-card>
-    <el-card shadow="never">
-      <template #header><div class="card-heading"><span>实时弹幕</span><el-tag size="small" effect="plain">{{ bilibiliDanmakuEvents.length }} 条缓存</el-tag></div></template>
-      <el-empty v-if="!bilibiliDanmakuEvents.length" description="连接直播间后，收到的弹幕会显示在这里" :image-size="80" />
-      <el-table v-else :data="[...bilibiliDanmakuEvents].reverse()" row-key="id" max-height="420"><el-table-column label="时间" width="105"><template #default="{ row }">{{ formatEventTime(row.timestamp) }}</template></el-table-column><el-table-column label="用户" width="160"><template #default="{ row }">{{ row.user_name }}</template></el-table-column><el-table-column prop="content" label="弹幕内容" min-width="260" show-overflow-tooltip /><el-table-column label="来源" width="85"><template #default="{ row }"><el-tag v-if="row.is_simulation" type="warning" size="small">模拟</el-tag><el-tag v-else type="success" size="small">真实</el-tag></template></el-table-column></el-table>
-    </el-card>
+
   </section>
 </template>
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log"
@@ -183,6 +184,7 @@ func main() {
 	}
 
 	platformService := desktop.NewPlatformService(platformManager, bilibiliEvents, mediaCatalog)
+	monitorService := desktop.NewMonitorService(logDirectory)
 	var wailsApp *application.App
 	voiceService, err := voice.NewService(bilibiliEvents, configManager, voiceConfig, func(name string, data any) error {
 		if wailsApp == nil {
@@ -198,6 +200,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("initialize voice service: %v", err)
 	}
+	interactionRuleService, err := desktop.NewInteractionRuleService(configManager, bilibiliEvents, voiceService)
+	if err != nil { log.Fatalf("initialize interaction rule service: %v", err) }
 	if err := coreApp.Modules().Register("voice", voice.NewModule(voiceService)); err != nil {
 		log.Fatalf("register voice module: %v", err)
 	}
@@ -210,6 +214,34 @@ func main() {
 	live2dService := desktop.NewLive2DService(configManager, live2dConfig, filepath.Join(cacheDir, "live2d", "models"))
 	if err := coreApp.Modules().Register("live2d", desktop.NewLive2DModule(live2dService)); err != nil {
 		log.Fatalf("register Live2D module: %v", err)
+	}
+
+	lolHexConfig, err := configManager.Load("lol_hex_display.json")
+	if err != nil {
+		log.Fatalf("load LOL Hex configuration: %v", err)
+	}
+	if err := configManager.Save("lol_hex_display.json", lolHexConfig); err != nil {
+		log.Fatalf("persist LOL Hex configuration defaults: %v", err)
+	}
+	applicationPath, err := os.Executable()
+	if err != nil {
+		log.Fatalf("resolve application executable: %v", err)
+	}
+	extensionRoot := filepath.Join(filepath.Dir(applicationPath), "extensions", "lol_hex_display")
+	if environment == config.EnvironmentDevelopment {
+		if workingDir, getwdErr := os.Getwd(); getwdErr == nil {
+			extensionRoot = filepath.Join(workingDir, "extensions", "lol_hex_display")
+		}
+	} else if _, statErr := os.Stat(extensionRoot); errors.Is(statErr, os.ErrNotExist) {
+		// Wails places the executable in app/bin; allow extensions to be shipped
+		// beside that bin directory in the application root.
+		extensionRoot = filepath.Join(filepath.Dir(filepath.Dir(applicationPath)), "extensions", "lol_hex_display")
+	}
+	lolHexService, err := desktop.NewLOLHexService(extensionRoot, filepath.Join(paths.LocalDir, "lol_hex_display.json"))
+	if err != nil {
+		log.Printf("LOL Hex extension unavailable: %v", err)
+	} else if err := coreApp.Modules().Register("lol-hex-display", desktop.NewLOLHexModule(lolHexService)); err != nil {
+		log.Fatalf("register LOL Hex module: %v", err)
 	}
 	bilibiliSettingsService := desktop.NewBilibiliSettingsService(configManager, bilibiliConfig, bilibiliAdapter, fanMedalChecker)
 	assetHandler := application.AssetFileServerFS(assets)
@@ -245,17 +277,20 @@ func main() {
 		},
 		Services: []application.Service{
 			application.NewService(desktop.NewCoreService(coreApp)),
+			application.NewService(monitorService),
 			application.NewService(platformService),
 			application.NewService(desktop.NewBilibiliAuthService(bilibiliAuth, platformManager)),
 			application.NewService(bilibiliSettingsService),
-			application.NewService(desktop.NewAppearanceService(configManager, appConfig)),
+			application.NewService(desktop.NewAppearanceService(configManager, appConfig, applicationLogger)),
 			application.NewService(danmakuDisplayService),
 			application.NewService(sceneService),
 			application.NewService(voiceService),
+			application.NewService(interactionRuleService),
 			application.NewService(musicService),
 			application.NewService(musicLyricsWindowService),
 			application.NewService(videoQueueService),
 			application.NewService(live2dService),
+			application.NewService(lolHexService),
 			application.NewService(bilibiliWebViewService),
 		},
 	})

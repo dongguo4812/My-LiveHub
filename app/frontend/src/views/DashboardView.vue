@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
-import { Connection, Monitor, Operation, ChatDotRound } from '@element-plus/icons-vue'
+import { Connection, Operation, ChatDotRound } from '@element-plus/icons-vue'
 import { coreModules, coreStatus, coreStatusError, refreshCoreStatus } from '../services/coreStatus'
 
 const coreLabel = computed(() => {
@@ -20,7 +20,6 @@ const cards = computed(() => [
   { label: '核心服务', value: coreLabel.value, note: coreStatus.value ? `配置版本 v${coreStatus.value.config_version}` : '等待核心状态响应', icon: Operation },
   { label: '功能模块', value: `${runningModules.value} / ${coreModules.value.length}`, note: failedModules.value ? `${failedModules.value} 个模块启动失败` : '运行中 / 已注册', icon: Connection },
   { label: '统一事件流', value: '等待事件', note: '事件总线尚未接入', icon: ChatDotRound },
-  { label: 'OBS 状态', value: '未连接', note: '由 Go 核心统一管理', icon: Monitor },
 ])
 
 onMounted(() => void refreshCoreStatus())
@@ -75,7 +74,7 @@ onMounted(() => void refreshCoreStatus())
 .eyebrow { margin: 0 0 9px; color: var(--el-color-primary); font-size: 11px; letter-spacing: .16em; }
 h2 { margin: 0; font-size: 25px; font-weight: 650; }
 .muted { margin: 9px 0 0; color: var(--el-text-color-secondary); }
-.stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 .stat-card { border-color: var(--el-border-color); background: var(--el-bg-color); }
 .stat-head { display: flex; align-items: center; justify-content: space-between; color: var(--el-text-color-secondary); }
 .stat-head .el-icon { font-size: 19px; color: var(--el-color-primary); }

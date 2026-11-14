@@ -111,3 +111,41 @@ func TestModuleManagerContinuesStoppingAfterError(t *testing.T) {
 		t.Fatalf("unexpected module statuses after shutdown: %+v", statuses)
 	}
 }
+
+func TestModuleManagerControlsModulesIndependentlyAndAllowsRestart(t *testing.T) {
+	manager := NewModuleManager()
+	var calls []string
+	_ = manager.Register("voice", testModule{name: "voice", calls: &calls})
+	_ = manager.Register("music", testModule{name: "music", calls: &calls})
+	if err := manager.StartAll(context.Background()); err != nil { t.Fatal(err) }
+	if err := manager.StopModule(context.Background(), "voice"); err != nil { t.Fatal(err) }
+	statuses := manager.Snapshot()
+	if statuses[0].Status != ModuleStopped || statuses[1].Status != ModuleRunning {
+		t.Fatalf("stopping voice changed unexpected module states: %+v", statuses)
+	}
+	if err := manager.StartModule(context.Background(), "voice"); err != nil { t.Fatal(err) }
+	if got := manager.Snapshot()[0].Status; got != ModuleRunning { t.Fatalf("restarted voice status = %q, want running", got) }
+	if err := manager.StopAll(context.Background()); err != nil { t.Fatal(err) }
+	want := []string{"start:voice", "start:music", "stop:voice", "start:voice", "stop:music", "stop:voice"}
+	if !reflect.DeepEqual(calls, want) { t.Fatalf("calls = %v, want %v", calls, want) }
+}
+
+
+type manualStartTestModule struct { testModule }
+
+func (manualStartTestModule) StartOnApplicationLaunch() bool { return false }
+
+func TestModuleManagerKeepsManualModulesStoppedUntilRequested(t *testing.T) {
+	manager := NewModuleManager()
+	var calls []string
+	if err := manager.Register("manual", manualStartTestModule{testModule{name: "manual", calls: &calls}}); err != nil { t.Fatal(err) }
+	if err := manager.Register("automatic", testModule{name: "automatic", calls: &calls}); err != nil { t.Fatal(err) }
+	if err := manager.StartAll(context.Background()); err != nil { t.Fatal(err) }
+	statuses := manager.Snapshot()
+	if statuses[0].Status != ModuleStopped || statuses[1].Status != ModuleRunning { t.Fatalf("unexpected startup statuses: %+v", statuses) }
+	if !reflect.DeepEqual(calls, []string{"start:automatic"}) { t.Fatalf("startup calls = %v", calls) }
+	if err := manager.StartModule(context.Background(), "manual"); err != nil { t.Fatal(err) }
+	if err := manager.StopModule(context.Background(), "manual"); err != nil { t.Fatal(err) }
+	if !reflect.DeepEqual(calls, []string{"start:automatic", "start:manual", "stop:manual"}) { t.Fatalf("manual lifecycle calls = %v", calls) }
+	if err := manager.StopAll(context.Background()); err != nil { t.Fatal(err) }
+}

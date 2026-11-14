@@ -12,10 +12,9 @@ func NewVideoModule(service *VideoQueueService) *VideoModule {
 }
 func (m *VideoModule) Start(context.Context) error {
 	if m == nil || m.service == nil { return errors.New("video queue service is unavailable") }
-	return nil
+	return m.service.Start()
 }
 func (m *VideoModule) Stop(context.Context) error {
 	if m == nil || m.service == nil { return nil }
-	m.service.Close()
-	return nil
+	return m.service.Stop()
 }

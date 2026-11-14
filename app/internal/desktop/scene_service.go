@@ -47,6 +47,7 @@ type LayoutLayer struct {
 	URL      string  `json:"url,omitempty"`
 	Color    string  `json:"color,omitempty"`
 	FontSize int     `json:"font_size,omitempty"`
+	ContentScale int `json:"content_scale,omitempty"`
 	QueueDisplayCount int `json:"queue_display_count,omitempty"`
 	Live2DScale float64 `json:"live2d_scale,omitempty"`
 	Live2DX float64 `json:"live2d_x,omitempty"`
@@ -66,6 +67,7 @@ type sceneVideoProvider interface {
 type sceneLive2DProvider interface {
 	GetSettings() config.Live2DConfig
 	ListModels() ([]Live2DModel, error)
+	IsEnabled() bool
 }
 
 type sceneMusicProvider interface {
@@ -168,7 +170,7 @@ func validateLayoutConfig(value LayoutConfig) error {
 			}
 			layerIDs[layer.ID] = true
 			switch layer.Type {
-			case "text", "image", "clock", "danmaku", "gift", "super_chat", "music", "music_queue", "video_queue", "music_prompt", "live2d", "emoticon":
+			case "text", "image", "clock", "danmaku", "gift", "super_chat", "music", "music_queue", "video_queue", "music_prompt", "live2d", "emoticon", "lol_hex_display", "lol_hex_bar":
 			default:
 				return fmt.Errorf("不支持的图层类型：%s", layer.Type)
 			}
@@ -357,7 +359,7 @@ func (s *SceneService) handleLive2D(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeSceneJSON(w, map[string]any{
-		"enabled": settings.Enabled,
+		"enabled": settings.Enabled && s.live2d.IsEnabled(),
 		"runtime_version": settings.RuntimeVersion,
 		"model_id": modelID,
 		"model_url": modelURL,
@@ -378,11 +380,22 @@ func (s *SceneService) handleLive2DMouth(w http.ResponseWriter, r *http.Request)
 	}
 	switch r.Method {
 	case http.MethodGet:
+		if s.live2d == nil || !s.live2d.IsEnabled() {
+			writeSceneJSON(w, map[string]float64{"value": 0})
+			return
+		}
 		s.mu.RLock()
 		value := s.mouthOpen
 		s.mu.RUnlock()
 		writeSceneJSON(w, map[string]float64{"value": value})
 	case http.MethodPost:
+		if s.live2d == nil || !s.live2d.IsEnabled() {
+			s.mu.Lock()
+			s.mouthOpen = 0
+			s.mu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		var payload struct { Value float64 `json:"value"` }
 		r.Body = http.MaxBytesReader(w, r.Body, 1024)
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {

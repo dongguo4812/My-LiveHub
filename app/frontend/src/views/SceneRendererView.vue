@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, onUpdated, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
-type Layer = { id: string; type: string; name: string; x: number; y: number; width: number; height: number; z_index: number; visible: boolean; opacity: number; text?: string; url?: string; color?: string; font_size?: number; queue_display_count?: number; gift_display_duration?: number; super_chat_display_duration?: number; live2d_scale?: number; live2d_x?: number; live2d_y?: number; emoticon_size?: number; emoticon_speed?: number; emoticon_drift?: number; emoticon_max_count?: number }
+type Layer = { id: string; type: string; name: string; x: number; y: number; width: number; height: number; z_index: number; visible: boolean; opacity: number; text?: string; url?: string; color?: string; font_size?: number; queue_display_count?: number; gift_display_duration?: number; super_chat_display_duration?: number; live2d_scale?: number; live2d_x?: number; live2d_y?: number; emoticon_size?: number; emoticon_speed?: number; emoticon_drift?: number; emoticon_max_count?: number; content_scale?: number }
 type Scene = { id: string; name: string; width: number; height: number; background: string; layers: Layer[] }
 type EmoticonToken = { text: string; url: string; cache_url?: string; width?: number; height?: number }
 type LiveEvent = { id: number; type: string; user_name: string; content: string; gift_name?: string; gift_count?: number; gift_image_url?: string; gift_image_cache_url?: string; gift_animation_url?: string; gift_animation_cache_url?: string; amount?: number; timestamp: number; emoticons?: EmoticonToken[] }
@@ -13,12 +13,63 @@ type Playback = { state: string; track?: Track; position_ms: number; duration_ms
 type MusicQueueItem = { id: string; track: Track; requested_by?: string }
 type MusicQueue = { current?: MusicQueueItem; items: MusicQueueItem[]; capacity: number }
 type VideoQueueItem = { id: number; bvid: string; title: string; duration_seconds: number; requester: string }
-type VideoQueue = { enabled: boolean; current?: VideoQueueItem; items: VideoQueueItem[]; queue_count: number }
+type VideoQueue = { enabled: boolean; running: boolean; current?: VideoQueueItem; items: VideoQueueItem[]; queue_count: number }
 type Live2DDisplay = { enabled: boolean; runtime_version: 'moc2' | 'moc3'; model_url: string; model_scale: number; model_offset_x: number; model_offset_y: number }
 type Live2DWindow = Window & { live2dSetModelTransform?: (scale: number, x: number, y: number) => boolean; live2dSetMouthOpen?: (value: number) => void }
 type MusicDisplayConfig = { enabled: boolean; command_enabled: boolean; command_prefix: string; skip_command_enabled: boolean; skip_command: string; require_fan_medal: boolean; fan_medal_level: number }
 const route = useRoute()
 const scene = ref<Scene | null>(null)
+const lolHexFrameURLs = ref<Record<string, string>>({})
+const lolHexReadyChecks = new Map<string, string>()
+let sceneRendererUnmounted = false
+async function waitForLolHexService(layerId: string, pageURL: string) {
+  if (lolHexReadyChecks.get(layerId) === pageURL) return
+  lolHexReadyChecks.set(layerId, pageURL)
+  const healthURL = new URL('/api/health', pageURL).toString()
+  while (!sceneRendererUnmounted && lolHexReadyChecks.get(layerId) === pageURL) {
+    let ready = false
+    try {
+      const response = await fetch(healthURL, { cache: 'no-store', mode: 'cors' })
+      if (response.ok) {
+        const status = await response.json() as { ready?: boolean }
+        ready = status.ready === true
+      }
+    } catch { /* LOL Hex 未启动或已关闭，隐藏对应展示并继续等待启动。 */ }
+
+    if (ready) {
+      if (lolHexFrameURLs.value[layerId] !== pageURL) {
+        lolHexFrameURLs.value = { ...lolHexFrameURLs.value, [layerId]: pageURL }
+      }
+    } else if (lolHexFrameURLs.value[layerId]) {
+      const next = { ...lolHexFrameURLs.value }
+      delete next[layerId]
+      lolHexFrameURLs.value = next
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 1200))
+  }
+}
+function lolHexDisplayURL(layer: Layer) {
+  const url = new URL(lolHexFrameURLs.value[layer.id])
+  url.searchParams.set('content_scale', String(Math.max(25, Math.min(300, layer.content_scale ?? 100))))
+  return url.toString()
+}
+function prepareLolHexFrames(currentScene: Scene) {
+  const activeIDs = new Set<string>()
+  for (const layer of currentScene.layers) {
+    if (!layer.visible || (layer.type !== 'lol_hex_display' && layer.type !== 'lol_hex_bar') || !layer.url) continue
+    activeIDs.add(layer.id)
+    void waitForLolHexService(layer.id, layer.url)
+  }
+  for (const id of Object.keys(lolHexFrameURLs.value)) {
+    if (!activeIDs.has(id)) {
+      const next = { ...lolHexFrameURLs.value }
+      delete next[id]
+      lolHexFrameURLs.value = next
+      lolHexReadyChecks.delete(id)
+    }
+  }
+}
 const liveEvents = ref<LiveEvent[]>([])
 const floatingEmoticons = ref<FloatingEmoticon[]>([])
 let nextFloatingEmoticonID = 0
@@ -26,7 +77,7 @@ const now = ref(new Date())
 const error = ref('')
 const playback = ref<Playback | null>(null)
 const musicQueue = ref<MusicQueue>({ items: [], capacity: 0 })
-const videoQueue = ref<VideoQueue>({ enabled: false, items: [], queue_count: 0 })
+const videoQueue = ref<VideoQueue>({ enabled: false, running: false, items: [], queue_count: 0 })
 const live2DDisplay = ref<Live2DDisplay | null>(null)
 const live2DFrameURL = computed(() => {
   const value = live2DDisplay.value
@@ -53,6 +104,13 @@ let mouthSyncChannel: BroadcastChannel | null = null
 let mouthSyncPollTimer: ReturnType<typeof setInterval> | undefined
 let currentMouthOpen = 0
 async function pollMouthSync() {
+  if (!live2DDisplay.value?.enabled) {
+    currentMouthOpen = 0
+    document.querySelectorAll<HTMLIFrameElement>('.live2d-output-frame').forEach(frame => {
+      (frame.contentWindow as Live2DWindow | null)?.live2dSetMouthOpen?.(0)
+    })
+    return
+  }
   try {
     const response = await fetch('/api/live2d/mouth', { cache: 'no-store' })
     if (!response.ok) return
@@ -67,6 +125,10 @@ async function pollMouthSync() {
 }
 function handleMouthSyncMessage(event: MessageEvent) {
   if (event.data?.type !== 'live2d-mouth-open') return
+  if (!live2DDisplay.value?.enabled) {
+    currentMouthOpen = 0
+    return
+  }
   currentMouthOpen = Math.max(0, Math.min(1, Number(event.data.value) || 0))
   document.querySelectorAll<HTMLIFrameElement>('.live2d-output-frame').forEach(frame => {
     (frame.contentWindow as Live2DWindow | null)?.live2dSetMouthOpen?.(currentMouthOpen)
@@ -211,6 +273,7 @@ async function loadScene() {
     const response = await fetch('/api/scenes/' + id, { cache: 'no-store' })
     if (!response.ok) throw new Error('场景不存在或浏览器源服务不可用')
     scene.value = await response.json() as Scene
+    prepareLolHexFrames(scene.value)
     error.value = ''
     document.title = scene.value.name + ' - My-LiveHub'
     document.documentElement.style.background = 'transparent'
@@ -232,7 +295,15 @@ function audienceQueueDisplayItems(layer: Layer) {
 async function loadLive2DDisplay() {
   try {
     const response = await fetch('/api/live2d', { cache: 'no-store' })
-    if (response.ok) live2DDisplay.value = await response.json() as Live2DDisplay
+    if (response.ok) {
+      live2DDisplay.value = await response.json() as Live2DDisplay
+      if (!live2DDisplay.value.enabled) {
+        currentMouthOpen = 0
+        document.querySelectorAll<HTMLIFrameElement>('.live2d-output-frame').forEach(frame => {
+          (frame.contentWindow as Live2DWindow | null)?.live2dSetMouthOpen?.(0)
+        })
+      }
+    }
   } catch { /* Keep the last known Live2D configuration. */ }
 }
 function applyLive2DFrameTransforms() {
@@ -273,6 +344,7 @@ async function loadVideoQueue() {
     const data = await response.json() as Partial<VideoQueue>
     videoQueue.value = {
       enabled: data.enabled === true,
+      running: data.running === true,
       current: data.current,
       items: Array.isArray(data.items) ? data.items : [],
       queue_count: Number.isFinite(data.queue_count) ? Number(data.queue_count) : 0,
@@ -334,6 +406,7 @@ onMounted(() => {
 })
 onUpdated(() => { applyLive2DFrameTransforms() })
 onUnmounted(() => {
+  sceneRendererUnmounted = true
   mouthSyncChannel?.close()
   mouthSyncChannel = null
   if (mouthSyncPollTimer) clearInterval(mouthSyncPollTimer)
@@ -351,9 +424,10 @@ onUnmounted(() => {
 
 <template>
   <main v-if="scene" class="scene-output" :style="{ aspectRatio: scene.width + ' / ' + scene.height, background: scene.background === 'transparent' ? 'transparent' : scene.background }">
-    <div v-for="layer in scene.layers.filter(item => item.visible && (item.type !== 'music_queue' || musicDisplayConfig?.command_enabled === true) && (item.type !== 'video_queue' || videoQueue.enabled === true) && (item.type !== 'live2d' || Boolean(live2DFrameURL)))" :key="layer.id" class="output-layer" :class="{ 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue', 'video-queue-output-layer': layer.type === 'video_queue', 'emoticon-output-layer': layer.type === 'emoticon' }" :style="layerStyle(layer)">
+    <div v-for="layer in scene.layers.filter(item => item.visible && (item.type !== 'music_queue' || musicDisplayConfig?.command_enabled === true) && (item.type !== 'video_queue' || (videoQueue.running === true && videoQueue.enabled === true)) && (item.type !== 'live2d' || Boolean(live2DFrameURL)))" :key="layer.id" class="output-layer" :class="{ 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue', 'video-queue-output-layer': layer.type === 'video_queue', 'emoticon-output-layer': layer.type === 'emoticon' }" :style="layerStyle(layer)">
       <span v-if="layer.type === 'text'">{{ layer.text }}</span>
       <img v-else-if="layer.type === 'image' && layer.url" :src="layer.url" alt="" />
+      <iframe v-else-if="(layer.type === 'lol_hex_display' || layer.type === 'lol_hex_bar') && lolHexFrameURLs[layer.id]" class="lol-hex-output-frame" :src="lolHexDisplayURL(layer)" :title="layer.name" :style="{ width: '100%', height: '100%', border: '0', background: 'transparent', pointerEvents: 'none' }" />
       <time v-else-if="layer.type === 'clock'">{{ formatClock() }}</time>
       <div v-else-if="layer.type === 'emoticon'" class="floating-emoticon-layer">
         <img

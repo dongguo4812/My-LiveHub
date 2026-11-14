@@ -4,15 +4,19 @@ import (
 	"errors"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
+	applogging "github.com/dongguo4812/My-LiveHub/app/internal/logging"
 )
 
 type AppearanceService struct {
 	manager *config.Manager
 	current config.AppConfig
+	logger *applogging.Logger
 }
 
-func NewAppearanceService(manager *config.Manager, current config.AppConfig) *AppearanceService {
-	return &AppearanceService{manager: manager, current: current}
+func NewAppearanceService(manager *config.Manager, current config.AppConfig, logger ...*applogging.Logger) *AppearanceService {
+	service := &AppearanceService{manager: manager, current: current}
+	if len(logger) > 0 { service.logger = logger[0] }
+	return service
 }
 
 func (s *AppearanceService) GetAppearance() config.AppearanceConfig {
@@ -50,9 +54,17 @@ func (s *AppearanceService) UpdateLogRetentionDays(days int) (int, error) {
 	if s == nil || s.manager == nil {
 		return 0, errors.New("logging configuration service is unavailable")
 	}
+	if days < 1 || days > 365 {
+		return 0, errors.New("log retention days must be between 1 and 365")
+	}
+	previousDays := s.GetLogRetentionDays()
+	if s.logger != nil {
+		if err := s.logger.SetRetentionDays(days); err != nil { return 0, err }
+	}
 	updated := s.current
 	updated.Logging.RetentionDays = days
 	if err := config.SaveTyped(s.manager, "app.json", updated, func(value config.AppConfig) error { return value.Validate() }); err != nil {
+		if s.logger != nil { _ = s.logger.SetRetentionDays(previousDays) }
 		return 0, err
 	}
 	s.current = updated
