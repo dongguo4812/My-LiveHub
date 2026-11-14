@@ -170,6 +170,18 @@ func (c *Catalog) Register(r Resource) bool {
 	return true
 }
 
+// LastRefreshed returns the timestamp of the last successful directory refresh.
+// The boolean is false when no refresh timestamp has been recorded.
+func (c *Catalog) LastRefreshed(platformID, sourceID string, kind Type) (time.Time, bool) {
+	if c == nil || strings.TrimSpace(platformID) == "" || (kind != TypeEmoticon && kind != TypeGift) {
+		return time.Time{}, false
+	}
+	c.mu.RLock()
+	refreshedAt, ok := c.refreshes[refreshIdentity(platformID, sourceID, kind)]
+	c.mu.RUnlock()
+	return refreshedAt, ok && !refreshedAt.IsZero()
+}
+
 // IsFresh reports whether a source's last successful directory refresh is within ttl.
 func (c *Catalog) IsFresh(platformID, sourceID string, kind Type, ttl time.Duration) bool {
 	if c == nil || ttl <= 0 {
