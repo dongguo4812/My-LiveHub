@@ -56,6 +56,7 @@ type LayoutLayer struct {
 	EmoticonDrift float64 `json:"emoticon_drift,omitempty"`
 	EmoticonMaxCount int `json:"emoticon_max_count,omitempty"`
 	GiftDisplayDuration int `json:"gift_display_duration,omitempty"`
+	SuperChatDisplayDuration int `json:"super_chat_display_duration,omitempty"`
 }
 
 type sceneVideoProvider interface {
@@ -179,6 +180,9 @@ func validateLayoutConfig(value LayoutConfig) error {
 			}
 			if layer.Type == "gift" && layer.GiftDisplayDuration != 0 && (layer.GiftDisplayDuration < 1 || layer.GiftDisplayDuration > 120) {
 				return fmt.Errorf("图层 %q 的礼物显示时间必须在 1 到 120 秒之间", layer.Name)
+			}
+			if layer.Type == "super_chat" && layer.SuperChatDisplayDuration != 0 && (layer.SuperChatDisplayDuration < 1 || layer.SuperChatDisplayDuration > 120) {
+				return fmt.Errorf("图层 %q 的 SC 显示时间必须在 1 到 120 秒之间", layer.Name)
 			}
 		}
 	}
