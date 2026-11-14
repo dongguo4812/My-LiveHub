@@ -280,6 +280,8 @@ func (s *VideoQueueService) ClearQueue() {
 }
 
 func (s *VideoQueueService) handleEvent(event eventstream.Event) {
+	s.mu.Lock(); active := s.active; s.mu.Unlock()
+	if !active { return }
 	if event.PlatformID != "bilibili" || event.Source != "live" || event.Type != "danmaku" { return }
 	text := strings.TrimSpace(event.Content)
 	if text == "下一个" {
@@ -299,6 +301,7 @@ func (s *VideoQueueService) handleEvent(event eventstream.Event) {
 func (s *VideoQueueService) processVideoRequest(event eventstream.Event, bvid string) {
 	privileged := event.IsModerator || event.IsRoomOwner
 	s.mu.Lock()
+	if !s.active { s.mu.Unlock(); return }
 	requestsEnabled := s.settings.VideoRequestsEnabled
 	requireMedal := s.settings.VideoRequireFanMedal
 	minLevel := s.settings.VideoFanMedalLevel
