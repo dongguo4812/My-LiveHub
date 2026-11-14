@@ -17,3 +17,13 @@
 # Runtime media cache and logs are local-only
 /cache/
 /logs/
+
+# LOL Hex extension runtime data and Python artifacts
+/extensions/lol_hex_display/data/
+/extensions/lol_hex_display/screenshots/
+/extensions/lol_hex_display/logs/
+/extensions/lol_hex_display/*.pid
+/extensions/lol_hex_display/__pycache__/
+/extensions/lol_hex_display/build/
+/extensions/lol_hex_display/dist/
+/extensions/lol_hex_display/*.spec
