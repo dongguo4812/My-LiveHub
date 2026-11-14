@@ -19,6 +19,43 @@ type Live2DWindow = Window & { live2dSetModelTransform?: (scale: number, x: numb
 type MusicDisplayConfig = { enabled: boolean; command_enabled: boolean; command_prefix: string; skip_command_enabled: boolean; skip_command: string; require_fan_medal: boolean; fan_medal_level: number }
 const route = useRoute()
 const scene = ref<Scene | null>(null)
+const lolHexFrameURLs = ref<Record<string, string>>({})
+const lolHexReadyChecks = new Map<string, string>()
+let sceneRendererUnmounted = false
+async function waitForLolHexService(layerId: string, pageURL: string) {
+  if (lolHexReadyChecks.get(layerId) === pageURL) return
+  lolHexReadyChecks.set(layerId, pageURL)
+  const healthURL = new URL('/api/health', pageURL).toString()
+  while (!sceneRendererUnmounted && lolHexReadyChecks.get(layerId) === pageURL) {
+    try {
+      const response = await fetch(healthURL, { cache: 'no-store', mode: 'cors' })
+      if (response.ok) {
+        const status = await response.json() as { ready?: boolean }
+        if (status.ready === true) {
+          lolHexFrameURLs.value = { ...lolHexFrameURLs.value, [layerId]: pageURL }
+          return
+        }
+      }
+    } catch { /* LOL Hex 尚未启动或端口暂不可访问，稍后重试。 */ }
+    await new Promise(resolve => setTimeout(resolve, 1200))
+  }
+}
+function prepareLolHexFrames(currentScene: Scene) {
+  const activeIDs = new Set<string>()
+  for (const layer of currentScene.layers) {
+    if (!layer.visible || (layer.type !== 'lol_hex_display' && layer.type !== 'lol_hex_bar') || !layer.url) continue
+    activeIDs.add(layer.id)
+    void waitForLolHexService(layer.id, layer.url)
+  }
+  for (const id of Object.keys(lolHexFrameURLs.value)) {
+    if (!activeIDs.has(id)) {
+      const next = { ...lolHexFrameURLs.value }
+      delete next[id]
+      lolHexFrameURLs.value = next
+      lolHexReadyChecks.delete(id)
+    }
+  }
+}
 const liveEvents = ref<LiveEvent[]>([])
 const floatingEmoticons = ref<FloatingEmoticon[]>([])
 let nextFloatingEmoticonID = 0
@@ -211,6 +248,7 @@ async function loadScene() {
     const response = await fetch('/api/scenes/' + id, { cache: 'no-store' })
     if (!response.ok) throw new Error('场景不存在或浏览器源服务不可用')
     scene.value = await response.json() as Scene
+    prepareLolHexFrames(scene.value)
     error.value = ''
     document.title = scene.value.name + ' - My-LiveHub'
     document.documentElement.style.background = 'transparent'
@@ -334,6 +372,7 @@ onMounted(() => {
 })
 onUpdated(() => { applyLive2DFrameTransforms() })
 onUnmounted(() => {
+  sceneRendererUnmounted = true
   mouthSyncChannel?.close()
   mouthSyncChannel = null
   if (mouthSyncPollTimer) clearInterval(mouthSyncPollTimer)
@@ -354,7 +393,7 @@ onUnmounted(() => {
     <div v-for="layer in scene.layers.filter(item => item.visible && (item.type !== 'music_queue' || musicDisplayConfig?.command_enabled === true) && (item.type !== 'video_queue' || videoQueue.enabled === true) && (item.type !== 'live2d' || Boolean(live2DFrameURL)))" :key="layer.id" class="output-layer" :class="{ 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue', 'video-queue-output-layer': layer.type === 'video_queue', 'emoticon-output-layer': layer.type === 'emoticon' }" :style="layerStyle(layer)">
       <span v-if="layer.type === 'text'">{{ layer.text }}</span>
       <img v-else-if="layer.type === 'image' && layer.url" :src="layer.url" alt="" />
-      <iframe v-else-if="(layer.type === 'lol_hex_display' || layer.type === 'lol_hex_bar') && layer.url" class="lol-hex-output-frame" :src="layer.url" :title="layer.name" :style="{ width: '100%', height: '100%', border: '0', background: 'transparent', pointerEvents: 'none' }" />
+      <iframe v-else-if="(layer.type === 'lol_hex_display' || layer.type === 'lol_hex_bar') && lolHexFrameURLs[layer.id]" class="lol-hex-output-frame" :src="lolHexFrameURLs[layer.id]" :title="layer.name" :style="{ width: '100%', height: '100%', border: '0', background: 'transparent', pointerEvents: 'none' }" />
       <time v-else-if="layer.type === 'clock'">{{ formatClock() }}</time>
       <div v-else-if="layer.type === 'emoticon'" class="floating-emoticon-layer">
         <img
