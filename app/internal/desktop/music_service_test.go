@@ -3,6 +3,7 @@ package desktop
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"testing/fstest"
@@ -361,6 +362,56 @@ func TestSelectSongRequestTrackChecksRequestedArtist(t *testing.T) {
 	got, ok := selectSongRequestTrack(tracks, "稻香", "周杰伦")
 	if !ok || got.ID != "right_artist" { t.Fatalf("artist-constrained selection = %#v, matched=%v", got, ok) }
 	if _, ok := selectSongRequestTrack(tracks[:1], "稻香", "周杰伦"); ok { t.Fatal("different artist must be rejected") }
+}
+
+
+func TestSearchSongRequestAcrossSourcesFallsBackUntilValidMatch(t *testing.T) {
+	var attempted []string
+	track, matched, failures := searchSongRequestAcrossSources(
+		[]string{"tx", "kw", "kg", "wy"},
+		func(source string) ([]music.Track, error) {
+			attempted = append(attempted, source)
+			switch source {
+			case "tx":
+				return nil, errors.New("provider unavailable")
+			case "kw":
+				return []music.Track{}, nil
+			case "kg":
+				return []music.Track{{ID: "kg_short", Title: "太空", Artist: "歌手"}}, nil
+			case "wy":
+				return []music.Track{{ID: "wy_match", Title: "太空基米", Artist: "歌手"}}, nil
+			default:
+				return nil, nil
+			}
+		},
+		"太空基米", "",
+	)
+	if !matched || track.ID != "wy_match" {
+		t.Fatalf("track=%#v matched=%v; want wy_match", track, matched)
+	}
+	if len(attempted) != 4 || attempted[0] != "tx" || attempted[1] != "kw" || attempted[2] != "kg" || attempted[3] != "wy" {
+		t.Fatalf("attempted sources = %v; want configured order tx, kw, kg, wy", attempted)
+	}
+	if len(failures) != 3 {
+		t.Fatalf("failures = %v; want error, empty result, and unmatched result diagnostics", failures)
+	}
+}
+
+func TestSearchSongRequestAcrossSourcesStopsAfterFirstValidMatch(t *testing.T) {
+	var attempted []string
+	track, matched, _ := searchSongRequestAcrossSources(
+		[]string{"tx", "kw", "kg"},
+		func(source string) ([]music.Track, error) {
+			attempted = append(attempted, source)
+			if source == "tx" {
+				return []music.Track{{ID: "tx_match", Title: "稻香", Artist: "周杰伦"}}, nil
+			}
+			return nil, errors.New("should not be called")
+		},
+		"稻香", "",
+	)
+	if !matched || track.ID != "tx_match" { t.Fatalf("track=%#v matched=%v", track, matched) }
+	if len(attempted) != 1 || attempted[0] != "tx" { t.Fatalf("search continued after valid match: %v", attempted) }
 }
 
 func TestSplitSongRequestArtist(t *testing.T) {
