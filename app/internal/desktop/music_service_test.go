@@ -220,3 +220,99 @@ func TestGetLyricsCachesOnlyAfterLXTrackIdentityMatches(t *testing.T) {
 	if lyrics != engine.lyrics { t.Fatalf("lyrics = %q, want %q", lyrics, engine.lyrics) }
 	if len(service.lyricsCache) != 1 { t.Fatalf("verified lyrics cache size = %d, want 1", len(service.lyricsCache)) }
 }
+
+
+func TestMusicCommandsPublishFailureNoticesWhenDisabledOrUnauthorized(t *testing.T) {
+	tests := []struct {
+		name string
+		configure func(*config.MusicConfig)
+		content string
+		event events.Event
+		wantKind string
+		wantReason string
+	}{
+		{
+			name: "skip command disabled",
+			configure: func(value *config.MusicConfig) { value.SkipCommandEnabled = false },
+			content: "切歌",
+			event: events.Event{Type: "danmaku", UserName: "房管", IsModerator: true},
+			wantKind: "music_skip_failed",
+			wantReason: "音乐切歌指令当前已关闭",
+		},
+		{
+			name: "ordinary viewer cannot skip",
+			configure: func(value *config.MusicConfig) { value.SkipCommandEnabled = true },
+			content: "切歌",
+			event: events.Event{Type: "danmaku", UserName: "观众"},
+			wantKind: "music_skip_failed",
+			wantReason: "仅主播或房管可以切歌",
+		},
+		{
+			name: "song request command disabled",
+			configure: func(value *config.MusicConfig) { value.CommandEnabled = false },
+			content: "点歌 稻香",
+			event: events.Event{Type: "danmaku", UserName: "观众"},
+			wantKind: "music_request_failed",
+			wantReason: "音乐点歌指令当前已关闭",
+		},
+		{
+			name: "song name missing",
+			configure: func(value *config.MusicConfig) { value.CommandEnabled = true },
+			content: "点歌",
+			event: events.Event{Type: "danmaku", UserName: "观众"},
+			wantKind: "music_request_failed",
+			wantReason: "请在点歌指令后输入歌曲名称",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			value := config.DefaultMusicConfig()
+			value.Enabled = true
+			tt.configure(&value)
+			service := NewMusicServiceWithDependencies(nil, value, nil, &nextTrackTestEngine{})
+			service.started = true
+			service.requests = make(chan events.Event, 1)
+			broker := NewRequestNoticeBroker()
+			service.SetRequestNoticeBroker(broker)
+			notices, cancel := broker.Subscribe()
+			defer cancel()
+
+			tt.event.Content = tt.content
+			service.handleEvent(tt.event)
+			select {
+			case queued := <-service.requests:
+				service.processSongRequest(context.Background(), queued)
+			default:
+				t.Fatal("configured command was not routed to the music worker")
+			}
+			select {
+			case notice := <-notices:
+				if notice.Kind != tt.wantKind { t.Fatalf("notice kind = %q, want %q", notice.Kind, tt.wantKind) }
+				if notice.Reason != tt.wantReason { t.Fatalf("notice reason = %q, want %q", notice.Reason, tt.wantReason) }
+			case <-time.After(time.Second):
+				t.Fatal("expected request notice was not published")
+			}
+		})
+	}
+}
+
+func TestMusicCommandsAreRoutedUsingConfiguredValuesWhenTogglesAreOff(t *testing.T) {
+	value := config.DefaultMusicConfig()
+	value.Enabled = true
+	value.CommandPrefix = "歌曲"
+	value.CommandEnabled = false
+	value.SkipCommand = "换一首"
+	value.SkipCommandEnabled = false
+	service := NewMusicServiceWithDependencies(nil, value, nil, &nextTrackTestEngine{})
+	service.started = true
+	service.requests = make(chan events.Event, 2)
+
+	service.handleEvent(events.Event{Type: "danmaku", Content: "歌曲"})
+	service.handleEvent(events.Event{Type: "danmaku", Content: "换一首"})
+	if got := len(service.requests); got != 2 {
+		t.Fatalf("configured disabled commands routed = %d, want 2", got)
+	}
+	if isSongRequestCommand("歌曲列表", "歌曲") {
+		t.Fatal("request command must respect the configured prefix boundary")
+	}
+}
