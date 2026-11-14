@@ -88,8 +88,7 @@ const live2DFrameURL = computed(() => {
 })
 const musicDisplayConfig = ref<MusicDisplayConfig | null>(null)
 const musicError = ref('')
-const currentRequestNotices = ref<Record<string, RequestNotice | null>>({})
-const pendingRequestNotices = ref<Record<string, RequestNotice[]>>({})
+const currentRequestNotices = ref<Record<string, RequestNotice[]>>({})
 const requestNoticeTimers = new Map<string, ReturnType<typeof setTimeout>>()
 let requestNoticeSource: EventSource | undefined
 const musicAccentColor = ref('#A83232')
@@ -202,7 +201,7 @@ function formatTime(value: number) {
 function layerStyle(layer: Layer) {
   const current = scene.value
   if (!current) return {}
-  return {
+  const style: Record<string, string | number> = {
     left: (layer.x / current.width * 100) + '%',
     top: (layer.y / current.height * 100) + '%',
     width: (layer.width / current.width * 100) + '%',
@@ -212,6 +211,13 @@ function layerStyle(layer: Layer) {
     color: layer.color || '#ffffff',
     fontSize: ((layer.font_size || 24) / current.height * 100) + 'cqh',
   }
+  if (layer.type === 'request_notice') {
+    style.top = 'auto'
+    style.bottom = ((current.height - layer.y - layer.height) / current.height * 100) + '%'
+    style.width = 'max-content'
+    style.height = 'auto'
+  }
+  return style
 }
 function formatClock() { return now.value.toLocaleTimeString('zh-CN', { hour12: false }) }
 function removeFloatingEmoticon(id: number) {
@@ -253,28 +259,19 @@ function spawnFloatingEmoticons(event: LiveEvent) {
     floatingEmoticons.value = [...keep, ...combined]
   }
 }
-function showNextRequestNotice(layer: Layer) {
-  if (currentRequestNotices.value[layer.id]) return
-  const queue = pendingRequestNotices.value[layer.id] || []
-  if (!queue.length) return
-  currentRequestNotices.value[layer.id] = queue.shift() || null
-  const duration = Math.max(1, Math.min(120, layer.request_notice_display_duration || 5)) * 1000
-  const previousTimer = requestNoticeTimers.get(layer.id)
-  if (previousTimer) clearTimeout(previousTimer)
-  requestNoticeTimers.set(layer.id, setTimeout(() => {
-    currentRequestNotices.value[layer.id] = null
-    requestNoticeTimers.delete(layer.id)
-    showNextRequestNotice(layer)
-  }, duration))
-}
 function handleRequestNotice(event: MessageEvent<string>) {
   try {
     const notice = JSON.parse(event.data) as RequestNotice
     for (const layer of scene.value?.layers || []) {
       if (layer.type !== 'request_notice' || !layer.visible) continue
-      const queue = pendingRequestNotices.value[layer.id] || (pendingRequestNotices.value[layer.id] = [])
-      queue.push(notice)
-      showNextRequestNotice(layer)
+      const notices = currentRequestNotices.value[layer.id] || (currentRequestNotices.value[layer.id] = [])
+      notices.push(notice)
+      const timerKey = layer.id + ':' + notice.id + ':' + notice.timestamp
+      const duration = Math.max(1, Math.min(120, layer.request_notice_display_duration || 5)) * 1000
+      requestNoticeTimers.set(timerKey, setTimeout(() => {
+        currentRequestNotices.value[layer.id] = (currentRequestNotices.value[layer.id] || []).filter(item => item !== notice)
+        requestNoticeTimers.delete(timerKey)
+      }, duration))
     }
   } catch { /* Ignore malformed request notice frames. */ }
 }
@@ -475,7 +472,9 @@ onUnmounted(() => {
 <template>
   <main v-if="scene" class="scene-output" :style="{ aspectRatio: scene.width + ' / ' + scene.height, background: scene.background === 'transparent' ? 'transparent' : scene.background }">
     <div v-for="layer in scene.layers.filter(item => item.visible && (item.type !== 'music_queue' || musicDisplayConfig?.command_enabled === true) && (item.type !== 'video_queue' || (videoQueue.running === true && videoQueue.enabled === true)) && (item.type !== 'live2d' || Boolean(live2DFrameURL)))" :key="layer.id" class="output-layer" :class="{ 'request-notice-output-layer': layer.type === 'request_notice', 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue', 'video-queue-output-layer': layer.type === 'video_queue', 'emoticon-output-layer': layer.type === 'emoticon' }" :style="layerStyle(layer)">
-      <div v-if="layer.type === 'request_notice'" class="request-notice-widget" :class="{ 'is-failed': currentRequestNotices[layer.id]?.kind.endsWith('_failed') }" :style="{ color: currentRequestNotices[layer.id]?.kind.endsWith('_failed') ? '#ffb2b2' : (layer.color || '#a7f3c0') }">{{ currentRequestNotices[layer.id] ? requestNoticeText(currentRequestNotices[layer.id]!) : '' }}</div>
+      <div v-if="layer.type === 'request_notice'" class="request-notice-stack">
+        <div v-for="notice in currentRequestNotices[layer.id] || []" :key="notice.id + ':' + notice.timestamp" class="request-notice-widget" :class="{ 'is-failed': notice.kind.endsWith('_failed') }" :style="{ color: notice.kind.endsWith('_failed') ? '#ffb2b2' : (layer.color || '#a7f3c0') }">{{ requestNoticeText(notice) }}</div>
+      </div>
       <span v-else-if="layer.type === 'text'">{{ layer.text }}</span>
       <img v-else-if="layer.type === 'image' && layer.url" :src="layer.url" alt="" />
       <iframe v-else-if="(layer.type === 'lol_hex_display' || layer.type === 'lol_hex_bar') && lolHexFrameURLs[layer.id]" class="lol-hex-output-frame" :src="lolHexDisplayURL(layer)" :title="layer.name" :style="{ width: '100%', height: '100%', border: '0', background: 'transparent', pointerEvents: 'none' }" />
@@ -607,7 +606,7 @@ onUnmounted(() => {
 html,body,#app{width:100%;height:100%;margin:0;overflow:hidden;background:transparent!important}
 body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .scene-output{position:relative;width:100vw;height:100vh;overflow:hidden;container-type:size;background:transparent}
-.request-notice-output-layer{width:max-content!important;height:auto!important;min-width:0;min-height:0;max-width:none;overflow:visible;align-items:flex-start;justify-content:flex-start;white-space:nowrap;text-shadow:none}.request-notice-widget{display:block;box-sizing:border-box;width:max-content;height:auto;max-width:none;padding:.5em .8em;border:1px solid rgba(120,220,160,.6);border-radius:.55em;background:rgba(12,24,20,.94);color:var(--notice-color,#a7f3c0);font-weight:800;line-height:1.4;text-align:left;text-shadow:0 2px 5px #000;box-shadow:0 8px 24px #0006;white-space:nowrap;overflow:visible;pointer-events:none;transform-origin:bottom left;animation:request-notice-rise .35s cubic-bezier(.2,.75,.25,1) both}.request-notice-widget.is-failed{border-color:rgba(255,125,125,.7);background:rgba(38,15,18,.95);color:#ffb2b2}@keyframes request-notice-rise{from{opacity:0;transform:translateY(100%)}to{opacity:1;transform:translateY(0)}}
+.request-notice-output-layer{width:max-content!important;height:auto!important;min-width:0;min-height:0;max-width:none;overflow:visible;align-items:flex-start;justify-content:flex-end;white-space:nowrap;text-shadow:none}.request-notice-stack{display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-end;gap:.35em;width:max-content;height:auto;max-width:none;overflow:visible}.request-notice-widget{display:block;flex:none;box-sizing:border-box;width:max-content;height:auto;max-width:none;padding:.5em .8em;border:1px solid rgba(120,220,160,.6);border-radius:.55em;background:rgba(12,24,20,.94);color:var(--notice-color,#a7f3c0);font-weight:800;line-height:1.4;text-align:left;text-shadow:0 2px 5px #000;box-shadow:0 8px 24px #0006;white-space:nowrap;overflow:visible;pointer-events:none}.request-notice-widget.is-failed{border-color:rgba(255,125,125,.7);background:rgba(38,15,18,.95);color:#ffb2b2}
 .output-layer{position:absolute;display:flex;align-items:flex-start;justify-content:flex-start;overflow:hidden;white-space:pre-wrap;word-break:break-word;font-weight:600;text-shadow:0 2px 6px #000b}
 .emoticon-output-layer{padding:0;white-space:normal;text-shadow:none}
 .floating-emoticon-layer{position:absolute;inset:0;overflow:hidden;pointer-events:none}
