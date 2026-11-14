@@ -5,7 +5,7 @@ import { useRoute } from 'vue-router'
 type Layer = { id: string; type: string; name: string; x: number; y: number; width: number; height: number; z_index: number; visible: boolean; opacity: number; text?: string; url?: string; color?: string; font_size?: number; queue_display_count?: number; live2d_scale?: number; live2d_x?: number; live2d_y?: number; emoticon_size?: number; emoticon_speed?: number; emoticon_drift?: number; emoticon_max_count?: number }
 type Scene = { id: string; name: string; width: number; height: number; background: string; layers: Layer[] }
 type EmoticonToken = { text: string; url: string; cache_url?: string; width?: number; height?: number }
-type LiveEvent = { id: number; type: string; user_name: string; content: string; gift_name?: string; gift_count?: number; amount?: number; timestamp: number; emoticons?: EmoticonToken[] }
+type LiveEvent = { id: number; type: string; user_name: string; content: string; gift_name?: string; gift_count?: number; gift_image_url?: string; gift_image_cache_url?: string; gift_animation_url?: string; gift_animation_cache_url?: string; amount?: number; timestamp: number; emoticons?: EmoticonToken[] }
 type FloatingEmoticon = { id: number; layerId: string; url: string; cacheURL?: string; x: number; size: number; drift: number; duration: number }
 type Track = { id: string; source_id: string; title: string; artist?: string; album?: string; duration_ms: number; cover_url?: string }
 type Playback = { state: string; track?: Track; position_ms: number; duration_ms: number }
@@ -323,8 +323,16 @@ onUnmounted(() => {
       <div v-else-if="layer.type === 'danmaku'" class="event-stack">
         <div v-for="item in danmaku" :key="item.id" class="event-line"><strong>{{ item.user_name }}</strong><span>{{ item.content }}</span></div>
       </div>
-      <div v-else-if="layer.type === 'gift'" class="event-stack">
-        <div v-for="item in gifts" :key="item.id" class="event-line gift-line"><strong>{{ item.user_name }}</strong><span>赠送 {{ item.gift_name }} × {{ item.gift_count || 1 }}</span></div>
+      <div v-else-if="layer.type === 'gift'" class="gift-event-stack">
+        <article v-for="item in gifts" :key="item.id" class="gift-event-card">
+          <img v-if="item.gift_animation_cache_url || item.gift_animation_url || item.gift_image_cache_url || item.gift_image_url"
+            class="gift-event-image"
+            :src="item.gift_animation_cache_url || item.gift_animation_url || item.gift_image_cache_url || item.gift_image_url"
+            :alt="item.gift_name || '礼物'"
+            referrerpolicy="no-referrer" />
+          <div v-else class="gift-event-image-fallback">🎁</div>
+          <div class="gift-event-caption"><strong>{{ item.gift_name || '礼物' }} × {{ item.gift_count || 1 }}</strong><span>{{ item.user_name }} 赠送</span></div>
+        </article>
       </div>
       <div v-else-if="layer.type === 'super_chat'" class="event-stack">
         <div v-for="item in superChats" :key="item.id" class="event-line sc-line"><strong>{{ item.user_name }} · ¥{{ Number(item.amount || 0).toFixed(2) }}</strong><span>{{ item.content }}</span></div>
@@ -441,6 +449,14 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .event-line strong{color:#ffe08a;flex:none}
 .event-line span{min-width:0;overflow-wrap:anywhere}
 .gift-line{background:#382448dc}.sc-line{background:#603c1edc}
+.gift-event-stack{display:flex;flex-wrap:wrap;align-content:flex-start;align-items:flex-start;gap:.5em;width:100%;height:100%;overflow:hidden}
+.gift-event-card{display:flex;flex:0 0 auto;flex-direction:column;align-items:center;justify-content:flex-start;gap:.18em;min-width:0;max-width:48%;padding:.25em .45em;border:1px solid rgba(255,255,255,.16);border-radius:.5em;background:linear-gradient(145deg,rgba(56,36,72,.9),rgba(25,22,36,.82));text-align:center;line-height:1.25}
+.gift-event-image{display:block;width:auto!important;height:auto!important;max-width:100%;max-height:65%;min-height:0;object-fit:contain}
+.gift-event-image-fallback{display:grid;place-items:center;min-height:2.2em;font-size:2em}
+.gift-event-caption{display:flex;flex-direction:column;align-items:center;gap:.1em;max-width:100%;font-size:.72em}
+.gift-event-caption strong,.gift-event-caption span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gift-event-caption span{font-size:.85em;color:#d8cce3}
+
 .music-output-layer{padding:0;text-shadow:none;white-space:normal;overflow:visible;font-family:Arial,"Microsoft YaHei",sans-serif;color:#e7c89d}
 .music-queue-output-layer,.video-queue-output-layer{padding:0;text-shadow:none;white-space:normal;overflow:hidden;font-family:Arial,"Microsoft YaHei",sans-serif}
 .music-simple-widget{display:flex;flex-direction:column;gap:.45em;width:100%;height:100%;overflow:hidden;color:inherit;text-shadow:none;white-space:normal;font-family:Arial,"Microsoft YaHei",sans-serif}
