@@ -115,17 +115,24 @@ func (s *LOLHexService) readPIDRecord() lolHexPIDRecord {
 		filepath.Join(s.extensionDir, "lol_hex_display.pid"),
 		filepath.Join(s.extensionDir, "dist", "lol_hex_display", "lol_hex_display.pid"),
 	}
+	var fallback lolHexPIDRecord
 	for _, path := range paths {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			continue
 		}
 		var record lolHexPIDRecord
-		if json.Unmarshal(data, &record) == nil && record.PID > 0 {
+		if json.Unmarshal(data, &record) != nil || record.PID <= 0 {
+			continue
+		}
+		if s.token != "" && record.ManagerToken == s.token {
 			return record
 		}
+		if fallback.PID == 0 {
+			fallback = record
+		}
 	}
-	return lolHexPIDRecord{}
+	return fallback
 }
 
 func (s *LOLHexService) readPID() int { return s.readPIDRecord().PID }
