@@ -72,7 +72,7 @@ func TestReadLive2DManifestMetadataSupportsMOC2LowercaseKeys(t *testing.T) {
 }
 
 
-func TestLive2DServiceLifecycleControlsAssetsAndCanRestart(t *testing.T) {
+func TestLive2DServiceLifecycleKeepsModelAssetsAvailable(t *testing.T) {
 	root := t.TempDir()
 	modelDir := filepath.Join(root, "moc3", "avatar")
 	if err := os.MkdirAll(modelDir, 0o700); err != nil { t.Fatal(err) }
@@ -86,11 +86,13 @@ func TestLive2DServiceLifecycleControlsAssetsAndCanRestart(t *testing.T) {
 		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/models/moc3/avatar/model3.json", nil))
 		return recorder.Code
 	}
-	if got := request(); got != http.StatusServiceUnavailable { t.Fatalf("asset status before start = %d, want %d", got, http.StatusServiceUnavailable) }
+	if service.IsEnabled() { t.Fatal("Live2D should begin stopped before module startup") }
+	if got := request(); got != http.StatusOK { t.Fatalf("model management asset status while stopped = %d, want %d", got, http.StatusOK) }
 	if err := service.Start(); err != nil { t.Fatal(err) }
-	if got := request(); got != http.StatusOK { t.Fatalf("asset status after start = %d, want %d", got, http.StatusOK) }
+	if !service.IsEnabled() { t.Fatal("Live2D should be enabled after start") }
 	if err := service.Stop(); err != nil { t.Fatal(err) }
-	if got := request(); got != http.StatusServiceUnavailable { t.Fatalf("asset status after stop = %d, want %d", got, http.StatusServiceUnavailable) }
+	if service.IsEnabled() { t.Fatal("Live2D should be disabled after stop") }
+	if got := request(); got != http.StatusOK { t.Fatalf("model management asset status after stop = %d, want %d", got, http.StatusOK) }
 	if err := service.Start(); err != nil { t.Fatal(err) }
-	if got := request(); got != http.StatusOK { t.Fatalf("asset status after restart = %d, want %d", got, http.StatusOK) }
+	if !service.IsEnabled() { t.Fatal("Live2D should be enabled after restart") }
 }
