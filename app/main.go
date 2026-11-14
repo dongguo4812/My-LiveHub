@@ -211,6 +211,30 @@ func main() {
 	if err := coreApp.Modules().Register("live2d", desktop.NewLive2DModule(live2dService)); err != nil {
 		log.Fatalf("register Live2D module: %v", err)
 	}
+
+	lolHexConfig, err := configManager.Load("lol_hex_display.json")
+	if err != nil {
+		log.Fatalf("load LOL Hex configuration: %v", err)
+	}
+	if err := configManager.Save("lol_hex_display.json", lolHexConfig); err != nil {
+		log.Fatalf("persist LOL Hex configuration defaults: %v", err)
+	}
+	applicationPath, err := os.Executable()
+	if err != nil {
+		log.Fatalf("resolve application executable: %v", err)
+	}
+	extensionRoot := filepath.Join(filepath.Dir(applicationPath), "extensions", "lol_hex_display")
+	if environment == config.EnvironmentDevelopment {
+		if workingDir, getwdErr := os.Getwd(); getwdErr == nil {
+			extensionRoot = filepath.Join(workingDir, "extensions", "lol_hex_display")
+		}
+	}
+	lolHexService, err := desktop.NewLOLHexService(extensionRoot, filepath.Join(paths.LocalDir, "lol_hex_display.json"))
+	if err != nil {
+		log.Printf("LOL Hex extension unavailable: %v", err)
+	} else if err := coreApp.Modules().Register("lol-hex-display", desktop.NewLOLHexModule(lolHexService)); err != nil {
+		log.Fatalf("register LOL Hex module: %v", err)
+	}
 	bilibiliSettingsService := desktop.NewBilibiliSettingsService(configManager, bilibiliConfig, bilibiliAdapter, fanMedalChecker)
 	assetHandler := application.AssetFileServerFS(assets)
 	imageCache, cacheErr := imagecache.NewWithPolicies(filepath.Join(cacheDir, "media-images"), assetHandler, map[string]imagecache.URLPolicy{"bilibili":imagecache.BilibiliURLPolicy})
@@ -256,6 +280,7 @@ func main() {
 			application.NewService(musicLyricsWindowService),
 			application.NewService(videoQueueService),
 			application.NewService(live2dService),
+			application.NewService(lolHexService),
 			application.NewService(bilibiliWebViewService),
 		},
 	})
