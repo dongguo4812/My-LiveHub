@@ -145,9 +145,9 @@ onUnmounted(() => { if (timer) clearInterval(timer); stopModuleMicrophone() })
         <p>{{ item.description }}</p>
         <el-alert v-if="item.error" :title="item.error" type="error" :closable="false" show-icon />
         <div class="module-actions">
-          <el-button v-if="item.name === 'live2d'" :type="microphoneActive ? 'danger' : 'success'" plain :loading="microphoneLoading" :disabled="microphoneLoading || (item.status !== 'running' && !microphoneActive)" @click="toggleModuleMicrophone">{{ microphoneActive ? '关闭麦克风' : '启动麦克风' }}</el-button>
           <el-button v-if="item.controllable" :type="item.status === 'running' ? 'danger' : 'primary'" :loading="loading[item.name]" :disabled="loading[item.name] || ['starting','stopping'].includes(item.status)" @click="toggle(item.name, item.status)">{{ item.status === 'running' ? '停止模块' : '启动模块' }}</el-button>
-          <el-tag v-else type="info" effect="plain">{{ item.name === 'lol-hex-display' ? '前往扩展管理' : '暂不支持单独启停' }}</el-tag>
+          <el-button v-if="item.name === 'live2d'" :type="microphoneActive ? 'danger' : 'success'" plain :loading="microphoneLoading" :disabled="microphoneLoading || (item.status !== 'running' && !microphoneActive)" @click="toggleModuleMicrophone">{{ microphoneActive ? '关闭麦克风' : '启动麦克风' }}</el-button>
+          <el-tag v-if="!item.controllable" type="info" effect="plain">{{ item.name === 'lol-hex-display' ? '前往扩展管理' : '暂不支持单独启停' }}</el-tag>
         </div>
         <el-alert v-if="item.name === 'live2d' && microphoneError" :title="microphoneError" type="error" :closable="false" show-icon class="mic-error" />
         <el-tag v-if="item.name === 'live2d'" :type="microphoneActive ? 'success' : 'info'" size="small" class="mic-state">{{ microphoneActive ? '麦克风采集中' : '麦克风未启动' }}</el-tag>
@@ -157,5 +157,5 @@ onUnmounted(() => { if (timer) clearInterval(timer); stopModuleMicrophone() })
   </section>
 </template>
 <style scoped>
-.modules-page{display:flex;flex-direction:column;gap:22px}.page-heading{display:flex;justify-content:space-between;align-items:center;gap:16px}.page-heading h2{margin:0;font-size:24px}.page-heading p{margin:9px 0 0;color:var(--el-text-color-secondary)}.module-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:16px}.module-card{min-width:0}.module-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.module-heading h3{margin:0;font-size:17px}.module-heading small{display:block;margin-top:5px;color:var(--el-text-color-secondary)}.module-card p{min-height:42px;color:var(--el-text-color-secondary);font-size:13px;line-height:1.6}.module-actions{display:flex;align-items:center;margin-top:16px}
+.modules-page{display:flex;flex-direction:column;gap:22px}.page-heading{display:flex;justify-content:space-between;align-items:center;gap:16px}.page-heading h2{margin:0;font-size:24px}.page-heading p{margin:9px 0 0;color:var(--el-text-color-secondary)}.module-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:16px}.module-card{min-width:0}.module-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.module-heading h3{margin:0;font-size:17px}.module-heading small{display:block;margin-top:5px;color:var(--el-text-color-secondary)}.module-card p{min-height:42px;color:var(--el-text-color-secondary);font-size:13px;line-height:1.6}.module-actions{display:flex;align-items:center;gap:8px;margin-top:16px}
 </style>
