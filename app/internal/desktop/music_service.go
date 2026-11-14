@@ -888,6 +888,26 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 				}
 				return
 			}
+			// 洛雪可能在歌曲结束时直接切到自己的下一首，状态仍保持 Playing。
+			// 如果洛雪当前歌曲已不是 My-LiveHub 正在管理的歌曲，立即接管：
+			// 有待播项就播放队列第一首；队列为空则保留洛雪已经切到的歌曲。
+			if currentItem := s.queue.Snapshot().Current; currentItem != nil &&
+				lxPlaybackMovedAwayFromCurrent(currentItem, snapshot) {
+				s.mu.RLock()
+					generationCurrent := s.playGeneration == generation
+					s.mu.RUnlock()
+					if !generationCurrent || ctx.Err() != nil {
+						return
+					}
+				s.pushHistory(*currentItem)
+				s.queue.FinishCurrent()
+					if len(s.queue.Snapshot().Items) > 0 {
+						if advanceErr := s.PlayNext(); advanceErr != nil {
+							s.setLastError(fmt.Errorf("洛雪自动切歌后接管 My-LiveHub 待播队列失败：%w", advanceErr))
+						}
+					}
+					return
+			}
 			if snapshot.State != music.PlaybackStopped || (!sawEndPosition && !sawPlaying) { continue }
 			s.mu.RLock()
 			current := s.playGeneration == generation
@@ -909,6 +929,15 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 			}
 		}
 	}
+}
+
+// lxPlaybackMovedAwayFromCurrent detects 洛雪 auto-advancing its own playlist
+// while My-LiveHub still has a different track marked as current.
+func lxPlaybackMovedAwayFromCurrent(current *music.QueueItem, snapshot music.PlaybackSnapshot) bool {
+	return current != nil &&
+		snapshot.State == music.PlaybackPlaying &&
+		snapshot.Track != nil &&
+		!sameLXTrackIdentity(current.Track, *snapshot.Track)
 }
 
 // advanceAfterPlaybackEnd advances My-LiveHub's request queue first. Only when
