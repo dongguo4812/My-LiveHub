@@ -877,28 +877,11 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 				if !generationCurrent || ctx.Err() != nil {
 					return
 				}
-				message := strings.TrimSpace(snapshot.Error)
-				if message == "" { message = "洛雪无法播放当前歌曲" }
-				currentItem := s.queue.Snapshot().Current
-				if currentItem != nil {
-					if resolvedTrack, retryErr := s.resolveAndStartLXTrack(ctx, currentItem.Track, true); retryErr == nil {
-						if ctx.Err() != nil {
-							return
-						}
-						currentItem.Track = resolvedTrack
-						if updateErr := s.queue.SetCurrent(*currentItem); updateErr == nil {
-							s.startPlaybackWatcher()
-							return
-						} else {
-							message += "；更新换源结果失败：" + updateErr.Error()
-						}
-					} else {
-						message += "；自动换源失败：" + retryErr.Error()
-					}
-				}
 				s.setLastError(errors.New(message))
 				s.queue.FinishCurrent()
-				if len(s.queue.Snapshot().Items) > 0 { _ = s.PlayNext() }
+				if advanceErr := s.advanceAfterPlaybackEnd(); advanceErr != nil {
+					s.setLastError(fmt.Errorf("播放失败后推进下一首失败：%w", advanceErr))
+				}
 				return
 			}
 			if snapshot.State != music.PlaybackStopped || (!sawEndPosition && !sawPlaying) { continue }
@@ -910,7 +893,9 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 				currentItem := s.queue.Snapshot().Current
 				if currentItem != nil { s.pushHistory(*currentItem) }
 				s.queue.FinishCurrent()
-				if len(s.queue.Snapshot().Items) > 0 { _ = s.PlayNext() }
+				if advanceErr := s.advanceAfterPlaybackEnd(); advanceErr != nil {
+					s.setLastError(fmt.Errorf("歌曲播放结束后推进下一首失败：%w", advanceErr))
+				}
 				return
 			}
 			if time.Since(startedAt) >= 20*time.Second {
@@ -920,6 +905,25 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 			}
 		}
 	}
+}
+
+// advanceAfterPlaybackEnd advances My-LiveHub's request queue first. Only when
+// that queue is empty does it delegate to 洛雪's own playlist.
+func (s *MusicService) advanceAfterPlaybackEnd() error {
+	if s == nil || s.engine == nil || s.queue == nil {
+		return errors.New("music playback service is unavailable")
+	}
+	if len(s.queue.Snapshot().Items) > 0 {
+		return s.PlayNext()
+	}
+	nextTrack, ok := s.engine.(interface { NextTrack(context.Context) error })
+	if !ok {
+		return errors.New("当前播放引擎不支持切换洛雪队列")
+	}
+	if err := nextTrack.NextTrack(context.Background()); err != nil {
+		return fmt.Errorf("My-LiveHub 队列为空，切换洛雪下一首失败：%w", err)
+	}
+	return nil
 }
 
 func cloneMusicConfig(value config.MusicConfig) config.MusicConfig { return value }
