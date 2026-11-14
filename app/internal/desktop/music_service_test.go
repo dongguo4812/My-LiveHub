@@ -121,17 +121,19 @@ func TestPlaybackSnapshotEnded(t *testing.T) {
 	tests := []struct {
 		name string
 		snapshot music.PlaybackSnapshot
+		sawPlaying bool
 		want bool
 	}{
-		{name: "stopped", snapshot: music.PlaybackSnapshot{State: music.PlaybackStopped}, want: true},
-		{name: "playing at final two seconds", snapshot: music.PlaybackSnapshot{State: music.PlaybackPlaying, PositionMS: 98000, DurationMS: 100000}, want: true},
-		{name: "playing before end threshold", snapshot: music.PlaybackSnapshot{State: music.PlaybackPlaying, PositionMS: 97000, DurationMS: 100000}, want: false},
-		{name: "paused near end", snapshot: music.PlaybackSnapshot{State: music.PlaybackPaused, PositionMS: 99000, DurationMS: 100000}, want: false},
-		{name: "playing without duration", snapshot: music.PlaybackSnapshot{State: music.PlaybackPlaying, PositionMS: 99000}, want: false},
+		{name: "stopped before playback observed", snapshot: music.PlaybackSnapshot{State: music.PlaybackStopped}, sawPlaying: false, want: false},
+		{name: "stopped after playback", snapshot: music.PlaybackSnapshot{State: music.PlaybackStopped}, sawPlaying: true, want: true},
+		{name: "playing at final two seconds", snapshot: music.PlaybackSnapshot{State: music.PlaybackPlaying, PositionMS: 98000, DurationMS: 100000}, sawPlaying: true, want: true},
+		{name: "playing before end threshold", snapshot: music.PlaybackSnapshot{State: music.PlaybackPlaying, PositionMS: 97000, DurationMS: 100000}, sawPlaying: true, want: false},
+		{name: "paused near end", snapshot: music.PlaybackSnapshot{State: music.PlaybackPaused, PositionMS: 99000, DurationMS: 100000}, sawPlaying: true, want: false},
+		{name: "playing without duration", snapshot: music.PlaybackSnapshot{State: music.PlaybackPlaying, PositionMS: 99000}, sawPlaying: true, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := playbackSnapshotEnded(tt.snapshot); got != tt.want {
+			if got := playbackSnapshotEnded(tt.sawPlaying, tt.snapshot); got != tt.want {
 				t.Fatalf("playbackSnapshotEnded() = %v, want %v", got, tt.want)
 			}
 		})
