@@ -26,6 +26,18 @@ func (s *CoreService) GetModules() []core.ModuleSnapshot {
 	return s.app.Modules().Snapshot()
 }
 
+func (s *CoreService) StartModule(name string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return s.app.Modules().StartModule(ctx, name)
+}
+
+func (s *CoreService) StopModule(name string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return s.app.Modules().StopModule(ctx, name)
+}
+
 func (s *CoreService) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
 	return s.app.Start(ctx)
 }
