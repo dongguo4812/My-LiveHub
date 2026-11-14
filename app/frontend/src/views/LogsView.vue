@@ -74,6 +74,7 @@ function exportLogs(format: string) {
   anchor.click()
   URL.revokeObjectURL(url)
 }
+function handleLogRowClick(row: LogEntry) { selected.value = row }
 function copySelected() {
   if (!selected.value) return
   void navigator.clipboard?.writeText('[' + selected.value.time + '] [' + selected.value.level + '] ' + selected.value.message)
@@ -136,7 +137,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
         </el-dropdown>
       </div>
       <div class="table-meta"><span>显示 {{ filtered.length }} / {{ entries.length }} 条</span><span>当前日期 {{ selectedDate || '—' }} · 已加载该日期全部轮转日志</span></div>
-      <el-table :data="filtered" size="small" stripe height="520" empty-text="没有匹配的日志记录" @row-click="row => selected = row">
+      <el-table :data="filtered" size="small" stripe height="520" empty-text="没有匹配的日志记录" @row-click="handleLogRowClick">
         <el-table-column prop="time" label="时间" width="180" />
         <el-table-column label="级别" width="105">
           <template #default="{ row }"><el-tag size="small" :type="levelType(row.level)">{{ row.level }}</el-tag></template>
