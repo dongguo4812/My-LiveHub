@@ -290,7 +290,7 @@ func (s *MusicService) searchSongRequestTrack(parent context.Context, keyword, r
 		return music.Track{}, false, []string{"洛雪搜索 SDK 未初始化"}
 	}
 	if parent == nil { parent = context.Background() }
-	return searchSongRequestAcrossSources(s.enabledSearchSourceIDs(), func(source string) ([]music.Track, error) {
+	return searchSongRequestAcrossSources(parent, s.enabledSearchSourceIDs(), func(source string) ([]music.Track, error) {
 		ctx, cancel := context.WithTimeout(parent, 18*time.Second)
 		defer cancel()
 		result, err := s.searcher.SearchProvider(ctx, source, keyword, 1)
@@ -301,9 +301,14 @@ func (s *MusicService) searchSongRequestTrack(parent context.Context, keyword, r
 
 // searchSongRequestAcrossSources is kept separate so fallback behavior can be tested
 // without making live requests to music providers.
-func searchSongRequestAcrossSources(sourceIDs []string, search func(string) ([]music.Track, error), requestedTitle, requestedArtist string) (music.Track, bool, []string) {
+func searchSongRequestAcrossSources(parent context.Context, sourceIDs []string, search func(string) ([]music.Track, error), requestedTitle, requestedArtist string) (music.Track, bool, []string) {
+	if parent == nil { parent = context.Background() }
 	failures := make([]string, 0)
 	for _, source := range sourceIDs {
+		if err := parent.Err(); err != nil {
+			failures = append(failures, "搜索已取消："+err.Error())
+			break
+		}
 		tracks, err := search(source)
 		if err != nil {
 			failures = append(failures, source+" 搜索失败："+err.Error())
