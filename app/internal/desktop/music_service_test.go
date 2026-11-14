@@ -317,3 +317,25 @@ func TestMusicCommandsAreRoutedUsingConfiguredValuesWhenTogglesAreOff(t *testing
 		t.Fatal("request command must respect the configured prefix boundary")
 	}
 }
+
+
+func TestStoppedMusicModuleStillReportsConfiguredCommands(t *testing.T) {
+	value := config.DefaultMusicConfig()
+	value.Enabled = true
+	buffer := events.NewBuffer(events.NewBus())
+	service := NewMusicServiceWithDependencies(nil, value, nil, &nextTrackTestEngine{}, buffer)
+	broker := NewRequestNoticeBroker()
+	service.SetRequestNoticeBroker(broker)
+	notices, cancel := broker.Subscribe()
+	defer cancel()
+
+	buffer.Publish(events.Event{Type: "danmaku", Content: value.SkipCommand, UserName: "主播"})
+	select {
+	case notice := <-notices:
+		if notice.Kind != "music_skip_failed" || notice.Reason != "音乐模块未启动" {
+			t.Fatalf("stopped module skip notice = %#v", notice)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("stopped music module did not report its configured skip command")
+	}
+}
