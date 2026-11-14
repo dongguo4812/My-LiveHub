@@ -13,7 +13,7 @@ type Playback = { state: string; track?: Track; position_ms: number; duration_ms
 type MusicQueueItem = { id: string; track: Track; requested_by?: string }
 type MusicQueue = { current?: MusicQueueItem; items: MusicQueueItem[]; capacity: number }
 type VideoQueueItem = { id: number; bvid: string; title: string; duration_seconds: number; requester: string }
-type VideoQueue = { enabled: boolean; current?: VideoQueueItem; items: VideoQueueItem[]; queue_count: number }
+type VideoQueue = { enabled: boolean; running: boolean; current?: VideoQueueItem; items: VideoQueueItem[]; queue_count: number }
 type Live2DDisplay = { enabled: boolean; runtime_version: 'moc2' | 'moc3'; model_url: string; model_scale: number; model_offset_x: number; model_offset_y: number }
 type Live2DWindow = Window & { live2dSetModelTransform?: (scale: number, x: number, y: number) => boolean; live2dSetMouthOpen?: (value: number) => void }
 type MusicDisplayConfig = { enabled: boolean; command_enabled: boolean; command_prefix: string; skip_command_enabled: boolean; skip_command: string; require_fan_medal: boolean; fan_medal_level: number }
@@ -77,7 +77,7 @@ const now = ref(new Date())
 const error = ref('')
 const playback = ref<Playback | null>(null)
 const musicQueue = ref<MusicQueue>({ items: [], capacity: 0 })
-const videoQueue = ref<VideoQueue>({ enabled: false, items: [], queue_count: 0 })
+const videoQueue = ref<VideoQueue>({ enabled: false, running: false, items: [], queue_count: 0 })
 const live2DDisplay = ref<Live2DDisplay | null>(null)
 const live2DFrameURL = computed(() => {
   const value = live2DDisplay.value
@@ -325,6 +325,7 @@ async function loadVideoQueue() {
     const data = await response.json() as Partial<VideoQueue>
     videoQueue.value = {
       enabled: data.enabled === true,
+      running: data.running === true,
       current: data.current,
       items: Array.isArray(data.items) ? data.items : [],
       queue_count: Number.isFinite(data.queue_count) ? Number(data.queue_count) : 0,
@@ -404,7 +405,7 @@ onUnmounted(() => {
 
 <template>
   <main v-if="scene" class="scene-output" :style="{ aspectRatio: scene.width + ' / ' + scene.height, background: scene.background === 'transparent' ? 'transparent' : scene.background }">
-    <div v-for="layer in scene.layers.filter(item => item.visible && (item.type !== 'music_queue' || musicDisplayConfig?.command_enabled === true) && (item.type !== 'video_queue' || videoQueue.enabled === true) && (item.type !== 'live2d' || Boolean(live2DFrameURL)))" :key="layer.id" class="output-layer" :class="{ 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue', 'video-queue-output-layer': layer.type === 'video_queue', 'emoticon-output-layer': layer.type === 'emoticon' }" :style="layerStyle(layer)">
+    <div v-for="layer in scene.layers.filter(item => item.visible && (item.type !== 'music_queue' || musicDisplayConfig?.command_enabled === true) && (item.type !== 'video_queue' || videoQueue.running === true) && (item.type !== 'live2d' || Boolean(live2DFrameURL)))" :key="layer.id" class="output-layer" :class="{ 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue', 'video-queue-output-layer': layer.type === 'video_queue', 'emoticon-output-layer': layer.type === 'emoticon' }" :style="layerStyle(layer)">
       <span v-if="layer.type === 'text'">{{ layer.text }}</span>
       <img v-else-if="layer.type === 'image' && layer.url" :src="layer.url" alt="" />
       <iframe v-else-if="(layer.type === 'lol_hex_display' || layer.type === 'lol_hex_bar') && lolHexFrameURLs[layer.id]" class="lol-hex-output-frame" :src="lolHexDisplayURL(layer)" :title="layer.name" :style="{ width: '100%', height: '100%', border: '0', background: 'transparent', pointerEvents: 'none' }" />
