@@ -12,6 +12,7 @@ const typeFilter = ref('')
 const sourceFilter = ref('')
 const keyword = ref('')
 const selectedEvent = ref<EventItem | null>(null)
+const detailVisible = ref(false)
 const loading = ref(false)
 const error = ref('')
 let timer: ReturnType<typeof setInterval> | undefined
@@ -145,12 +146,12 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
           </template>
         </el-table-column>
         <el-table-column label="详情" width="85" fixed="right">
-          <template #default="{ row }"><el-button link type="primary" @click="selectedEvent = row">查看</el-button></template>
+          <template #default="{ row }"><el-button link type="primary" @click="selectedEvent = row; detailVisible = true">查看</el-button></template>
         </el-table-column>
       </el-table>
     </el-card>
 
-    <el-dialog v-model="selectedEvent" title="事件详情" width="min(680px, 92vw)" destroy-on-close>
+    <el-dialog v-model="detailVisible" title="事件详情" width="min(680px, 92vw)" destroy-on-close>
       <template v-if="selectedEvent">
         <el-descriptions :column="2" border>
           <el-descriptions-item label="事件 ID">{{ selectedEvent.id }}</el-descriptions-item>
