@@ -17,8 +17,14 @@ ROOT = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) el
 DATA = ROOT / 'data'; ICON_DIR = DATA / 'hex_icons'; SHOTS = ROOT / 'screenshots'; LOG_DIR = ROOT / 'logs'
 _config_parser = argparse.ArgumentParser(add_help=False)
 _config_parser.add_argument("--config", type=Path)
+_config_parser.add_argument("--manager-token", default="")
 _config_args, _ = _config_parser.parse_known_args()
 CONFIG_PATH = (_config_args.config.resolve() if _config_args.config else ROOT / "config.json")
+# Explicit argv survives the ShellExecuteW UAC relaunch. Keep the environment
+# fallback for compatibility with older My-LiveHub launchers.
+MANAGER_TOKEN = (
+    str(_config_args.manager_token or os.environ.get("LOL_HEX_MANAGER_TOKEN", "")).strip()
+)
 ASSET_CACHE = DATA / 'hex_assets.json'; STATE_PATH = DATA / 'state.json'; ICON_SOURCE_PATH = DATA / 'hex_icon_sources.json'
 AUGMENTS_URL = 'https://game.gtimg.cn/images/lol/act/img/js/kiwi/kiwi_augments.json'
 CDRAGON_AUGMENTS_URL = ('https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/'
@@ -1770,9 +1776,8 @@ def write_pid_file():
     }
     # My-LiveHub supplies a one-run token to distinguish its elevated worker
     # from an independently started or pre-existing LOL Hex instance.
-    manager_token = os.environ.get('LOL_HEX_MANAGER_TOKEN', '').strip()
-    if manager_token:
-        record['manager_token'] = manager_token
+    if MANAGER_TOKEN:
+        record['manager_token'] = MANAGER_TOKEN
     temp_path = PID_FILE.with_suffix('.pid.tmp')
     temp_path.write_text(json.dumps(record, separators=(',', ':')), encoding='utf-8')
     os.replace(temp_path, PID_FILE)
