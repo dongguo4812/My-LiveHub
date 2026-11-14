@@ -45,3 +45,131 @@ func TestVideoQueueServiceCanStopAndRestart(t *testing.T) {
 	}
 	if err := service.Stop(); err != nil { t.Fatal(err) }
 }
+
+func TestStoppedVideoModuleReportsSkipCommandDisabled(t *testing.T) {
+	manager, err := config.NewManager(fstest.MapFS{}, t.TempDir())
+	if err != nil { t.Fatal(err) }
+	bus := eventstream.NewBus()
+	buffer := eventstream.NewBuffer(bus)
+	service, err := NewVideoQueueService(
+		manager,
+		config.DefaultBilibiliConfig(),
+		lifecycleVideoResolver{},
+		&BilibiliWebViewService{},
+		buffer,
+	)
+	if err != nil { t.Fatal(err) }
+	broker := NewRequestNoticeBroker()
+	service.SetRequestNoticeBroker(broker)
+	notices, cancel := broker.Subscribe()
+	defer cancel()
+
+	buffer.Add(eventstream.Event{
+		PlatformID: "bilibili",
+		Source: "live",
+		Type: "danmaku",
+		UserName: "主播",
+		IsRoomOwner: true,
+		Content: "下一个",
+	})
+
+	select {
+	case notice := <-notices:
+		if notice.Kind != "video_skip_failed" {
+			t.Fatalf("notice kind = %q, want video_skip_failed", notice.Kind)
+		}
+		if notice.Reason != "视频点播功能未开启" {
+			t.Fatalf("notice reason = %q, want feature-disabled reason", notice.Reason)
+		}
+	default:
+		t.Fatal("expected a disabled-module notice for the skip command")
+	}
+}
+
+func TestStoppedVideoModuleReportsRequestDisabled(t *testing.T) {
+	manager, err := config.NewManager(fstest.MapFS{}, t.TempDir())
+	if err != nil { t.Fatal(err) }
+	buffer := eventstream.NewBuffer(eventstream.NewBus())
+	service, err := NewVideoQueueService(manager, config.DefaultBilibiliConfig(), lifecycleVideoResolver{}, &BilibiliWebViewService{}, buffer)
+	if err != nil { t.Fatal(err) }
+	broker := NewRequestNoticeBroker()
+	service.SetRequestNoticeBroker(broker)
+	notices, cancel := broker.Subscribe()
+	defer cancel()
+
+	buffer.Add(eventstream.Event{
+		PlatformID: "bilibili",
+		Source: "live",
+		Type: "danmaku",
+		UserName: "观众",
+		Content: "点播 BV1234567890",
+	})
+	select {
+	case notice := <-notices:
+		if notice.Kind != "video_request_failed" || notice.Reason != "视频点播功能未开启" {
+			t.Fatalf("unexpected disabled request notice: %+v", notice)
+		}
+	default:
+		t.Fatal("expected a disabled-module notice for the video request")
+	}
+}
+
+func TestVideoRequestToggleRejectsEveryRole(t *testing.T) {
+	manager, err := config.NewManager(fstest.MapFS{}, t.TempDir())
+	if err != nil { t.Fatal(err) }
+	settings := config.DefaultBilibiliConfig()
+	settings.VideoRequestsEnabled = false
+	service, err := NewVideoQueueService(
+		manager,
+		settings,
+		lifecycleVideoResolver{},
+		&BilibiliWebViewService{},
+		eventstream.NewBuffer(),
+	)
+	if err != nil { t.Fatal(err) }
+	if err := service.Start(); err != nil { t.Fatal(err) }
+	defer service.Stop()
+
+	for _, role := range []struct {
+		name string
+		privileged bool
+		userID int
+	}{
+		{name: "普通观众", privileged: false, userID: 1001},
+		{name: "主播", privileged: true, userID: 0},
+		{name: "房管", privileged: true, userID: 1002},
+	} {
+		t.Run(role.name, func(t *testing.T) {
+			err := service.addVideoForGeneration("BV1234567890", role.name, role.userID, role.privileged, 0)
+			if err == nil || err.Error() != "视频点播当前已关闭" {
+				t.Fatalf("addVideoForGeneration error = %v, want feature-disabled error", err)
+			}
+		})
+	}
+}
+
+func TestDisabledVideoSkipCommandReportsReason(t *testing.T) {
+	manager, err := config.NewManager(fstest.MapFS{}, t.TempDir())
+	if err != nil { t.Fatal(err) }
+	settings := config.DefaultBilibiliConfig()
+	settings.VideoSkipCommandEnabled = false
+	service, err := NewVideoQueueService(manager, settings, lifecycleVideoResolver{}, &BilibiliWebViewService{}, eventstream.NewBuffer(eventstream.NewBus()))
+	if err != nil { t.Fatal(err) }
+	broker := NewRequestNoticeBroker()
+	service.SetRequestNoticeBroker(broker)
+	notices, cancel := broker.Subscribe()
+	defer cancel()
+
+	service.events.Add(eventstream.Event{
+		PlatformID: "bilibili", Source: "live", Type: "danmaku",
+		UserName: "主播", IsRoomOwner: true, Content: "下一个",
+	})
+	select {
+	case notice := <-notices:
+		if notice.Kind != "video_skip_failed" || notice.Reason != "视频切换指令当前已关闭" {
+			t.Fatalf("unexpected disabled skip notice: %+v", notice)
+		}
+	default:
+		t.Fatal("expected a notice explaining that the video skip command is disabled")
+	}
+}

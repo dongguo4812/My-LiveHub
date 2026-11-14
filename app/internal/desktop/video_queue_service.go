@@ -54,6 +54,7 @@ type VideoQueueService struct {
 	active bool
 	generation uint64
 	fanMedalChecker interface { Check(context.Context, int, int) (bool, int, error) }
+	notices *RequestNoticeBroker
 }
 
 var videoRequestBVPattern = regexp.MustCompile(`(?i)BV[0-9A-Za-z]{10}`)
@@ -62,8 +63,13 @@ func NewVideoQueueService(manager *config.Manager, settings config.BilibiliConfi
 	if manager == nil || resolver == nil || webview == nil || eventBuffer == nil {
 		return nil, errors.New("视频点播队列依赖未初始化")
 	}
+	if strings.TrimSpace(settings.VideoRequestPrefix) == "" { settings.VideoRequestPrefix = "点播" }
+	if strings.TrimSpace(settings.VideoSkipCommand) == "" { settings.VideoSkipCommand = "下一个" }
 	s := &VideoQueueService{manager:manager, settings:settings, resolver:resolver, webview:webview,
 		events:eventBuffer, lastRequest:make(map[int]time.Time), pending:make(map[string]bool), queue:make([]VideoQueueItem,0)}
+	// Keep a lightweight command listener alive while the optional video module
+	// is stopped, so moderators receive an explicit "feature disabled" result.
+	s.unsubscribe = eventBuffer.Subscribe(s.handleEvent)
 	return s, nil
 }
 
@@ -75,7 +81,7 @@ func (s *VideoQueueService) Start() error {
 	defer s.mu.Unlock()
 	if s.active { return nil }
 	s.generation++
-	s.unsubscribe = s.events.Subscribe(s.handleEvent)
+	if s.unsubscribe == nil { s.unsubscribe = s.events.Subscribe(s.handleEvent) }
 	s.webview.setPlaybackStateHandler(s.handlePlaybackState)
 	s.active = true
 	return nil
@@ -91,10 +97,9 @@ func (s *VideoQueueService) Stop() error {
 	s.queue = make([]VideoQueueItem, 0)
 	s.current = nil
 	s.pending = make(map[string]bool)
-	unsubscribe := s.unsubscribe
-	s.unsubscribe = nil
+	// Keep the event subscription alive while stopped: handleEvent filters
+	// ordinary requests but can still report that the video module is disabled.
 	s.mu.Unlock()
-	if unsubscribe != nil { unsubscribe() }
 	s.webview.setPlaybackStateHandler(nil)
 	if wasActive {
 		// Wait for an in-flight OpenVideo call so it cannot reopen the player
@@ -113,6 +118,21 @@ func (s *VideoQueueService) closePlayerIfActive() {
 	idle := s.active && s.current == nil && len(s.queue) == 0
 	s.mu.Unlock()
 	if idle { s.webview.CloseWindow() }
+}
+
+func (s *VideoQueueService) SetRequestNoticeBroker(broker *RequestNoticeBroker) {
+	if s == nil { return }
+	s.mu.Lock()
+	s.notices = broker
+	s.mu.Unlock()
+}
+
+func (s *VideoQueueService) publishRequestNotice(kind, userName, itemName, reason string) {
+	if s == nil { return }
+	s.mu.Lock()
+	broker := s.notices
+	s.mu.Unlock()
+	if broker != nil { broker.Publish(RequestNotice{Kind:kind, UserName:userName, ItemName:itemName, Reason:reason}) }
 }
 
 func (s *VideoQueueService) setFanMedalChecker(checker interface { Check(context.Context, int, int) (bool, int, error) }) {
@@ -154,6 +174,8 @@ func (s *VideoQueueService) GetSettings() config.BilibiliConfig {
 
 func (s *VideoQueueService) UpdateSettings(next config.BilibiliConfig) (config.BilibiliConfig, error) {
 	if s == nil || s.manager == nil { return config.BilibiliConfig{}, errors.New("视频设置服务不可用") }
+	if strings.TrimSpace(next.VideoRequestPrefix) == "" { next.VideoRequestPrefix = "点播" }
+	if strings.TrimSpace(next.VideoSkipCommand) == "" { next.VideoSkipCommand = "下一个" }
 	if err := next.Validate(); err != nil { return config.BilibiliConfig{}, err }
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -196,7 +218,7 @@ func (s *VideoQueueService) addVideoForGeneration(bvid, requester string, userID
 	if !s.active { s.mu.Unlock(); return errors.New("视频点播模块已关闭") }
 	generation := s.generation
 	if expectedGeneration != 0 && expectedGeneration != generation { s.mu.Unlock(); return errors.New("视频点播请求已失效") }
-	if !privileged && !s.settings.VideoRequestsEnabled { s.mu.Unlock(); return errors.New("视频点播当前已关闭") }
+	if !s.settings.VideoRequestsEnabled { s.mu.Unlock(); return errors.New("视频点播当前已关闭") }
 	if s.current != nil && s.current.BVID == bvid { s.mu.Unlock(); return errors.New("该视频正在播放") }
 	for _, item := range s.queue { if item.BVID == bvid { s.mu.Unlock(); return errors.New("该视频已经在待播队列中") } }
 	if s.pending[bvid] { s.mu.Unlock(); return errors.New("该视频正在校验，请稍后") }
@@ -235,19 +257,23 @@ func formatVideoDuration(seconds int) string {
 	return fmt.Sprintf("%d:%02d", seconds/60, seconds%60)
 }
 
+func (s *VideoQueueService) openVideoItem(item VideoQueueItem) error {
+	s.playerMu.Lock()
+	defer s.playerMu.Unlock()
+	s.mu.Lock()
+	shouldOpen := s.active && s.current != nil && s.current.ID == item.ID
+	s.mu.Unlock()
+	if !shouldOpen { return errors.New("视频点播请求已取消") }
+	return s.webview.OpenVideo(item.BVID)
+}
+
 func (s *VideoQueueService) startNextLocked() {
 	if s.current != nil || len(s.queue) == 0 || !s.active { return }
 	item := s.queue[0]
 	s.queue = s.queue[1:]
 	s.current = cloneVideoQueueItem(&item)
 	go func() {
-		s.playerMu.Lock()
-		defer s.playerMu.Unlock()
-		s.mu.Lock()
-		shouldOpen := s.active && s.current != nil && s.current.ID == item.ID
-		s.mu.Unlock()
-		if !shouldOpen { return }
-		if err := s.webview.OpenVideo(item.BVID); err != nil {
+		if err := s.openVideoItem(item); err != nil {
 			s.mu.Lock()
 			if s.current != nil && s.current.ID == item.ID { s.current = nil }
 			hasNext := s.active && len(s.queue) > 0
@@ -287,19 +313,51 @@ func (s *VideoQueueService) handlePlaybackState(state BilibiliWebViewPlaybackSta
 }
 
 func (s *VideoQueueService) SkipCurrent() error {
-	if s == nil { return errors.New("视频点播队列不可用") }
+	_, err := s.SkipCurrentWithResult()
+	return err
+}
+
+// SkipCurrentWithResult reports whether the command ended playback because
+// the queue was empty. When a next item exists, it waits for OpenVideo to
+// return so callers never announce success before startup has succeeded.
+func (s *VideoQueueService) SkipCurrentWithResult() (finished bool, err error) {
+	if s == nil { return false, errors.New("视频点播队列不可用") }
 	s.mu.Lock()
-	if !s.active { s.mu.Unlock(); return errors.New("视频点播模块已停止") }
-	if s.current == nil { s.mu.Unlock(); return errors.New("当前没有正在播放的视频") }
+	if !s.active { s.mu.Unlock(); return false, errors.New("视频点播功能未开启") }
+
+	// Retire the current item and reserve the next one before releasing the
+	// queue lock. The player itself is opened synchronously for this command.
 	s.current = nil
 	if len(s.queue) > 0 {
-		s.startNextLocked()
+		item := s.queue[0]
+		s.queue = s.queue[1:]
+		s.current = cloneVideoQueueItem(&item)
 		s.mu.Unlock()
-		return nil
+		if openErr := s.openVideoItem(item); openErr != nil {
+			s.mu.Lock()
+			if s.current != nil && s.current.ID == item.ID { s.current = nil }
+			hasNext := s.active && len(s.queue) > 0
+			if hasNext { s.startNextLocked() }
+			s.mu.Unlock()
+			if !hasNext { s.webview.CloseWindow() }
+			return false, fmt.Errorf("启动下一条视频失败：%w", openErr)
+		}
+		return false, nil
 	}
 	s.mu.Unlock()
-	s.closePlayerIfActive()
-	return nil
+
+	// No waiting item means the command ends the current playback. Close only
+	// if the player is still open; an absent player and empty queue is a failure.
+	s.playerMu.Lock()
+	defer s.playerMu.Unlock()
+	s.mu.Lock()
+	idle := s.active && s.current == nil && len(s.queue) == 0
+	s.mu.Unlock()
+	if idle && s.webview.GetWindowState().IsOpen {
+		s.webview.CloseWindow()
+		return true, nil
+	}
+	return false, errors.New("当前没有正在播放的视频，也没有下一个待播视频")
 }
 
 func (s *VideoQueueService) RemoveQueued(id uint64) error {
@@ -324,24 +382,62 @@ func (s *VideoQueueService) ClearQueue() {
 }
 
 func (s *VideoQueueService) handleEvent(event eventstream.Event) {
-	s.mu.Lock()
-	if !s.active { s.mu.Unlock(); return }
-	generation := s.generation
-	s.mu.Unlock()
 	if event.PlatformID != "bilibili" || event.Source != "live" || event.Type != "danmaku" { return }
 	text := strings.TrimSpace(event.Content)
-	if text == "下一个" {
-		if event.IsModerator || event.IsRoomOwner { _ = s.SkipCurrent() }
+	s.mu.Lock()
+	active := s.active
+	generation := s.generation
+	skipEnabled := s.settings.VideoSkipCommandEnabled
+	skipCommand := strings.TrimSpace(s.settings.VideoSkipCommand)
+	requestPrefix := strings.TrimSpace(s.settings.VideoRequestPrefix)
+	s.mu.Unlock()
+	if skipCommand != "" && text == skipCommand {
+		if !skipEnabled {
+			s.publishRequestNotice("video_skip_failed", event.UserName, "", "视频切换指令当前已关闭")
+			return
+		}
+		if !event.IsModerator && !event.IsRoomOwner {
+			s.publishRequestNotice("video_skip_failed", event.UserName, "", "仅主播或房管可以切换视频")
+			return
+		}
+		if !active {
+			s.publishRequestNotice("video_skip_failed", event.UserName, "", "视频点播功能未开启")
+			return
+		}
+		finished, err := s.SkipCurrentWithResult()
+		if err != nil {
+			s.publishRequestNotice("video_skip_failed", event.UserName, "", err.Error())
+		} else if finished {
+			s.publishRequestNotice("video_skip_finished", event.UserName, "", "没有下一条视频，播放已结束")
+		} else {
+			s.publishRequestNotice("video_skip_success", event.UserName, "", "")
+		}
 		return
 	}
 	if strings.HasPrefix(text, "清空视频队列") {
-		if event.IsModerator || event.IsRoomOwner { s.ClearQueue() }
+		if active && (event.IsModerator || event.IsRoomOwner) { s.ClearQueue() }
 		return
 	}
-	if !strings.HasPrefix(text, "点播") { return }
-	match := videoRequestBVPattern.FindString(text)
-	if match == "" { return }
+	if requestPrefix == "" || !strings.HasPrefix(text, requestPrefix) { return }
+	match := parseVideoRequest(text, requestPrefix)
+	if match == "" {
+		s.publishRequestNotice("video_request_failed", event.UserName, "", "未识别到有效的 B 站 BV 号")
+		return
+	}
+	if !active {
+		s.publishRequestNotice("video_request_failed", event.UserName, "", "视频点播功能未开启")
+		return
+	}
 	go s.processVideoRequest(event, match, generation)
+}
+
+func parseVideoRequest(content, prefix string) string {
+	content = strings.TrimSpace(content)
+	prefix = strings.TrimSpace(prefix)
+	if content == "" || prefix == "" || !strings.HasPrefix(content, prefix) { return "" }
+	remainder := strings.TrimSpace(strings.TrimPrefix(content, prefix))
+	if remainder == "" { return "" }
+	return videoRequestBVPattern.FindString(remainder)
 }
 
 func (s *VideoQueueService) processVideoRequest(event eventstream.Event, bvid string, generation uint64) {
@@ -353,15 +449,18 @@ func (s *VideoQueueService) processVideoRequest(event eventstream.Event, bvid st
 	minLevel := s.settings.VideoFanMedalLevel
 	checker := s.fanMedalChecker
 	s.mu.Unlock()
-	if !privileged && !requestsEnabled { return }
+	if !requestsEnabled {
+		s.publishRequestNotice("video_request_failed", event.UserName, "", "视频点播功能未开启")
+		return
+	}
 	if !privileged && requireMedal {
 		if minLevel < 1 { minLevel = 1 }
-		if checker == nil { log.Printf("视频点播粉丝勋章校验服务不可用，拒绝用户 %d 的点播", event.UserID); return }
+		if checker == nil { reason := "视频点播粉丝勋章校验服务不可用"; log.Printf("%s，拒绝用户 %d 的点播", reason, event.UserID); s.publishRequestNotice("video_request_failed", event.UserName, "", reason); return }
 		ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
 		allowed, level, err := checker.Check(ctx, event.UserID, minLevel)
 		cancel()
-		if err != nil { log.Printf("校验视频点播用户 %d 的主播粉丝勋章失败，已拒绝：%v", event.UserID, err); return }
-		if !allowed { log.Printf("拒绝视频点播用户 %d：主播粉丝勋章等级 %d，要求 %d", event.UserID, level, minLevel); return }
+		if err != nil { reason := "粉丝勋章校验失败：" + err.Error(); log.Printf("校验视频点播用户 %d 的主播粉丝勋章失败，已拒绝：%v", event.UserID, err); s.publishRequestNotice("video_request_failed", event.UserName, "", reason); return }
+		if !allowed { reason := fmt.Sprintf("粉丝勋章等级不足（当前 %d 级，要求 %d 级）", level, minLevel); log.Printf("拒绝视频点播用户 %d：主播粉丝勋章等级 %d，要求 %d", event.UserID, level, minLevel); s.publishRequestNotice("video_request_failed", event.UserName, "", reason); return }
 	}
 	s.mu.Lock()
 	if !s.active || s.generation != generation { s.mu.Unlock(); return }
@@ -369,12 +468,22 @@ func (s *VideoQueueService) processVideoRequest(event eventstream.Event, bvid st
 		cooldown := time.Duration(s.settings.VideoRequestCooldownSeconds) * time.Second
 		if previous, ok := s.lastRequest[event.UserID]; ok && cooldown > 0 && time.Since(previous) < cooldown {
 			s.mu.Unlock()
+			s.publishRequestNotice("video_request_failed", event.UserName, "", "点播冷却中，请稍后再试")
 			return
 		}
 		s.lastRequest[event.UserID] = time.Now()
 	}
 	s.mu.Unlock()
-	_ = s.addVideoForGeneration(bvid, event.UserName, event.UserID, privileged, generation)
+	if err := s.addVideoForGeneration(bvid, event.UserName, event.UserID, privileged, generation); err != nil {
+		s.publishRequestNotice("video_request_failed", event.UserName, "", err.Error())
+	} else {
+		s.mu.Lock()
+		var title string
+		for _, item := range s.queue { if item.BVID == bvid { title = item.Title; break } }
+		if s.current != nil && s.current.BVID == bvid { title = s.current.Title }
+		s.mu.Unlock()
+		s.publishRequestNotice("video_request_success", event.UserName, title, "")
+	}
 }
 
 func (s *VideoQueueService) Close() { _ = s.Stop() }

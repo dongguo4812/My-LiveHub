@@ -42,7 +42,7 @@ func (l *Logger) Output() io.Writer {
 	if l == nil || l.file == nil {
 		return os.Stderr
 	}
-	return io.MultiWriter(os.Stderr, l.file)
+	return l.file
 }
 
 func (l *Logger) Path() string {

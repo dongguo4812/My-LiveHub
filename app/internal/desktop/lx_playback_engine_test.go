@@ -90,6 +90,18 @@ func TestLXPlaybackEngineFallsBackToNextConfiguredAddress(t *testing.T) {
 	}
 }
 
+func TestLXPlaybackEngineUsesDocumentedNextTrackEndpoint(t *testing.T) {
+	var called string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	engine := NewLXPlaybackEngine([]string{server.URL})
+	if err := engine.NextTrack(context.Background()); err != nil { t.Fatal(err) }
+	if called != "/skip-next" { t.Fatalf("next endpoint = %q, want /skip-next", called) }
+}
+
 func TestLXPlaybackEngineUsesDocumentedPauseAndResumeEndpoints(t *testing.T) {
 	var calls []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

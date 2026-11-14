@@ -1,5 +1,6 @@
 {
   "config_version": 1,
   "appearance": { "theme": "dark", "accent_color": "indigo" },
-  "logging": { "retention_days": 14 }
+  "logging": { "retention_days": 14 },
+  "window": { "close_behavior": "minimize_to_tray" }
 }

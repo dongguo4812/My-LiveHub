@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, onUpdated, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
-type Layer = { id: string; type: string; name: string; x: number; y: number; width: number; height: number; z_index: number; visible: boolean; opacity: number; text?: string; url?: string; color?: string; font_size?: number; queue_display_count?: number; gift_display_duration?: number; super_chat_display_duration?: number; live2d_scale?: number; live2d_x?: number; live2d_y?: number; emoticon_size?: number; emoticon_speed?: number; emoticon_drift?: number; emoticon_max_count?: number; content_scale?: number }
+type Layer = { id: string; type: string; name: string; x: number; y: number; width: number; height: number; z_index: number; visible: boolean; opacity: number; text?: string; url?: string; color?: string; font_size?: number; queue_display_count?: number; gift_display_duration?: number; super_chat_display_duration?: number; live2d_scale?: number; live2d_x?: number; live2d_y?: number; emoticon_size?: number; emoticon_speed?: number; emoticon_drift?: number; emoticon_max_count?: number; content_scale?: number; request_notice_display_duration?: number }
 type Scene = { id: string; name: string; width: number; height: number; background: string; layers: Layer[] }
 type EmoticonToken = { text: string; url: string; cache_url?: string; width?: number; height?: number }
 type LiveEvent = { id: number; type: string; user_name: string; content: string; gift_name?: string; gift_count?: number; gift_image_url?: string; gift_image_cache_url?: string; gift_animation_url?: string; gift_animation_cache_url?: string; amount?: number; timestamp: number; emoticons?: EmoticonToken[] }
@@ -17,6 +17,7 @@ type VideoQueue = { enabled: boolean; running: boolean; current?: VideoQueueItem
 type Live2DDisplay = { enabled: boolean; runtime_version: 'moc2' | 'moc3'; model_url: string; model_scale: number; model_offset_x: number; model_offset_y: number }
 type Live2DWindow = Window & { live2dSetModelTransform?: (scale: number, x: number, y: number) => boolean; live2dSetMouthOpen?: (value: number) => void }
 type MusicDisplayConfig = { enabled: boolean; command_enabled: boolean; command_prefix: string; skip_command_enabled: boolean; skip_command: string; require_fan_medal: boolean; fan_medal_level: number }
+type RequestNotice = { id: number; kind: 'music_request_success' | 'music_request_failed' | 'music_skip_success' | 'music_skip_failed' | 'video_request_success' | 'video_request_failed' | 'video_skip_success' | 'video_skip_failed' | 'video_skip_finished'; user_name: string; item_name?: string; reason?: string; timestamp: number }
 const route = useRoute()
 const scene = ref<Scene | null>(null)
 const lolHexFrameURLs = ref<Record<string, string>>({})
@@ -87,6 +88,8 @@ const live2DFrameURL = computed(() => {
 })
 const musicDisplayConfig = ref<MusicDisplayConfig | null>(null)
 const musicError = ref('')
+const currentRequestNotices = ref<RequestNotice[]>([])
+let requestNoticeSource: EventSource | undefined
 const musicAccentColor = ref('#A83232')
 const waveBars = Array.from({ length: 31 }, (_, index) => ({ height: 7 + Math.abs(Math.sin(index * 1.71) * 24), speed: 0.45 + (index % 7) * 0.13, delay: -(Math.random() * 1.8) }))
 const musicColors = ['#FF3B30', '#FF7A00', '#FFD000', '#39D353', '#00D6C9', '#00A6FF', '#4169FF', '#9B5CFF', '#FF4FA3', '#FF6B6B']
@@ -197,7 +200,7 @@ function formatTime(value: number) {
 function layerStyle(layer: Layer) {
   const current = scene.value
   if (!current) return {}
-  return {
+  const style: Record<string, string | number> = {
     left: (layer.x / current.width * 100) + '%',
     top: (layer.y / current.height * 100) + '%',
     width: (layer.width / current.width * 100) + '%',
@@ -207,6 +210,14 @@ function layerStyle(layer: Layer) {
     color: layer.color || '#ffffff',
     fontSize: ((layer.font_size || 24) / current.height * 100) + 'cqh',
   }
+  if (layer.type === 'request_notice') {
+    style.top = 'auto'
+    style.bottom = ((current.height - layer.y - layer.height) / current.height * 100) + '%'
+    style.width = 'max-content'
+    style.maxWidth = (layer.width / current.width * 100) + '%'
+    style.height = 'auto'
+  }
+  return style
 }
 function formatClock() { return now.value.toLocaleTimeString('zh-CN', { hour12: false }) }
 function removeFloatingEmoticon(id: number) {
@@ -246,6 +257,34 @@ function spawnFloatingEmoticons(event: LiveEvent) {
     const keep = floatingEmoticons.value.filter(item => item.layerId !== layer.id)
     const combined = [...existing, ...incoming].slice(-maxCount)
     floatingEmoticons.value = [...keep, ...combined]
+  }
+}
+function handleRequestNotice(event: MessageEvent<string>) {
+  try {
+    const notice = JSON.parse(event.data) as RequestNotice
+    if (currentRequestNotices.value.some(item => item.id === notice.id && item.timestamp === notice.timestamp)) return
+    currentRequestNotices.value = [...currentRequestNotices.value, notice].slice(-32)
+  } catch { /* Ignore malformed request notice frames. */ }
+}
+function requestNoticesForLayer(layer: Layer) {
+  const duration = Math.max(1, Math.min(120, layer.request_notice_display_duration || 5)) * 1000
+  const currentTime = now.value.getTime()
+  return currentRequestNotices.value.filter(notice => currentTime - notice.timestamp <= duration)
+}
+function requestNoticeText(notice: RequestNotice) {
+  const music = notice.kind.startsWith('music')
+  const icon = music ? '🎵' : '🎬'
+  const user = '「' + (notice.user_name || '未知观众') + '」'
+  switch (notice.kind) {
+    case 'music_request_success': return icon + user + '点播成功：《' + (notice.item_name || '歌曲') + '》'
+    case 'music_request_failed': return icon + user + '点播失败：' + (notice.reason || '未知原因')
+    case 'music_skip_success': return '🎵' + user + '音乐切换成功'
+    case 'music_skip_failed': return '🎵' + user + '音乐切换失败：' + (notice.reason || '未知原因')
+    case 'video_request_success': return '🎬' + user + '点播成功：《' + (notice.item_name || '视频') + '》'
+    case 'video_request_failed': return '🎬' + user + '点播失败：' + (notice.reason || '未知原因')
+    case 'video_skip_success': return '🎬' + user + '视频切换成功'
+    case 'video_skip_failed': return '🎬' + user + '视频切换失败：' + (notice.reason || '未知原因')
+    case 'video_skip_finished': return '🎬' + user + '没有下一条视频，播放已结束'
   }
 }
 function handleEvent(event: MessageEvent<string>) {
@@ -400,6 +439,8 @@ onMounted(() => {
   musicConfigRefreshTimer = setInterval(() => { void loadMusicDisplayConfig() }, 3000)
   source = new EventSource('/api/events')
   source.onmessage = handleEvent
+  requestNoticeSource = new EventSource('/api/request-notices')
+  requestNoticeSource.onmessage = handleRequestNotice
   source.onerror = () => { error.value = '直播事件连接中断，正在自动重连…' }
   source.onopen = () => { error.value = ''; void loadRecentEvents() }
   clockTimer = setInterval(() => { now.value = new Date() }, 500)
@@ -411,6 +452,7 @@ onUnmounted(() => {
   mouthSyncChannel = null
   if (mouthSyncPollTimer) clearInterval(mouthSyncPollTimer)
   source?.close()
+  requestNoticeSource?.close()
   if (clockTimer) clearInterval(clockTimer)
   if (sceneRefreshTimer) clearInterval(sceneRefreshTimer)
   if (musicRefreshTimer) clearInterval(musicRefreshTimer)
@@ -424,8 +466,11 @@ onUnmounted(() => {
 
 <template>
   <main v-if="scene" class="scene-output" :style="{ aspectRatio: scene.width + ' / ' + scene.height, background: scene.background === 'transparent' ? 'transparent' : scene.background }">
-    <div v-for="layer in scene.layers.filter(item => item.visible && (item.type !== 'music_queue' || musicDisplayConfig?.command_enabled === true) && (item.type !== 'video_queue' || (videoQueue.running === true && videoQueue.enabled === true)) && (item.type !== 'live2d' || Boolean(live2DFrameURL)))" :key="layer.id" class="output-layer" :class="{ 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue', 'video-queue-output-layer': layer.type === 'video_queue', 'emoticon-output-layer': layer.type === 'emoticon' }" :style="layerStyle(layer)">
-      <span v-if="layer.type === 'text'">{{ layer.text }}</span>
+    <div v-for="layer in scene.layers.filter(item => item.visible && (item.type !== 'music_queue' || musicDisplayConfig?.command_enabled === true) && (item.type !== 'video_queue' || (videoQueue.running === true && videoQueue.enabled === true)) && (item.type !== 'live2d' || Boolean(live2DFrameURL)))" :key="layer.id" class="output-layer" :class="{ 'request-notice-output-layer': layer.type === 'request_notice', 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue', 'video-queue-output-layer': layer.type === 'video_queue', 'emoticon-output-layer': layer.type === 'emoticon' }" :style="layerStyle(layer)">
+      <div v-if="layer.type === 'request_notice'" class="request-notice-stack">
+        <div v-for="notice in requestNoticesForLayer(layer)" :key="notice.id + ':' + notice.timestamp" class="request-notice-widget" :class="{ 'is-failed': notice.kind.endsWith('_failed') }" :style="{ color: notice.kind.endsWith('_failed') ? '#ffb2b2' : (layer.color || '#a7f3c0') }">{{ requestNoticeText(notice) }}</div>
+      </div>
+      <span v-else-if="layer.type === 'text'">{{ layer.text }}</span>
       <img v-else-if="layer.type === 'image' && layer.url" :src="layer.url" alt="" />
       <iframe v-else-if="(layer.type === 'lol_hex_display' || layer.type === 'lol_hex_bar') && lolHexFrameURLs[layer.id]" class="lol-hex-output-frame" :src="lolHexDisplayURL(layer)" :title="layer.name" :style="{ width: '100%', height: '100%', border: '0', background: 'transparent', pointerEvents: 'none' }" />
       <time v-else-if="layer.type === 'clock'">{{ formatClock() }}</time>
@@ -556,6 +601,7 @@ onUnmounted(() => {
 html,body,#app{width:100%;height:100%;margin:0;overflow:hidden;background:transparent!important}
 body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .scene-output{position:relative;width:100vw;height:100vh;overflow:hidden;container-type:size;background:transparent}
+.request-notice-output-layer{width:max-content!important;height:auto!important;min-width:0;min-height:0;overflow:visible;align-items:flex-start;justify-content:flex-end;white-space:normal;text-shadow:none}.request-notice-stack{display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-end;gap:.35em;width:max-content;height:auto;max-width:100%;overflow:visible}.request-notice-widget{display:block;flex:none;box-sizing:border-box;width:max-content;height:auto;max-width:100%;padding:.5em .8em;border:1px solid rgba(120,220,160,.6);border-radius:.55em;background:rgba(12,24,20,.94);color:var(--notice-color,#a7f3c0);font-weight:800;line-height:1.4;text-align:left;text-shadow:0 2px 5px #000;box-shadow:0 8px 24px #0006;white-space:normal;overflow-wrap:anywhere;word-break:break-word;overflow:visible;pointer-events:none}.request-notice-widget.is-failed{border-color:rgba(255,125,125,.7);background:rgba(38,15,18,.95);color:#ffb2b2}
 .output-layer{position:absolute;display:flex;align-items:flex-start;justify-content:flex-start;overflow:hidden;white-space:pre-wrap;word-break:break-word;font-weight:600;text-shadow:0 2px 6px #000b}
 .emoticon-output-layer{padding:0;white-space:normal;text-shadow:none}
 .floating-emoticon-layer{position:absolute;inset:0;overflow:hidden;pointer-events:none}
@@ -616,12 +662,12 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-queue-prompt-single span{flex:none;color:#d7deea}
 .music-queue-prompt-single b{color:#ffd66b;font-weight:800}
 .music-queue-current-inline{flex-wrap:nowrap;gap:.55em;padding:.34em 0;border:0;border-radius:0;background:transparent;box-shadow:none;white-space:nowrap}
-.music-queue-current-stacked{display:flex;flex-wrap:wrap;align-items:flex-start;gap:.28em .55em;white-space:normal}.music-queue-current-stacked .music-queue-current-track{box-sizing:border-box;flex:0 0 100%;width:100%;max-width:100%;padding-left:calc(.5em + 1.7em + .58em);white-space:normal}.music-queue-current-stacked .music-queue-empty{box-sizing:border-box;flex:0 0 100%;width:100%;max-width:100%;padding-left:.5em;white-space:normal}.music-queue-current-stacked .music-queue-requester{box-sizing:border-box;flex:0 0 100%;max-width:100%;padding-left:calc(.5em + 1.7em + .58em);white-space:normal}
+.music-queue-current-stacked{display:flex;flex-wrap:wrap;align-items:center;gap:.28em .55em;white-space:normal;min-width:0}.music-queue-current-stacked .music-queue-current-label{flex:0 0 100%;width:100%}.music-queue-current-stacked .music-queue-current-track{box-sizing:border-box;flex:1 1 0;width:auto;max-width:none;min-width:0;padding-left:0;white-space:nowrap}.music-queue-current-stacked .music-queue-empty{box-sizing:border-box;flex:1 1 0;width:auto;max-width:none;min-width:0;padding-left:0;white-space:nowrap}.music-queue-current-stacked .music-queue-requester{box-sizing:border-box;flex:0 1 auto;width:auto;max-width:30%;padding-left:0;white-space:nowrap}
 .music-queue-current-label{flex:none;color:#ffd66b;font-size:.82em;white-space:nowrap}
 .music-queue-current-track{display:flex;flex:1;align-items:baseline;gap:.35em;min-width:0;overflow:hidden;white-space:nowrap}
 .music-queue-current-title{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f7f8fc;font-size:.88em}
 .music-queue-current-artist{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#aeb9ca;font-size:.76em}
-.music-queue-current-inline .music-queue-requester{max-width:24%}.music-queue-current-inline .music-queue-empty{padding:0;white-space:nowrap}
+.music-queue-current-inline .music-queue-requester{max-width:24%}.music-queue-current-inline .music-queue-empty{padding:0;white-space:nowrap}.music-queue-current-stacked.music-queue-current-inline .music-queue-requester{box-sizing:border-box;flex:0 0 auto;width:auto;max-width:30%;margin-left:auto;padding-left:0;white-space:nowrap;text-align:right}
 .music-queue-list{gap:0}
 .music-queue-list .music-queue-item{padding-top:.08em;padding-bottom:.08em;border-radius:0;border-bottom:1px solid rgba(255,255,255,.045)}
 .music-queue-list{display:flex;flex:none;flex-direction:column;gap:0;min-height:0;overflow:hidden}

@@ -12,6 +12,7 @@ type Live2DLayer = LayoutLayer & { live2d_scale?: number; live2d_x?: number; liv
 type EmoticonLayer = LayoutLayer & { emoticon_size?: number; emoticon_speed?: number; emoticon_drift?: number; emoticon_max_count?: number }
 type GiftLayer = LayoutLayer & { gift_display_duration?: number }
 type SuperChatLayer = LayoutLayer & { super_chat_display_duration?: number }
+type RequestNoticeLayer = LayoutLayer & { request_notice_display_duration?: number }
 type ContentScaleLayer = LayoutLayer & { content_scale?: number }
 function contentScaleLayer(layer: LayoutLayer) { return layer as ContentScaleLayer }
 function contentScale(layer: LayoutLayer) { return contentScaleLayer(layer).content_scale ?? 100 }
@@ -82,6 +83,7 @@ const canvas = ref<HTMLElement>()
 const scene = computed(() => scenes.value.find(item => item.id === activeSceneID.value) ?? scenes.value[0] ?? null)
 const selectedLayer = computed(() => scene.value?.layers.find(item => item.id === selectedLayerID.value) ?? null)
 const selectedQueueLayer = computed(() => selectedLayer.value as (LayoutLayer & { queue_display_count?: number }) | null)
+const selectedRequestNoticeLayer = computed(() => selectedLayer.value?.type === 'request_notice' ? selectedLayer.value as RequestNoticeLayer : null)
 const selectedEmoticonLayer = computed(() => selectedLayer.value?.type === 'emoticon' ? emoticonLayer(selectedLayer.value) : null)
 const sortedLayers = computed(() => [...(scene.value?.layers ?? [])].sort((a, b) => b.z_index - a.z_index))
 const scale = ref(1)
@@ -101,6 +103,8 @@ function addLayer(type: string) {
     danmaku: { name: '弹幕列表', width: 760, height: 260, font_size: 24, color: '#ffffff' },
     gift: { name: '礼物展示', width: 520, height: 180, font_size: 28, color: '#ffffff' },
     super_chat: { name: 'SC 展示', width: 520, height: 180, font_size: 28, color: '#ffffff' },
+    request_notice: { name: '点播结果通知', width: 620, height: 100, font_size: 30, color: '#a7f3c0' },
+
     music: { name: '音乐展示', width: 620, height: 190, font_size: 24, color: '#ffffff' },
     music_queue: { name: '歌曲点播队列', width: 500, height: 360, font_size: 22, color: '#ffffff' },
     video_queue: { name: '视频点播队列', width: 500, height: 360, font_size: 22, color: '#ffffff' },
@@ -117,6 +121,7 @@ function addLayer(type: string) {
   if (type === 'emoticon') Object.assign(layer, { emoticon_size: 64, emoticon_speed: 90, emoticon_drift: 48, emoticon_max_count: 12 })
   if (type === 'gift') Object.assign(layer, { gift_display_duration: 8 })
   if (type === 'super_chat') Object.assign(layer, { super_chat_display_duration: 8 })
+  if (type === 'request_notice') Object.assign(layer, { request_notice_display_duration: 5 })
   if (type === 'lol_hex_display' || type === 'lol_hex_bar') Object.assign(layer, { content_scale: 100 })
   scene.value.layers.push(layer)
   selectedLayerID.value = layer.id
@@ -279,7 +284,7 @@ async function removeScene() {
   }
 }
 function layerLabel(type: string) {
-  return ({ text: '文字', image: '图片', clock: '时钟', danmaku: '弹幕', gift: '礼物', super_chat: 'SC', music: '音乐', music_queue: '歌曲点播队列', video_queue: '视频点播队列', live2d: 'Live2D', emoticon: '互动表情', lol_hex_display: '海克斯展示', lol_hex_bar: 'LOL 战绩条' } as Record<string, string>)[type] ?? type
+  return ({ text: '文字', image: '图片', clock: '时钟', danmaku: '弹幕', gift: '礼物', super_chat: 'SC', music: '音乐', music_queue: '歌曲点播队列', video_queue: '视频点播队列', live2d: 'Live2D', emoticon: '互动表情', lol_hex_display: '海克斯展示', lol_hex_bar: 'LOL 战绩条', request_notice: '点播结果通知' } as Record<string, string>)[type] ?? type
 }
 function videoQueuePreviewItems(layer: LayoutLayer) {
   const count = (layer as LayoutLayer & { queue_display_count?: number }).queue_display_count || 10
@@ -351,6 +356,7 @@ onUnmounted(() => {
           <button @click="addLayer('danmaku')"><el-icon><ChatDotRound /></el-icon>弹幕</button>
           <button @click="addLayer('gift')"><el-icon><Present /></el-icon>礼物</button>
           <button @click="addLayer('super_chat')"><el-icon><ChatDotRound /></el-icon>SC 留言</button>
+          <button @click="addLayer('request_notice')">点播结果通知</button>
           <button @click="addLayer('music')"><el-icon><Headset /></el-icon>音乐展示</button>
           <button @click="addLayer('music_queue')">歌曲点播队列</button>
           <button @click="addLayer('video_queue')"><el-icon><VideoPlay /></el-icon>视频点播队列</button>
@@ -391,6 +397,7 @@ onUnmounted(() => {
                 <span v-if="!videoQueueSnapshot?.items.length">暂无待播视频</span>
               </div>
             </div>
+            <div v-else-if="layer.type === 'request_notice'" class="request-notice-layer-preview"><strong>🎵「观众昵称」点播成功</strong><span>🎬「观众昵称」视频切换成功</span></div>
             <div v-else-if="layer.type === 'gift'" class="gift-layer-preview"><div class="gift-preview-image">🎁</div><strong>礼物名称 × 1</strong><span>观众昵称 赠送</span></div>
             <div v-else-if="layer.type === 'emoticon'" class="emoticon-layer-preview"><span>🥰</span><span>✨</span><span>🎉</span><span>❤️</span></div>
             <div v-else-if="layer.type === 'music_queue'" class="music-queue-layer-preview">
@@ -416,6 +423,7 @@ onUnmounted(() => {
             <el-form-item v-if="selectedLayer !== null && (selectedLayer!.type === 'music_queue' || selectedLayer!.type === 'video_queue')" label="待播显示数量"><el-input-number v-model="selectedQueueLayer!.queue_display_count" :min="1" :max="1000" /><div class="el-form-item__description">仅控制此队列组件显示的待播条数；队列标题仍显示实际数量。</div></el-form-item>
             <el-form-item v-if="selectedLayer!.type === 'gift'" label="显示时间"><el-input-number v-model="giftLayer(selectedLayer!).gift_display_duration" :min="1" :max="120" :step="1" controls-position="right" /> <span class="el-form-item__description">礼物出现后保留的秒数（1–120 秒）</span></el-form-item>
             <el-form-item v-if="selectedLayer!.type === 'super_chat'" label="显示时间"><el-input-number v-model="superChatLayer(selectedLayer!).super_chat_display_duration" :min="1" :max="120" :step="1" controls-position="right" /> <span class="el-form-item__description">SC 留言出现后保留的秒数（1–120 秒）</span></el-form-item>
+            <el-form-item v-if="selectedLayer!.type === 'request_notice'" label="单条显示时间"><el-input-number v-model="selectedRequestNoticeLayer!.request_notice_display_duration" :min="1" :max="120" :step="1" controls-position="right" /><div class="el-form-item__description">每条点播结果通知显示的秒数，通知按顺序依次展示。</div></el-form-item>
             <template v-if="selectedEmoticonLayer">
               <el-form-item label="表情大小"><div class="live2d-adjustment"><strong>{{ selectedEmoticonLayer.emoticon_size ?? 64 }} px</strong><el-slider v-model="selectedEmoticonLayer.emoticon_size" :min="24" :max="160" :step="4" /></div></el-form-item>
               <el-form-item label="上升速度"><div class="live2d-adjustment"><strong>{{ selectedEmoticonLayer.emoticon_speed ?? 90 }} px/s</strong><el-slider v-model="selectedEmoticonLayer.emoticon_speed" :min="20" :max="300" :step="5" /></div></el-form-item>
@@ -449,6 +457,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+ .request-notice-layer-preview{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.35em;width:100%;height:100%;padding:8px;box-sizing:border-box;border:1px dashed rgba(120,220,160,.6);border-radius:8px;background:rgba(12,24,20,.88);color:#a7f3c0;text-align:center;text-shadow:0 2px 5px #000;overflow:hidden}.request-notice-layer-preview strong,.request-notice-layer-preview span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .extension-layer-preview { display: grid; place-content: center; gap: 8px; width: 100%; height: 100%; border: 1px dashed rgba(255,255,255,.35); border-radius: 10px; color: #b9c8dc; background: rgba(20,28,42,.76); text-align: center; font-size: 13px; letter-spacing: 2px; }
 .extension-layer-preview strong { font-size: 1.35em; letter-spacing: 0; }
 .layouts-page{display:flex;flex-direction:column;gap:16px;min-width:0}.page-heading{display:flex;justify-content:space-between;gap:20px;align-items:flex-start}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 8px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description{color:var(--el-text-color-secondary);font-size:13px;margin:8px 0 0}.heading-actions,.scene-tabs,.source-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.scene-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--app-border);border-radius:9px;background:var(--app-bg-surface)}.studio-grid{display:grid;grid-template-columns:210px minmax(0,1fr) 250px;gap:14px;min-height:550px}.studio-panel{border:1px solid var(--app-border);border-radius:9px;background:var(--app-bg-surface);padding:13px;min-width:0}.panel-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;font-size:13px}.panel-heading span{font-size:11px;color:var(--el-text-color-secondary)}.add-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}.add-grid button{height:55px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;border:1px solid var(--app-border);border-radius:7px;background:var(--app-bg-control);color:var(--el-text-color-regular);cursor:pointer;font-size:11px}.add-grid button:hover{border-color:var(--app-accent);color:var(--app-accent)}.add-grid .el-icon{font-size:17px}.layer-list{display:flex;flex-direction:column;gap:4px}.layer-list button{display:flex;justify-content:space-between;align-items:center;padding:9px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--el-text-color-regular);text-align:left;cursor:pointer;font-size:12px}.layer-list button.selected{background:var(--app-bg-selected);border-color:var(--app-accent);color:var(--app-accent-soft)}.layer-list small{color:var(--el-text-color-secondary)}.canvas-area{min-width:0;display:flex;flex-direction:column;justify-content:center;gap:9px}.canvas-caption{display:flex;justify-content:space-between;color:var(--el-text-color-secondary);font-size:11px}.scene-canvas{position:relative;container-type:size;width:100%;aspect-ratio:16/9;overflow:hidden;border:1px solid var(--app-border);border-radius:6px;box-shadow:0 8px 28px #0002}.checkerboard{position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(45deg,#80808018 25%,transparent 25%),linear-gradient(-45deg,#80808018 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#80808018 75%),linear-gradient(-45deg,transparent 75%,#80808018 75%);background-size:24px 24px;background-position:0 0,0 12px,12px -12px,-12px 0}.canvas-layer{position:absolute;display:flex;align-items:center;justify-content:flex-start;padding:4px;border:1px dashed transparent;cursor:move;overflow:hidden;white-space:pre-wrap;word-break:break-word;font-weight:600;text-shadow:0 2px 5px #000a;touch-action:none} .gift-layer-preview{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;width:100%;height:100%;overflow:hidden;border:1px dashed #d6a5ff66;border-radius:6px;background:linear-gradient(180deg,#38244855,#17132188);font-size:clamp(10px,2.2cqh,20px);text-align:center;text-shadow:none}.gift-preview-image{display:grid;place-items:center;flex:1;min-height:0;font-size:clamp(28px,8cqh,76px)}.gift-layer-preview strong{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#ffe1a6}.gift-layer-preview span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#eee0f5;font-size:.78em}.emoticon-layer-preview{position:relative;display:flex;align-items:center;justify-content:space-around;width:100%;height:100%;overflow:hidden;background:linear-gradient(180deg,#ffffff08,#ffffff18);border:1px dashed #ffffff45;border-radius:6px}

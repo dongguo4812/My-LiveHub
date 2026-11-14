@@ -5,6 +5,9 @@ import "fmt"
 type BilibiliConfig struct {
 	RoomID int `json:"room_id"`
 	VideoRequestsEnabled bool `json:"video_requests_enabled"`
+	VideoRequestPrefix string `json:"video_request_prefix"`
+	VideoSkipCommandEnabled bool `json:"video_skip_command_enabled"`
+	VideoSkipCommand string `json:"video_skip_command"`
 	VideoRequestCooldownSeconds int `json:"video_request_cooldown_seconds"`
 	VideoQueueLimit int `json:"video_queue_limit"`
 	VideoMaxDurationSeconds int `json:"video_max_duration_seconds"`
@@ -21,6 +24,9 @@ type BilibiliConfig struct {
 func DefaultBilibiliConfig() BilibiliConfig {
 	return BilibiliConfig{
 		VideoRequestsEnabled: true,
+		VideoRequestPrefix: "点播",
+		VideoSkipCommandEnabled: true,
+		VideoSkipCommand: "下一个",
 		VideoRequestCooldownSeconds: 60,
 		VideoQueueLimit: 30,
 		VideoMaxDurationSeconds: 300,
@@ -35,6 +41,8 @@ func (c BilibiliConfig) Validate() error {
 	if c.RoomID < 0 || c.RoomID > 2_147_483_647 {
 		return fmt.Errorf("invalid Bilibili room ID %d", c.RoomID)
 	}
+	if len([]rune(c.VideoRequestPrefix)) > 16 { return fmt.Errorf("视频点播指令前缀不能超过 16 个字符") }
+	if len([]rune(c.VideoSkipCommand)) > 16 { return fmt.Errorf("切换视频指令不能超过 16 个字符") }
 	if c.VideoRequestCooldownSeconds < 0 || c.VideoRequestCooldownSeconds > 3600 {
 		return fmt.Errorf("视频点播冷却时间必须在 0 到 3600 秒之间")
 	}

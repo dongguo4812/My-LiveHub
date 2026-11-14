@@ -104,7 +104,7 @@ func (s *DanmakuDisplayService) OpenWindow() error {
 		MinWidth: 420, MinHeight: 180, Frameless: true, DisableResize: false,
 		BackgroundType: application.BackgroundTypeTransparent, BackgroundColour: application.NewRGBA(0, 0, 0, 0),
 		URL: "/#/danmaku/overlay",
-		Windows: application.WindowsWindow{DisableFramelessWindowDecorations: true},
+		Windows: application.WindowsWindow{DisableFramelessWindowDecorations: true, HiddenOnTaskbar: true},
 	}
 	if cfg.PositionSaved { options.InitialPosition = application.WindowXY; options.X = cfg.X; options.Y = cfg.Y }
 	s.pinned = cfg.Pinned

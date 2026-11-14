@@ -63,6 +63,7 @@ type MusicService struct {
 	lyricsMu sync.Mutex
 	lyricsCache map[string]string
 	fanMedalChecker interface { Check(context.Context, int, int) (bool, int, error) }
+	notices *RequestNoticeBroker
 }
 
 func NewMusicService(manager *config.Manager, value config.MusicConfig, buffers ...*events.Buffer) *MusicService {
@@ -82,11 +83,15 @@ func NewMusicServiceWithDependencies(manager *config.Manager, value config.Music
 	if engine == nil { engine = NewLXPlaybackEngine(value.LXAPIEndpoints) }
 	var buffer *events.Buffer
 	if len(buffers) > 0 { buffer = buffers[0] }
-	return &MusicService{
+	service := &MusicService{
 		manager: manager, buffer: buffer, value: cloneMusicConfig(value),
 		sources: sources, engine: engine, queue: music.NewQueue(value.QueueCapacity),
 		searcher: music.NewLXSearchClient(nil), lyricsCache: make(map[string]string),
 	}
+	// Keep the lightweight command listener alive while the module is stopped,
+	// matching the video module so users still receive an explicit failure notice.
+	if buffer != nil { service.unsubscribe = buffer.Subscribe(service.handleEvent) }
+	return service
 }
 
 func (s *MusicService) start(ctx context.Context) error {
@@ -104,7 +109,7 @@ func (s *MusicService) start(ctx context.Context) error {
 	s.requests = make(chan events.Event, musicRequestQueueCapacity)
 	s.workerDone = make(chan struct{})
 	s.started = true
-	s.unsubscribe = s.buffer.Subscribe(s.handleEvent)
+	if s.unsubscribe == nil { s.unsubscribe = s.buffer.Subscribe(s.handleEvent) }
 	s.mu.Unlock()
 	go s.worker()
 	return nil
@@ -121,10 +126,11 @@ func (s *MusicService) stop(ctx context.Context) error {
 		s.cancelPlaybackWatcher()
 		return s.Shutdown()
 	}
-	cancel, unsubscribe, done := s.cancel, s.unsubscribe, s.workerDone
-	s.started, s.unsubscribe = false, nil
+	cancel, done := s.cancel, s.workerDone
+	// Keep the command listener subscribed while stopped so disabled-command
+	// attempts can still be reported through the shared request-notice stream.
+	s.started = false
 	s.mu.Unlock()
-	if unsubscribe != nil { unsubscribe() }
 	if cancel != nil { cancel() }
 	s.cancelPlaybackWatcher()
 	s.lifecycleMu.Unlock()
@@ -142,14 +148,24 @@ func (s *MusicService) stop(ctx context.Context) error {
 func (s *MusicService) handleEvent(event events.Event) {
 	if event.Type != "danmaku" { return }
 	s.mu.RLock()
-	enabled := s.value.Enabled && (s.value.CommandEnabled || s.value.SkipCommandEnabled) && s.started
+	started := s.started
 	requests := s.requests
 	prefix := s.value.CommandPrefix
-	skipEnabled := s.value.SkipCommandEnabled
 	skipCommand := strings.TrimSpace(s.value.SkipCommand)
 	s.mu.RUnlock()
-	if !enabled || requests == nil { return }
-	if _, ok := parseSongRequest(event.Content, prefix); !ok && !(skipEnabled && isSkipCommand(event.Content, skipCommand)) { return }
+	isRequest := isSongRequestCommand(event.Content, prefix)
+	isSkip := isSkipCommand(event.Content, skipCommand)
+	if !isRequest && !isSkip { return }
+	if !started || requests == nil {
+		if isSkip {
+			s.publishRequestNotice("music_skip_failed", event.UserName, "", "音乐模块未启动")
+		} else {
+			s.publishRequestNotice("music_request_failed", event.UserName, "", "音乐模块未启动")
+		}
+		return
+	}
+	// Route configured commands even when their feature toggle is off. The
+	// worker reports the precise disabled reason through the shared request-notice stream.
 	select {
 	case requests <- event:
 	default:
@@ -172,6 +188,21 @@ func (s *MusicService) worker() {
 	}
 }
 
+func (s *MusicService) SetRequestNoticeBroker(broker *RequestNoticeBroker) {
+	if s == nil { return }
+	s.mu.Lock()
+	s.notices = broker
+	s.mu.Unlock()
+}
+
+func (s *MusicService) publishRequestNotice(kind, userName, itemName, reason string) {
+	if s == nil { return }
+	s.mu.RLock()
+	broker := s.notices
+	s.mu.RUnlock()
+	if broker != nil { broker.Publish(RequestNotice{Kind:kind, UserName:userName, ItemName:itemName, Reason:reason}) }
+}
+
 func (s *MusicService) setFanMedalChecker(checker interface { Check(context.Context, int, int) (bool, int, error) }) {
 	if s == nil { return }
 	s.mu.Lock()
@@ -182,6 +213,7 @@ func (s *MusicService) setFanMedalChecker(checker interface { Check(context.Cont
 func (s *MusicService) processSongRequest(ctx context.Context, event events.Event) {
 	s.mu.RLock()
 	enabled := s.value.Enabled && s.started
+	started := s.started
 	commandEnabled := s.value.CommandEnabled
 	prefix := s.value.CommandPrefix
 	skipEnabled := s.value.SkipCommandEnabled
@@ -190,36 +222,77 @@ func (s *MusicService) processSongRequest(ctx context.Context, event events.Even
 	fanMedalLevel := s.value.FanMedalLevel
 	checker := s.fanMedalChecker
 	s.mu.RUnlock()
-	if !enabled { return }
-	if skipEnabled && isSkipCommand(event.Content, skipCommand) {
-		if !canSkipMusic(event) { return }
-		if err := s.Next(); err != nil { s.setLastError(fmt.Errorf("执行弹幕切歌失败：%w", err)) }
+	if isSkipCommand(event.Content, skipCommand) {
+		if !started || !enabled {
+			s.publishRequestNotice("music_skip_failed", event.UserName, "", "音乐模块当前未启用")
+			return
+		}
+		if !skipEnabled {
+			s.publishRequestNotice("music_skip_failed", event.UserName, "", "音乐切歌指令当前已关闭")
+			return
+		}
+		if !canSkipMusic(event) {
+			s.publishRequestNotice("music_skip_failed", event.UserName, "", "仅主播或房管可以切歌")
+			return
+		}
+		if err := s.Next(); err != nil {
+			s.setLastError(fmt.Errorf("执行弹幕切歌失败：%w", err))
+			s.publishRequestNotice("music_skip_failed", event.UserName, "", err.Error())
+		} else {
+			s.publishRequestNotice("music_skip_success", event.UserName, "", "")
+		}
 		return
 	}
-	if !commandEnabled { return }
+	if !isSongRequestCommand(event.Content, prefix) { return }
+	if !started || !enabled {
+		s.publishRequestNotice("music_request_failed", event.UserName, "", "音乐模块当前未启用")
+		return
+	}
+	if !commandEnabled {
+		s.publishRequestNotice("music_request_failed", event.UserName, "", "音乐点歌指令当前已关闭")
+		return
+	}
 	keyword, ok := parseSongRequest(event.Content, prefix)
-	if !ok { return }
+	if !ok {
+		s.publishRequestNotice("music_request_failed", event.UserName, "", "请在点歌指令后输入歌曲名称")
+		return
+	}
 	if requireFanMedal && !event.IsRoomOwner && !event.IsModerator {
-		if checker == nil { s.setLastError(errors.New("音乐点播粉丝勋章校验服务不可用，已拒绝本次点播")); return }
+		if checker == nil { reason := "音乐点播粉丝勋章校验服务不可用"; s.setLastError(errors.New(reason)); s.publishRequestNotice("music_request_failed", event.UserName, "", reason); return }
 		allowed, level, checkErr := checker.Check(ctx, event.UserID, fanMedalLevel)
-		if checkErr != nil { s.setLastError(fmt.Errorf("校验观众 %s 的主播粉丝勋章失败，已拒绝本次点播：%w", event.UserName, checkErr)); return }
-		if !allowed { s.setLastError(fmt.Errorf("观众 %s 的主播粉丝勋章等级不足（当前 %d，要求 %d）", event.UserName, level, fanMedalLevel)); return }
+		if checkErr != nil { reason := "粉丝勋章校验失败：" + checkErr.Error(); s.setLastError(fmt.Errorf("校验观众 %s 的主播粉丝勋章失败，已拒绝本次点播：%w", event.UserName, checkErr)); s.publishRequestNotice("music_request_failed", event.UserName, "", reason); return }
+		if !allowed { reason := fmt.Sprintf("粉丝勋章等级不足（当前 %d 级，要求 %d 级）", level, fanMedalLevel); s.setLastError(fmt.Errorf("观众 %s 的主播粉丝勋章等级不足（当前 %d，要求 %d）", event.UserName, level, fanMedalLevel)); s.publishRequestNotice("music_request_failed", event.UserName, "", reason); return }
 	}
 	result, err := s.search(ctx, keyword)
 	if err != nil {
 		s.setLastError(fmt.Errorf("搜索弹幕点歌失败：%w", err))
+		s.publishRequestNotice("music_request_failed", event.UserName, "", "歌曲搜索失败："+err.Error())
 		return
 	}
 	if len(result.Tracks) == 0 {
+		reason := "未找到歌曲：" + keyword
 		s.setLastError(fmt.Errorf("观众 %s 点播的歌曲未找到：%s", event.UserName, keyword))
+		s.publishRequestNotice("music_request_failed", event.UserName, "", reason)
 		return
 	}
 	if _, err := s.Enqueue(result.Tracks[0], event.UserName); err != nil {
 		s.setLastError(fmt.Errorf("加入观众点播队列失败：%w", err))
+		s.publishRequestNotice("music_request_failed", event.UserName, "", err.Error())
+	} else {
+		s.publishRequestNotice("music_request_success", event.UserName, result.Tracks[0].Title, "")
 	}
 }
 
 func isSkipCommand(content, command string) bool { return command != "" && strings.TrimSpace(content) == command }
+func isSongRequestCommand(content, prefix string) bool {
+	content = strings.TrimSpace(content)
+	prefix = strings.TrimSpace(prefix)
+	if content == "" || prefix == "" || !strings.HasPrefix(content, prefix) { return false }
+	remainder := strings.TrimPrefix(content, prefix)
+	if remainder == "" { return true }
+	next, _ := utf8.DecodeRuneInString(remainder)
+	return unicode.IsSpace(next)
+}
 func canSkipMusic(event events.Event) bool { return event.IsRoomOwner || event.IsModerator }
 
 func parseSongRequest(content, prefix string) (string, bool) {
@@ -491,15 +564,25 @@ func (s *MusicService) Resume() error {
 }
 func (s *MusicService) Next() error {
 	if s == nil || s.engine == nil || s.queue == nil { return errors.New("music playback service is unavailable") }
-	// 洛雪没有独立的 Stop/Next HTTP API。Stop() 会回退到 /pause，
-	// 因此必须先确认队列中确实有下一首，且不能在切歌前调用 Stop。
-	if len(s.queue.Snapshot().Items) == 0 {
-		return errors.New("没有下一首待播歌曲")
+	snapshot := s.queue.Snapshot()
+	var nextTrack interface { NextTrack(context.Context) error }
+	if len(snapshot.Items) == 0 {
+		// Validate 洛雪 queue support before retiring the current track. A
+		// failed capability check must leave the current playback untouched.
+		var ok bool
+		nextTrack, ok = s.engine.(interface { NextTrack(context.Context) error })
+		if !ok { return errors.New("当前播放引擎不支持切换洛雪队列") }
 	}
 	s.cancelPlaybackWatcher()
-	if current := s.queue.Snapshot().Current; current != nil { s.pushHistory(*current) }
+	if current := snapshot.Current; current != nil { s.pushHistory(*current) }
 	s.queue.FinishCurrent()
-	return s.PlayNext()
+	if len(snapshot.Items) > 0 { return s.PlayNext() }
+	// When the My-LiveHub request queue is empty, advance 洛雪's own playlist.
+	if err := nextTrack.NextTrack(context.Background()); err != nil {
+		s.startPlaybackWatcher()
+		return fmt.Errorf("切换洛雪队列下一首失败：%w", err)
+	}
+	return nil
 }
 
 func (s *MusicService) Previous() error {

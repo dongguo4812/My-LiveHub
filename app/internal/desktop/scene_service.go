@@ -58,6 +58,7 @@ type LayoutLayer struct {
 	EmoticonMaxCount int `json:"emoticon_max_count,omitempty"`
 	GiftDisplayDuration int `json:"gift_display_duration,omitempty"`
 	SuperChatDisplayDuration int `json:"super_chat_display_duration,omitempty"`
+	RequestNoticeDisplayDuration int `json:"request_notice_display_duration,omitempty"`
 }
 
 type sceneVideoProvider interface {
@@ -84,6 +85,7 @@ type SceneService struct {
 	mu       sync.RWMutex
 	manager  *config.Manager
 	events   *eventstream.Buffer
+	notices  *RequestNoticeBroker
 	server   *http.Server
 	listener net.Listener
 	baseURL  string
@@ -109,6 +111,7 @@ func NewSceneService(manager *config.Manager, events *eventstream.Buffer, assets
 	mux.HandleFunc("/api/music/lyrics", service.handleMusicLyrics)
 	mux.HandleFunc("/api/events", service.handleEvents)
 	mux.HandleFunc("/api/events/recent", service.handleRecentEvents)
+	mux.HandleFunc("/api/request-notices", service.handleRequestNotices)
 	mux.Handle("/", assets)
 	var listener net.Listener
 	var listenErr error
@@ -170,7 +173,7 @@ func validateLayoutConfig(value LayoutConfig) error {
 			}
 			layerIDs[layer.ID] = true
 			switch layer.Type {
-			case "text", "image", "clock", "danmaku", "gift", "super_chat", "music", "music_queue", "video_queue", "music_prompt", "live2d", "emoticon", "lol_hex_display", "lol_hex_bar":
+			case "text", "image", "clock", "danmaku", "gift", "super_chat", "music", "music_queue", "video_queue", "music_prompt", "live2d", "emoticon", "lol_hex_display", "lol_hex_bar", "request_notice":
 			default:
 				return fmt.Errorf("不支持的图层类型：%s", layer.Type)
 			}
@@ -185,6 +188,9 @@ func validateLayoutConfig(value LayoutConfig) error {
 			}
 			if layer.Type == "super_chat" && layer.SuperChatDisplayDuration != 0 && (layer.SuperChatDisplayDuration < 1 || layer.SuperChatDisplayDuration > 120) {
 				return fmt.Errorf("图层 %q 的 SC 显示时间必须在 1 到 120 秒之间", layer.Name)
+			}
+			if layer.Type == "request_notice" && layer.RequestNoticeDisplayDuration != 0 && (layer.RequestNoticeDisplayDuration < 1 || layer.RequestNoticeDisplayDuration > 120) {
+				return fmt.Errorf("图层 %q 的点播结果通知显示时间必须在 1 到 120 秒之间", layer.Name)
 			}
 		}
 	}
@@ -331,6 +337,8 @@ func (s *SceneService) handleMusicQueue(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *SceneService) handleLive2D(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Cache-Control", "no-store")
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -470,6 +478,54 @@ func writeSceneJSON(w http.ResponseWriter, value any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+func (s *SceneService) SetRequestNoticeBroker(broker *RequestNoticeBroker) {
+	if s == nil { return }
+	s.mu.Lock()
+	s.notices = broker
+	s.mu.Unlock()
+}
+
+func (s *SceneService) handleRequestNotices(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.mu.RLock()
+	broker := s.notices
+	s.mu.RUnlock()
+	if broker == nil {
+		http.Error(w, "request notice service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	channel, cancel := broker.Subscribe()
+	defer cancel()
+	flusher.Flush()
+	heartbeat := time.NewTicker(20 * time.Second)
+	defer heartbeat.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case notice := <-channel:
+			data, err := json.Marshal(notice)
+			if err != nil { continue }
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
+		case <-heartbeat.C:
+			_, _ = fmt.Fprint(w, ": keep-alive\n\n")
+			flusher.Flush()
+		}
+	}
 }
 
 func (s *SceneService) handleRecentEvents(w http.ResponseWriter, r *http.Request) {

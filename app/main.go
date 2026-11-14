@@ -147,6 +147,7 @@ func main() {
 	}
 	eventBus := eventstream.NewBus()
 	bilibiliEvents := eventstream.NewBuffer(eventBus)
+	requestNoticeBroker := desktop.NewRequestNoticeBroker()
 	musicService := desktop.NewMusicServiceWithFanMedalChecker(configManager, musicConfig, fanMedalChecker, bilibiliEvents)
 	musicLyricsWindowService := desktop.NewMusicLyricsWindowService(musicService)
 	bilibiliVideoResolver, err := bilibili.NewVideoResolver(bilibiliAuth, nil)
@@ -154,6 +155,8 @@ func main() {
 	bilibiliWebViewService := desktop.NewBilibiliWebViewService(musicService, configManager)
 	videoQueueService, err := desktop.NewVideoQueueServiceWithFanMedalChecker(configManager, bilibiliConfig, bilibiliVideoResolver, bilibiliWebViewService, bilibiliEvents, fanMedalChecker)
 	if err != nil { log.Fatalf("initialize Bilibili video queue service: %v", err) }
+	musicService.SetRequestNoticeBroker(requestNoticeBroker)
+	videoQueueService.SetRequestNoticeBroker(requestNoticeBroker)
 	cacheDir := ""
 	if environment == config.EnvironmentDevelopment {
 		if workingDir, getwdErr := os.Getwd(); getwdErr == nil {
@@ -264,6 +267,8 @@ func main() {
 	sceneAssets = desktop.WrapLive2DAssetHandler(live2dService, sceneAssets)
 	sceneService, err := desktop.NewSceneService(configManager, bilibiliEvents, sceneAssets, musicService, videoQueueService, live2dService)
 	if err != nil { log.Fatalf("initialize scene browser source service: %v", err) }
+	sceneService.SetRequestNoticeBroker(requestNoticeBroker)
+	appearanceService := desktop.NewAppearanceService(configManager, appConfig, applicationLogger)
 	app := application.New(application.Options{
 		Name:        "My-LiveHub",
 		Description: "多平台综合直播互动辅助平台",
@@ -281,7 +286,7 @@ func main() {
 			application.NewService(platformService),
 			application.NewService(desktop.NewBilibiliAuthService(bilibiliAuth, platformManager)),
 			application.NewService(bilibiliSettingsService),
-			application.NewService(desktop.NewAppearanceService(configManager, appConfig, applicationLogger)),
+			application.NewService(appearanceService),
 			application.NewService(danmakuDisplayService),
 			application.NewService(sceneService),
 			application.NewService(voiceService),
@@ -332,11 +337,36 @@ func main() {
 			}
 		}
 	})
-	// Keep the main window alive until the application-level quit is confirmed.
-	// This ensures OnShutdown closes auxiliary windows before the process exits.
+	// Respect the user's persisted close-window behavior.
 	mainWindow.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
 		event.Cancel()
-		go app.Quit()
+		if appearanceService.GetWindowCloseBehavior() == config.WindowCloseExit {
+			app.Quit()
+			return
+		}
+		mainWindow.Hide()
+	})
+
+	// Keep the app available in the Windows notification area while its window is hidden.
+	tray := app.SystemTray.New()
+	tray.SetIcon(createTrayIcon()).SetTooltip("My-LiveHub")
+	trayMenu := app.NewMenu()
+	trayMenu.Add("显示主界面").OnClick(func(_ *application.Context) {
+		mainWindow.Show()
+		mainWindow.Focus()
+	})
+	trayMenu.AddSeparator()
+	trayMenu.Add("退出 My-LiveHub").OnClick(func(_ *application.Context) {
+		app.Quit()
+	})
+	tray.SetMenu(trayMenu)
+	tray.OnClick(func() {
+		if mainWindow.IsVisible() {
+			mainWindow.Hide()
+			return
+		}
+		mainWindow.Show()
+		mainWindow.Focus()
 	})
 	if err := app.Run(); err != nil {
 		log.Fatal(err)

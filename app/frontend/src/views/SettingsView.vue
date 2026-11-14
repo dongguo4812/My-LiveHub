@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import {onMounted,ref,watch} from 'vue'
-import {appearance,appearanceBusy,appearanceError,loadAppearance,saveAppearance,logRetentionDays,logRetentionBusy,logRetentionError,saveLogRetentionDays} from '../services/appearance'
+import {appearance,appearanceBusy,appearanceError,loadAppearance,saveAppearance,logRetentionDays,logRetentionBusy,logRetentionError,saveLogRetentionDays,windowCloseBehavior,windowCloseBehaviorError,saveWindowCloseBehavior} from '../services/appearance'
 const theme=ref('dark'),accentColor=ref('indigo')
 const accents=[{value:'indigo',label:'蓝紫',color:'#7c8cff'},{value:'blue',label:'蓝色',color:'#5798e8'},{value:'violet',label:'紫色',color:'#a184e8'},{value:'teal',label:'青绿',color:'#43b9a6'},{value:'rose',label:'玫瑰',color:'#df829b'}]
 watch(appearance,v=>{theme.value=v.theme;accentColor.value=v.accent_color},{immediate:true})
 onMounted(()=>{void loadAppearance()})
 async function apply(){await saveAppearance(theme.value,accentColor.value)}
 async function saveRetention(){await saveLogRetentionDays(logRetentionDays.value)}
+async function saveCloseBehavior(){await saveWindowCloseBehavior(windowCloseBehavior.value)}
 </script>
 <template><section class="settings-page"><div><p class="eyebrow">PERSONALIZE YOUR WORKSPACE</p><h2>系统设置</h2><p class="description">调整客户端外观和运行日志。设置保存在本地配置中，重启后继续生效。</p></div>
 <el-alert v-if="appearanceError" :title="appearanceError" type="error" :closable="false" show-icon/>
@@ -18,6 +19,10 @@ async function saveRetention(){await saveLogRetentionDays(logRetentionDays.value
 <el-card shadow="never"><template #header><strong>运行日志</strong></template>
 <div class="setting-row"><div><strong>日志保留天数</strong><p>按日期分别保存日志，超过保留期限的日志会在启动时和修改设置后自动清理。</p></div><div class="retention-control"><el-input-number v-model="logRetentionDays" :min="1" :max="365" :step="1" controls-position="right"/><span>天</span><el-button type="primary" :loading="logRetentionBusy" @click="saveRetention">保存</el-button></div></div>
 <el-alert v-if="logRetentionError" :title="logRetentionError" type="error" :closable="false" show-icon/><p class="hint">默认保留 14 天，可设置 1～365 天。当天日志文件会持续追加记录。</p></el-card>
+
+<el-card shadow="never"><template #header><strong>窗口与系统托盘</strong></template>
+<div class="setting-row"><div><strong>关闭主窗口时</strong><p>选择点击窗口关闭按钮后的行为。最小化到托盘后，后台直播连接和播放服务会继续运行。</p></div><div class="retention-control"><el-radio-group v-model="windowCloseBehavior" @change="saveCloseBehavior"><el-radio-button value="minimize_to_tray">最小化到系统托盘</el-radio-button><el-radio-button value="exit">退出程序</el-radio-button></el-radio-group></div></div>
+<el-alert v-if="windowCloseBehaviorError" :title="windowCloseBehaviorError" type="error" :closable="false" show-icon/><p class="hint">程序最小化到托盘后，可通过托盘图标重新打开主界面，或在托盘菜单中选择退出。</p></el-card>
 
 <el-card shadow="never"><template #header><strong>颜色语义</strong></template><div class="semantic-list"><div><i class="success"/>成功 / 正常</div><div><i class="warning"/>警告 / 等待</div><div><i class="danger"/>危险 / 失败</div><div><i class="info"/>普通 / 辅助</div></div><p class="hint">状态颜色保持固定语义；深浅主题会自动调整背景、文字、边框和控件对比度。</p></el-card></section></template>
 <style scoped>

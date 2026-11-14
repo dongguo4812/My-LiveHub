@@ -114,6 +114,12 @@ func (e *LXPlaybackEngine) Resume(ctx context.Context) error {
 	return e.requestControl(ctx, "/play")
 }
 
+// NextTrack advances the 洛雪 player's own playlist, including songs queued outside My-LiveHub.
+func (e *LXPlaybackEngine) NextTrack(ctx context.Context) error {
+	if ctx == nil { ctx = context.Background() }
+	return e.requestControl(ctx, "/skip-next")
+}
+
 // Stop has no dedicated 洛雪 endpoint. Pausing is the documented safe action;
 // the My-LiveHub queue is still finished locally.
 func (e *LXPlaybackEngine) Stop(ctx context.Context) error { return e.Pause(ctx) }

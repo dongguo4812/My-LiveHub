@@ -131,6 +131,32 @@ func TestLayoutLayerEmoticonSettingsJSON(t *testing.T) {
 	}
 }
 
+func TestLayoutLayerRequestNoticeSettingsJSON(t *testing.T) {
+	layer := LayoutLayer{ID: "notice", Type: "request_notice", Name: "点播结果通知", RequestNoticeDisplayDuration: 7}
+	data, err := json.Marshal(layer)
+	if err != nil {
+		t.Fatalf("marshal request notice layer: %v", err)
+	}
+	var decoded LayoutLayer
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal request notice layer: %v", err)
+	}
+	if decoded.RequestNoticeDisplayDuration != 7 {
+		t.Fatalf("request notice display duration was not persisted: got %d", decoded.RequestNoticeDisplayDuration)
+	}
+	valid := LayoutConfig{Scenes: []LayoutScene{{
+		ID: "main", Name: "主场景", Width: 1920, Height: 1080,
+		Layers: []LayoutLayer{decoded},
+	}}}
+	if err := validateLayoutConfig(valid); err != nil {
+		t.Fatalf("valid request notice layer rejected: %v", err)
+	}
+	valid.Scenes[0].Layers[0].RequestNoticeDisplayDuration = 121
+	if err := validateLayoutConfig(valid); err == nil {
+		t.Fatal("expected invalid request notice display duration to be rejected")
+	}
+}
+
 func TestLayoutLayerQueueDisplayCountJSON(t *testing.T) {
 	layer := LayoutLayer{ID: "queue", Type: "music_queue", Name: "点播队列", QueueDisplayCount: 8}
 	data, err := json.Marshal(layer)
@@ -184,6 +210,7 @@ func TestSceneLive2DDisplayFollowsModuleState(t *testing.T) {
 		recorder := httptest.NewRecorder()
 		scene.handleLive2D(recorder, httptest.NewRequest(http.MethodGet, "/api/live2d", nil))
 		if recorder.Code != http.StatusOK { t.Fatalf("Live2D scene status = %d: %s", recorder.Code, recorder.Body.String()) }
+		if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != "*" { t.Fatalf("Live2D status CORS header = %q, want *", got) }
 		var payload map[string]any
 		if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil { t.Fatal(err) }
 		enabled, ok := payload["enabled"].(bool)

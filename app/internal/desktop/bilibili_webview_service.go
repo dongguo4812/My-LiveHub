@@ -244,6 +244,8 @@ func (s *BilibiliWebViewService) CloseWindow() {
 	}
 	window := s.currentWindow()
 	if window != nil {
+		// Let the native close lifecycle run. Hiding first can leave some
+		// WebView2 hosts in a hidden-but-still-open state.
 		window.Close()
 	}
 }
