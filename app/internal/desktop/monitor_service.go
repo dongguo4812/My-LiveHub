@@ -7,7 +7,10 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
+
+	runtimemetrics "runtime/metrics"
 )
 
 type SystemMetricsSnapshot struct {
@@ -17,6 +20,7 @@ type SystemMetricsSnapshot struct {
 	GoTotalAllocBytes uint64 `json:"go_total_alloc_bytes"`
 	Goroutines int `json:"goroutines"`
 	CPUCount int `json:"cpu_count"`
+	GoCPUPercent float64 `json:"go_cpu_percent"`
 	CollectedAt time.Time `json:"collected_at"`
 }
 
@@ -29,6 +33,9 @@ type MonitorLogEntry struct {
 type MonitorService struct {
 	startedAt time.Time
 	logDir string
+	mu sync.Mutex
+	lastCPUAt time.Time
+	lastCPUSeconds float64
 }
 
 func NewMonitorService(logDir string) *MonitorService {
@@ -40,7 +47,25 @@ func NewMonitorService(logDir string) *MonitorService {
 func (s *MonitorService) GetSystemMetrics() SystemMetricsSnapshot {
 	var memory runtime.MemStats
 	runtime.ReadMemStats(&memory)
-	startedAt := time.Now()
+	collectedAt := time.Now()
+	cpuSample := []runtimemetrics.Sample{{Name: "/cpu/classes/total:cpu-seconds"}}
+	runtimemetrics.Read(cpuSample)
+	cpuSeconds := cpuSample[0].Value.Float64()
+	cpuPercent := 0.0
+	if s != nil {
+		s.mu.Lock()
+		if !s.lastCPUAt.IsZero() {
+			elapsed := collectedAt.Sub(s.lastCPUAt).Seconds()
+			if elapsed > 0 {
+				cpuPercent = (cpuSeconds - s.lastCPUSeconds) / elapsed / float64(runtime.NumCPU()) * 100
+				if cpuPercent < 0 { cpuPercent = 0 }
+				if cpuPercent > 100 { cpuPercent = 100 }
+			}
+		}
+		s.lastCPUAt, s.lastCPUSeconds = collectedAt, cpuSeconds
+		s.mu.Unlock()
+	}
+	startedAt := collectedAt
 	if s != nil && !s.startedAt.IsZero() { startedAt = s.startedAt }
 	return SystemMetricsSnapshot{
 		UptimeSeconds: int64(time.Since(startedAt).Seconds()),
@@ -49,7 +74,8 @@ func (s *MonitorService) GetSystemMetrics() SystemMetricsSnapshot {
 		GoTotalAllocBytes: memory.TotalAlloc,
 		Goroutines: runtime.NumGoroutine(),
 		CPUCount: runtime.NumCPU(),
-		CollectedAt: time.Now(),
+		GoCPUPercent: cpuPercent,
+		CollectedAt: collectedAt,
 	}
 }
 
