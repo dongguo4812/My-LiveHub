@@ -14,6 +14,7 @@ import SimulatorView from './views/SimulatorView.vue'
 import PlaceholderView from './views/PlaceholderView.vue'
 import EventsView from './views/EventsView.vue'
 import UsersView from './views/UsersView.vue'
+import RulesView from './views/RulesView.vue'
 import ExtensionsView from './views/ExtensionsView.vue'
 import ModulesView from './views/ModulesView.vue'
 import LayoutsView from './views/LayoutsView.vue'
@@ -26,7 +27,7 @@ const routes=[
 {path:'/simulator/:platformID',name:'platform-simulator',component:SimulatorView,meta:{title:'平台互动模拟器',standalone:true}},
 {path:'/events',component:EventsView,meta:{title:'事件中心',section:'互动中心',description:'汇总多平台事件，同时保留各平台原生事件信息。'}},
 {path:'/users',component:UsersView,meta:{title:'用户管理',section:'互动中心',description:'查看各平台用户档案和近期互动记录。'}},
-{path:'/rules',component:PlaceholderView,meta:{title:'互动规则',section:'互动中心',description:'配置事件触发条件、动作和自动化流程。'}},
+{path:'/rules',component:RulesView,meta:{title:'互动规则',section:'互动中心',description:'配置事件触发条件、动作和自动化流程。'}},
 {path:'/modules',component:ModulesView,meta:{title:'功能模块',section:'功能模块',description:'查看和控制内置模块运行状态。'}},
 {path:'/layouts',component:LayoutsView,meta:{title:'综合展示',section:'展示管理',description:'编辑多个独立展示布局，并管理对应 OBS 浏览器地址。'}},
 {path:'/scene/:sceneID',component:SceneRendererView,meta:{title:'场景输出',standalone:true}},
