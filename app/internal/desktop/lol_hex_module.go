@@ -1,6 +1,9 @@
 package desktop
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 type LOLHexModule struct {
 	service *LOLHexService
@@ -14,8 +17,10 @@ func (m *LOLHexModule) StartOnApplicationLaunch() bool { return false }
 
 func (m *LOLHexModule) Start(context.Context) error {
 	if m == nil || m.service == nil { return nil }
-	_, err := m.service.Start()
-	return err
+	status, err := m.service.Start()
+	if err != nil { return err }
+	if status.External { return errors.New("LOL Hex 当前由外部启动，My-LiveHub 不会接管该进程；请先关闭外部实例") }
+	return nil
 }
 
 func (m *LOLHexModule) Stop(context.Context) error {
