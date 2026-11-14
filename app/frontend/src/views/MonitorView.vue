@@ -165,14 +165,15 @@ onUnmounted(() => {
       <template #header><div class="card-heading"><strong>系统资源与运行时间</strong><el-tag size="small" effect="plain">Go 运行时数据</el-tag></div></template>
       <div class="system-grid">
         <div><span>程序运行时间</span><strong>{{ formatDuration(metrics?.uptime_seconds) }}</strong></div>
-        <div><span>Go 运行时 CPU 占用</span><strong>{{ metrics ? metrics.go_cpu_percent.toFixed(1) + '%' : '—' }}</strong></div>
+        <div><span>系统 CPU 占用</span><strong>{{ metrics ? metrics.system_cpu_percent.toFixed(1) + '%' : '—' }}</strong></div>
+        <div><span>My-LiveHub 进程 CPU 占用</span><strong>{{ metrics ? metrics.process_cpu_percent.toFixed(1) + '%' : '—' }}</strong></div>
         <div><span>Go 堆内存使用</span><strong>{{ formatBytes(metrics?.go_heap_alloc_bytes) }}</strong></div>
         <div><span>Go 堆内存保留</span><strong>{{ formatBytes(metrics?.go_heap_sys_bytes) }}</strong></div>
         <div><span>累计内存分配</span><strong>{{ formatBytes(metrics?.go_total_alloc_bytes) }}</strong></div>
         <div><span>运行中的 Goroutine</span><strong>{{ metrics?.goroutines ?? '—' }}</strong></div>
         <div><span>逻辑 CPU 数</span><strong>{{ metrics?.cpu_count ?? '—' }}</strong></div>
       </div>
-      <p class="hint">CPU 为 Go 运行时采样值，按逻辑 CPU 总容量归一化；内存为 Go 堆内存，不等同于 Windows 进程总内存。</p>
+      <p class="hint">系统 CPU 取自 Windows 系统处理器时间；进程 CPU 取自 My-LiveHub 进程处理器时间，均按整机逻辑 CPU 总容量归一化。CPU 首次采样显示 0%，后续按采样间隔计算。内存为 Go 堆内存，不等同于 Windows 进程总内存。</p>
     </el-card>
 
 
