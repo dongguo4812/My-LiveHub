@@ -40,11 +40,32 @@ type Live2DService struct {
 	modelRoot string
 	mu sync.RWMutex
 	current config.Live2DConfig
+	enabled bool
 }
 
 func NewLive2DService(manager *config.Manager, current config.Live2DConfig, modelRoot string) *Live2DService {
 	if modelRoot != "" { _ = os.MkdirAll(modelRoot, 0o700) }
 	return &Live2DService{manager: manager, current: current, modelRoot: modelRoot}
+}
+
+// Start enables Live2D model assets for scene rendering.
+func (s *Live2DService) Start() error {
+	if s == nil || s.modelRoot == "" { return errors.New("Live2D 模型服务不可用") }
+	s.mu.Lock(); s.enabled = true; s.mu.Unlock()
+	return nil
+}
+
+// Stop disables model asset delivery without discarding settings or model files.
+func (s *Live2DService) Stop() error {
+	if s == nil { return nil }
+	s.mu.Lock(); s.enabled = false; s.mu.Unlock()
+	return nil
+}
+
+func (s *Live2DService) IsEnabled() bool {
+	if s == nil { return false }
+	s.mu.RLock(); defer s.mu.RUnlock()
+	return s.enabled
 }
 
 func (s *Live2DService) GetSettings() config.Live2DConfig {
@@ -193,6 +214,7 @@ func safeLive2DPathPart(value string) bool {
 func WrapLive2DAssetHandler(service *Live2DService, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if service != nil && strings.HasPrefix(r.URL.Path, "/models/") {
+			if !service.IsEnabled() { http.Error(w, "Live2D module is stopped", http.StatusServiceUnavailable); return }
 			service.serveModelAsset(w, r)
 			return
 		}
