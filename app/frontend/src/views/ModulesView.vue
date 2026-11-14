@@ -13,7 +13,7 @@ const info: Record<string, { title: string; description: string; controllable: b
   live2d: { title: 'Live2D', description: '资源与展示服务由场景按需调用。', controllable: false },
   'lol-hex-display': { title: 'LOL Hex Display', description: '独立扩展，请前往扩展管理页面启停。', controllable: false },
 }
-const modules = computed(() => coreModules.value.map(item => ({ ...item, ...(info[item.name] ?? { title: item.name, description: '内置模块', controllable: false }) })))
+const modules = computed(() => coreModules.value.filter(item => info[item.name]?.controllable).map(item => ({ ...item, ...info[item.name] })))
 const statusText = (s: string) => ({ registered: '待启动', starting: '启动中', running: '运行中', stopping: '停止中', stopped: '已停止', failed: '启动失败' } as Record<string,string>)[s] ?? s
 const statusType = (s: string) => s === 'running' ? 'success' : s === 'failed' ? 'danger' : ['starting','stopping'].includes(s) ? 'warning' : 'info'
 async function refresh() {
@@ -43,7 +43,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 </script>
 <template>
   <section class="modules-page">
-    <header class="page-heading"><div><h2>功能模块</h2><p>查看内置模块运行状态，并独立控制支持启停的模块。模块停止不会关闭 My-LiveHub。</p></div><el-button @click="refresh">刷新状态</el-button></header>
+    <header class="page-heading"><div><h2>功能模块</h2><p>这里只显示支持独立启停的功能模块。模块停止不会关闭 My-LiveHub。</p></div><el-button @click="refresh">刷新状态</el-button></header>
     <div class="module-grid">
       <el-card v-for="item in modules" :key="item.name" shadow="never" class="module-card">
         <div class="module-heading"><div><h3>{{ item.title }}</h3><small>{{ item.name }}</small></div><el-tag :type="statusType(item.status)">{{ statusText(item.status) }}</el-tag></div>
