@@ -210,6 +210,7 @@ func TestSceneLive2DDisplayFollowsModuleState(t *testing.T) {
 		recorder := httptest.NewRecorder()
 		scene.handleLive2D(recorder, httptest.NewRequest(http.MethodGet, "/api/live2d", nil))
 		if recorder.Code != http.StatusOK { t.Fatalf("Live2D scene status = %d: %s", recorder.Code, recorder.Body.String()) }
+		if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != "*" { t.Fatalf("Live2D status CORS header = %q, want *", got) }
 		var payload map[string]any
 		if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil { t.Fatal(err) }
 		enabled, ok := payload["enabled"].(bool)
