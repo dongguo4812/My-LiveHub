@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"sort"
@@ -731,24 +732,42 @@ func (a *Adapter) Connect(ctx context.Context) error {
 			}
 		}()
 	}
-	if a.giftCatalog != nil && (a.mediaCatalog == nil ||
-		!a.mediaCatalog.IsFresh("bilibili", strconv.Itoa(roomID), resource.TypeGift, 24*time.Hour)) {
+	giftCatalogFresh := a.mediaCatalog != nil && a.mediaCatalog.IsFresh("bilibili", strconv.Itoa(roomID), resource.TypeGift, 24*time.Hour)
+	if a.giftCatalog != nil && !giftCatalogFresh {
+		log.Printf("[bilibili] room %d gift catalog refresh started (persistent catalog fresh=%t)", roomID, giftCatalogFresh)
 		go func() {
 			catalogCtx, catalogCancel := context.WithTimeout(runCtx, 8*time.Second)
 			defer catalogCancel()
 			if err := a.giftCatalog.ForceRefresh(catalogCtx, roomID); err != nil {
+				log.Printf("[bilibili] room %d gift catalog refresh failed: %v", roomID, err)
+				return
+			}
+			items := a.giftCatalog.Resources(roomID)
+			if len(items) == 0 {
+				log.Printf("[bilibili] room %d gift catalog refresh returned no resources", roomID)
 				return
 			}
 			if a.mediaCatalog != nil {
-				for _, item := range a.giftCatalog.Resources(roomID) {
-					a.mediaCatalog.Register(item)
+				registered := 0
+				for _, item := range items {
+					if a.mediaCatalog.Register(item) {
+						registered++
+					}
 					if giftID, parseErr := strconv.Atoi(item.ID); parseErr == nil {
 						a.events.UpdateGiftImage("bilibili", roomID, giftID, item.ImageURL)
 					}
 				}
-				a.mediaCatalog.MarkRefreshed("bilibili", strconv.Itoa(roomID), resource.TypeGift, time.Now())
+				if !a.mediaCatalog.MarkRefreshed("bilibili", strconv.Itoa(roomID), resource.TypeGift, time.Now()) {
+					log.Printf("[bilibili] room %d gift catalog fetched %d items but failed to mark refresh time", roomID, len(items))
+					return
+				}
+				log.Printf("[bilibili] room %d gift catalog refreshed: %d items registered", roomID, registered)
+			} else {
+				log.Printf("[bilibili] room %d gift catalog fetched %d items; persistent media catalog unavailable", roomID, len(items))
 			}
 		}()
+	} else if giftCatalogFresh {
+		log.Printf("[bilibili] room %d gift catalog refresh skipped: persistent catalog is fresh", roomID)
 	}
 
 	go func() {
