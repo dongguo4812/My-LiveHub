@@ -9,9 +9,11 @@ import { getLive2DSettings, listLive2DModels } from '../services/live2d'
 
 type Live2DDisplay = { enabled: boolean; runtime_version: 'moc2' | 'moc3'; model_url: string; model_scale: number; model_offset_x: number; model_offset_y: number }
 type Live2DLayer = LayoutLayer & { live2d_scale?: number; live2d_x?: number; live2d_y?: number }
-type EmoticonLayer = LayoutLayer & { emoticon_size?: number; emoticon_speed?: number; emoticon_drift?: number; emoticon_max_count?: number }\ntype GiftLayer = LayoutLayer & { gift_display_duration?: number }
+type EmoticonLayer = LayoutLayer & { emoticon_size?: number; emoticon_speed?: number; emoticon_drift?: number; emoticon_max_count?: number }
+type GiftLayer = LayoutLayer & { gift_display_duration?: number }
 function live2DLayer(layer: LayoutLayer) { return layer as Live2DLayer }
-function emoticonLayer(layer: LayoutLayer) { return layer as EmoticonLayer }\nfunction giftLayer(layer: LayoutLayer) { return layer as GiftLayer }
+function emoticonLayer(layer: LayoutLayer) { return layer as EmoticonLayer }
+function giftLayer(layer: LayoutLayer) { return layer as GiftLayer }
 function live2DScale(layer: LayoutLayer) { return live2DLayer(layer).live2d_scale || 100 }
 const live2DDisplay = ref<Live2DDisplay | null>(null)
 let live2DRefreshTimer: ReturnType<typeof setInterval> | undefined
@@ -105,7 +107,8 @@ function addLayer(type: string) {
   const layer = { id: makeID(type), type, name: base.name ?? type, x: 100, y: 120, width: base.width ?? 300, height: base.height ?? 100, z_index: scene.value.layers.length + 1, visible: true, opacity: 1, text: base.text ?? '', url: base.url ?? '', color: base.color ?? '#ffffff', font_size: base.font_size ?? 24 } as LayoutLayer
   if (type === 'music_queue' || type === 'video_queue') (layer as LayoutLayer & { queue_display_count?: number }).queue_display_count = 10
   if (type === 'live2d') Object.assign(layer, { live2d_scale: 100, live2d_x: 0, live2d_y: 0 })
-  if (type === 'emoticon') Object.assign(layer, { emoticon_size: 64, emoticon_speed: 90, emoticon_drift: 48, emoticon_max_count: 12 })\n  if (type === 'gift') Object.assign(layer, { gift_display_duration: 8 })
+  if (type === 'emoticon') Object.assign(layer, { emoticon_size: 64, emoticon_speed: 90, emoticon_drift: 48, emoticon_max_count: 12 })
+  if (type === 'gift') Object.assign(layer, { gift_display_duration: 8 })
   scene.value.layers.push(layer)
   selectedLayerID.value = layer.id
 }
