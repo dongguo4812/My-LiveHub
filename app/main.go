@@ -184,6 +184,7 @@ func main() {
 	}
 
 	platformService := desktop.NewPlatformService(platformManager, bilibiliEvents, mediaCatalog)
+	monitorService := desktop.NewMonitorService(logDirectory)
 	var wailsApp *application.App
 	voiceService, err := voice.NewService(bilibiliEvents, configManager, voiceConfig, func(name string, data any) error {
 		if wailsApp == nil {
@@ -274,6 +275,7 @@ func main() {
 		},
 		Services: []application.Service{
 			application.NewService(desktop.NewCoreService(coreApp)),
+			application.NewService(monitorService),
 			application.NewService(platformService),
 			application.NewService(desktop.NewBilibiliAuthService(bilibiliAuth, platformManager)),
 			application.NewService(bilibiliSettingsService),
