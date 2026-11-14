@@ -103,6 +103,8 @@ function addLayer(type: string) {
     video_queue: { name: '视频点播队列', width: 500, height: 360, font_size: 22, color: '#ffffff' },
     live2d: { name: 'Live2D', width: 520, height: 760, color: '#ffffff' },
     emoticon: { name: '互动表情', width: 520, height: 420, color: '#ffffff' },
+    lol_hex_display: { name: '海克斯展示', url: 'http://127.0.0.1:8767/display', width: 520, height: 420, color: '#ffffff' },
+    lol_hex_bar: { name: 'LOL 战绩条', url: 'http://127.0.0.1:8767/bar', width: 1000, height: 180, color: '#ffffff' },
   }
   const base = defaults[type]
   if (!base) return
@@ -242,7 +244,7 @@ async function removeScene() {
   }
 }
 function layerLabel(type: string) {
-  return ({ text: '文字', image: '图片', clock: '时钟', danmaku: '弹幕', gift: '礼物', super_chat: 'SC', music: '音乐', music_queue: '歌曲点播队列', video_queue: '视频点播队列', live2d: 'Live2D', emoticon: '互动表情' } as Record<string, string>)[type] ?? type
+  return ({ text: '文字', image: '图片', clock: '时钟', danmaku: '弹幕', gift: '礼物', super_chat: 'SC', music: '音乐', music_queue: '歌曲点播队列', video_queue: '视频点播队列', live2d: 'Live2D', emoticon: '互动表情', lol_hex_display: '海克斯展示', lol_hex_bar: 'LOL 战绩条' } as Record<string, string>)[type] ?? type
 }
 function videoQueuePreviewItems(layer: LayoutLayer) {
   const count = (layer as LayoutLayer & { queue_display_count?: number }).queue_display_count || 10
@@ -319,6 +321,8 @@ onUnmounted(() => {
           <button @click="addLayer('video_queue')"><el-icon><VideoPlay /></el-icon>视频点播队列</button>
           <button @click="addLayer('live2d')">Live2D</button>
           <button @click="addLayer('emoticon')">互动表情</button>
+          <button @click="addLayer('lol_hex_display')">海克斯展示</button>
+          <button @click="addLayer('lol_hex_bar')">LOL 战绩条</button>
         </div>
         <el-divider />
         <div class="panel-heading"><strong>图层</strong><span>{{ scene?.layers.length ?? 0 }} 个</span></div>
@@ -339,6 +343,8 @@ onUnmounted(() => {
             <span v-if="layer.type === 'text'">{{ layer.text }}</span>
             <span v-else-if="layer.type === 'clock'">12:34:56</span>
             <img v-else-if="layer.type === 'image' && layer.url && layer.url !== 'https://'" :src="layer.url" alt="" />
+            <div v-else-if="layer.type === 'lol_hex_display'" class="extension-layer-preview">LOL HEX<br><strong>海克斯强化展示</strong></div>
+            <div v-else-if="layer.type === 'lol_hex_bar'" class="extension-layer-preview">LOL HEX<br><strong>对局战绩条</strong></div>
             <iframe v-else-if="layer.type === 'live2d' && live2DFrameURL" class="live2d-layer-frame" :data-layer-id="layer.id" :src="live2DFrameURL" title="Live2D 预览" allowtransparency="true" :style="{ backgroundColor: 'transparent' }" @load="applyLive2DFrameTransform" />
             <span v-else-if="layer.type === 'live2d'" class="live2d-layer-empty">请先在 Live2D 页面配置并启用默认模型</span>
             <div v-else-if="layer.type === 'music'" class="music-layer-preview"><div class="music-cover-preview">♫</div><div><strong>歌曲名称 · 歌手</strong><span>━━━━━━━●━━━━  01:23 / 04:12</span><p>当前歌词 · 歌词翻译</p></div></div>
@@ -369,6 +375,7 @@ onUnmounted(() => {
             <el-form-item label="图层名称"><el-input v-model="selectedLayer!.name" /></el-form-item>
             <el-form-item v-if="selectedLayer!.type === 'text'" label="文字内容"><el-input v-model="selectedLayer!.text" type="textarea" :rows="3" /></el-form-item>
             <el-form-item v-if="selectedLayer!.type === 'image'" label="图片 URL"><el-input v-model="selectedLayer!.url" placeholder="https://..." /></el-form-item>
+            <el-form-item v-if="selectedLayer!.type === 'lol_hex_display' || selectedLayer!.type === 'lol_hex_bar'" label="扩展页面 URL"><el-input v-model="selectedLayer!.url" placeholder="http://127.0.0.1:8767/..." /></el-form-item>
             <el-form-item v-if="selectedLayer !== null && (selectedLayer!.type === 'music_queue' || selectedLayer!.type === 'video_queue')" label="待播显示数量"><el-input-number v-model="selectedQueueLayer!.queue_display_count" :min="1" :max="1000" /><div class="el-form-item__description">仅控制此队列组件显示的待播条数；队列标题仍显示实际数量。</div></el-form-item>
             <el-form-item v-if="selectedLayer!.type === 'gift'" label="显示时间"><el-input-number v-model="giftLayer(selectedLayer!).gift_display_duration" :min="1" :max="120" :step="1" controls-position="right" /> <span class="el-form-item__description">礼物出现后保留的秒数（1–120 秒）</span></el-form-item>
             <el-form-item v-if="selectedLayer!.type === 'super_chat'" label="显示时间"><el-input-number v-model="superChatLayer(selectedLayer!).super_chat_display_duration" :min="1" :max="120" :step="1" controls-position="right" /> <span class="el-form-item__description">SC 留言出现后保留的秒数（1–120 秒）</span></el-form-item>
