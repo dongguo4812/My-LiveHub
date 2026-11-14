@@ -6,6 +6,7 @@ type Layer = { id: string; type: string; name: string; x: number; y: number; wid
 type Scene = { id: string; name: string; width: number; height: number; background: string; layers: Layer[] }
 type EmoticonToken = { text: string; url: string; cache_url?: string; width?: number; height?: number }
 type LiveEvent = { id: number; type: string; user_name: string; content: string; gift_name?: string; gift_count?: number; gift_image_url?: string; gift_image_cache_url?: string; gift_animation_url?: string; gift_animation_cache_url?: string; amount?: number; timestamp: number; emoticons?: EmoticonToken[] }
+type GiftDisplayItem = { id: string; user_name: string; gift_name: string; gift_count: number; gift_image_url?: string; gift_image_cache_url?: string; gift_animation_url?: string; gift_animation_cache_url?: string; timestamp: number }
 type FloatingEmoticon = { id: number; layerId: string; url: string; cacheURL?: string; x: number; size: number; drift: number; duration: number }
 type Track = { id: string; source_id: string; title: string; artist?: string; album?: string; duration_ms: number; cover_url?: string }
 type Playback = { state: string; track?: Track; position_ms: number; duration_ms: number }
@@ -73,10 +74,45 @@ function handleMouthSyncMessage(event: MessageEvent) {
 }
 
 const danmaku = computed(() => liveEvents.value.filter(item => item.type === 'danmaku').slice(-8).reverse())
-function giftEvents(layer: Layer) {
+function giftEvents(layer: Layer): GiftDisplayItem[] {
   const duration = Math.max(1, Math.min(120, layer.gift_display_duration || 8)) * 1000
   const currentTime = now.value.getTime()
-  return liveEvents.value.filter(item => item.type === 'gift' && currentTime - item.timestamp <= duration).slice(-3).reverse()
+  const grouped = new Map<string, GiftDisplayItem>()
+  for (const event of liveEvents.value) {
+    if (event.type !== 'gift') continue
+    const giftName = event.gift_name || '礼物'
+    const imageKey = event.gift_animation_url || event.gift_image_url || event.gift_animation_cache_url || event.gift_image_cache_url || ''
+    const key = JSON.stringify([event.user_name, giftName, imageKey])
+    const existing = grouped.get(key)
+    if (existing) {
+      existing.gift_count += Math.max(1, event.gift_count || 1)
+      if (event.timestamp >= existing.timestamp) existing.timestamp = event.timestamp
+    } else {
+      grouped.set(key, {
+        id: key,
+        user_name: event.user_name,
+        gift_name: giftName,
+        gift_count: Math.max(1, event.gift_count || 1),
+        gift_image_url: event.gift_image_url,
+        gift_image_cache_url: event.gift_image_cache_url,
+        gift_animation_url: event.gift_animation_url,
+        gift_animation_cache_url: event.gift_animation_cache_url,
+        timestamp: event.timestamp,
+      })
+    }
+  }
+  return [...grouped.values()]
+    .filter(item => currentTime - item.timestamp <= duration)
+    .sort((a, b) => a.timestamp - b.timestamp)
+}
+function giftNeedsScroll(layer: Layer, items: GiftDisplayItem[]) {
+  if (!scene.value || items.length < 2) return false
+  const cardWidth = scene.value.height * 0.1
+  const gap = scene.value.height * 0.005
+  return items.length * (cardWidth + gap) - gap > layer.width
+}
+function giftScrollDuration(items: GiftDisplayItem[]) {
+  return Math.max(8, items.length * 4) + 's'
 }
 const superChats = computed(() => liveEvents.value.filter(item => item.type === 'super_chat').slice(-3).reverse())
 const progress = computed(() => {
@@ -328,15 +364,19 @@ onUnmounted(() => {
         <div v-for="item in danmaku" :key="item.id" class="event-line"><strong>{{ item.user_name }}</strong><span>{{ item.content }}</span></div>
       </div>
       <div v-else-if="layer.type === 'gift'" class="gift-event-stack">
-        <article v-for="item in giftEvents(layer)" :key="item.id" class="gift-event-card">
-          <img v-if="item.gift_animation_cache_url || item.gift_animation_url || item.gift_image_cache_url || item.gift_image_url"
-            class="gift-event-image"
-            :src="item.gift_animation_cache_url || item.gift_animation_url || item.gift_image_cache_url || item.gift_image_url"
-            :alt="item.gift_name || '礼物'"
-            referrerpolicy="no-referrer" />
-          <div v-else class="gift-event-image-fallback">🎁</div>
-          <div class="gift-event-caption"><strong>{{ item.gift_name || '礼物' }} × {{ item.gift_count || 1 }}</strong><span>{{ item.user_name }} 赠送</span></div>
-        </article>
+        <div class="gift-event-track" :class="{ 'is-scrolling': giftNeedsScroll(layer, giftEvents(layer)) }" :style="{ '--gift-scroll-duration': giftScrollDuration(giftEvents(layer)) }">
+          <template v-for="(item, index) in (giftNeedsScroll(layer, giftEvents(layer)) ? [...giftEvents(layer), ...giftEvents(layer)] : giftEvents(layer))" :key="item.id + '-' + index">
+            <article class="gift-event-card">
+              <img v-if="item.gift_animation_cache_url || item.gift_animation_url || item.gift_image_cache_url || item.gift_image_url"
+                class="gift-event-image"
+                :src="item.gift_animation_cache_url || item.gift_animation_url || item.gift_image_cache_url || item.gift_image_url"
+                :alt="item.gift_name"
+                referrerpolicy="no-referrer" />
+              <div v-else class="gift-event-image-fallback">🎁</div>
+              <div class="gift-event-caption"><strong>{{ item.gift_name }} × {{ item.gift_count }}</strong><span>{{ item.user_name }} 赠送</span></div>
+            </article>
+          </template>
+        </div>
       </div>
       <div v-else-if="layer.type === 'super_chat'" class="event-stack">
         <div v-for="item in superChats" :key="item.id" class="event-line sc-line"><strong>{{ item.user_name }} · ¥{{ Number(item.amount || 0).toFixed(2) }}</strong><span>{{ item.content }}</span></div>
@@ -453,13 +493,16 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .event-line strong{color:#ffe08a;flex:none}
 .event-line span{min-width:0;overflow-wrap:anywhere}
 .gift-line{background:#382448dc}.sc-line{background:#603c1edc}
-.gift-event-stack{display:flex;flex-wrap:wrap;align-content:flex-start;align-items:flex-start;gap:.5em;width:100%;height:100%;overflow:hidden}
-.gift-event-card{box-sizing:border-box;display:flex;flex:1 1 28%;height:100%;flex-direction:column;align-items:center;justify-content:flex-start;gap:.18em;min-width:0;max-width:48%;padding:.25em .45em;border:1px solid rgba(255,255,255,.16);border-radius:.5em;background:linear-gradient(145deg,rgba(56,36,72,.9),rgba(25,22,36,.82));text-align:center;line-height:1.25}
+.gift-event-stack{display:block;width:100%;height:100%;overflow:hidden;white-space:normal}
+.gift-event-track{display:flex;align-items:stretch;gap:.5cqh;width:max-content;min-width:100%;height:100%}
+.gift-event-track.is-scrolling{animation:gift-event-marquee var(--gift-scroll-duration,12s) linear infinite}
+.gift-event-card{box-sizing:border-box;display:flex;flex:0 0 10cqh;width:10cqh;height:100%;min-width:10cqh;max-width:10cqh;flex-direction:column;align-items:center;justify-content:flex-start;gap:.18em;padding:.25em .35em;border:1px solid rgba(255,255,255,.16);border-radius:.5em;background:linear-gradient(145deg,rgba(56,36,72,.9),rgba(25,22,36,.82));text-align:center;line-height:1.25;overflow:hidden}
 .gift-event-image{display:block;width:auto!important;height:auto!important;max-width:100%;max-height:65%;min-height:0;object-fit:contain}
 .gift-event-image-fallback{display:grid;place-items:center;min-height:2.2em;font-size:2em}
-.gift-event-caption{display:flex;flex-direction:column;align-items:center;gap:.1em;max-width:100%;font-size:.72em}
-.gift-event-caption strong,.gift-event-caption span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gift-event-caption{display:flex;flex-direction:column;align-items:center;gap:.1em;width:100%;max-width:100%;min-width:0;font-size:.72em}
+.gift-event-caption strong,.gift-event-caption span{display:block;width:100%;max-width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gift-event-caption span{font-size:.85em;color:#d8cce3}
+@keyframes gift-event-marquee{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 
 .music-output-layer{padding:0;text-shadow:none;white-space:normal;overflow:visible;font-family:Arial,"Microsoft YaHei",sans-serif;color:#e7c89d}
 .music-queue-output-layer,.video-queue-output-layer{padding:0;text-shadow:none;white-space:normal;overflow:hidden;font-family:Arial,"Microsoft YaHei",sans-serif}
