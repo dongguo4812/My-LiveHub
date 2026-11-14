@@ -143,14 +143,15 @@ func (s *MusicService) stop(ctx context.Context) error {
 func (s *MusicService) handleEvent(event events.Event) {
 	if event.Type != "danmaku" { return }
 	s.mu.RLock()
-	enabled := s.value.Enabled && (s.value.CommandEnabled || s.value.SkipCommandEnabled) && s.started
+	started := s.started
 	requests := s.requests
 	prefix := s.value.CommandPrefix
-	skipEnabled := s.value.SkipCommandEnabled
 	skipCommand := strings.TrimSpace(s.value.SkipCommand)
 	s.mu.RUnlock()
-	if !enabled || requests == nil { return }
-	if _, ok := parseSongRequest(event.Content, prefix); !ok && !(skipEnabled && isSkipCommand(event.Content, skipCommand)) { return }
+	if !started || requests == nil { return }
+	// Route configured commands even when their feature toggle is off. The
+	// worker reports the precise disabled reason through the shared notice stream.
+	if !isSongRequestCommand(event.Content, prefix) && !isSkipCommand(event.Content, skipCommand) { return }
 	select {
 	case requests <- event:
 	default:
@@ -198,6 +199,7 @@ func (s *MusicService) setFanMedalChecker(checker interface { Check(context.Cont
 func (s *MusicService) processSongRequest(ctx context.Context, event events.Event) {
 	s.mu.RLock()
 	enabled := s.value.Enabled && s.started
+	started := s.started
 	commandEnabled := s.value.CommandEnabled
 	prefix := s.value.CommandPrefix
 	skipEnabled := s.value.SkipCommandEnabled
@@ -206,9 +208,19 @@ func (s *MusicService) processSongRequest(ctx context.Context, event events.Even
 	fanMedalLevel := s.value.FanMedalLevel
 	checker := s.fanMedalChecker
 	s.mu.RUnlock()
-	if !enabled { return }
-	if skipEnabled && isSkipCommand(event.Content, skipCommand) {
-		if !canSkipMusic(event) { return }
+	if isSkipCommand(event.Content, skipCommand) {
+		if !started || !enabled {
+			s.publishRequestNotice("music_skip_failed", event.UserName, "", "音乐模块当前未启用")
+			return
+		}
+		if !skipEnabled {
+			s.publishRequestNotice("music_skip_failed", event.UserName, "", "音乐切歌指令当前已关闭")
+			return
+		}
+		if !canSkipMusic(event) {
+			s.publishRequestNotice("music_skip_failed", event.UserName, "", "仅主播或房管可以切歌")
+			return
+		}
 		if err := s.Next(); err != nil {
 			s.setLastError(fmt.Errorf("执行弹幕切歌失败：%w", err))
 			s.publishRequestNotice("music_skip_failed", event.UserName, "", err.Error())
@@ -217,9 +229,20 @@ func (s *MusicService) processSongRequest(ctx context.Context, event events.Even
 		}
 		return
 	}
-	if !commandEnabled { return }
+	if !isSongRequestCommand(event.Content, prefix) { return }
+	if !started || !enabled {
+		s.publishRequestNotice("music_request_failed", event.UserName, "", "音乐模块当前未启用")
+		return
+	}
+	if !commandEnabled {
+		s.publishRequestNotice("music_request_failed", event.UserName, "", "音乐点歌指令当前已关闭")
+		return
+	}
 	keyword, ok := parseSongRequest(event.Content, prefix)
-	if !ok { return }
+	if !ok {
+		s.publishRequestNotice("music_request_failed", event.UserName, "", "请在点歌指令后输入歌曲名称")
+		return
+	}
 	if requireFanMedal && !event.IsRoomOwner && !event.IsModerator {
 		if checker == nil { reason := "音乐点播粉丝勋章校验服务不可用"; s.setLastError(errors.New(reason)); s.publishRequestNotice("music_request_failed", event.UserName, "", reason); return }
 		allowed, level, checkErr := checker.Check(ctx, event.UserID, fanMedalLevel)
@@ -247,6 +270,15 @@ func (s *MusicService) processSongRequest(ctx context.Context, event events.Even
 }
 
 func isSkipCommand(content, command string) bool { return command != "" && strings.TrimSpace(content) == command }
+func isSongRequestCommand(content, prefix string) bool {
+	content = strings.TrimSpace(content)
+	prefix = strings.TrimSpace(prefix)
+	if content == "" || prefix == "" || !strings.HasPrefix(content, prefix) { return false }
+	remainder := strings.TrimPrefix(content, prefix)
+	if remainder == "" { return true }
+	next, _ := utf8.DecodeRuneInString(remainder)
+	return unicode.IsSpace(next)
+}
 func canSkipMusic(event events.Event) bool { return event.IsRoomOwner || event.IsModerator }
 
 func parseSongRequest(content, prefix string) (string, bool) {
