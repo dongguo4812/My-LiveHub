@@ -17,6 +17,7 @@ type VideoQueue = { enabled: boolean; running: boolean; current?: VideoQueueItem
 type Live2DDisplay = { enabled: boolean; runtime_version: 'moc2' | 'moc3'; model_url: string; model_scale: number; model_offset_x: number; model_offset_y: number }
 type Live2DWindow = Window & { live2dSetModelTransform?: (scale: number, x: number, y: number) => boolean; live2dSetMouthOpen?: (value: number) => void }
 type MusicDisplayConfig = { enabled: boolean; command_enabled: boolean; command_prefix: string; skip_command_enabled: boolean; skip_command: string; require_fan_medal: boolean; fan_medal_level: number }
+type RequestNotice = { id: number; kind: 'music_request_success' | 'music_request_failed' | 'music_skip_success' | 'music_skip_failed' | 'video_request_success' | 'video_request_failed' | 'video_skip_success' | 'video_skip_failed'; user_name: string; item_name?: string; reason?: string; timestamp: number }
 const route = useRoute()
 const scene = ref<Scene | null>(null)
 const lolHexFrameURLs = ref<Record<string, string>>({})
@@ -87,6 +88,10 @@ const live2DFrameURL = computed(() => {
 })
 const musicDisplayConfig = ref<MusicDisplayConfig | null>(null)
 const musicError = ref('')
+const currentRequestNotice = ref<RequestNotice | null>(null)
+const pendingRequestNotices = ref<RequestNotice[]>([])
+let requestNoticeSource: EventSource | undefined
+let requestNoticeTimer: ReturnType<typeof setTimeout> | undefined
 const musicAccentColor = ref('#A83232')
 const waveBars = Array.from({ length: 31 }, (_, index) => ({ height: 7 + Math.abs(Math.sin(index * 1.71) * 24), speed: 0.45 + (index % 7) * 0.13, delay: -(Math.random() * 1.8) }))
 const musicColors = ['#FF3B30', '#FF7A00', '#FFD000', '#39D353', '#00D6C9', '#00A6FF', '#4169FF', '#9B5CFF', '#FF4FA3', '#FF6B6B']
@@ -248,6 +253,36 @@ function spawnFloatingEmoticons(event: LiveEvent) {
     floatingEmoticons.value = [...keep, ...combined]
   }
 }
+function showNextRequestNotice() {
+  if (currentRequestNotice.value || !pendingRequestNotices.value.length) return
+  currentRequestNotice.value = pendingRequestNotices.value.shift() || null
+  requestNoticeTimer = setTimeout(() => {
+    currentRequestNotice.value = null
+    showNextRequestNotice()
+  }, 5000)
+}
+function handleRequestNotice(event: MessageEvent<string>) {
+  try {
+    const notice = JSON.parse(event.data) as RequestNotice
+    pendingRequestNotices.value.push(notice)
+    showNextRequestNotice()
+  } catch { /* Ignore malformed request notice frames. */ }
+}
+function requestNoticeText(notice: RequestNotice) {
+  const music = notice.kind.startsWith('music')
+  const icon = music ? '🎵' : '🎬'
+  const user = '「' + (notice.user_name || '未知观众') + '」'
+  switch (notice.kind) {
+    case 'music_request_success': return icon + user + '点播成功：《' + (notice.item_name || '歌曲') + '》'
+    case 'music_request_failed': return icon + user + '点播失败：' + (notice.reason || '未知原因')
+    case 'music_skip_success': return icon + user + '音乐切换成功'
+    case 'music_skip_failed': return icon + user + '音乐切换失败：' + (notice.reason || '未知原因')
+    case 'video_request_success': return icon + user + '点播成功：《' + (notice.item_name || '视频') + '》'
+    case 'video_request_failed': return icon + user + '点播失败：' + (notice.reason || '未知原因')
+    case 'video_skip_success': return icon + user + '视频切换成功'
+    case 'video_skip_failed': return icon + user + '视频切换失败：' + (notice.reason || '未知原因')
+  }
+}
 function handleEvent(event: MessageEvent<string>) {
   try {
     const value = JSON.parse(event.data) as LiveEvent
@@ -400,6 +435,8 @@ onMounted(() => {
   musicConfigRefreshTimer = setInterval(() => { void loadMusicDisplayConfig() }, 3000)
   source = new EventSource('/api/events')
   source.onmessage = handleEvent
+  requestNoticeSource = new EventSource('/api/request-notices')
+  requestNoticeSource.onmessage = handleRequestNotice
   source.onerror = () => { error.value = '直播事件连接中断，正在自动重连…' }
   source.onopen = () => { error.value = ''; void loadRecentEvents() }
   clockTimer = setInterval(() => { now.value = new Date() }, 500)
@@ -411,6 +448,8 @@ onUnmounted(() => {
   mouthSyncChannel = null
   if (mouthSyncPollTimer) clearInterval(mouthSyncPollTimer)
   source?.close()
+  requestNoticeSource?.close()
+  if (requestNoticeTimer) clearTimeout(requestNoticeTimer)
   if (clockTimer) clearInterval(clockTimer)
   if (sceneRefreshTimer) clearInterval(sceneRefreshTimer)
   if (musicRefreshTimer) clearInterval(musicRefreshTimer)
@@ -424,6 +463,7 @@ onUnmounted(() => {
 
 <template>
   <main v-if="scene" class="scene-output" :style="{ aspectRatio: scene.width + ' / ' + scene.height, background: scene.background === 'transparent' ? 'transparent' : scene.background }">
+    <div v-if="currentRequestNotice" class="request-result-notice" :class="{ 'is-failed': currentRequestNotice.kind.endsWith('_failed') }">{{ requestNoticeText(currentRequestNotice) }}</div>
     <div v-for="layer in scene.layers.filter(item => item.visible && (item.type !== 'music_queue' || musicDisplayConfig?.command_enabled === true) && (item.type !== 'video_queue' || (videoQueue.running === true && videoQueue.enabled === true)) && (item.type !== 'live2d' || Boolean(live2DFrameURL)))" :key="layer.id" class="output-layer" :class="{ 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue', 'video-queue-output-layer': layer.type === 'video_queue', 'emoticon-output-layer': layer.type === 'emoticon' }" :style="layerStyle(layer)">
       <span v-if="layer.type === 'text'">{{ layer.text }}</span>
       <img v-else-if="layer.type === 'image' && layer.url" :src="layer.url" alt="" />
@@ -556,6 +596,7 @@ onUnmounted(() => {
 html,body,#app{width:100%;height:100%;margin:0;overflow:hidden;background:transparent!important}
 body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .scene-output{position:relative;width:100vw;height:100vh;overflow:hidden;container-type:size;background:transparent}
+.request-result-notice{position:absolute;z-index:2147483647;top:5%;left:50%;max-width:90%;padding:.65em 1.1em;border:1px solid rgba(120,220,160,.55);border-radius:.55em;background:rgba(12,24,20,.94);color:#a7f3c0;font-size:clamp(16px,2.1cqh,34px);font-weight:800;line-height:1.4;text-align:center;text-shadow:0 2px 5px #000;box-shadow:0 8px 24px #0006;transform:translateX(-50%);white-space:normal;overflow-wrap:anywhere;pointer-events:none}.request-result-notice.is-failed{border-color:rgba(255,125,125,.65);background:rgba(38,15,18,.95);color:#ffb2b2}
 .output-layer{position:absolute;display:flex;align-items:flex-start;justify-content:flex-start;overflow:hidden;white-space:pre-wrap;word-break:break-word;font-weight:600;text-shadow:0 2px 6px #000b}
 .emoticon-output-layer{padding:0;white-space:normal;text-shadow:none}
 .floating-emoticon-layer{position:absolute;inset:0;overflow:hidden;pointer-events:none}
