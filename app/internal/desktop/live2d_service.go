@@ -3,6 +3,7 @@ package desktop
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"mime"
 	"net/http"
 	"os"
@@ -51,7 +52,12 @@ func NewLive2DService(manager *config.Manager, current config.Live2DConfig, mode
 // Start enables Live2D model assets for scene rendering.
 func (s *Live2DService) Start() error {
 	if s == nil || s.modelRoot == "" { return errors.New("Live2D 模型服务不可用") }
-	s.mu.Lock(); s.enabled = true; s.mu.Unlock()
+	info, err := os.Stat(s.modelRoot)
+	if err != nil { return fmt.Errorf("访问 Live2D 模型目录失败：%w", err) }
+	if !info.IsDir() { return errors.New("Live2D 模型路径不是目录") }
+	s.mu.Lock()
+	s.enabled = true
+	s.mu.Unlock()
 	return nil
 }
 
