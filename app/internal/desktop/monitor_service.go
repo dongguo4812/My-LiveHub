@@ -86,9 +86,18 @@ func (s *MonitorService) GetRecentLogs(limit int) []MonitorLogEntry {
 	if limit > 500 { limit = 500 }
 	files, err := filepath.Glob(filepath.Join(s.logDir, "my-livehub-*.log*"))
 	if err != nil || len(files) == 0 { return []MonitorLogEntry{} }
-	sort.Strings(files)
+	sort.Slice(files, func(i, j int) bool {
+		left, right := filepath.Base(files[i]), filepath.Base(files[j])
+		leftDate := strings.TrimPrefix(strings.Split(left, ".log")[0], "my-livehub-")
+		rightDate := strings.TrimPrefix(strings.Split(right, ".log")[0], "my-livehub-")
+		if leftDate != rightDate { return leftDate > rightDate }
+		leftRotation, rightRotation := 0, 0
+		if suffix := strings.TrimPrefix(left, "my-livehub-"+leftDate+".log."); suffix != left { leftRotation, _ = strconv.Atoi(suffix) }
+		if suffix := strings.TrimPrefix(right, "my-livehub-"+rightDate+".log."); suffix != right { rightRotation, _ = strconv.Atoi(suffix) }
+		return leftRotation < rightRotation
+	})
 	lines := make([]string, 0, limit)
-	for i := len(files)-1; i >= 0 && len(lines) < limit; i-- {
+	for i := 0; i < len(files) && len(lines) < limit; i++ {
 		file, openErr := os.Open(files[i])
 		if openErr != nil { continue }
 		scanner := bufio.NewScanner(file)
