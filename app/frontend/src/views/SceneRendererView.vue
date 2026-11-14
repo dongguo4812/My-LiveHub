@@ -354,6 +354,7 @@ onUnmounted(() => {
     <div v-for="layer in scene.layers.filter(item => item.visible && (item.type !== 'music_queue' || musicDisplayConfig?.command_enabled === true) && (item.type !== 'video_queue' || videoQueue.enabled === true) && (item.type !== 'live2d' || Boolean(live2DFrameURL)))" :key="layer.id" class="output-layer" :class="{ 'music-output-layer': layer.type === 'music', 'music-queue-output-layer': layer.type === 'music_queue', 'video-queue-output-layer': layer.type === 'video_queue', 'emoticon-output-layer': layer.type === 'emoticon' }" :style="layerStyle(layer)">
       <span v-if="layer.type === 'text'">{{ layer.text }}</span>
       <img v-else-if="layer.type === 'image' && layer.url" :src="layer.url" alt="" />
+      <iframe v-else-if="(layer.type === 'lol_hex_display' || layer.type === 'lol_hex_bar') && layer.url" class="lol-hex-output-frame" :src="layer.url" :title="layer.name" :style="{ width: '100%', height: '100%', border: '0', background: 'transparent', pointerEvents: 'none' }" />
       <time v-else-if="layer.type === 'clock'">{{ formatClock() }}</time>
       <div v-else-if="layer.type === 'emoticon'" class="floating-emoticon-layer">
         <img
