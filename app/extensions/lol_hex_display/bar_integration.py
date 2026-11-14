@@ -1172,7 +1172,18 @@ def register_bar_routes(
     # raw 目录作为备用；兼容 PNG/JPEG/WebP，避免只接受 PNG 导致图片被误判。
     champion_icon_dir = data_dir / "bar_champion_icons"
     champion_icon_dir.mkdir(parents=True, exist_ok=True)
-    champion_icon_lock = threading.RLock()
+    # 每个英雄使用独立锁：不同英雄头像可以并发下载，避免一个慢 CDN 请求
+    # 把整条战绩条的所有头像串行阻塞。相同英雄仍只会有一个请求写入缓存。
+    champion_icon_locks = {}
+    champion_icon_locks_guard = threading.Lock()
+
+    def get_champion_icon_lock(champion_id):
+        with champion_icon_locks_guard:
+            icon_lock = champion_icon_locks.get(champion_id)
+            if icon_lock is None:
+                icon_lock = threading.Lock()
+                champion_icon_locks[champion_id] = icon_lock
+            return icon_lock
 
     def detect_champion_image_type(image_bytes):
         if image_bytes.startswith(b"\\x89PNG\\r\\n\\x1a\\n"):
@@ -1214,7 +1225,7 @@ def register_bar_routes(
         if cached is not None:
             return cached
 
-        with champion_icon_lock:
+        with get_champion_icon_lock(champion_id):
             cached = cached_response()
             if cached is not None:
                 return cached
@@ -1232,7 +1243,7 @@ def register_bar_routes(
                 try:
                     response = requests.get(
                         source_url,
-                        timeout=(5, 20),
+                        timeout=(3, 8),
                         headers={
                             "User-Agent": "Mozilla/5.0",
                             "Accept": "image/avif,image/webp,image/png,image/jpeg,*/*",
