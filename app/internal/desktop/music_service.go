@@ -298,6 +298,19 @@ func (s *MusicService) searchSongRequestTrack(parent context.Context, keyword, r
 	}, requestedTitle, requestedArtist)
 }
 
+// songRequestMatchesTrack mirrors the request matching policy used by the provider search path.
+// It first checks the complete query against title+artist, then treats the final whitespace
+// separated token as an optional artist constraint.
+func songRequestMatchesTrack(requested string, track music.Track) bool {
+	tracks := []music.Track{track}
+	if _, ok := selectSongRequestTrackByCombinedText(tracks, requested); ok {
+		return true
+	}
+	title, artist := splitSongRequestArtist(requested)
+	_, ok := selectSongRequestTrack(tracks, title, artist)
+	return ok
+}
+
 // searchSongRequestAcrossSources keeps provider fallback deterministic and testable.
 func searchSongRequestAcrossSources(parent context.Context, sourceIDs []string, search func(string) ([]music.Track, error), requestedTitle, requestedArtist string) (music.Track, bool, []string) {
 	if parent == nil { parent = context.Background() }
