@@ -510,6 +510,27 @@ def _update_assets_impl(force=False):
             log.info('海克斯索引更新：%d 条', len(new))
         else:
             log.debug('海克斯索引无变化：%d 条', len(new))
+
+        # 海克斯卡片会在截图识别时固化 level；索引补全稀有度后，
+        # 同步修复已经保存的卡片，否则综合展示仍会继续使用旧的空等级。
+        with state_lock:
+            cards_changed=False
+            for card in state.get('cards', []):
+                if not isinstance(card,dict):
+                    continue
+                item=new.get(str(card.get('augment_id') or ''))
+                rarity=str(item.get('level') or '').strip() if isinstance(item,dict) else ''
+                if rarity in ('kSilver','kGold','kPrismatic') and card.get('level') != rarity:
+                    card['level']=rarity
+                    cards_changed=True
+            if cards_changed:
+                state['updated_at']=time.time()
+                atomic_json(STATE_PATH,state)
+                log.info('已为现有海克斯展示卡片补全品质颜色：%d 张',sum(
+                    1 for card in state.get('cards',[])
+                    if isinstance(card,dict) and card.get('level') in ('kSilver','kGold','kPrismatic')
+                ))
+
         # 每次更新都从磁盘读取来源记录副本，避免依赖过期的进程内缓存。
         new_icon_sources=read_json(ICON_SOURCE_PATH,{})
         if not isinstance(new_icon_sources, dict):
