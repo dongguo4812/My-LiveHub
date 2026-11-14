@@ -110,7 +110,7 @@ function giftEvents(layer: Layer): GiftDisplayItem[] {
 }
 function giftNeedsScroll(layer: Layer, items: GiftDisplayItem[]) {
   if (!scene.value || items.length < 2) return false
-  const cardWidth = scene.value.height * 0.16
+  const cardWidth = scene.value.height * 0.3
   const gap = scene.value.height * 0.005
   return items.length * (cardWidth + gap) - gap > layer.width
 }
@@ -499,7 +499,7 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .gift-event-stack{display:block;width:100%;height:100%;overflow:hidden;white-space:normal}
 .gift-event-track{display:flex;align-items:stretch;gap:.5cqh;width:max-content;min-width:100%;height:100%}
 .gift-event-track.is-scrolling{animation:gift-event-marquee var(--gift-scroll-duration,12s) linear infinite}
-.gift-event-card{box-sizing:border-box;display:flex;flex:0 0 16cqh;width:16cqh;height:100%;min-width:16cqh;max-width:16cqh;flex-direction:column;align-items:center;justify-content:flex-start;gap:.18em;padding:.25em .35em;border:0;border-radius:0;background:transparent;text-align:center;line-height:1.25;overflow:hidden}
+.gift-event-card{box-sizing:border-box;display:flex;flex:0 0 30cqh;width:30cqh;height:100%;min-width:30cqh;max-width:30cqh;flex-direction:column;align-items:center;justify-content:flex-start;gap:.18em;padding:.25em .35em;border:0;border-radius:0;background:transparent;text-align:center;line-height:1.25;overflow:hidden}
 .gift-event-image{display:block;width:auto!important;height:auto!important;max-width:100%;max-height:65%;min-height:0;object-fit:contain}
 .gift-event-image-fallback{display:grid;place-items:center;min-height:2.2em;font-size:2em}
 .gift-event-caption{display:flex;flex-direction:column;align-items:center;gap:.1em;width:100%;max-width:100%;min-width:0;font-size:.72em}
