@@ -1168,70 +1168,108 @@ def register_bar_routes(
 
             return result
 
-    # 英雄头像由本地 Flask 代理加载，避免 OBS/浏览器直接访问外部 CDN 失败。
+    # 英雄头像统一由本地代理加载。优先使用 CDragon CDN 图片接口，
+    # raw 目录作为备用；兼容 PNG/JPEG/WebP，避免只接受 PNG 导致图片被误判。
     champion_icon_dir = data_dir / "bar_champion_icons"
     champion_icon_dir.mkdir(parents=True, exist_ok=True)
     champion_icon_lock = threading.RLock()
 
+    def detect_champion_image_type(image_bytes):
+        if image_bytes.startswith(b"\\x89PNG\\r\\n\\x1a\\n"):
+            return "image/png", ".png"
+        if image_bytes.startswith(b"\\xff\\xd8\\xff"):
+            return "image/jpeg", ".jpg"
+        if image_bytes.startswith((b"GIF87a", b"GIF89a")):
+            return "image/gif", ".gif"
+        if (
+            len(image_bytes) >= 12
+            and image_bytes[:4] == b"RIFF"
+            and image_bytes[8:12] == b"WEBP"
+        ):
+            return "image/webp", ".webp"
+        return None, None
+
     @bp.get("/asset/champion/<int:champion_id>.png")
     def champion_icon(champion_id):
         if champion_id <= 0:
-            return Response(status=404)
+            return Response(status=404, headers={"Cache-Control": "no-store"})
 
-        cached_path = champion_icon_dir / f"{champion_id}.png"
-        if cached_path.is_file():
+        cached_path = champion_icon_dir / f"{champion_id}.img"
+
+        def cached_response():
             try:
                 image_bytes = cached_path.read_bytes()
-                if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
-                    return Response(
-                        image_bytes,
-                        mimetype="image/png",
-                        headers={"Cache-Control": "public, max-age=86400"},
-                    )
             except OSError:
-                pass
+                return None
+            mimetype, _ = detect_champion_image_type(image_bytes)
+            if not mimetype:
+                return None
+            return Response(
+                image_bytes,
+                mimetype=mimetype,
+                headers={"Cache-Control": "public, max-age=86400"},
+            )
+
+        cached = cached_response()
+        if cached is not None:
+            return cached
 
         with champion_icon_lock:
-            # 等待锁期间可能已有另一个请求完成下载。
-            if cached_path.is_file():
-                try:
-                    image_bytes = cached_path.read_bytes()
-                    if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
-                        return Response(
-                            image_bytes,
-                            mimetype="image/png",
-                            headers={"Cache-Control": "public, max-age=86400"},
-                        )
-                except OSError:
-                    pass
+            cached = cached_response()
+            if cached is not None:
+                return cached
 
-            source_url = (
-                "https://raw.communitydragon.org/latest/plugins/"
-                "rcp-be-lol-game-data/global/default/v1/champion-icons/"
-                f"{champion_id}.png"
+            source_urls = (
+                f"https://cdn.communitydragon.org/latest/champion/{champion_id}/square",
+                (
+                    "https://raw.communitydragon.org/latest/plugins/"
+                    "rcp-be-lol-game-data/global/default/v1/champion-icons/"
+                    f"{champion_id}.png"
+                ),
             )
-            try:
-                response = requests.get(
-                    source_url,
-                    timeout=(5, 15),
-                    headers={"User-Agent": "Mozilla/5.0", "Accept": "image/png"},
-                )
-                response.raise_for_status()
-                image_bytes = response.content
-                if not image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
-                    raise ValueError("英雄头像响应不是有效 PNG 图片")
-                temp_path = cached_path.with_suffix(".png.tmp")
-                temp_path.write_bytes(image_bytes)
-                temp_path.replace(cached_path)
-                log.info("[战绩条] 已缓存英雄头像：champion_id=%s", champion_id)
-                return Response(
-                    image_bytes,
-                    mimetype="image/png",
-                    headers={"Cache-Control": "public, max-age=86400"},
-                )
-            except Exception as exc:
-                log.warning("[战绩条] 英雄头像加载失败：champion_id=%s，%s", champion_id, exc)
-                return Response(status=404)
+            errors = []
+            for source_url in source_urls:
+                try:
+                    response = requests.get(
+                        source_url,
+                        timeout=(5, 20),
+                        headers={
+                            "User-Agent": "Mozilla/5.0",
+                            "Accept": "image/avif,image/webp,image/png,image/jpeg,*/*",
+                        },
+                    )
+                    response.raise_for_status()
+                    image_bytes = response.content
+                    mimetype, _ = detect_champion_image_type(image_bytes)
+                    if not mimetype:
+                        raise ValueError(
+                            "响应不是受支持的图片格式，"
+                            f"Content-Type={response.headers.get('Content-Type', '')}"
+                        )
+
+                    temp_path = cached_path.with_suffix(".img.tmp")
+                    temp_path.write_bytes(image_bytes)
+                    temp_path.replace(cached_path)
+                    log.info(
+                        "[战绩条] 已缓存英雄头像：champion_id=%s，source=%s，type=%s",
+                        champion_id,
+                        source_url,
+                        mimetype,
+                    )
+                    return Response(
+                        image_bytes,
+                        mimetype=mimetype,
+                        headers={"Cache-Control": "public, max-age=86400"},
+                    )
+                except Exception as exc:
+                    errors.append(f"{source_url}: {type(exc).__name__}: {exc}")
+
+            log.warning(
+                "[战绩条] 英雄头像加载失败：champion_id=%s；%s",
+                champion_id,
+                " | ".join(errors),
+            )
+            return Response(status=404, headers={"Cache-Control": "no-store"})
 
     @bp.get("/bar")
     def bar_page():
