@@ -743,7 +743,18 @@ func (a *Adapter) Connect(ctx context.Context) error {
 			}
 		}()
 	}
+	giftRefreshAt, hasGiftRefreshAt := time.Time{}, false
+	if a.mediaCatalog != nil {
+		giftRefreshAt, hasGiftRefreshAt = a.mediaCatalog.LastRefreshed("bilibili", strconv.Itoa(roomID), resource.TypeGift)
+	}
 	giftCatalogFresh := a.mediaCatalog != nil && a.mediaCatalog.IsFresh("bilibili", strconv.Itoa(roomID), resource.TypeGift, 24*time.Hour)
+	if hasGiftRefreshAt {
+		log.Printf("[bilibili] room %d gift catalog refresh decision: last_successful_refresh=%s; current_clock=%s; fresh=%t",
+			roomID, formatClockDiagnostic(giftRefreshAt), formatClockDiagnostic(time.Now()), giftCatalogFresh)
+	} else {
+		log.Printf("[bilibili] room %d gift catalog refresh decision: no persisted refresh timestamp; current_clock=%s; fresh=%t",
+			roomID, formatClockDiagnostic(time.Now()), giftCatalogFresh)
+	}
 	if a.giftCatalog != nil && !giftCatalogFresh {
 		refreshStartedAt := time.Now()
 		log.Printf("[bilibili] room %d gift catalog refresh started (persistent catalog fresh=%t; clock %s)", roomID, giftCatalogFresh, formatClockDiagnostic(refreshStartedAt))
