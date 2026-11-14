@@ -9,9 +9,9 @@ const info: Record<string, { title: string; description: string; controllable: b
   'platform-connections': { title: '直播平台连接', description: '平台适配器生命周期；具体直播间连接仍在平台管理中操作。', controllable: false },
   voice: { title: '语音播报', description: '控制弹幕事件语音播报服务。', controllable: true },
   music: { title: '音乐播放', description: '控制弹幕点歌监听与播放服务。停止时会结束当前播放并清空待播队列。', controllable: true },
-  video: { title: '视频点播', description: '视频队列与播放器服务。当前关闭操作会释放播放器资源，暂不提供单独启停。', controllable: false },
-  live2d: { title: 'Live2D', description: '资源与展示服务由场景按需调用。', controllable: false },
-  'lol-hex-display': { title: 'LOL Hex Display', description: '独立扩展，请前往扩展管理页面启停。', controllable: false },
+  video: { title: '视频点播', description: '控制视频点播事件监听与待播队列。停止时清空待播队列，重新启动后可继续点播。', controllable: true },
+  live2d: { title: 'Live2D', description: '控制 Live2D 模型资源服务及场景展示。', controllable: true },
+  'lol-hex-display': { title: 'LOL Hex Display', description: '控制 LOL Hex 独立扩展服务；应用启动时不会自动启动。', controllable: true },
 }
 const modules = computed(() => coreModules.value.filter(item => info[item.name]?.controllable).map(item => ({ ...item, ...info[item.name] })))
 const statusText = (s: string) => ({ registered: '待启动', starting: '启动中', running: '运行中', stopping: '停止中', stopped: '已停止', failed: '启动失败' } as Record<string,string>)[s] ?? s
@@ -43,7 +43,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 </script>
 <template>
   <section class="modules-page">
-    <header class="page-heading"><div><h2>功能模块</h2><p>这里只显示支持独立启停的功能模块。模块停止不会关闭 My-LiveHub。</p></div><el-button @click="refresh">刷新状态</el-button></header>
+    <header class="page-heading"><div><h2>功能模块</h2><p>这里可以独立启动或停止各功能模块。模块停止不会关闭 My-LiveHub。</p></div><el-button @click="refresh">刷新状态</el-button></header>
     <div class="module-grid">
       <el-card v-for="item in modules" :key="item.name" shadow="never" class="module-card">
         <div class="module-heading"><div><h3>{{ item.title }}</h3><small>{{ item.name }}</small></div><el-tag :type="statusType(item.status)">{{ statusText(item.status) }}</el-tag></div>
