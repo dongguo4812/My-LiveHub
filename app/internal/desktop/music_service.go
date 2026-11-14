@@ -491,15 +491,26 @@ func (s *MusicService) Resume() error {
 }
 func (s *MusicService) Next() error {
 	if s == nil || s.engine == nil || s.queue == nil { return errors.New("music playback service is unavailable") }
-	// 洛雪没有独立的 Stop/Next HTTP API。Stop() 会回退到 /pause，
-	// 因此必须先确认队列中确实有下一首，且不能在切歌前调用 Stop。
-	if len(s.queue.Snapshot().Items) == 0 {
-		return errors.New("没有下一首待播歌曲")
-	}
+	snapshot := s.queue.Snapshot()
 	s.cancelPlaybackWatcher()
-	if current := s.queue.Snapshot().Current; current != nil { s.pushHistory(*current) }
+	if current := snapshot.Current; current != nil { s.pushHistory(*current) }
 	s.queue.FinishCurrent()
-	return s.PlayNext()
+	if len(snapshot.Items) > 0 {
+		return s.PlayNext()
+	}
+	// When the My-LiveHub request queue is empty, advance 洛雪's own playlist.
+	// This keeps audience requests and the user's manually queued LX songs usable together.
+	nextTrack, ok := s.engine.(interface { NextTrack(context.Context) error })
+	if !ok {
+		err := errors.New("当前播放引擎不支持切换洛雪队列")
+		s.startPlaybackWatcher()
+		return err
+	}
+	if err := nextTrack.NextTrack(context.Background()); err != nil {
+		s.startPlaybackWatcher()
+		return fmt.Errorf("切换洛雪队列下一首失败：%w", err)
+	}
+	return nil
 }
 
 func (s *MusicService) Previous() error {
