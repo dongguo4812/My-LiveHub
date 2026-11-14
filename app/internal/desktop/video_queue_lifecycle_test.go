@@ -45,3 +45,43 @@ func TestVideoQueueServiceCanStopAndRestart(t *testing.T) {
 	}
 	if err := service.Stop(); err != nil { t.Fatal(err) }
 }
+
+func TestStoppedVideoModuleReportsSkipCommandDisabled(t *testing.T) {
+	manager, err := config.NewManager(fstest.MapFS{}, t.TempDir())
+	if err != nil { t.Fatal(err) }
+	bus := eventstream.NewBus()
+	buffer := eventstream.NewBuffer(bus)
+	service, err := NewVideoQueueService(
+		manager,
+		config.DefaultBilibiliConfig(),
+		lifecycleVideoResolver{},
+		&BilibiliWebViewService{},
+		buffer,
+	)
+	if err != nil { t.Fatal(err) }
+	broker := NewRequestNoticeBroker()
+	service.SetRequestNoticeBroker(broker)
+	notices, cancel := broker.Subscribe()
+	defer cancel()
+
+	buffer.Add(eventstream.Event{
+		PlatformID: "bilibili",
+		Source: "live",
+		Type: "danmaku",
+		UserName: "主播",
+		IsRoomOwner: true,
+		Content: "下一个",
+	})
+
+	select {
+	case notice := <-notices:
+		if notice.Kind != "video_skip_failed" {
+			t.Fatalf("notice kind = %q, want video_skip_failed", notice.Kind)
+		}
+		if notice.Reason != "视频点播功能未开启" {
+			t.Fatalf("notice reason = %q, want feature-disabled reason", notice.Reason)
+		}
+	default:
+		t.Fatal("expected a disabled-module notice for the skip command")
+	}
+}
