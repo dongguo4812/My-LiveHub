@@ -218,7 +218,7 @@ func (s *VideoQueueService) addVideoForGeneration(bvid, requester string, userID
 	if !s.active { s.mu.Unlock(); return errors.New("视频点播模块已关闭") }
 	generation := s.generation
 	if expectedGeneration != 0 && expectedGeneration != generation { s.mu.Unlock(); return errors.New("视频点播请求已失效") }
-	if !privileged && !s.settings.VideoRequestsEnabled { s.mu.Unlock(); return errors.New("视频点播当前已关闭") }
+	if !s.settings.VideoRequestsEnabled { s.mu.Unlock(); return errors.New("视频点播当前已关闭") }
 	if s.current != nil && s.current.BVID == bvid { s.mu.Unlock(); return errors.New("该视频正在播放") }
 	for _, item := range s.queue { if item.BVID == bvid { s.mu.Unlock(); return errors.New("该视频已经在待播队列中") } }
 	if s.pending[bvid] { s.mu.Unlock(); return errors.New("该视频正在校验，请稍后") }
@@ -445,7 +445,7 @@ func (s *VideoQueueService) processVideoRequest(event eventstream.Event, bvid st
 	minLevel := s.settings.VideoFanMedalLevel
 	checker := s.fanMedalChecker
 	s.mu.Unlock()
-	if !privileged && !requestsEnabled {
+	if !requestsEnabled {
 		s.publishRequestNotice("video_request_failed", event.UserName, "", "视频点播功能未开启")
 		return
 	}
