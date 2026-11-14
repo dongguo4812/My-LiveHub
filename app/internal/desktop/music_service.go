@@ -892,7 +892,7 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 				}
 				continue
 			}
-			if !playbackSnapshotEnded(snapshot) { continue }
+			if !playbackSnapshotEnded(sawPlaying, snapshot) { continue }
 
 			s.mu.RLock()
 			generationCurrent := s.playGeneration == generation
@@ -912,8 +912,8 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 
 // playbackSnapshotEnded mirrors Bili_Live_Danmaku's wait_song_end:
 // after observing real playback, stopped or near-end progress means completion.
-func playbackSnapshotEnded(snapshot music.PlaybackSnapshot) bool {
-	if snapshot.State == music.PlaybackPaused { return false }
+func playbackSnapshotEnded(sawPlaying bool, snapshot music.PlaybackSnapshot) bool {
+	if !sawPlaying || snapshot.State == music.PlaybackPaused { return false }
 	if snapshot.State == music.PlaybackStopped { return true }
 	return snapshot.State == music.PlaybackPlaying &&
 		snapshot.DurationMS > 0 &&
