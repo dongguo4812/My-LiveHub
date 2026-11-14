@@ -15,6 +15,7 @@ const (
 )
 
 var ErrQueueFull = errors.New("music queue is full")
+var ErrDuplicateTrack = errors.New("歌曲正在播放或已在待播队列中")
 
 type QueueItem struct {
 	ID         string    `json:"id"`
@@ -61,6 +62,25 @@ func (q *Queue) Resize(capacity int) error {
 	return nil
 }
 
+// containsTrackLocked compares song title and artist against current playback and pending items.
+func (q *Queue) containsTrackLocked(track Track) bool {
+	if q.current != nil && sameSongAndArtist(q.current.Track, track) { return true }
+	for _, item := range q.items {
+		if sameSongAndArtist(item.Track, track) { return true }
+	}
+	return false
+}
+
+func sameSongAndArtist(a, b Track) bool {
+	return normalizeSongIdentity(a.Title) != "" &&
+		normalizeSongIdentity(a.Title) == normalizeSongIdentity(b.Title) &&
+		normalizeSongIdentity(a.Artist) == normalizeSongIdentity(b.Artist)
+}
+
+func normalizeSongIdentity(value string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(value)), " "))
+}
+
 func (q *Queue) Enqueue(track Track, requestedBy string) (QueueItem, error) {
 	if q == nil {
 		return QueueItem{}, errors.New("music queue is unavailable")
@@ -76,6 +96,9 @@ func (q *Queue) Enqueue(track Track, requestedBy string) (QueueItem, error) {
 	}
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	if q.containsTrackLocked(track) {
+		return QueueItem{}, ErrDuplicateTrack
+	}
 	if len(q.items) >= q.capacity {
 		return QueueItem{}, ErrQueueFull
 	}
