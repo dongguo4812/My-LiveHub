@@ -150,7 +150,7 @@ onUnmounted(() => {
       <el-card shadow="never">
         <template #header><div class="card-heading"><strong>功能模块状态</strong><el-tag size="small">{{ modules.length }} 个模块</el-tag></div></template>
         <el-table :data="modules" size="small" empty-text="暂无模块数据">
-          <el-table-column label="模块" min-width="130"><template #default="{ row }">{{ moduleLabel(row.id ?? row.name) }}</template></el-table-column>
+          <el-table-column label="模块" min-width="130"><template #default="{ row }">{{ moduleLabel(row.name) }}</template></el-table-column>
           <el-table-column label="状态" width="100"><template #default="{ row }"><el-tag :type="statusType(row.status)" size="small">{{ row.status }}</el-tag></template></el-table-column>
           <el-table-column prop="error" label="错误信息" min-width="150" show-overflow-tooltip />
         </el-table>
@@ -197,7 +197,7 @@ onUnmounted(() => {
           <el-table-column label="时间" width="100"><template #default="{ row }">{{ formatTime(row.timestamp) }}</template></el-table-column>
           <el-table-column label="类型" width="90"><template #default="{ row }">{{ eventLabel(row.type) }}</template></el-table-column>
           <el-table-column prop="user_name" label="用户" width="120" show-overflow-tooltip />
-          <el-table-column label="内容" min-width="180" show-overflow-tooltip><template #default="{ row }">{{ row.content || row.gift_name || row.message || '—' }}</template></el-table-column>
+          <el-table-column label="内容" min-width="180" show-overflow-tooltip><template #default="{ row }">{{ row.content || row.gift_name || '—' }}</template></el-table-column>
           <el-table-column prop="platform_id" label="平台" width="90" />
         </el-table>
       </el-card>
