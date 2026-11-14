@@ -83,11 +83,15 @@ func NewMusicServiceWithDependencies(manager *config.Manager, value config.Music
 	if engine == nil { engine = NewLXPlaybackEngine(value.LXAPIEndpoints) }
 	var buffer *events.Buffer
 	if len(buffers) > 0 { buffer = buffers[0] }
-	return &MusicService{
+	service := &MusicService{
 		manager: manager, buffer: buffer, value: cloneMusicConfig(value),
 		sources: sources, engine: engine, queue: music.NewQueue(value.QueueCapacity),
 		searcher: music.NewLXSearchClient(nil), lyricsCache: make(map[string]string),
 	}
+	// Keep the lightweight command listener alive while the module is stopped,
+	// matching the video module so users still receive an explicit failure notice.
+	if buffer != nil { service.unsubscribe = buffer.Subscribe(service.handleEvent) }
+	return service
 }
 
 func (s *MusicService) start(ctx context.Context) error {
@@ -105,7 +109,7 @@ func (s *MusicService) start(ctx context.Context) error {
 	s.requests = make(chan events.Event, musicRequestQueueCapacity)
 	s.workerDone = make(chan struct{})
 	s.started = true
-	s.unsubscribe = s.buffer.Subscribe(s.handleEvent)
+	if s.unsubscribe == nil { s.unsubscribe = s.buffer.Subscribe(s.handleEvent) }
 	s.mu.Unlock()
 	go s.worker()
 	return nil
@@ -122,10 +126,11 @@ func (s *MusicService) stop(ctx context.Context) error {
 		s.cancelPlaybackWatcher()
 		return s.Shutdown()
 	}
-	cancel, unsubscribe, done := s.cancel, s.unsubscribe, s.workerDone
-	s.started, s.unsubscribe = false, nil
+	cancel, done := s.cancel, s.workerDone
+	// Keep the command listener subscribed while stopped so disabled-command
+	// attempts can still be reported through the shared request-notice stream.
+	s.started = false
 	s.mu.Unlock()
-	if unsubscribe != nil { unsubscribe() }
 	if cancel != nil { cancel() }
 	s.cancelPlaybackWatcher()
 	s.lifecycleMu.Unlock()
@@ -148,10 +153,19 @@ func (s *MusicService) handleEvent(event events.Event) {
 	prefix := s.value.CommandPrefix
 	skipCommand := strings.TrimSpace(s.value.SkipCommand)
 	s.mu.RUnlock()
-	if !started || requests == nil { return }
+	isRequest := isSongRequestCommand(event.Content, prefix)
+	isSkip := isSkipCommand(event.Content, skipCommand)
+	if !isRequest && !isSkip { return }
+	if !started || requests == nil {
+		if isSkip {
+			s.publishRequestNotice("music_skip_failed", event.UserName, "", "音乐模块未启动")
+		} else {
+			s.publishRequestNotice("music_request_failed", event.UserName, "", "音乐模块未启动")
+		}
+		return
+	}
 	// Route configured commands even when their feature toggle is off. The
-	// worker reports the precise disabled reason through the shared notice stream.
-	if !isSongRequestCommand(event.Content, prefix) && !isSkipCommand(event.Content, skipCommand) { return }
+	// worker reports the precise disabled reason through the shared request-notice stream.
 	select {
 	case requests <- event:
 	default:
