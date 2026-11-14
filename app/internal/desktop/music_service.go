@@ -894,19 +894,19 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 			if currentItem := s.queue.Snapshot().Current; currentItem != nil &&
 				lxPlaybackMovedAwayFromCurrent(currentItem, snapshot) {
 				s.mu.RLock()
-					generationCurrent := s.playGeneration == generation
-					s.mu.RUnlock()
-					if !generationCurrent || ctx.Err() != nil {
-						return
-					}
+				generationCurrent := s.playGeneration == generation
+				s.mu.RUnlock()
+				if !generationCurrent || ctx.Err() != nil {
+					return
+				}
 				s.pushHistory(*currentItem)
 				s.queue.FinishCurrent()
-					if len(s.queue.Snapshot().Items) > 0 {
-						if advanceErr := s.PlayNext(); advanceErr != nil {
-							s.setLastError(fmt.Errorf("洛雪自动切歌后接管 My-LiveHub 待播队列失败：%w", advanceErr))
-						}
+				if len(s.queue.Snapshot().Items) > 0 {
+					if advanceErr := s.PlayNext(); advanceErr != nil {
+						s.setLastError(fmt.Errorf("洛雪自动切歌后接管 My-LiveHub 待播队列失败：%w", advanceErr))
 					}
-					return
+				}
+				return
 			}
 			if snapshot.State != music.PlaybackStopped || (!sawEndPosition && !sawPlaying) { continue }
 			s.mu.RLock()
