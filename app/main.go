@@ -147,6 +147,7 @@ func main() {
 	}
 	eventBus := eventstream.NewBus()
 	bilibiliEvents := eventstream.NewBuffer(eventBus)
+	requestNoticeBroker := desktop.NewRequestNoticeBroker()
 	musicService := desktop.NewMusicServiceWithFanMedalChecker(configManager, musicConfig, fanMedalChecker, bilibiliEvents)
 	musicLyricsWindowService := desktop.NewMusicLyricsWindowService(musicService)
 	bilibiliVideoResolver, err := bilibili.NewVideoResolver(bilibiliAuth, nil)
@@ -154,6 +155,8 @@ func main() {
 	bilibiliWebViewService := desktop.NewBilibiliWebViewService(musicService, configManager)
 	videoQueueService, err := desktop.NewVideoQueueServiceWithFanMedalChecker(configManager, bilibiliConfig, bilibiliVideoResolver, bilibiliWebViewService, bilibiliEvents, fanMedalChecker)
 	if err != nil { log.Fatalf("initialize Bilibili video queue service: %v", err) }
+	musicService.SetRequestNoticeBroker(requestNoticeBroker)
+	videoQueueService.SetRequestNoticeBroker(requestNoticeBroker)
 	cacheDir := ""
 	if environment == config.EnvironmentDevelopment {
 		if workingDir, getwdErr := os.Getwd(); getwdErr == nil {
@@ -264,6 +267,7 @@ func main() {
 	sceneAssets = desktop.WrapLive2DAssetHandler(live2dService, sceneAssets)
 	sceneService, err := desktop.NewSceneService(configManager, bilibiliEvents, sceneAssets, musicService, videoQueueService, live2dService)
 	if err != nil { log.Fatalf("initialize scene browser source service: %v", err) }
+	sceneService.SetRequestNoticeBroker(requestNoticeBroker)
 	appearanceService := desktop.NewAppearanceService(configManager, appConfig, applicationLogger)
 	app := application.New(application.Options{
 		Name:        "My-LiveHub",
