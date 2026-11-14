@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, onUpdated, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
-type Layer = { id: string; type: string; name: string; x: number; y: number; width: number; height: number; z_index: number; visible: boolean; opacity: number; text?: string; url?: string; color?: string; font_size?: number; queue_display_count?: number; gift_display_duration?: number; live2d_scale?: number; live2d_x?: number; live2d_y?: number; emoticon_size?: number; emoticon_speed?: number; emoticon_drift?: number; emoticon_max_count?: number }
+type Layer = { id: string; type: string; name: string; x: number; y: number; width: number; height: number; z_index: number; visible: boolean; opacity: number; text?: string; url?: string; color?: string; font_size?: number; queue_display_count?: number; gift_display_duration?: number; super_chat_display_duration?: number; live2d_scale?: number; live2d_x?: number; live2d_y?: number; emoticon_size?: number; emoticon_speed?: number; emoticon_drift?: number; emoticon_max_count?: number }
 type Scene = { id: string; name: string; width: number; height: number; background: string; layers: Layer[] }
 type EmoticonToken = { text: string; url: string; cache_url?: string; width?: number; height?: number }
 type LiveEvent = { id: number; type: string; user_name: string; content: string; gift_name?: string; gift_count?: number; gift_image_url?: string; gift_image_cache_url?: string; gift_animation_url?: string; gift_animation_cache_url?: string; amount?: number; timestamp: number; emoticons?: EmoticonToken[] }
@@ -117,7 +117,14 @@ function giftNeedsScroll(layer: Layer, items: GiftDisplayItem[]) {
 function giftScrollDuration(items: GiftDisplayItem[]) {
   return Math.max(8, items.length * 4) + 's'
 }
-const superChats = computed(() => liveEvents.value.filter(item => item.type === 'super_chat').slice(-3).reverse())
+function superChatEvents(layer: Layer) {
+  const duration = Math.max(1, Math.min(120, layer.super_chat_display_duration || 8)) * 1000
+  const currentTime = now.value.getTime()
+  return liveEvents.value
+    .filter(item => item.type === 'super_chat' && currentTime - item.timestamp <= duration)
+    .slice(-3)
+    .reverse()
+}
 const progress = computed(() => {
   const duration = playback.value?.duration_ms || playback.value?.track?.duration_ms || 0
   if (!duration) return 0
@@ -382,7 +389,7 @@ onUnmounted(() => {
         </div>
       </div>
       <div v-else-if="layer.type === 'super_chat'" class="event-stack">
-        <div v-for="item in superChats" :key="item.id" class="event-line sc-line"><strong>{{ item.user_name }} · ¥{{ Number(item.amount || 0).toFixed(2) }}</strong><span>{{ item.content }}</span></div>
+        <div v-for="item in superChatEvents(layer)" :key="item.id" class="event-line sc-line"><strong>{{ item.user_name }} · ¥{{ Number(item.amount || 0).toFixed(2) }}</strong><span>{{ item.content }}</span></div>
       </div>
       <section v-else-if="layer.type === 'video_queue'" class="music-queue-widget video-queue-widget" :style="{ '--queue-accent': layer.color || '#9fc0ff', fontSize: ((layer.font_size || 22) / (scene?.height || 1080) * 100) + 'cqh' }">
         <section class="music-queue-section music-queue-prompt">
