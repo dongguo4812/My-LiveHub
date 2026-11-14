@@ -67,6 +67,7 @@ type sceneVideoProvider interface {
 type sceneLive2DProvider interface {
 	GetSettings() config.Live2DConfig
 	ListModels() ([]Live2DModel, error)
+	IsEnabled() bool
 }
 
 type sceneMusicProvider interface {
@@ -358,7 +359,7 @@ func (s *SceneService) handleLive2D(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeSceneJSON(w, map[string]any{
-		"enabled": settings.Enabled,
+		"enabled": settings.Enabled && s.live2d.IsEnabled(),
 		"runtime_version": settings.RuntimeVersion,
 		"model_id": modelID,
 		"model_url": modelURL,
