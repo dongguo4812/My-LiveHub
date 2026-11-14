@@ -13,6 +13,7 @@ import Live2DView from './views/Live2DView.vue'
 import SimulatorView from './views/SimulatorView.vue'
 import PlaceholderView from './views/PlaceholderView.vue'
 import ExtensionsView from './views/ExtensionsView.vue'
+import ModulesView from './views/ModulesView.vue'
 import LayoutsView from './views/LayoutsView.vue'
 import SceneRendererView from './views/SceneRendererView.vue'
 const routes=[
@@ -23,7 +24,7 @@ const routes=[
 {path:'/events',component:PlaceholderView,meta:{title:'事件中心',section:'互动中心',description:'汇总多平台事件，同时保留各平台原生事件信息。'}},
 {path:'/users',component:PlaceholderView,meta:{title:'用户管理',section:'互动中心',description:'查看跨平台用户身份、档案和互动记录。'}},
 {path:'/rules',component:PlaceholderView,meta:{title:'互动规则',section:'互动中心',description:'配置事件触发条件、动作和自动化流程。'}},
-{path:'/modules',component:PlaceholderView,meta:{title:'功能模块',section:'功能模块',description:'管理弹幕、语音、音乐、视频等内置模块。'}},
+{path:'/modules',component:ModulesView,meta:{title:'功能模块',section:'功能模块',description:'查看和控制内置模块运行状态。'}},
 {path:'/layouts',component:LayoutsView,meta:{title:'综合展示',section:'展示管理',description:'编辑多个独立展示布局，并管理对应 OBS 浏览器地址。'}},
 {path:'/scene/:sceneID',component:SceneRendererView,meta:{title:'场景输出',standalone:true}},
 {path:'/extensions',component:ExtensionsView,meta:{title:'扩展管理',section:'扩展中心',description:'管理官方与第三方扩展、权限和独立进程状态。'}},
