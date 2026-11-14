@@ -117,6 +117,26 @@ func TestNextWithoutPendingTrackDoesNotPauseCurrentPlayback(t *testing.T) {
 	}
 }
 
+func TestLXPlaybackMovedAwayFromCurrent(t *testing.T) {
+	current := &music.QueueItem{Track: music.Track{Title: "稻香", Artist: "周杰伦"}}
+	changed := music.PlaybackSnapshot{State: music.PlaybackPlaying, Track: &music.Track{Title: "晴天", Artist: "周杰伦"}}
+	if !lxPlaybackMovedAwayFromCurrent(current, changed) {
+		t.Fatal("a different song playing in 洛雪 should be detected as an automatic track switch")
+	}
+	same := music.PlaybackSnapshot{State: music.PlaybackPlaying, Track: &music.Track{Title: "稻香", Artist: "周杰伦"}}
+	if lxPlaybackMovedAwayFromCurrent(current, same) {
+		t.Fatal("the managed current song must not be treated as an automatic switch")
+	}
+	stopped := changed
+	stopped.State = music.PlaybackStopped
+	if lxPlaybackMovedAwayFromCurrent(current, stopped) {
+		t.Fatal("a stopped player must use the normal playback-end path")
+	}
+	if lxPlaybackMovedAwayFromCurrent(current, music.PlaybackSnapshot{State: music.PlaybackPlaying}) {
+		t.Fatal("a snapshot without track identity must not be treated as a track switch")
+	}
+}
+
 func TestGetPlaybackStatusReportsActualResolvedProvider(t *testing.T) {
 	engine := &nextTrackTestEngine{}
 	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, engine)
