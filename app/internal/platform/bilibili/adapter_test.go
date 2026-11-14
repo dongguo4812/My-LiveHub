@@ -572,7 +572,8 @@ func TestAdapterSkipsFreshPersistedCatalogRefreshes(t *testing.T) {
 	catalog := resource.NewCatalog()
 	catalog.Register(resource.Resource{
 		PlatformID: "bilibili", SourceID: "12345", Type: resource.TypeGift,
-		ID: "30607", Name: "小心心", ImageURL: "https://i0.hdslb.com/bfs/live/gift.png", UnitPrice: 1,
+		ID: "30607", Name: "小心心", ImageURL: "https://i0.hdslb.com/bfs/live/gift.png",
+		MetadataVersion: giftCatalogMetadataVersion, UnitPrice: 1,
 	})
 	now := time.Now()
 	catalog.MarkRefreshed("bilibili", "12345", resource.TypeGift, now)
