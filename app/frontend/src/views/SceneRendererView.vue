@@ -285,12 +285,12 @@ function requestNoticeText(notice: RequestNotice) {
   switch (notice.kind) {
     case 'music_request_success': return icon + user + '点播成功：《' + (notice.item_name || '歌曲') + '》'
     case 'music_request_failed': return icon + user + '点播失败：' + (notice.reason || '未知原因')
-    case 'music_skip_success': return '🎵 ' + user + '音乐切换成功'
-    case 'music_skip_failed': return '🎵' + user + ' 音乐切换失败：' + (notice.reason || '未知原因')
+    case 'music_skip_success': return '🎵' + user + '音乐切换成功'
+    case 'music_skip_failed': return '🎵' + user + '音乐切换失败：' + (notice.reason || '未知原因')
     case 'video_request_success': return '🎬' + user + '点播成功：《' + (notice.item_name || '视频') + '》'
     case 'video_request_failed': return '🎬' + user + '点播失败：' + (notice.reason || '未知原因')
-    case 'video_skip_success': return '🎬 ' + user + '视频切换成功'
-    case 'video_skip_failed': return '🎬 ' + user + '视频切换失败：' + (notice.reason || '未知原因')
+    case 'video_skip_success': return '🎬' + user + '视频切换成功'
+    case 'video_skip_failed': return '🎬' + user + '视频切换失败：' + (notice.reason || '未知原因')
   }
 }
 function handleEvent(event: MessageEvent<string>) {
