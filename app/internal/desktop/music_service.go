@@ -263,24 +263,71 @@ func (s *MusicService) processSongRequest(ctx context.Context, event events.Even
 		if checkErr != nil { reason := "粉丝勋章校验失败：" + checkErr.Error(); s.setLastError(fmt.Errorf("校验观众 %s 的主播粉丝勋章失败，已拒绝本次点播：%w", event.UserName, checkErr)); s.publishRequestNotice("music_request_failed", event.UserName, "", reason); return }
 		if !allowed { reason := fmt.Sprintf("粉丝勋章等级不足（当前 %d 级，要求 %d 级）", level, fanMedalLevel); s.setLastError(fmt.Errorf("观众 %s 的主播粉丝勋章等级不足（当前 %d，要求 %d）", event.UserName, level, fanMedalLevel)); s.publishRequestNotice("music_request_failed", event.UserName, "", reason); return }
 	}
+	requestedTitle, requestedArtist := splitSongRequestArtist(keyword)
 	result, err := s.search(ctx, keyword)
 	if err != nil {
 		s.setLastError(fmt.Errorf("搜索弹幕点歌失败：%w", err))
 		s.publishRequestNotice("music_request_failed", event.UserName, "", "歌曲搜索失败："+err.Error())
 		return
 	}
-	if len(result.Tracks) == 0 {
-		reason := "未找到歌曲：" + keyword
-		s.setLastError(fmt.Errorf("观众 %s 点播的歌曲未找到：%s", event.UserName, keyword))
+	track, matched := selectSongRequestTrack(result.Tracks, requestedTitle, requestedArtist)
+	if !matched {
+		reason := "未找到匹配歌曲：" + keyword
+		s.setLastError(fmt.Errorf("观众 %s 点播的歌曲未找到匹配结果：%s", event.UserName, keyword))
 		s.publishRequestNotice("music_request_failed", event.UserName, "", reason)
 		return
 	}
-	if _, err := s.Enqueue(result.Tracks[0], event.UserName); err != nil {
+	if _, err := s.Enqueue(track, event.UserName); err != nil {
 		s.setLastError(fmt.Errorf("加入观众点播队列失败：%w", err))
 		s.publishRequestNotice("music_request_failed", event.UserName, "", err.Error())
 	} else {
-		s.publishRequestNotice("music_request_success", event.UserName, result.Tracks[0].Title, "")
+		s.publishRequestNotice("music_request_success", event.UserName, track.Title, "")
 	}
+}
+
+// splitSongRequestArtist accepts an optional "title - artist" suffix.
+func splitSongRequestArtist(keyword string) (string, string) {
+	keyword = strings.TrimSpace(keyword)
+	for _, separator := range []string{" - ", "－", "—"} {
+		if index := strings.LastIndex(keyword, separator); index >= 0 {
+			title := strings.TrimSpace(keyword[:index])
+			artist := strings.TrimSpace(keyword[index+len(separator):])
+			if title != "" && artist != "" { return title, artist }
+		}
+	}
+	return keyword, ""
+}
+
+// normalizeSongRequestText removes spacing and punctuation while preserving letters and numbers.
+func normalizeSongRequestText(value string) string {
+	var normalized strings.Builder
+	for _, r := range strings.ToLower(strings.TrimSpace(value)) {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) { normalized.WriteRune(r) }
+	}
+	return normalized.String()
+}
+
+// selectSongRequestTrack prefers exact titles across enabled sources, then allows
+// only one-way containment. A supplied artist must also match.
+func selectSongRequestTrack(tracks []music.Track, requestedTitle, requestedArtist string) (music.Track, bool) {
+	wantedTitle := normalizeSongRequestText(requestedTitle)
+	wantedArtist := normalizeSongRequestText(requestedArtist)
+	if wantedTitle == "" { return music.Track{}, false }
+	var containsMatch music.Track
+	hasContainsMatch := false
+	for _, track := range tracks {
+		candidateTitle := normalizeSongRequestText(track.Title)
+		if candidateTitle == "" { continue }
+		if wantedArtist != "" {
+			candidateArtist := normalizeSongRequestText(track.Artist)
+			if candidateArtist == "" || !strings.Contains(candidateArtist, wantedArtist) { continue }
+		}
+		if candidateTitle == wantedTitle { return track, true }
+		if !hasContainsMatch && strings.Contains(candidateTitle, wantedTitle) {
+			containsMatch, hasContainsMatch = track, true
+		}
+	}
+	return containsMatch, hasContainsMatch
 }
 
 func isSkipCommand(content, command string) bool { return command != "" && strings.TrimSpace(content) == command }
