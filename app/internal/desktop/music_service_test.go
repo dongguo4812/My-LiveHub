@@ -12,6 +12,22 @@ import (
 	"github.com/dongguo4812/My-LiveHub/app/internal/events"
 	"github.com/dongguo4812/My-LiveHub/app/internal/music"
 )
+func TestSongRequestMatchesTrackRejectsUnrelatedSearchResult(t *testing.T) {
+	requested := "太空基米"
+	if songRequestMatchesTrack(requested, music.Track{Title: "光年之外", Artist: "邓紫棋"}) {
+		t.Fatal("unrelated first search result must not be treated as the requested song")
+	}
+	if !songRequestMatchesTrack(requested, music.Track{Title: "太空基米", Artist: "测试歌手"}) {
+		t.Fatal("exact title should match")
+	}
+	if !songRequestMatchesTrack("测试歌手 太空基米", music.Track{Title: "太空基米", Artist: "测试歌手"}) {
+		t.Fatal("query containing artist and title should match")
+	}
+	if !songRequestMatchesTrack("太空基米", music.Track{Title: "太空基米（DJ版）", Artist: "测试歌手"}) {
+		t.Fatal("title with edition suffix should match")
+	}
+}
+
 func TestParseSongRequest(t *testing.T){
  tests:=[]struct{content,prefix,want string;ok bool}{{"点歌 稻香","点歌","稻香",true},{"点歌稻香","点歌","",false},{"点歌   稻香 ","点歌","稻香",true},{"闲聊点歌 稻香","点歌","",false},{"点歌","点歌","",false}}
  for _,tt:=range tests{got,ok:=parseSongRequest(tt.content,tt.prefix);if got!=tt.want||ok!=tt.ok{t.Errorf("parseSongRequest(%q)=(%q,%v), want (%q,%v)",tt.content,got,ok,tt.want,tt.ok)}}
