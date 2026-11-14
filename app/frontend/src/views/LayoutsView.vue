@@ -12,6 +12,9 @@ type Live2DLayer = LayoutLayer & { live2d_scale?: number; live2d_x?: number; liv
 type EmoticonLayer = LayoutLayer & { emoticon_size?: number; emoticon_speed?: number; emoticon_drift?: number; emoticon_max_count?: number }
 type GiftLayer = LayoutLayer & { gift_display_duration?: number }
 type SuperChatLayer = LayoutLayer & { super_chat_display_duration?: number }
+type ContentScaleLayer = LayoutLayer & { content_scale?: number }
+function contentScaleLayer(layer: LayoutLayer) { return layer as ContentScaleLayer }
+function contentScale(layer: LayoutLayer) { return contentScaleLayer(layer).content_scale ?? 100 }
 function live2DLayer(layer: LayoutLayer) { return layer as Live2DLayer }
 function emoticonLayer(layer: LayoutLayer) { return layer as EmoticonLayer }
 function giftLayer(layer: LayoutLayer) { return layer as GiftLayer }
@@ -114,6 +117,7 @@ function addLayer(type: string) {
   if (type === 'emoticon') Object.assign(layer, { emoticon_size: 64, emoticon_speed: 90, emoticon_drift: 48, emoticon_max_count: 12 })
   if (type === 'gift') Object.assign(layer, { gift_display_duration: 8 })
   if (type === 'super_chat') Object.assign(layer, { super_chat_display_duration: 8 })
+  if (type === 'lol_hex_display' || type === 'lol_hex_bar') Object.assign(layer, { content_scale: 100 })
   scene.value.layers.push(layer)
   selectedLayerID.value = layer.id
 }
@@ -401,6 +405,7 @@ onUnmounted(() => {
             <el-form-item v-if="selectedLayer!.type === 'text'" label="文字内容"><el-input v-model="selectedLayer!.text" type="textarea" :rows="3" /></el-form-item>
             <el-form-item v-if="selectedLayer!.type === 'image'" label="图片 URL"><el-input v-model="selectedLayer!.url" placeholder="https://..." /></el-form-item>
             <el-form-item v-if="selectedLayer!.type === 'lol_hex_display' || selectedLayer!.type === 'lol_hex_bar'" label="扩展页面 URL"><el-input v-model="selectedLayer!.url" placeholder="http://127.0.0.1:8767/..." /></el-form-item>
+            <el-form-item v-if="selectedLayer!.type === 'lol_hex_display' || selectedLayer!.type === 'lol_hex_bar'" label="内容缩放"><div class="live2d-adjustment"><strong>{{ contentScale(selectedLayer!) }}%</strong><el-slider v-model="contentScaleLayer(selectedLayer!).content_scale" :min="25" :max="300" :step="5" /></div><div class="el-form-item__description">只缩放战绩条或海克斯内部内容，不改变图层外框尺寸</div></el-form-item>
             <el-form-item v-if="selectedLayer !== null && (selectedLayer!.type === 'music_queue' || selectedLayer!.type === 'video_queue')" label="待播显示数量"><el-input-number v-model="selectedQueueLayer!.queue_display_count" :min="1" :max="1000" /><div class="el-form-item__description">仅控制此队列组件显示的待播条数；队列标题仍显示实际数量。</div></el-form-item>
             <el-form-item v-if="selectedLayer!.type === 'gift'" label="显示时间"><el-input-number v-model="giftLayer(selectedLayer!).gift_display_duration" :min="1" :max="120" :step="1" controls-position="right" /> <span class="el-form-item__description">礼物出现后保留的秒数（1–120 秒）</span></el-form-item>
             <el-form-item v-if="selectedLayer!.type === 'super_chat'" label="显示时间"><el-input-number v-model="superChatLayer(selectedLayer!).super_chat_display_duration" :min="1" :max="120" :step="1" controls-position="right" /> <span class="el-form-item__description">SC 留言出现后保留的秒数（1–120 秒）</span></el-form-item>
