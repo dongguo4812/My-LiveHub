@@ -100,6 +100,7 @@ let mouthSyncEndpoint = ''
 let live2DStatusEndpoint = ''
 let live2DModuleStatusTimer: ReturnType<typeof setInterval> | undefined
 const live2DModuleEnabled = ref(false)
+let microphoneStarting = false
 
 function broadcastMouthOpen(value: number) {
   const bounded = Math.max(0, Math.min(1, value))
@@ -142,6 +143,10 @@ async function refreshLive2DModuleStatus() {
     live2DModuleEnabled.value = false
   }
   if (!live2DModuleEnabled.value && micActive.value) stopMicrophone()
+  // Preserve the user's microphone preference across Live2D module restarts.
+  if (live2DModuleEnabled.value && settings.value?.microphone_enabled && !micActive.value && !microphoneStarting) {
+    await startMicrophone()
+  }
 }
 
 function live2dWindow(): Live2DWindow {
@@ -479,13 +484,17 @@ function analyseMicrophone() {
 }
 
 async function startMicrophone() {
+  if (micActive.value || microphoneStarting) return
+  microphoneStarting = true
   micError.value = ''
   if (!live2DModuleEnabled.value) {
     micError.value = '请先启动 Live2D 模块，再启用口型同步'
+    microphoneStarting = false
     return
   }
   if (!navigator.mediaDevices?.getUserMedia) {
     micError.value = '当前 WebView 不支持麦克风采集'
+    microphoneStarting = false
     return
   }
   try {
@@ -511,6 +520,8 @@ async function startMicrophone() {
   } catch (error) {
     stopMicrophone()
     micError.value = String(error)
+  } finally {
+    microphoneStarting = false
   }
 }
 
