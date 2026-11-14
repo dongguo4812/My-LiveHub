@@ -148,3 +148,28 @@ func TestVideoRequestToggleRejectsEveryRole(t *testing.T) {
 	}
 }
 
+func TestDisabledVideoSkipCommandReportsReason(t *testing.T) {
+	manager, err := config.NewManager(fstest.MapFS{}, t.TempDir())
+	if err != nil { t.Fatal(err) }
+	settings := config.DefaultBilibiliConfig()
+	settings.VideoSkipCommandEnabled = false
+	service, err := NewVideoQueueService(manager, settings, lifecycleVideoResolver{}, &BilibiliWebViewService{}, eventstream.NewBuffer(eventstream.NewBus()))
+	if err != nil { t.Fatal(err) }
+	broker := NewRequestNoticeBroker()
+	service.SetRequestNoticeBroker(broker)
+	notices, cancel := broker.Subscribe()
+	defer cancel()
+
+	service.events.Add(eventstream.Event{
+		PlatformID: "bilibili", Source: "live", Type: "danmaku",
+		UserName: "主播", IsRoomOwner: true, Content: "下一个",
+	})
+	select {
+	case notice := <-notices:
+		if notice.Kind != "video_skip_failed" || notice.Reason != "视频切换指令当前已关闭" {
+			t.Fatalf("unexpected disabled skip notice: %+v", notice)
+		}
+	default:
+		t.Fatal("expected a notice explaining that the video skip command is disabled")
+	}
+}
