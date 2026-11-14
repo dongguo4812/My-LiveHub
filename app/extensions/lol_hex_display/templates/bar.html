@@ -312,8 +312,7 @@ function renderBar(data, games) {
         const resultClass = game.win ? 'win' : 'loss';
 
         const iconUrl = championId
-            ? 'https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/champion-icons/'
-                + championId + '.png'
+            ? '/asset/champion/' + championId + '.png'
             : '';
 
         const k = escapeHtml(game.k);
