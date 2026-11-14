@@ -263,110 +263,24 @@ func (s *MusicService) processSongRequest(ctx context.Context, event events.Even
 		if checkErr != nil { reason := "粉丝勋章校验失败：" + checkErr.Error(); s.setLastError(fmt.Errorf("校验观众 %s 的主播粉丝勋章失败，已拒绝本次点播：%w", event.UserName, checkErr)); s.publishRequestNotice("music_request_failed", event.UserName, "", reason); return }
 		if !allowed { reason := fmt.Sprintf("粉丝勋章等级不足（当前 %d 级，要求 %d 级）", level, fanMedalLevel); s.setLastError(fmt.Errorf("观众 %s 的主播粉丝勋章等级不足（当前 %d，要求 %d）", event.UserName, level, fanMedalLevel)); s.publishRequestNotice("music_request_failed", event.UserName, "", reason); return }
 	}
-	requestedTitle, requestedArtist := splitSongRequestArtist(keyword)
-	track, matched, sourceFailures := s.searchSongRequestTrack(ctx, keyword, requestedTitle, requestedArtist)
-	if !matched {
-		reason := "所有已启用音源均未找到匹配歌曲：" + keyword
-		if len(sourceFailures) > 0 {
-			reason += "（" + strings.Join(sourceFailures, "；") + "）"
-		}
-		s.setLastError(fmt.Errorf("观众 %s 点播的歌曲未找到匹配结果：%s；音源尝试：%s", event.UserName, keyword, strings.Join(sourceFailures, "；")))
+	result, err := s.search(ctx, keyword)
+	if err != nil {
+		s.setLastError(fmt.Errorf("搜索弹幕点歌失败：%w", err))
+		s.publishRequestNotice("music_request_failed", event.UserName, "", "歌曲搜索失败："+err.Error())
+		return
+	}
+	if len(result.Tracks) == 0 {
+		reason := "未找到歌曲：" + keyword
+		s.setLastError(fmt.Errorf("观众 %s 点播的歌曲未找到：%s", event.UserName, keyword))
 		s.publishRequestNotice("music_request_failed", event.UserName, "", reason)
 		return
 	}
-	if _, err := s.Enqueue(track, event.UserName); err != nil {
+	if _, err := s.Enqueue(result.Tracks[0], event.UserName); err != nil {
 		s.setLastError(fmt.Errorf("加入观众点播队列失败：%w", err))
 		s.publishRequestNotice("music_request_failed", event.UserName, "", err.Error())
 	} else {
-		s.publishRequestNotice("music_request_success", event.UserName, track.Title, "")
+		s.publishRequestNotice("music_request_success", event.UserName, result.Tracks[0].Title, "")
 	}
-}
-
-// searchSongRequestTrack tries enabled sources in configured priority order.
- // A source error, empty result, or result set without a valid title/artist match
- // falls through to the next source. Parent cancellation stops the fallback.
-func (s *MusicService) searchSongRequestTrack(parent context.Context, keyword, requestedTitle, requestedArtist string) (music.Track, bool, []string) {
-	if s == nil || s.searcher == nil {
-		return music.Track{}, false, []string{"洛雪搜索 SDK 未初始化"}
-	}
-	if parent == nil { parent = context.Background() }
-	sourceIDs := s.enabledSearchSourceIDs()
-	if len(sourceIDs) == 0 { return music.Track{}, false, []string{"没有启用任何搜索音源"} }
-	return searchSongRequestAcrossSources(parent, sourceIDs, func(source string) ([]music.Track, error) {
-		ctx, cancel := context.WithTimeout(parent, 18*time.Second)
-		defer cancel()
-		result, err := s.searcher.SearchProvider(ctx, source, keyword, 1)
-		if err != nil { return nil, err }
-		return result.Tracks, nil
-	}, requestedTitle, requestedArtist)
-}
-
-// searchSongRequestAcrossSources is kept separate so fallback behavior can be tested
-// without making live requests to music providers.
-func searchSongRequestAcrossSources(parent context.Context, sourceIDs []string, search func(string) ([]music.Track, error), requestedTitle, requestedArtist string) (music.Track, bool, []string) {
-	if parent == nil { parent = context.Background() }
-	failures := make([]string, 0)
-	for _, source := range sourceIDs {
-		if err := parent.Err(); err != nil {
-			failures = append(failures, "搜索已取消："+err.Error())
-			break
-		}
-		tracks, err := search(source)
-		if err != nil {
-			failures = append(failures, source+" 搜索失败："+err.Error())
-			continue
-		}
-		if track, ok := selectSongRequestTrack(tracks, requestedTitle, requestedArtist); ok {
-			return track, true, failures
-		}
-		failures = append(failures, source+" 无匹配结果")
-	}
-	return music.Track{}, false, failures
-}
-
-// splitSongRequestArtist accepts an optional "title - artist" suffix.
-func splitSongRequestArtist(keyword string) (string, string) {
-	keyword = strings.TrimSpace(keyword)
-	for _, separator := range []string{" - ", "－", "—"} {
-		if index := strings.LastIndex(keyword, separator); index >= 0 {
-			title := strings.TrimSpace(keyword[:index])
-			artist := strings.TrimSpace(keyword[index+len(separator):])
-			if title != "" && artist != "" { return title, artist }
-		}
-	}
-	return keyword, ""
-}
-
-// normalizeSongRequestText removes spacing and punctuation while preserving letters and numbers.
-func normalizeSongRequestText(value string) string {
-	var normalized strings.Builder
-	for _, r := range strings.ToLower(strings.TrimSpace(value)) {
-		if unicode.IsLetter(r) || unicode.IsNumber(r) { normalized.WriteRune(r) }
-	}
-	return normalized.String()
-}
-
-// selectSongRequestTrack prefers exact titles across enabled sources, then allows
-// only one-way containment. A supplied artist must also match.
-func selectSongRequestTrack(tracks []music.Track, requestedTitle, requestedArtist string) (music.Track, bool) {
-	wantedTitle := normalizeSongRequestText(requestedTitle)
-	wantedArtist := normalizeSongRequestText(requestedArtist)
-	if wantedTitle == "" { return music.Track{}, false }
-	var containsMatch music.Track
-	hasContainsMatch := false
-	for _, track := range tracks {
-		candidateTitle := normalizeSongRequestText(track.Title)
-		if candidateTitle == "" { continue }
-		if wantedArtist != "" {
-			candidateArtist := normalizeSongRequestText(track.Artist)
-			if candidateArtist == "" || !strings.Contains(candidateArtist, wantedArtist) { continue }
-		}
-		if candidateTitle == wantedTitle { return track, true }
-		if !hasContainsMatch && strings.Contains(candidateTitle, wantedTitle) {
-			containsMatch, hasContainsMatch = track, true
-		}
-	}
-	return containsMatch, hasContainsMatch
 }
 
 func isSkipCommand(content, command string) bool { return command != "" && strings.TrimSpace(content) == command }
