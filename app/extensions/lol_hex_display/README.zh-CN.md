@@ -40,10 +40,13 @@ OCR 无法可靠识别海克斯名称时，会保留并展示截图供人工查�
 
 ## 配置
 
-主程序托管模式使用：
+My-LiveHub 托管模式使用：
 
 - 默认配置模板：`config/default/lol_hex_display.json`
 - 本机配置文件：`config/local/lol_hex_display.json`
+- 在 My-LiveHub 的「扩展管理」页面手动启动或停止；不会随主程序启动而自动运行。
+- 开发环境优先使用当前 Python 环境启动 `launcher.py`；可通过 `MY_LIVEHUB_PYTHON` 指定 Python 解释器。
+- 已打包时优先启动 `dist/lol_hex_display/lol_hex_display.exe`。
 
 本机 JSON 配置包含服务监听地址与端口、截图目录、扫描间隔、资源/版本/游戏流程检查间隔，以及英雄联盟客户端安装目录等机器相关设置。不同机器的路径应写入本机配置，不要写入受版本控制的默认模板。
 
@@ -62,4 +65,4 @@ OCR 无法可靠识别海克斯名称时，会保留并展示截图供人工查�
 
 这些均为本机运行数据，已由仓库 `.gitignore` 忽略。运行 Python 源码时还可能生成 `__pycache__/`，同样会被忽略。
 
-扩展自身的 `build.bat` 会生成目录式 EXE 发布包，不会将本机运行数据打包进去。主程序根目录的 `build.bat` 则会有意将已有的 Hex `data/`、`screenshots/` 和 `logs/` 复制到主程序本机发布目录。Git 忽略规则不会影响这一步本地打包行为。
+扩展自身的 `build.bat` 会生成目录式 EXE 发布包，输出到 `dist/lol_hex_display/`。打包前先安装 `requirements.txt` 中的依赖。发布 My-LiveHub 时，需要将该目录随主程序放到 `extensions/lol_hex_display/dist/lol_hex_display/`。本机的 `data/`、`screenshots/` 和 `logs/` 不会随扩展 EXE 打包。
