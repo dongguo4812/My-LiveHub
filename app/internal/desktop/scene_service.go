@@ -55,6 +55,7 @@ type LayoutLayer struct {
 	EmoticonSpeed float64 `json:"emoticon_speed,omitempty"`
 	EmoticonDrift float64 `json:"emoticon_drift,omitempty"`
 	EmoticonMaxCount int `json:"emoticon_max_count,omitempty"`
+	GiftDisplayDuration int `json:"gift_display_duration,omitempty"`
 }
 
 type sceneVideoProvider interface {
@@ -175,6 +176,9 @@ func validateLayoutConfig(value LayoutConfig) error {
 			}
 			if (layer.Type == "music_queue" || layer.Type == "video_queue") && layer.QueueDisplayCount != 0 && (layer.QueueDisplayCount < 1 || layer.QueueDisplayCount > 1000) {
 				return fmt.Errorf("图层 %q 的待播显示数量必须在 1 到 1000 之间", layer.Name)
+			}
+			if layer.Type == "gift" && layer.GiftDisplayDuration != 0 && (layer.GiftDisplayDuration < 1 || layer.GiftDisplayDuration > 120) {
+				return fmt.Errorf("图层 %q 的礼物显示时间必须在 1 到 120 秒之间", layer.Name)
 			}
 		}
 	}
