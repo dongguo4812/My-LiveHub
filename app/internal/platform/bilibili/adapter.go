@@ -96,14 +96,21 @@ func (c *giftCatalog) refresh(ctx context.Context, roomID int, force bool) error
 	if roomID <= 0 { return errors.New("invalid Bilibili room ID for gift catalog") }
 	c.mu.RLock(); cached, ok := c.rooms[roomID]; c.mu.RUnlock()
 	if !force && ok && time.Now().Before(cached.expiresAt) { return nil }
-	parentAreaID, areaID, areaErr := fetchRoomAreaIDs(ctx, c.client, roomID)
-	if areaErr != nil { log.Printf("[bilibili] room %d gift catalog could not resolve area IDs; continuing without them: %v", roomID, areaErr) }
+	parentAreaID, areaID := 0, 0
+	usePlatformEndpoints := strings.Contains(c.endpoint, "api.live.bilibili.com")
+	if usePlatformEndpoints {
+		var areaErr error
+		parentAreaID, areaID, areaErr = fetchRoomAreaIDs(ctx, c.client, roomID)
+		if areaErr != nil { log.Printf("[bilibili] room %d gift catalog could not resolve area IDs; continuing without them: %v", roomID, areaErr) }
+	}
 	gifts := make(map[int]giftCatalogResource)
 	if err := c.fetchGiftEndpoint(ctx, c.endpoint, roomID, parentAreaID, areaID, gifts, 0); err != nil { return err }
-	for _, tabID := range []int{2, 3} {
-		endpoint := "https://api.live.bilibili.com/xlive/web-room/v1/giftPanel/tabRoomGiftList"
-		if err := c.fetchGiftEndpoint(ctx, endpoint, roomID, parentAreaID, areaID, gifts, tabID); err != nil {
-			log.Printf("[bilibili] room %d optional gift tab %d unavailable: %v", roomID, tabID, err)
+	if usePlatformEndpoints {
+		for _, tabID := range []int{2, 3} {
+			endpoint := "https://api.live.bilibili.com/xlive/web-room/v1/giftPanel/tabRoomGiftList"
+			if err := c.fetchGiftEndpoint(ctx, endpoint, roomID, parentAreaID, areaID, gifts, tabID); err != nil {
+				log.Printf("[bilibili] room %d optional gift tab %d unavailable: %v", roomID, tabID, err)
+			}
 		}
 	}
 	if len(gifts) == 0 { return errors.New("Bilibili gift catalog contains no usable gift images") }
@@ -221,6 +228,39 @@ func guardEventKey(uid, level, months, startTime int) string {
 
 // addLikeEvent maps Bilibili's per-user LIKE_INFO_V3_CLICK notification.
 // LIKE_INFO_V3_UPDATE is deliberately ignored because it only reports room totals.
+func (a *Adapter) addGiftEventImage(roomID int, raw []byte) {
+	if a == nil { return }
+	var envelope struct {
+		Data struct {
+			GiftID int `json:"giftId"`
+			GiftIDAlt int `json:"gift_id"`
+			GiftName string `json:"giftName"`
+			GiftNameAlt string `json:"gift_name"`
+			GiftInfo struct {
+				ID int `json:"id"`
+				Name string `json:"name"`
+				ImgBasic string `json:"img_basic"`
+				Gif string `json:"gif"`
+				Price int `json:"price"`
+			} `json:"gift_info"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(raw, &envelope) != nil { return }
+	data := envelope.Data
+	id := data.GiftInfo.ID
+	if id <= 0 { id = data.GiftID }
+	if id <= 0 { id = data.GiftIDAlt }
+	name := firstNonEmpty(data.GiftInfo.Name, data.GiftName, data.GiftNameAlt)
+	imageURL := normalizeEmoticonURL(data.GiftInfo.ImgBasic)
+	animationURL := normalizeEmoticonURL(data.GiftInfo.Gif)
+	if imageURL == "" { imageURL = animationURL }
+	if id <= 0 || imageURL == "" { return }
+	if a.mediaCatalog != nil {
+		a.mediaCatalog.Register(resource.Resource{PlatformID:"bilibili", SourceID:strconv.Itoa(roomID), Type:resource.TypeGift, ID:strconv.Itoa(id), Name:name, ImageURL:imageURL, AnimationURL:animationURL, UnitPrice:float64(data.GiftInfo.Price)/1000})
+	}
+	a.events.UpdateGiftImage("bilibili", roomID, id, imageURL, animationURL)
+}
+
 func (a *Adapter) addLikeEvent(roomID int, raw []byte) {
 	if a == nil || a.events == nil {
 		return
@@ -574,10 +614,12 @@ func (a *Adapter) Connect(ctx context.Context) error {
 	stream.SetCookie(credentials.Cookie)
 	stream.OnRawEvent(func(cmd string, raw []byte) {
 		baseCmd, _, _ := strings.Cut(cmd, ":")
-		if baseCmd != "LIKE_INFO_V3_CLICK" {
-			return
+		switch baseCmd {
+		case "LIKE_INFO_V3_CLICK":
+			a.addLikeEvent(roomID, raw)
+		case "SEND_GIFT":
+			a.addGiftEventImage(roomID, raw)
 		}
-		a.addLikeEvent(roomID, raw)
 	})
 	stream.OnLiveStart(func(*message.LiveStart) { a.setLiveStatus("live") })
 	stream.OnLiveStop(func(*message.LiveStop) { a.setLiveStatus("offline") })
