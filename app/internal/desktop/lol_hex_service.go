@@ -251,16 +251,19 @@ func (s *LOLHexService) Stop() (LOLHexStatus, error) {
 	return s.GetStatusUnlocked(), errors.New("LOL Hex 未在规定时间内退出；为避免误关其他进程，没有强制结束进程")
 }
 
-func (s *LOLHexService) StopIfOwned() {
-	if s == nil { return }
+func (s *LOLHexService) StopIfOwned() error {
+	if s == nil { return nil }
 	s.mu.Lock()
 	owned := s.owned
 	s.mu.Unlock()
 	if owned {
-		if _, err := s.Stop(); err != nil {
+		_, err := s.Stop()
+		if err != nil {
 			s.mu.Lock()
 			s.lastErr = err.Error()
 			s.mu.Unlock()
 		}
+		return err
 	}
+	return nil
 }
