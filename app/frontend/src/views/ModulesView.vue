@@ -145,7 +145,7 @@ onUnmounted(() => { if (timer) clearInterval(timer); stopModuleMicrophone() })
         <p>{{ item.description }}</p>
         <el-alert v-if="item.error" :title="item.error" type="error" :closable="false" show-icon />
         <div class="module-actions">
-          <el-button v-if="item.name === 'live2d'" :type="microphoneActive ? 'danger' : 'success'" plain :loading="microphoneLoading" :disabled="microphoneLoading || (item.status !== 'running' && !microphoneActive)" @click="toggleModuleMicrophone">{{ microphoneActive ? '停止麦克风' : '启动麦克风' }}</el-button>
+          <el-button v-if="item.name === 'live2d'" :type="microphoneActive ? 'danger' : 'success'" plain :loading="microphoneLoading" :disabled="microphoneLoading || (item.status !== 'running' && !microphoneActive)" @click="toggleModuleMicrophone">{{ microphoneActive ? '关闭麦克风' : '启动麦克风' }}</el-button>
           <el-button v-if="item.controllable" :type="item.status === 'running' ? 'danger' : 'primary'" :loading="loading[item.name]" :disabled="loading[item.name] || ['starting','stopping'].includes(item.status)" @click="toggle(item.name, item.status)">{{ item.status === 'running' ? '停止模块' : '启动模块' }}</el-button>
           <el-tag v-else type="info" effect="plain">{{ item.name === 'lol-hex-display' ? '前往扩展管理' : '暂不支持单独启停' }}</el-tag>
         </div>
