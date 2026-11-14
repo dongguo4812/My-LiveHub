@@ -113,3 +113,38 @@ func TestStoppedVideoModuleReportsRequestDisabled(t *testing.T) {
 		t.Fatal("expected a disabled-module notice for the video request")
 	}
 }
+
+func TestVideoRequestToggleRejectsEveryRole(t *testing.T) {
+	manager, err := config.NewManager(fstest.MapFS{}, t.TempDir())
+	if err != nil { t.Fatal(err) }
+	settings := config.DefaultBilibiliConfig()
+	settings.VideoRequestsEnabled = false
+	service, err := NewVideoQueueService(
+		manager,
+		settings,
+		lifecycleVideoResolver{},
+		&BilibiliWebViewService{},
+		eventstream.NewBuffer(),
+	)
+	if err != nil { t.Fatal(err) }
+	if err := service.Start(); err != nil { t.Fatal(err) }
+	defer service.Stop()
+
+	for _, role := range []struct {
+		name string
+		privileged bool
+		userID int
+	}{
+		{name: "普通观众", privileged: false, userID: 1001},
+		{name: "主播", privileged: true, userID: 0},
+		{name: "房管", privileged: true, userID: 1002},
+	} {
+		t.Run(role.name, func(t *testing.T) {
+			err := service.addVideoForGeneration("BV1234567890", role.name, role.userID, role.privileged, 0)
+			if err == nil || err.Error() != "视频点播当前已关闭" {
+				t.Fatalf("addVideoForGeneration error = %v, want feature-disabled error", err)
+			}
+		})
+	}
+}
+
