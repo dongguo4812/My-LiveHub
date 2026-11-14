@@ -108,6 +108,13 @@ func (c *giftCatalog) refresh(ctx context.Context, roomID int, force bool) error
 	gifts := make(map[int]giftCatalogResource)
 	if err := c.fetchGiftEndpoint(ctx, c.endpoint, roomID, parentAreaID, areaID, gifts, 0); err != nil { return err }
 	if usePlatformEndpoints {
+		// giftConfig is a broader room gift metadata endpoint. The room panel
+		// endpoint may omit campaign and customized gifts that are still
+		// selectable in the live-room gift picker.
+		giftConfigEndpoint := "https://api.live.bilibili.com/xlive/web-room/v1/giftPanel/giftConfig"
+		if err := c.fetchGiftEndpoint(ctx, giftConfigEndpoint, roomID, parentAreaID, areaID, gifts, 0); err != nil {
+			log.Printf("[bilibili] room %d supplementary gift config unavailable: %v", roomID, err)
+		}
 		for _, tabID := range []int{2, 3} {
 			endpoint := "https://api.live.bilibili.com/xlive/web-room/v1/giftPanel/tabRoomGiftList"
 			if err := c.fetchGiftEndpoint(ctx, endpoint, roomID, parentAreaID, areaID, gifts, tabID); err != nil {
