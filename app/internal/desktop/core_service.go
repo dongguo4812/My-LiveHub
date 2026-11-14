@@ -8,8 +8,8 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-// CoreService exposes read-only core state to the frontend and connects the
-// core lifecycle to Wails' service lifecycle.
+// CoreService exposes core state and independent module lifecycle controls to the
+// frontend, and connects the core lifecycle to Wails' service lifecycle.
 type CoreService struct {
 	app *core.App
 }
