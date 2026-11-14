@@ -264,6 +264,7 @@ func main() {
 	sceneAssets = desktop.WrapLive2DAssetHandler(live2dService, sceneAssets)
 	sceneService, err := desktop.NewSceneService(configManager, bilibiliEvents, sceneAssets, musicService, videoQueueService, live2dService)
 	if err != nil { log.Fatalf("initialize scene browser source service: %v", err) }
+	appearanceService := desktop.NewAppearanceService(configManager, appConfig, applicationLogger)
 	app := application.New(application.Options{
 		Name:        "My-LiveHub",
 		Description: "多平台综合直播互动辅助平台",
@@ -281,7 +282,7 @@ func main() {
 			application.NewService(platformService),
 			application.NewService(desktop.NewBilibiliAuthService(bilibiliAuth, platformManager)),
 			application.NewService(bilibiliSettingsService),
-			application.NewService(desktop.NewAppearanceService(configManager, appConfig, applicationLogger)),
+			application.NewService(appearanceService),
 			application.NewService(danmakuDisplayService),
 			application.NewService(sceneService),
 			application.NewService(voiceService),
@@ -332,9 +333,13 @@ func main() {
 			}
 		}
 	})
-	// Closing the main window hides the application instead of stopping its services.
+	// Respect the user's persisted close-window behavior.
 	mainWindow.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
 		event.Cancel()
+		if appearanceService.GetWindowCloseBehavior() == config.WindowCloseExit {
+			app.Quit()
+			return
+		}
 		mainWindow.Hide()
 	})
 
