@@ -221,7 +221,7 @@ func parseMonitorLogLine(raw string) (MonitorLogEntry, bool) {
 	level := "INFO"
 	switch {
 	case strings.Contains(lower, "level=error"), strings.Contains(lower, "[error]"), strings.Contains(lower, " error "), strings.Contains(lower, " error:"): level = "ERROR"
-	case strings.Contains(lower, "level=warn"), strings.Contains(lower, "[warn]"), strings.Contains(lower, " warn "), strings.Contains(lower, " warning"): level = "WARN"
+	case strings.Contains(lower, "level=warn"), strings.Contains(lower, "[warn]"), strings.Contains(lower, "[warning]"), strings.Contains(lower, " warn "), strings.Contains(lower, " warning"): level = "WARN"
 	case strings.Contains(lower, "level=debug"), strings.Contains(lower, "[debug]"), strings.Contains(lower, " debug "): level = "DEBUG"
 	}
 	stamp := ""
