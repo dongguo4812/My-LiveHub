@@ -4,7 +4,7 @@ on:
   push:
     branches: [dev]
     paths:
-      - 'app/build/icon.png'
+      - '.github/workflows/convert-icon.yml'
 
 permissions:
   contents: write
