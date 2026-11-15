@@ -97,4 +97,8 @@ func TestGetLogsByDateMergesExtensionLogsNewestFirst(t *testing.T) {
 	if entries[1].Message == "" || entries[1].Time != "2026/11/15 08:00:00.000000" {
 		t.Fatalf("older main entry = %#v", entries[1])
 	}
+	recent := service.GetRecentLogs(10)
+	if len(recent) != 2 || recent[0].Time != entries[0].Time || recent[1].Time != entries[1].Time {
+		t.Fatalf("recent merged logs = %#v, want same newest-first order as date view", recent)
+	}
 }
