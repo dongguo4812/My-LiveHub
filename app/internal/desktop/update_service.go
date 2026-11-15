@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -200,8 +199,7 @@ func (s *UpdateService) InstallUpdate() error {
 		_ = os.RemoveAll(tempDir)
 		return fmt.Errorf("写入更新脚本失败：%w", err)
 	}
-	command := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath, "-Task", taskPath)
-	if err := command.Start(); err != nil {
+	if err := launchUpdateHelper(scriptPath, taskPath); err != nil {
 		_ = os.RemoveAll(tempDir)
 		return fmt.Errorf("启动独立更新进程失败：%w", err)
 	}
