@@ -31,7 +31,7 @@ CDRAGON_AUGMENTS_URL = ('https://raw.communitydragon.org/latest/plugins/rcp-be-l
                          'global/zh_cn/v1/cherry-augments.json')
 # 日志配置与主项目 config/default/local/logging.json 保持一致。
 def _load_logging_settings():
-    settings = {"retention_days": 7, "debug": False}
+    settings = {"retention_days": 14, "debug": False}
     try:
         project_root = CONFIG_PATH.parent.parent.parent
         default_path = project_root / "config" / "default" / "logging.json"
@@ -41,6 +41,14 @@ def _load_logging_settings():
                 payload = json.loads(path.read_text(encoding="utf-8-sig"))
                 if isinstance(payload, dict):
                     settings.update(payload)
+
+        # app.json is the source of truth for the main application's log retention.
+        app_config_path = CONFIG_PATH.parent / "app.json"
+        if app_config_path.is_file():
+            app_config = json.loads(app_config_path.read_text(encoding="utf-8-sig"))
+            logging_config = app_config.get("logging", {}) if isinstance(app_config, dict) else {}
+            if isinstance(logging_config, dict):
+                settings["retention_days"] = logging_config.get("retention_days", settings["retention_days"])
     except (OSError, json.JSONDecodeError, TypeError):
         pass
     return settings
@@ -48,7 +56,7 @@ def _load_logging_settings():
 
 log = logging.getLogger("lol_hex_display")
 LOG_LEVEL = logging.INFO
-LOG_RETENTION_DAYS = 7
+LOG_RETENTION_DAYS = 14
 log_listener = None
 file_handler = None
 _log_stop_lock = threading.Lock()
@@ -66,9 +74,10 @@ def initialize_runtime_resources():
     settings = _load_logging_settings()
     LOG_LEVEL = logging.DEBUG if settings.get("debug") is True else logging.INFO
     try:
-        LOG_RETENTION_DAYS = max(0, int(settings.get("retention_days", 7)))
+        configured_retention = int(settings.get("retention_days", 14))
+        LOG_RETENTION_DAYS = 14 if configured_retention == 0 else max(1, min(365, configured_retention))
     except (TypeError, ValueError):
-        LOG_RETENTION_DAYS = 7
+        LOG_RETENTION_DAYS = 14
 
     cleanup_old_logs()
     log_queue = queue.SimpleQueue()

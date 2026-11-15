@@ -24,6 +24,26 @@ func (m testModule) Stop(context.Context) error {
 	return m.stopFail
 }
 
+type retryingCleanupModule struct {
+	calls        *[]string
+	startFailure error
+	stopFailures int
+}
+
+func (m *retryingCleanupModule) Start(context.Context) error {
+	*m.calls = append(*m.calls, "start:partial")
+	return m.startFailure
+}
+
+func (m *retryingCleanupModule) Stop(context.Context) error {
+	*m.calls = append(*m.calls, "stop:partial")
+	if m.stopFailures > 0 {
+		m.stopFailures--
+		return errors.New("temporary cleanup failure")
+	}
+	return nil
+}
+
 func TestModuleManagerStartsInOrderAndStopsInReverse(t *testing.T) {
 	manager := NewModuleManager()
 	var calls []string
@@ -49,25 +69,66 @@ func TestModuleManagerStartsInOrderAndStopsInReverse(t *testing.T) {
 	}
 }
 
-func TestModuleManagerRollsBackAfterStartupFailure(t *testing.T) {
+func TestModuleManagerCleansFailedModuleBeforeRollingBack(t *testing.T) {
 	manager := NewModuleManager()
 	var calls []string
 	startFailure := errors.New("startup failed")
+	partial := &retryingCleanupModule{calls: &calls, startFailure: startFailure, stopFailures: 1}
 	_ = manager.Register("first", testModule{name: "first", calls: &calls})
-	_ = manager.Register("second", testModule{name: "second", calls: &calls, startFail: startFailure})
-	_ = manager.Register("third", testModule{name: "third", calls: &calls})
+	_ = manager.Register("partial", partial)
+	_ = manager.Register("never-started", testModule{name: "never-started", calls: &calls})
 
 	err := manager.StartAll(context.Background())
 	if !errors.Is(err, startFailure) {
 		t.Fatalf("StartAll error = %v, want wrapped startup failure", err)
 	}
-	want := []string{"start:first", "start:second", "stop:first"}
+	want := []string{"start:first", "start:partial", "stop:partial", "stop:first"}
 	if !reflect.DeepEqual(calls, want) {
-		t.Fatalf("calls = %v, want %v", calls, want)
+		t.Fatalf("calls after startup rollback = %v, want %v", calls, want)
 	}
 	statuses := manager.Snapshot()
 	if statuses[0].Status != ModuleStopped || statuses[1].Status != ModuleFailed || statuses[2].Status != ModuleRegistered {
 		t.Fatalf("unexpected module statuses after rollback: %+v", statuses)
+	}
+	if statuses[1].Error == "" {
+		t.Fatal("failed module should retain its startup/cleanup error")
+	}
+
+	// StartAll has already marked the application lifecycle stopped. StopAll
+	// must nevertheless retry cleanup for the module whose first Stop failed.
+	if err := manager.StopAll(context.Background()); err != nil {
+		t.Fatalf("StopAll retry failed cleanup: %v", err)
+	}
+	want = append(want, "stop:partial")
+	if !reflect.DeepEqual(calls, want) {
+		t.Fatalf("calls after cleanup retry = %v, want %v", calls, want)
+	}
+	if got := manager.Snapshot()[1].Status; got != ModuleStopped {
+		t.Fatalf("partial module status = %q, want stopped", got)
+	}
+}
+
+func TestModuleManagerAllowsStoppingFailedModuleAfterStartupRollback(t *testing.T) {
+	manager := NewModuleManager()
+	var calls []string
+	startFailure := errors.New("startup failed")
+	_ = manager.Register("broken", testModule{name: "broken", calls: &calls, startFail: startFailure})
+
+	if err := manager.StartAll(context.Background()); !errors.Is(err, startFailure) {
+		t.Fatalf("StartAll error = %v, want startup failure", err)
+	}
+	if got := manager.Snapshot()[0].Status; got != ModuleFailed {
+		t.Fatalf("failed module status = %q, want failed", got)
+	}
+	if err := manager.StopModule(context.Background(), "broken"); err != nil {
+		t.Fatalf("StopModule should allow cleanup from Failed after rollback: %v", err)
+	}
+	want := []string{"start:broken", "stop:broken", "stop:broken"}
+	if !reflect.DeepEqual(calls, want) {
+		t.Fatalf("calls = %v, want %v", calls, want)
+	}
+	if got := manager.Snapshot()[0].Status; got != ModuleStopped {
+		t.Fatalf("module status = %q, want stopped", got)
 	}
 }
 
@@ -117,35 +178,64 @@ func TestModuleManagerControlsModulesIndependentlyAndAllowsRestart(t *testing.T)
 	var calls []string
 	_ = manager.Register("voice", testModule{name: "voice", calls: &calls})
 	_ = manager.Register("music", testModule{name: "music", calls: &calls})
-	if err := manager.StartAll(context.Background()); err != nil { t.Fatal(err) }
-	if err := manager.StopModule(context.Background(), "voice"); err != nil { t.Fatal(err) }
+	if err := manager.StartAll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.StopModule(context.Background(), "voice"); err != nil {
+		t.Fatal(err)
+	}
 	statuses := manager.Snapshot()
 	if statuses[0].Status != ModuleStopped || statuses[1].Status != ModuleRunning {
 		t.Fatalf("stopping voice changed unexpected module states: %+v", statuses)
 	}
-	if err := manager.StartModule(context.Background(), "voice"); err != nil { t.Fatal(err) }
-	if got := manager.Snapshot()[0].Status; got != ModuleRunning { t.Fatalf("restarted voice status = %q, want running", got) }
-	if err := manager.StopAll(context.Background()); err != nil { t.Fatal(err) }
+	if err := manager.StartModule(context.Background(), "voice"); err != nil {
+		t.Fatal(err)
+	}
+	if got := manager.Snapshot()[0].Status; got != ModuleRunning {
+		t.Fatalf("restarted voice status = %q, want running", got)
+	}
+	if err := manager.StopAll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	want := []string{"start:voice", "start:music", "stop:voice", "start:voice", "stop:music", "stop:voice"}
-	if !reflect.DeepEqual(calls, want) { t.Fatalf("calls = %v, want %v", calls, want) }
+	if !reflect.DeepEqual(calls, want) {
+		t.Fatalf("calls = %v, want %v", calls, want)
+	}
 }
 
-
-type manualStartTestModule struct { testModule }
+type manualStartTestModule struct{ testModule }
 
 func (manualStartTestModule) StartOnApplicationLaunch() bool { return false }
 
 func TestModuleManagerKeepsManualModulesStoppedUntilRequested(t *testing.T) {
 	manager := NewModuleManager()
 	var calls []string
-	if err := manager.Register("manual", manualStartTestModule{testModule{name: "manual", calls: &calls}}); err != nil { t.Fatal(err) }
-	if err := manager.Register("automatic", testModule{name: "automatic", calls: &calls}); err != nil { t.Fatal(err) }
-	if err := manager.StartAll(context.Background()); err != nil { t.Fatal(err) }
+	if err := manager.Register("manual", manualStartTestModule{testModule{name: "manual", calls: &calls}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Register("automatic", testModule{name: "automatic", calls: &calls}); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.StartAll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	statuses := manager.Snapshot()
-	if statuses[0].Status != ModuleStopped || statuses[1].Status != ModuleRunning { t.Fatalf("unexpected startup statuses: %+v", statuses) }
-	if !reflect.DeepEqual(calls, []string{"start:automatic"}) { t.Fatalf("startup calls = %v", calls) }
-	if err := manager.StartModule(context.Background(), "manual"); err != nil { t.Fatal(err) }
-	if err := manager.StopModule(context.Background(), "manual"); err != nil { t.Fatal(err) }
-	if !reflect.DeepEqual(calls, []string{"start:automatic", "start:manual", "stop:manual"}) { t.Fatalf("manual lifecycle calls = %v", calls) }
-	if err := manager.StopAll(context.Background()); err != nil { t.Fatal(err) }
+	if statuses[0].Status != ModuleStopped || statuses[1].Status != ModuleRunning {
+		t.Fatalf("unexpected startup statuses: %+v", statuses)
+	}
+	if !reflect.DeepEqual(calls, []string{"start:automatic"}) {
+		t.Fatalf("startup calls = %v", calls)
+	}
+	if err := manager.StartModule(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.StopModule(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(calls, []string{"start:automatic", "start:manual", "stop:manual"}) {
+		t.Fatalf("manual lifecycle calls = %v", calls)
+	}
+	if err := manager.StopAll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 }

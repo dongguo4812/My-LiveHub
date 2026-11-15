@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/music"
@@ -145,3 +146,42 @@ func TestLXPlaybackEngineFallsBackToPlainLyrics(t *testing.T) {
 	if got != "[00:02.00]普通歌词" { t.Fatalf("plain lyric fallback = %q", got) }
 }
 
+
+func TestLXPlaybackEngineStartDoesNotProbeOrOpenLocalApp(t *testing.T) {
+	engine := NewLXPlaybackEngine(nil)
+	opened := false
+	engine.openApp = func() error {
+		opened = true
+		return nil
+	}
+	if err := engine.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if opened {
+		t.Fatal("opening the music module must not launch 洛雪")
+	}
+}
+
+func TestLXPlaybackEngineEnsuresAPIOnlyWhenPlaybackRequested(t *testing.T) {
+	var opened atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !opened.Load() {
+			http.Error(w, "not ready", http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"playing","name":"稻香","singer":"周杰伦"}`))
+	}))
+	defer server.Close()
+	engine := NewLXPlaybackEngine([]string{server.URL})
+	engine.openApp = func() error {
+		opened.Store(true)
+		return nil
+	}
+	if err := engine.ensureAPIReadyForPlayback(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !opened.Load() {
+		t.Fatal("playback request did not launch 洛雪 after the status API was unavailable")
+	}
+}

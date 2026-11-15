@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 )
 
 type Module interface {
@@ -28,6 +29,8 @@ const (
 	ModuleStopped    ModuleStatus = "stopped"
 	ModuleFailed     ModuleStatus = "failed"
 )
+
+const moduleCleanupTimeout = 30 * time.Second
 
 type ModuleSnapshot struct {
 	Name   string       `json:"name"`
@@ -111,12 +114,13 @@ func (m *ModuleManager) StartAll(ctx context.Context) error {
 		m.setStatus(entry, ModuleStarting, nil)
 		if err := entry.module.Start(ctx); err != nil {
 			startErr := fmt.Errorf("start module %q: %w", entry.name, err)
-			m.setStatus(entry, ModuleFailed, startErr)
-			rollbackErr := m.stopEntries(ctx, started)
+			cleanupErr := m.cleanupFailedStart(ctx, entry, startErr)
+			rollbackErr := m.stopEntriesWithCleanup(ctx, started)
+
 			m.mu.Lock()
 			m.stopped = true
 			m.mu.Unlock()
-			return errors.Join(startErr, rollbackErr)
+			return errors.Join(startErr, cleanupErr, rollbackErr)
 		}
 		started = append(started, entry)
 		m.setStatus(entry, ModuleRunning, nil)
@@ -126,50 +130,88 @@ func (m *ModuleManager) StartAll(ctx context.Context) error {
 
 // StartModule starts one registered module without changing the lifecycle of others.
 func (m *ModuleManager) StartModule(ctx context.Context, name string) error {
-	if m == nil { return errors.New("module manager is required") }
-	if ctx == nil { return errors.New("module startup context is required") }
+	if m == nil {
+		return errors.New("module manager is required")
+	}
+	if ctx == nil {
+		return errors.New("module startup context is required")
+	}
 	m.lifecycleMu.Lock()
 	defer m.lifecycleMu.Unlock()
 	m.mu.RLock()
-	if !m.started || m.stopped { m.mu.RUnlock(); return errors.New("application module lifecycle is not running") }
+	if !m.started || m.stopped {
+		m.mu.RUnlock()
+		return errors.New("application module lifecycle is not running")
+	}
 	entry := m.byName[name]
 	m.mu.RUnlock()
-	if entry == nil { return fmt.Errorf("module %q is not registered", name) }
+	if entry == nil {
+		return fmt.Errorf("module %q is not registered", name)
+	}
+
 	status := m.statusOf(entry)
-	if status == ModuleRunning { return nil }
-	if status == ModuleStarting || status == ModuleStopping { return fmt.Errorf("module %q is busy (status %q)", name, status) }
+	if status == ModuleRunning {
+		return nil
+	}
+	if status == ModuleStarting || status == ModuleStopping {
+		return fmt.Errorf("module %q is busy (status %q)", name, status)
+	}
+	if status == ModuleFailed {
+		// A previous Start may have left partial resources behind. Clean them
+		// before attempting another Start instead of stacking another instance.
+		cleanupCtx, cancel := newModuleCleanupContext(ctx)
+		m.setStatus(entry, ModuleStopping, nil)
+		if err := entry.module.Stop(cleanupCtx); err != nil {
+			cancel()
+			stopErr := fmt.Errorf("cleanup failed module %q before restart: %w", name, err)
+			m.setStatus(entry, ModuleFailed, stopErr)
+			return stopErr
+		}
+		cancel()
+		m.setStatus(entry, ModuleStopped, nil)
+	}
+
 	m.setStatus(entry, ModuleStarting, nil)
 	if err := entry.module.Start(ctx); err != nil {
 		startErr := fmt.Errorf("start module %q: %w", name, err)
-		m.setStatus(entry, ModuleFailed, startErr)
-		return startErr
+		cleanupErr := m.cleanupFailedStart(ctx, entry, startErr)
+		return errors.Join(startErr, cleanupErr)
 	}
 	m.setStatus(entry, ModuleRunning, nil)
 	return nil
 }
 
 // StopModule stops one registered module without shutting down the application.
+// Failed modules remain stoppable even after StartAll has rolled back the application.
 func (m *ModuleManager) StopModule(ctx context.Context, name string) error {
-	if m == nil { return errors.New("module manager is required") }
-	if ctx == nil { return errors.New("module shutdown context is required") }
+	if m == nil {
+		return errors.New("module manager is required")
+	}
+	if ctx == nil {
+		return errors.New("module shutdown context is required")
+	}
 	m.lifecycleMu.Lock()
 	defer m.lifecycleMu.Unlock()
 	m.mu.RLock()
-	if !m.started || m.stopped { m.mu.RUnlock(); return errors.New("application module lifecycle is not running") }
 	entry := m.byName[name]
+	started, stopped := m.started, m.stopped
 	m.mu.RUnlock()
-	if entry == nil { return fmt.Errorf("module %q is not registered", name) }
-	status := m.statusOf(entry)
-	if status == ModuleStopped || status == ModuleRegistered { return nil }
-	if status != ModuleRunning { return fmt.Errorf("module %q cannot stop from status %q", name, status) }
-	m.setStatus(entry, ModuleStopping, nil)
-	if err := entry.module.Stop(ctx); err != nil {
-		stopErr := fmt.Errorf("stop module %q: %w", name, err)
-		m.setStatus(entry, ModuleFailed, stopErr)
-		return stopErr
+	if entry == nil {
+		return fmt.Errorf("module %q is not registered", name)
 	}
-	m.setStatus(entry, ModuleStopped, nil)
-	return nil
+
+	status := m.statusOf(entry)
+	if status == ModuleStopped || status == ModuleRegistered {
+		return nil
+	}
+	if status == ModuleStarting || status == ModuleStopping {
+		return fmt.Errorf("module %q is busy (status %q)", name, status)
+	}
+	if status != ModuleFailed && (!started || stopped) {
+		return errors.New("application module lifecycle is not running")
+	}
+
+	return m.stopEntry(ctx, entry)
 }
 
 func (m *ModuleManager) StopAll(ctx context.Context) error {
@@ -183,39 +225,73 @@ func (m *ModuleManager) StopAll(ctx context.Context) error {
 	m.lifecycleMu.Lock()
 	defer m.lifecycleMu.Unlock()
 	m.mu.Lock()
-	if m.stopped {
-		m.mu.Unlock()
-		return nil
-	}
 	m.stopped = true
 	modules := append([]*registeredModule(nil), m.modules...)
 	m.mu.Unlock()
 
-	var started []*registeredModule
+	var stoppable []*registeredModule
 	for _, entry := range modules {
-		if entryStatus := m.statusOf(entry); entryStatus == ModuleRunning || entryStatus == ModuleFailed {
-			if entryStatus == ModuleRunning {
-				started = append(started, entry)
-			}
+		status := m.statusOf(entry)
+		if status == ModuleRunning || status == ModuleFailed {
+			stoppable = append(stoppable, entry)
 		}
 	}
-	return m.stopEntries(ctx, started)
+	return m.stopEntries(ctx, stoppable)
+}
+
+func newModuleCleanupContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	return context.WithTimeout(context.WithoutCancel(parent), moduleCleanupTimeout)
+}
+
+// cleanupFailedStart attempts to undo resources created by a Start call that
+// returned an error. A successful cleanup does not erase the startup failure:
+// the module stays Failed and can be explicitly stopped or retried later.
+func (m *ModuleManager) cleanupFailedStart(parent context.Context, entry *registeredModule, startErr error) error {
+	ctx, cancel := newModuleCleanupContext(parent)
+	defer cancel()
+	if err := entry.module.Stop(ctx); err != nil {
+		cleanupErr := fmt.Errorf("cleanup module %q after startup failure: %w", entry.name, err)
+		m.setStatus(entry, ModuleFailed, errors.Join(startErr, cleanupErr))
+		return cleanupErr
+	}
+	m.setStatus(entry, ModuleFailed, startErr)
+	return nil
 }
 
 func (m *ModuleManager) stopEntries(ctx context.Context, entries []*registeredModule) error {
 	var stopErrors []error
 	for i := len(entries) - 1; i >= 0; i-- {
-		entry := entries[i]
-		m.setStatus(entry, ModuleStopping, nil)
-		if err := entry.module.Stop(ctx); err != nil {
-			stopErr := fmt.Errorf("stop module %q: %w", entry.name, err)
-			m.setStatus(entry, ModuleFailed, stopErr)
-			stopErrors = append(stopErrors, stopErr)
-			continue
+		if err := m.stopEntry(ctx, entries[i]); err != nil {
+			stopErrors = append(stopErrors, err)
 		}
-		m.setStatus(entry, ModuleStopped, nil)
 	}
 	return errors.Join(stopErrors...)
+}
+
+func (m *ModuleManager) stopEntriesWithCleanup(parent context.Context, entries []*registeredModule) error {
+	var stopErrors []error
+	for i := len(entries) - 1; i >= 0; i-- {
+		ctx, cancel := newModuleCleanupContext(parent)
+		if err := m.stopEntry(ctx, entries[i]); err != nil {
+			stopErrors = append(stopErrors, err)
+		}
+		cancel()
+	}
+	return errors.Join(stopErrors...)
+}
+
+func (m *ModuleManager) stopEntry(ctx context.Context, entry *registeredModule) error {
+	m.setStatus(entry, ModuleStopping, nil)
+	if err := entry.module.Stop(ctx); err != nil {
+		stopErr := fmt.Errorf("stop module %q: %w", entry.name, err)
+		m.setStatus(entry, ModuleFailed, stopErr)
+		return stopErr
+	}
+	m.setStatus(entry, ModuleStopped, nil)
+	return nil
 }
 
 func (m *ModuleManager) setStatus(entry *registeredModule, status ModuleStatus, err error) {

@@ -58,6 +58,9 @@ type MusicService struct {
 	lastError string
 
 	watchCancel context.CancelFunc
+	externalWatchCancel context.CancelFunc
+	playbackSnapshot music.PlaybackSnapshot
+	playbackSnapshotValid bool
 	playGeneration uint64
 	searcher *music.LXSearchClient
 	lyricsMu sync.Mutex
@@ -112,6 +115,7 @@ func (s *MusicService) start(ctx context.Context) error {
 	if s.unsubscribe == nil { s.unsubscribe = s.buffer.Subscribe(s.handleEvent) }
 	s.mu.Unlock()
 	go s.worker()
+	s.startExternalPlaybackWatcher()
 	return nil
 }
 
@@ -133,6 +137,7 @@ func (s *MusicService) stop(ctx context.Context) error {
 	s.mu.Unlock()
 	if cancel != nil { cancel() }
 	s.cancelPlaybackWatcher()
+	s.cancelExternalPlaybackWatcher()
 	s.lifecycleMu.Unlock()
 
 	select {
@@ -463,8 +468,15 @@ func (s *MusicService) SaveConfig(value config.MusicConfig) error {
 	s.value = cloneMusicConfig(value)
 	s.mu.Unlock()
 	if player, ok := s.engine.(*LXPlaybackEngine); ok { player.SetEndpoints(value.LXAPIEndpoints) }
+	if !wasEnabled && value.Enabled {
+		s.mu.RLock()
+		started := s.started
+		s.mu.RUnlock()
+		if started { s.startExternalPlaybackWatcher() }
+	}
 	if wasEnabled && !value.Enabled {
 		s.cancelPlaybackWatcher()
+		s.cancelExternalPlaybackWatcher()
 		_ = s.engine.Stop(context.Background())
 		s.queue.Clear()
 		s.queue.FinishCurrent()
@@ -703,14 +715,14 @@ func (s *MusicService) playNext(parent context.Context) error {
 
 func (s *MusicService) Pause() error {
 	if s == nil || s.engine == nil { return music.ErrPlaybackEngineUnavailable }
-	if err := s.engine.Pause(context.Background()); err != nil { return err }
-	s.cancelPlaybackWatcher()
-	return nil
+	// Keep the watcher alive while paused so the UI and lyrics retain the
+	// current track and the service can detect when playback resumes externally.
+	return s.engine.Pause(context.Background())
 }
 func (s *MusicService) Resume() error {
 	if s == nil || s.engine == nil { return music.ErrPlaybackEngineUnavailable }
 	if err := s.engine.Resume(context.Background()); err != nil { return err }
-	s.startPlaybackWatcher()
+	if s.queue.Snapshot().Current != nil { s.startPlaybackWatcher() }
 	return nil
 }
 func (s *MusicService) Next() error {
@@ -832,17 +844,34 @@ func (s *MusicService) GetLyrics(track music.Track) (string, error) {
 
 func absFloat(value float64) float64 { if value < 0 { return -value }; return value }
 
+// GetPlaybackStatus performs an explicit live API read (used by the connection test).
 func (s *MusicService) GetPlaybackStatus() (music.PlaybackSnapshot, error) {
 	if s == nil || s.engine == nil { return music.PlaybackSnapshot{}, music.ErrPlaybackEngineUnavailable }
 	snapshot, err := s.engine.Snapshot(context.Background())
 	if err != nil { return snapshot, err }
+	s.setPlaybackSnapshot(snapshot)
+	return s.attachCurrentQueueTrack(snapshot), nil
+}
+
+// GetCachedPlaybackStatus returns the latest snapshot collected by the single
+// background watcher. UI surfaces must use this instead of querying 洛雪 directly.
+func (s *MusicService) GetCachedPlaybackStatus() (music.PlaybackSnapshot, error) {
+	if s == nil || s.engine == nil { return music.PlaybackSnapshot{}, music.ErrPlaybackEngineUnavailable }
+	s.mu.RLock()
+	snapshot, valid := s.playbackSnapshot, s.playbackSnapshotValid
+	s.mu.RUnlock()
+	if !valid { return music.PlaybackSnapshot{State: music.PlaybackIdle}, nil }
+	return s.attachCurrentQueueTrack(snapshot), nil
+}
+
+func (s *MusicService) attachCurrentQueueTrack(snapshot music.PlaybackSnapshot) music.PlaybackSnapshot {
 	if current := s.queue.Snapshot().Current; current != nil {
 		if snapshot.Track == nil || sameLXTrackIdentity(current.Track, *snapshot.Track) {
 			track := current.Track
 			snapshot.Track = &track
 		}
 	}
-	return snapshot, nil
+	return snapshot
 }
 
 func (s *MusicService) GetStatus() MusicStatus {
@@ -855,6 +884,7 @@ func (s *MusicService) GetStatus() MusicStatus {
 func (s *MusicService) Shutdown() error {
 	if s == nil { return nil }
 	s.cancelPlaybackWatcher()
+	s.cancelExternalPlaybackWatcher()
 	if s.engine == nil { return nil }
 	if lifecycle, ok := s.engine.(music.PlaybackEngineLifecycle); ok { return lifecycle.Close() }
 	return nil
@@ -875,6 +905,70 @@ func (s *MusicService) cancelPlaybackWatcher() {
 	}
 	s.playGeneration++
 	s.mu.Unlock()
+}
+
+func (s *MusicService) setPlaybackSnapshot(snapshot music.PlaybackSnapshot) {
+	if s == nil { return }
+	s.mu.Lock()
+	s.playbackSnapshot = snapshot
+	s.playbackSnapshotValid = true
+	s.mu.Unlock()
+}
+
+// The external watcher discovers songs started directly in 洛雪. It uses a
+// low-frequency idle probe, then increases to the playback cadence while a
+// song is playing or paused. My-LiveHub's queue watcher owns queue transitions.
+func (s *MusicService) startExternalPlaybackWatcher() {
+	if s == nil { return }
+	s.mu.Lock()
+	if !s.started || !s.value.Enabled || s.externalWatchCancel != nil {
+		s.mu.Unlock()
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	s.externalWatchCancel = cancel
+	s.mu.Unlock()
+	go s.watchExternalPlayback(ctx)
+}
+
+func (s *MusicService) cancelExternalPlaybackWatcher() {
+	if s == nil { return }
+	s.mu.Lock()
+	if s.externalWatchCancel != nil {
+		s.externalWatchCancel()
+		s.externalWatchCancel = nil
+	}
+	s.mu.Unlock()
+}
+
+func (s *MusicService) watchExternalPlayback(ctx context.Context) {
+	interval := 1500 * time.Millisecond
+	for {
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		// The queue watcher polls at 500 ms while a My-LiveHub track is current.
+		if current := s.queue.Snapshot().Current; current != nil {
+			interval = 1500 * time.Millisecond
+			continue
+		}
+		snapshot, err := s.engine.Snapshot(ctx)
+		if err != nil {
+			// 洛雪 may be closed. This is an idle discovery miss, not a module error.
+			interval = 1500 * time.Millisecond
+			continue
+		}
+		s.setPlaybackSnapshot(snapshot)
+		if snapshot.State == music.PlaybackPlaying || snapshot.State == music.PlaybackPaused {
+			interval = 500 * time.Millisecond
+		} else {
+			interval = 1500 * time.Millisecond
+		}
+	}
 }
 
 func (s *MusicService) startPlaybackWatcher() {
@@ -900,6 +994,7 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 		case <-ticker.C:
 			snapshot, err := s.engine.Snapshot(ctx)
 			if err != nil { continue }
+			s.setPlaybackSnapshot(snapshot)
 			if snapshot.State == music.PlaybackPlaying {
 				sawPlaying = true
 			}

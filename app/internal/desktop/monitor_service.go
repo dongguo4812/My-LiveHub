@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"bufio"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -34,7 +35,7 @@ type MonitorLogEntry struct {
 
 type MonitorService struct {
 	startedAt time.Time
-	logDir string
+	logDirs []string
 	mu sync.Mutex
 	lastCPUAt time.Time
 	lastSystemTotal uint64
@@ -42,8 +43,40 @@ type MonitorService struct {
 	lastProcessTotal uint64
 }
 
-func NewMonitorService(logDir string) *MonitorService {
-	return &MonitorService{startedAt: time.Now(), logDir: logDir}
+func NewMonitorService(logDir string, additionalLogDirs ...string) *MonitorService {
+	logDirs := make([]string, 0, 1+len(additionalLogDirs))
+	if strings.TrimSpace(logDir) != "" { logDirs = append(logDirs, logDir) }
+	for _, dir := range additionalLogDirs {
+		if strings.TrimSpace(dir) == "" { continue }
+		duplicate := false
+		for _, existing := range logDirs { if filepath.Clean(existing) == filepath.Clean(dir) { duplicate = true; break } }
+		if !duplicate { logDirs = append(logDirs, dir) }
+	}
+	return &MonitorService{startedAt: time.Now(), logDirs: logDirs}
+}
+
+// WriteFrontendLog persists frontend console output and uncaught runtime errors
+// through the same application logger used by the rest of the Go process.
+func (s *MonitorService) WriteFrontendLog(level, message string) {
+	if s == nil {
+		return
+	}
+	level = strings.ToUpper(strings.TrimSpace(level))
+	switch level {
+	case "DEBUG", "INFO", "WARN", "ERROR":
+	default:
+		level = "INFO"
+	}
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return
+	}
+	message = strings.ReplaceAll(message, "\r", "")
+	message = strings.ReplaceAll(message, "\n", "\\n")
+	if len(message) > 32768 {
+		message = message[:32768] + "…[truncated]"
+	}
+	log.Printf("frontend [%s] %s", level, message)
 }
 
 // GetSystemMetrics returns read-only Go runtime and process-lifetime metrics.
@@ -91,116 +124,75 @@ func (s *MonitorService) GetSystemMetrics() SystemMetricsSnapshot {
 	}
 }
 
-// GetRecentLogs reads the newest application log lines without changing log files.
+// GetRecentLogs returns the newest entries across every configured log source.
 func (s *MonitorService) GetRecentLogs(limit int) []MonitorLogEntry {
-	if s == nil || strings.TrimSpace(s.logDir) == "" { return []MonitorLogEntry{} }
+	if s == nil || len(s.logDirs) == 0 { return []MonitorLogEntry{} }
 	if limit < 1 { limit = 100 }
 	if limit > 500 { limit = 500 }
-	files, err := filepath.Glob(filepath.Join(s.logDir, "my-livehub-*.log*"))
-	if err != nil || len(files) == 0 { return []MonitorLogEntry{} }
-	sort.Slice(files, func(i, j int) bool {
-		left, right := filepath.Base(files[i]), filepath.Base(files[j])
-		leftDate := strings.TrimPrefix(strings.Split(left, ".log")[0], "my-livehub-")
-		rightDate := strings.TrimPrefix(strings.Split(right, ".log")[0], "my-livehub-")
-		if leftDate != rightDate { return leftDate > rightDate }
-		leftRotation, rightRotation := 0, 0
-		if suffix := strings.TrimPrefix(left, "my-livehub-"+leftDate+".log."); suffix != left { leftRotation, _ = strconv.Atoi(suffix) }
-		if suffix := strings.TrimPrefix(right, "my-livehub-"+rightDate+".log."); suffix != right { rightRotation, _ = strconv.Atoi(suffix) }
-		return leftRotation < rightRotation
-	})
-	lines := make([]string, 0, limit)
-	for i := 0; i < len(files) && len(lines) < limit; i++ {
-		file, openErr := os.Open(files[i])
-		if openErr != nil { continue }
-		scanner := bufio.NewScanner(file)
-		scanner.Buffer(make([]byte, 4096), 1024*1024)
-		var current []string
-		for scanner.Scan() { current = append(current, scanner.Text()) }
-		_ = file.Close()
-		for j := len(current)-1; j >= 0 && len(lines) < limit; j-- { lines = append(lines, current[j]) }
-	}
-	result := make([]MonitorLogEntry, 0, len(lines))
-	for i := len(lines)-1; i >= 0; i-- {
-		line := strings.TrimSpace(lines[i])
-		if line == "" { continue }
-		level := "INFO"
-		lower := strings.ToLower(line)
-		if strings.Contains(lower, " error") || strings.Contains(lower, "failed") || strings.Contains(lower, "fatal") { level = "ERROR" } else if strings.Contains(lower, " warn") { level = "WARN" } else if strings.Contains(lower, " debug") { level = "DEBUG" }
-		stamp := ""
-		message := line
-		if len(line) >= 19 { stamp, message = line[:19], strings.TrimSpace(line[19:]) }
-		result = append(result, MonitorLogEntry{Time: stamp, Level: level, Message: message})
+	var result []MonitorLogEntry
+	for _, date := range s.GetLogDates() {
+		for _, entry := range s.GetLogsByDate(date) {
+			result = append(result, entry)
+			if len(result) >= limit { return result }
+		}
 	}
 	return result
 }
-
 
 // datedMonitorLogName accepts the active daily log and its numbered rotations.
 var datedMonitorLogName = regexp.MustCompile(`^my-livehub-(\d{4}-\d{2}-\d{2})\.log(?:\.(\d+))?$`)
 
-// GetLogDates returns all available log dates in descending order.
+// GetLogDates returns all available log dates in descending order across sources.
 func (s *MonitorService) GetLogDates() []string {
-	if s == nil || strings.TrimSpace(s.logDir) == "" {
-		return []string{}
-	}
-	entries, err := os.ReadDir(s.logDir)
-	if err != nil {
-		return []string{}
-	}
+	if s == nil || len(s.logDirs) == 0 { return []string{} }
 	seen := make(map[string]struct{})
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
+	for _, dir := range s.logDirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil { continue }
+		for _, entry := range entries {
+			if entry.IsDir() { continue }
+			name := entry.Name()
+			match := datedMonitorLogName.FindStringSubmatch(name)
+			date := ""
+			if len(match) == 3 { date = match[1] } else if plain := plainDatedMonitorLogName.FindStringSubmatch(name); len(plain) == 2 { date = plain[1] } else { continue }
+			if _, err := time.Parse("2006-01-02", date); err == nil { seen[date] = struct{}{} }
 		}
-		match := datedMonitorLogName.FindStringSubmatch(entry.Name())
-		if len(match) != 3 {
-			continue
-		}
-		if _, err := time.Parse("2006-01-02", match[1]); err != nil {
-			continue
-		}
-		seen[match[1]] = struct{}{}
 	}
 	dates := make([]string, 0, len(seen))
-	for date := range seen {
-		dates = append(dates, date)
-	}
+	for date := range seen { dates = append(dates, date) }
 	sort.Sort(sort.Reverse(sort.StringSlice(dates)))
 	return dates
 }
 
-// GetLogsByDate returns every readable entry for one exact calendar date,
-// including that date's rotated log files. Invalid dates never reach the filesystem.
+// GetLogsByDate merges main application and extension logs, newest first.
 func (s *MonitorService) GetLogsByDate(date string) []MonitorLogEntry {
-	if s == nil || strings.TrimSpace(s.logDir) == "" {
-		return []MonitorLogEntry{}
-	}
+	if s == nil || len(s.logDirs) == 0 { return []MonitorLogEntry{} }
 	parsed, err := time.Parse("2006-01-02", date)
-	if err != nil || parsed.Format("2006-01-02") != date {
-		return []MonitorLogEntry{}
-	}
-	files, err := filepath.Glob(filepath.Join(s.logDir, "my-livehub-"+date+".log*"))
-	if err != nil || len(files) == 0 {
-		return []MonitorLogEntry{}
-	}
-	files = filterAndSortDatedLogFiles(files, date)
+	if err != nil || parsed.Format("2006-01-02") != date { return []MonitorLogEntry{} }
 	result := make([]MonitorLogEntry, 0)
-	for _, path := range files {
-		file, openErr := os.Open(path)
-		if openErr != nil {
-			continue
+	for _, dir := range s.logDirs {
+		files, globErr := filepath.Glob(filepath.Join(dir, "my-livehub-"+date+".log*"))
+		if globErr == nil {
+			for _, file := range filterAndSortDatedLogFiles(files, date) { result = appendMonitorLogFile(result, file) }
 		}
-		scanner := bufio.NewScanner(file)
-		scanner.Buffer(make([]byte, 4096), 1024*1024)
-		for scanner.Scan() {
-			if entry, ok := parseMonitorLogLine(scanner.Text()); ok {
-				result = append(result, entry)
-			}
-		}
-		_ = file.Close()
+		extensionLog := filepath.Join(dir, date+".log")
+		if info, statErr := os.Stat(extensionLog); statErr == nil && !info.IsDir() { result = appendMonitorLogFile(result, extensionLog) }
 	}
+	sort.SliceStable(result, func(i, j int) bool { return monitorLogEntryTime(result[i]).After(monitorLogEntryTime(result[j])) })
 	return result
 }
+
+func appendMonitorLogFile(entries []MonitorLogEntry, path string) []MonitorLogEntry {
+	file, err := os.Open(path)
+	if err != nil { return entries }
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 4096), 1024*1024)
+	for scanner.Scan() { if entry, ok := parseMonitorLogLine(scanner.Text()); ok { entries = append(entries, entry) } }
+	return entries
+}
+
+var plainDatedMonitorLogName = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2})\.log$`)
 
 func filterAndSortDatedLogFiles(files []string, date string) []string {
 	valid := make([]string, 0, len(files))
@@ -224,21 +216,36 @@ func filterAndSortDatedLogFiles(files []string, date string) []string {
 
 func parseMonitorLogLine(raw string) (MonitorLogEntry, bool) {
 	line := strings.TrimSpace(raw)
-	if line == "" {
-		return MonitorLogEntry{}, false
-	}
-	level := "INFO"
+	if line == "" { return MonitorLogEntry{}, false }
 	lower := strings.ToLower(line)
-	if strings.Contains(lower, " error") || strings.Contains(lower, "failed") || strings.Contains(lower, "fatal") {
-		level = "ERROR"
-	} else if strings.Contains(lower, " warn") {
-		level = "WARN"
-	} else if strings.Contains(lower, " debug") {
-		level = "DEBUG"
+	level := "INFO"
+	switch {
+	case strings.Contains(lower, "level=error"), strings.Contains(lower, "[error]"), strings.Contains(lower, " error "), strings.Contains(lower, " error:"), strings.Contains(lower, "failed"), strings.Contains(lower, "fatal"): level = "ERROR"
+	case strings.Contains(lower, "level=warn"), strings.Contains(lower, "[warn]"), strings.Contains(lower, "[warning]"), strings.Contains(lower, " warn "), strings.Contains(lower, " warning"): level = "WARN"
+	case strings.Contains(lower, "level=debug"), strings.Contains(lower, "[debug]"), strings.Contains(lower, " debug "): level = "DEBUG"
 	}
 	stamp, message := "", line
-	if len(line) >= 19 {
-		stamp, message = line[:19], strings.TrimSpace(line[19:])
+	if strings.HasPrefix(line, "time=") {
+		value := strings.TrimPrefix(line, "time=")
+		if end := strings.IndexByte(value, ' '); end > 0 {
+			stamp = value[:end]
+			message = strings.TrimSpace(value[end:])
+		}
+	} else if len(line) >= 19 {
+		stamp = line[:19]
+		if len(line) > 20 && line[19] == '.' {
+			if end := strings.IndexByte(line[19:], ' '); end > 0 {
+				stamp = line[:19+end]
+			}
+		}
+		message = strings.TrimSpace(line[len(stamp):])
 	}
 	return MonitorLogEntry{Time: stamp, Level: level, Message: message}, true
+}
+
+func monitorLogEntryTime(entry MonitorLogEntry) time.Time {
+	for _, layout := range []string{time.RFC3339Nano, "2006/01/02 15:04:05.999999", "2006/01/02 15:04:05", "2006-01-02 15:04:05.999999", "2006-01-02 15:04:05"} {
+		if parsed, err := time.ParseInLocation(layout, entry.Time, time.Local); err == nil { return parsed }
+	}
+	return time.Time{}
 }
