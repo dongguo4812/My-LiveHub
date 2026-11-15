@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"bufio"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -52,6 +53,30 @@ func NewMonitorService(logDir string, additionalLogDirs ...string) *MonitorServi
 		if !duplicate { logDirs = append(logDirs, dir) }
 	}
 	return &MonitorService{startedAt: time.Now(), logDirs: logDirs}
+}
+
+// WriteFrontendLog persists frontend console output and uncaught runtime errors
+// through the same application logger used by the rest of the Go process.
+func (s *MonitorService) WriteFrontendLog(level, message string) {
+	if s == nil {
+		return
+	}
+	level = strings.ToUpper(strings.TrimSpace(level))
+	switch level {
+	case "DEBUG", "INFO", "WARN", "ERROR":
+	default:
+		level = "INFO"
+	}
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return
+	}
+	message = strings.ReplaceAll(message, "\\r", "")
+	message = strings.ReplaceAll(message, "\\n", "\\\\n")
+	if len(message) > 32768 {
+		message = message[:32768] + "…[truncated]"
+	}
+	log.Printf("frontend [%s] %s", level, message)
 }
 
 // GetSystemMetrics returns read-only Go runtime and process-lifetime metrics.
