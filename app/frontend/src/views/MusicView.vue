@@ -416,6 +416,28 @@ onUnmounted(() => {
     </el-card>
 
     <el-card v-if="activeTab === 'settings'" class="player-card player-settings-card" shadow="never">
+      <template #header><strong>点歌设置</strong></template>
+      <div v-if="config" class="setting-list">
+        <div class="setting-row"><div><strong>启用音乐模块</strong><p>关闭后无法加入歌曲队列或播放歌曲，也不会处理弹幕点歌；MV 视频播放不受影响。</p></div><el-switch v-model="config.enabled" /></div>
+        <el-divider />
+        <div class="setting-row"><div><strong>允许弹幕点歌</strong><p>收到点歌指令后搜索已启用的音源并加入统一队列。</p></div><el-switch v-model="config.command_enabled" /></div>
+        <el-divider />
+        <div class="setting-row"><div><strong>粉丝勋章等级限制</strong><p>只检查用户是否拥有当前主播的粉丝勋章，不要求佩戴；主播和房管免检。</p></div><el-switch v-model="config.require_fan_medal" /></div>
+        <el-divider />
+        <div class="setting-row"><div><strong>最低粉丝勋章等级</strong><p>未拥有当前主播粉丝勋章或等级不足时，拒绝本次点歌。</p></div><el-input-number v-model="config.fan_medal_level" :min="1" :max="120" /></div>
+        <el-divider />
+        <div class="setting-row"><div><strong>点歌指令前缀</strong><p>例如：点歌 稻香 周杰伦。</p></div><el-input v-model="config.command_prefix" maxlength="16" style="width:220px" /></div>
+        <el-divider />
+        <div class="setting-row"><div><strong>允许主播和房管切歌</strong><p>只有当前直播间主播本人或房管发送切歌命令时，才会播放下一首；普通观众无效。</p></div><el-switch v-model="config.skip_command_enabled" /></div>
+        <el-divider />
+        <div class="setting-row"><div><strong>切歌命令</strong><p>发送完整命令即可切换下一首，例如：切歌。</p></div><el-input v-model="config.skip_command" maxlength="16" style="width:220px" /></div>
+        <el-divider />
+        <div class="setting-row"><div><strong>播放队列容量</strong><p>统一队列允许等待的歌曲数量。</p></div><el-input-number v-model="config.queue_capacity" :min="1" :max="1000" /></div>
+ 
+      </div>
+      <div class="card-actions"><el-button type="primary" :loading="saving" :disabled="!config" @click="saveConfig">保存全部设置</el-button></div>
+    </el-card>
+    <el-card v-if="activeTab === 'settings'" class="player-card player-settings-card" shadow="never">
       <template #header><strong>洛雪客户端连接与搜索音源</strong></template>
       <p class="section-description">洛雪客户端需运行在本机。地址按从上到下的顺序尝试，前一个不可用时自动切换到下一个；播放通过 lxmusic:// 协议发起。</p>
       <div v-if="config" class="setting-list">
@@ -452,28 +474,6 @@ onUnmounted(() => {
       <div class="card-actions"><el-button type="primary" :loading="saving" :disabled="!config" @click="saveConfig">保存音乐配置</el-button></div>
     </el-card>
 
-    <el-card v-if="activeTab === 'settings'" class="player-card player-settings-card" shadow="never">
-      <template #header><strong>点歌设置</strong></template>
-      <div v-if="config" class="setting-list">
-        <div class="setting-row"><div><strong>启用音乐模块</strong><p>关闭后无法加入歌曲队列或播放歌曲，也不会处理弹幕点歌；MV 视频播放不受影响。</p></div><el-switch v-model="config.enabled" /></div>
-        <el-divider />
-        <div class="setting-row"><div><strong>允许弹幕点歌</strong><p>收到点歌指令后搜索已启用的音源并加入统一队列。</p></div><el-switch v-model="config.command_enabled" /></div>
-        <el-divider />
-        <div class="setting-row"><div><strong>粉丝勋章等级限制</strong><p>只检查用户是否拥有当前主播的粉丝勋章，不要求佩戴；主播和房管免检。</p></div><el-switch v-model="config.require_fan_medal" /></div>
-        <el-divider />
-        <div class="setting-row"><div><strong>最低粉丝勋章等级</strong><p>未拥有当前主播粉丝勋章或等级不足时，拒绝本次点歌。</p></div><el-input-number v-model="config.fan_medal_level" :min="1" :max="120" /></div>
-        <el-divider />
-        <div class="setting-row"><div><strong>点歌指令前缀</strong><p>例如：点歌 稻香 周杰伦。</p></div><el-input v-model="config.command_prefix" maxlength="16" style="width:220px" /></div>
-        <el-divider />
-        <div class="setting-row"><div><strong>允许主播和房管切歌</strong><p>只有当前直播间主播本人或房管发送切歌命令时，才会播放下一首；普通观众无效。</p></div><el-switch v-model="config.skip_command_enabled" /></div>
-        <el-divider />
-        <div class="setting-row"><div><strong>切歌命令</strong><p>发送完整命令即可切换下一首，例如：切歌。</p></div><el-input v-model="config.skip_command" maxlength="16" style="width:220px" /></div>
-        <el-divider />
-        <div class="setting-row"><div><strong>播放队列容量</strong><p>统一队列允许等待的歌曲数量。</p></div><el-input-number v-model="config.queue_capacity" :min="1" :max="1000" /></div>
- 
-      </div>
-      <div class="card-actions"><el-button type="primary" :loading="saving" :disabled="!config" @click="saveConfig">保存全部设置</el-button></div>
-    </el-card>
     <div v-if="activeTab === 'search' || activeTab === 'visitor-requests'" class="mini-player">
       <div class="mini-player-track">
         <img v-if="playback?.track?.cover_url" :src="playback.track.cover_url" alt="当前歌曲封面" />
