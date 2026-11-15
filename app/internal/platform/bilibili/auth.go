@@ -115,7 +115,29 @@ func (m *AuthManager) PollLogin(ctx context.Context, sessionID string) (LoginSta
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil { return LoginStatus{}, err }
 	setWebHeaders(req)
-	resp, err := m.client.Do(req)
+	// The poll endpoint must remain on Bilibili's official passport host.
+	// The default http.Client follows redirects automatically, which can hide
+	// whether an unexpected domain came from the poll redirect or data.url.
+	pollClient := *m.client
+	previousCheckRedirect := m.client.CheckRedirect
+	pollClient.CheckRedirect = func(next *http.Request, via []*http.Request) error {
+		fromHost := ""
+		if len(via) > 0 && via[len(via)-1].URL != nil {
+			fromHost = strings.ToLower(via[len(via)-1].URL.Hostname())
+		}
+		toHost := strings.ToLower(next.URL.Hostname())
+		if next.URL.Scheme != "https" || next.URL.User != nil || next.URL.Port() != "" || toHost != "passport.bilibili.com" {
+			return fmt.Errorf("Bilibili QR poll redirected from %s to untrusted host %s", fromHost, toHost)
+		}
+		if len(via) >= 10 {
+			return errors.New("too many Bilibili QR poll redirects")
+		}
+		if previousCheckRedirect != nil {
+			return previousCheckRedirect(next, via)
+		}
+		return nil
+	}
+	resp, err := pollClient.Do(req)
 	if err != nil { return LoginStatus{}, fmt.Errorf("poll Bilibili QR login: %w", err) }
 	defer resp.Body.Close()
 	var result struct {
@@ -212,7 +234,7 @@ func validateTicketURL(raw string) (*url.URL, error) {
 		return nil, errors.New("invalid Bilibili ticket URL")
 	}
 	if parsed.Scheme != "https" || parsed.User != nil || parsed.Port() != "" || parsed.Fragment != "" || !trustedTicketHost(parsed.Hostname()) {
-		return nil, errors.New("Bilibili ticket URL uses an untrusted address")
+		return nil, fmt.Errorf("Bilibili ticket URL uses an untrusted host: %s", strings.ToLower(parsed.Hostname()))
 	}
 	if parsed.Host != strings.ToLower(parsed.Host) {
 		return nil, errors.New("Bilibili ticket URL uses an invalid host")
@@ -242,7 +264,11 @@ func (m *AuthManager) exchangeLoginTicket(ctx context.Context, rawURL string) (m
 	previousCheckRedirect := m.client.CheckRedirect
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if !trustedTicketHost(req.URL.Hostname()) || req.URL.Scheme != "https" || req.URL.User != nil || req.URL.Port() != "" {
-			return errors.New("Bilibili ticket redirected to an untrusted address")
+			fromHost := ""
+			if len(via) > 0 && via[len(via)-1].URL != nil {
+				fromHost = strings.ToLower(via[len(via)-1].URL.Hostname())
+			}
+			return fmt.Errorf("Bilibili ticket redirected from %s to untrusted host %s", fromHost, strings.ToLower(req.URL.Hostname()))
 		}
 		if req.Response != nil {
 			for name, value := range collectCookieValues(req.Response.Cookies()) {
