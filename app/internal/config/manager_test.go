@@ -34,11 +34,11 @@ func TestResolvePaths(t *testing.T) {
 		t.Fatalf("development paths = %#v, want %#v", got, want)
 	}
 
-	got, err = ResolvePaths(EnvironmentProduction, "", filepath.Join("user", "AppData", "Roaming"))
+	got, err = ResolvePaths(EnvironmentProduction, "", filepath.Join("install", "My-LiveHub"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want = Paths{LocalDir: filepath.Join("user", "AppData", "Roaming", "My-LiveHub", "config", "local")}
+	want = Paths{DataDir: filepath.Join("install", "My-LiveHub"), LocalDir: filepath.Join("install", "My-LiveHub", "config", "local")}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("production paths = %#v, want %#v", got, want)
 	}
