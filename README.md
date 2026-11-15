@@ -133,6 +133,8 @@ task build
 
 CI 工作流位于 `.github/workflows/desktop-validation.yml`。它会检查 Go module 元数据、生成 Wails TypeScript 绑定、安装前端依赖、构建前端、运行 Go 测试并编译 Windows EXE。
 
+正式版通过推送 `v*` 格式的 Git Tag 发布，例如 `v0.1.1`。`.github/workflows/publish-release.yml` 会构建 Windows 绿色版单 EXE、生成 `SHA256SUMS` 并发布 GitHub Release。客户端可从系统托盘菜单选择“检查更新”，通过 Wails 更新器下载、校验并安装新版本。更新只替换程序 EXE；正式环境的配置、日志和缓存继续保存在 `%APPDATA%/My-LiveHub/`，不会随版本更新清理。
+
 ## 配置与运行数据
 
 配置分为随程序发布的默认配置和本机覆盖配置：
