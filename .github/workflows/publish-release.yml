@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - master
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 permissions:
@@ -158,6 +160,7 @@ jobs:
           $lines | Set-Content -Path bin/SHA256SUMS -Encoding ascii
 
       - name: Upload Windows build artifacts
+        if: github.ref_type == 'branch'
         uses: actions/upload-artifact@v4
         with:
           name: My-LiveHub-Windows-build-${{ github.run_number }}
@@ -167,3 +170,15 @@ jobs:
             app/bin/SHA256SUMS
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish GitHub Release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            app/bin/My-LiveHub-Portable.zip
+            app/bin/My-LiveHub.exe
+            app/bin/SHA256SUMS
