@@ -160,7 +160,6 @@ CI 工作流位于 `.github/workflows/desktop-validation.yml`。它会检查 Go 
 
 - [总体架构设计](docs/ARCHITECTURE.md)：项目定位、模块边界、数据与配置原则。
 - [多平台媒体资源管理设计](docs/MEDIA_RESOURCE_DESIGN.md)：媒体资源目录、缓存及事件处理设计。
-- [洛雪音乐兼容性审计](docs/MUSIC_LX_COMPATIBILITY_AUDIT.md)：洛雪自定义音源协议、歌曲数据结构及兼容性实现记录。
 - [正式应用说明](app/README.md)：应用工程的开发入口和运行模式。
 
 ## 开发约定
