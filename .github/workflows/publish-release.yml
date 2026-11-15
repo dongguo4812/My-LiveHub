@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   release:
-    name: Build Windows portable ZIP and EXE
+    name: Build Windows installer and portable ZIP
     runs-on: windows-latest
     defaults:
       run:
@@ -199,5 +199,6 @@ jobs:
           generate_release_notes: true
           files: |
             app/bin/My-LiveHub-Portable.zip
-            app/bin/My-LiveHub.exe
+            app/bin/My-LiveHub-Setup.exe
+            app/bin/My-LiveHub-windows-amd64.exe
             app/bin/SHA256SUMS
