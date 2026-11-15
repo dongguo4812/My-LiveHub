@@ -341,7 +341,9 @@ try {
   Start-Process -FilePath $exe
   Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
 } catch {
-  $failure = Join-Path $temp 'update-failed.txt'
+  $failureDir = Join-Path $root 'logs'
+  New-Item -ItemType Directory -Force -Path $failureDir | Out-Null
+  $failure = Join-Path $failureDir 'update-failed.txt'
   $_ | Out-String | Set-Content -LiteralPath $failure -Encoding UTF8
   Start-Process -FilePath $exe
   exit 1
