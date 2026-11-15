@@ -1,6 +1,6 @@
-# My-LiveHub 正式客户端骨架
+# My-LiveHub 应用工程
 
-本目录是正式应用工程；技术验证原型仍保留在 `prototype/desktop-validation`。
+本目录是 My-LiveHub 正式 Windows 桌面客户端工程。项目整体介绍、功能概览、仓库结构和开发流程请先阅读仓库根目录的 [README.md](../README.md)。
 
 ## 技术栈
 
@@ -9,25 +9,43 @@
 - Element Plus
 - Vue Router
 
-## 开发
+## 开发环境
 
-在本目录执行：
+需要 Windows、Go 1.27.x、Node.js 26.x/npm、Wails CLI v3.0.0 和 WebView2 Runtime。
+
+首次安装前端依赖：
+
+```powershell
+npm --prefix frontend install
+```
+
+启动桌面开发环境：
 
 ```powershell
 wails3 dev -config ./build/config.yml
 ```
 
-开发启动配置会显式执行 `go run . dev`，使用当前工作区的 `config/default/` 和 `config/local/`。
+开发启动配置会显式以 `dev` 模式运行 Go 应用。默认配置从 `config/default/` 读取，本机覆盖配置从 `config/local/` 读取。
 
-前端依赖首次安装：
+## 测试与构建
 
 ```powershell
-cd frontend
-npm install
+# 前端构建
+npm --prefix frontend run build
+
+# Go 测试
+go test ./...
+
+# 构建 Windows 可执行文件
+go build -o bin/My-LiveHub.exe .
+
+# Wails 完整构建
+wails3 build
 ```
 
-## 正式启动
+## 配置路径
 
-正式构建不传入 `dev` 参数。直接启动生成的 EXE 即按正式环境运行：默认配置从 EXE 内嵌资源读取，本机覆盖配置位于 `%APPDATA%/My-LiveHub/config/local/`。
+- 开发环境：默认配置 `config/default/`；本机覆盖配置 `config/local/`。
+- 正式环境：默认配置从程序内嵌资源读取；本机覆盖配置位于 `%APPDATA%/My-LiveHub/config/local/`。
 
-当前阶段仅建立桌面宿主和管理端 UI 外壳，并初始化统一配置管理器。业务服务、数据库、平台适配器、事件总线及 OBS 服务将在后续阶段接入。
+正式运行不依赖源码目录。不要将个人配置、Cookie、令牌或密钥提交到 Git。
