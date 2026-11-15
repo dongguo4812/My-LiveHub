@@ -298,6 +298,19 @@ func main() {
 	githubProvider, updaterErr := github.New(github.Config{
 		Repository:    "dongguo4812/My-LiveHub",
 		ChecksumAsset: "SHA256SUMS",
+		AssetMatcher: func(req updater.CheckRequest, assets []github.ReleaseAsset) int {
+			// Only replace the running application binary. Setup.exe and the
+			// portable ZIP are full distribution packages, not executable updates.
+			if req.Platform != "windows" || req.Arch != "amd64" {
+				return -1
+			}
+			for i, asset := range assets {
+				if asset.Name == "My-LiveHub-windows-amd64.exe" {
+					return i
+				}
+			}
+			return -1
+		},
 	})
 	if updaterErr != nil {
 		log.Printf("initialize GitHub update provider: %v", updaterErr)
