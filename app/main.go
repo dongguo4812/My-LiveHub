@@ -39,45 +39,19 @@ var embeddedDefaultConfig embed.FS
 
 func main() {
 	environment := config.ResolveEnvironment(os.Args[1:])
-	logDirectory := ""
-	var logDirectoryErr error
+	dataDir := paths.DataDir
+	logDirectory := filepath.Join(dataDir, "logs")
 	var applicationLogger *applogging.Logger
-	if environment == config.EnvironmentDevelopment {
-		if workingDir, getwdErr := os.Getwd(); getwdErr == nil {
-			logDirectory = filepath.Join(workingDir, "logs")
-		} else {
-			logDirectoryErr = fmt.Errorf("resolve development log directory: %w", getwdErr)
-		}
-	} else if userConfigDir, configDirErr := os.UserConfigDir(); configDirErr == nil {
-		logDirectory = filepath.Join(userConfigDir, "My-LiveHub", "logs")
-	} else {
-		logDirectoryErr = fmt.Errorf("resolve application log directory: %w", configDirErr)
-	}
-	// If the preferred location is unavailable, retain logs under the OS temp
-	// directory instead of falling back to console-only output.
-	if logDirectory == "" {
-		logDirectory = filepath.Join(os.TempDir(), "My-LiveHub", "logs")
-	}
 	var loggerErr error
 	applicationLogger, loggerErr = applogging.New(logDirectory)
 	if loggerErr != nil {
-		fallbackDirectory := filepath.Join(os.TempDir(), "My-LiveHub", "logs")
-		if fallbackDirectory != logDirectory {
-			applicationLogger, loggerErr = applogging.New(fallbackDirectory)
-			if loggerErr == nil {
-				logDirectory = fallbackDirectory
-			}
-		}
-	}
+		
 	if loggerErr != nil {
 		log.Printf("initialize application file logging: %v", loggerErr)
 	} else {
 		log.SetOutput(applicationLogger.Output())
 		log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
 		log.Printf("application logging initialized; file=%s", applicationLogger.Path())
-		if logDirectoryErr != nil {
-			log.Printf("preferred log directory unavailable; using fallback: %v", logDirectoryErr)
-		}
 		defer func() {
 			if closeErr := applicationLogger.Close(); closeErr != nil {
 				log.Printf("close application log file: %v", closeErr)
@@ -136,7 +110,7 @@ func main() {
 		log.Fatalf("initialize core application: %v", err)
 	}
 
-	credentialStore, err := bilibili.NewDPAPICredentialStore()
+	credentialStore, err := bilibili.NewDPAPICredentialStore(dataDir)
 	if err != nil {
 		log.Fatalf("initialize Bilibili credential store: %v", err)
 	}
@@ -179,14 +153,7 @@ func main() {
 	if err != nil { log.Fatalf("initialize Bilibili video queue service: %v", err) }
 	musicService.SetRequestNoticeBroker(requestNoticeBroker)
 	videoQueueService.SetRequestNoticeBroker(requestNoticeBroker)
-	cacheDir := ""
-	if environment == config.EnvironmentDevelopment {
-		if workingDir, getwdErr := os.Getwd(); getwdErr == nil {
-			cacheDir = filepath.Join(workingDir, "cache")
-		}
-	} else if userConfigDir, configDirErr := os.UserConfigDir(); configDirErr == nil {
-		cacheDir = filepath.Join(userConfigDir, "My-LiveHub", "cache")
-	}
+	cacheDir := filepath.Join(dataDir, "cache")
 	mediaCatalog, catalogErr := resource.NewPersistentCatalog(filepath.Join(cacheDir, "media-resources"))
 	if catalogErr != nil {
 		log.Printf("load local media resource catalog: %v", catalogErr)
