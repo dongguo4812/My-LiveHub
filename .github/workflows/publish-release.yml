@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   release:
-    name: Build and publish Windows portable EXE
+    name: Build Windows installer and portable package
     runs-on: windows-latest
     defaults:
       run:
@@ -32,6 +32,13 @@ jobs:
           node-version: '26'
           cache: npm
           cache-dependency-path: app/frontend/package-lock.json
+
+      - name: Set up Python for LOL Hex extension
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: app/extensions/lol_hex_display/requirements.txt
 
       - name: Add Go bin to PATH
         shell: pwsh
@@ -81,24 +88,79 @@ jobs:
           '@ | Set-Content -Path build/manifest.xml -Encoding utf8
           go run github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0 generate syso -manifest build/manifest.xml -icon build/icon.ico -arch amd64 -out rsrc_windows_amd64.syso
 
-      - name: Build portable executable
+      - name: Build LOL Hex standalone extension
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r extensions/lol_hex_display/requirements.txt
+          Push-Location extensions/lol_hex_display
+          try {
+            cmd /c build.bat
+            if ($LASTEXITCODE -ne 0) { throw "LOL Hex extension build failed with exit code $LASTEXITCODE" }
+          } finally {
+            Pop-Location
+          }
+
+      - name: Assemble application directory
         shell: pwsh
         run: |
           $version = $env:GITHUB_REF_NAME.TrimStart('v')
-          New-Item -ItemType Directory -Force -Path bin | Out-Null
-          go build -ldflags "-H=windowsgui -X main.currentVersion=$version" -o bin/My-LiveHub-windows-amd64.exe .
+          $package = "bin/package"
+          New-Item -ItemType Directory -Force -Path $package | Out-Null
+          go build -ldflags "-H=windowsgui -X main.currentVersion=$version" -o "$package/My-LiveHub.exe" .
+          if ($LASTEXITCODE -ne 0) { throw "My-LiveHub build failed" }
+
+          $extensionSource = "extensions/lol_hex_display"
+          $extensionTarget = "$package/extensions/lol_hex_display"
+          New-Item -ItemType Directory -Force -Path $extensionTarget | Out-Null
+          robocopy $extensionSource $extensionTarget /E /XD .venv build dist data screenshots logs __pycache__ /XF *.pid *.spec
+          if ($LASTEXITCODE -ge 8) { throw "Copying LOL Hex extension sources failed with exit code $LASTEXITCODE" }
+          New-Item -ItemType Directory -Force -Path "$extensionTarget/dist" | Out-Null
+          Copy-Item -Recurse -Force "$extensionSource/dist/lol_hex_display" "$extensionTarget/dist/lol_hex_display"
+
+          # Keep a standalone executable asset for the in-app Wails updater.
+          Copy-Item "$package/My-LiveHub.exe" "bin/My-LiveHub-windows-amd64.exe"
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          choco install innosetup --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw "Installing Inno Setup failed" }
+          $env:APP_VERSION = $env:GITHUB_REF_NAME.TrimStart('v')
+          $compiler = "${env:ProgramFiles(x86)}\\Inno Setup 6\\ISCC.exe"
+          if (!(Test-Path $compiler)) { throw "Inno Setup compiler not found: $compiler" }
+          & $compiler "build/windows/My-LiveHub.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
+
+      - name: Build portable ZIP
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path bin/portable | Out-Null
+          if (Test-Path bin/portable/My-LiveHub) { Remove-Item -Recurse -Force bin/portable/My-LiveHub }
+          Copy-Item -Recurse -Force bin/package bin/portable/My-LiveHub
+          Compress-Archive -Path bin/portable/My-LiveHub -DestinationPath bin/My-LiveHub-Portable.zip -CompressionLevel Optimal
 
       - name: Generate SHA256SUMS
         shell: pwsh
         run: |
-          $file = Get-Item bin/My-LiveHub-windows-amd64.exe
-          $hash = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLower()
-          "$hash  $($file.Name)" | Set-Content -Path bin/SHA256SUMS -Encoding ascii
+          $assets = @(
+            "bin/My-LiveHub-windows-amd64.exe",
+            "bin/My-LiveHub-Setup.exe",
+            "bin/My-LiveHub-Portable.zip"
+          )
+          $lines = foreach ($path in $assets) {
+            $file = Get-Item $path
+            $hash = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($file.Name)"
+          }
+          $lines | Set-Content -Path bin/SHA256SUMS -Encoding ascii
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           files: |
+            app/bin/My-LiveHub-Setup.exe
+            app/bin/My-LiveHub-Portable.zip
             app/bin/My-LiveHub-windows-amd64.exe
             app/bin/SHA256SUMS
