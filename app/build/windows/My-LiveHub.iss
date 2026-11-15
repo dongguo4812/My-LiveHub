@@ -51,3 +51,10 @@ Name: "{autodesktop}\My-LiveHub"; Filename: "{app}\My-LiveHub.exe"; Tasks: deskt
 
 [Run]
 Filename: "{app}\My-LiveHub.exe"; Description: "启动 My-LiveHub"; Flags: nowait postinstall skipifsilent
+
+[Code]
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    SaveStringToFile(ExpandConstant('{app}\\.my-livehub-installed'), 'My-LiveHub installer package', False);
+end;
