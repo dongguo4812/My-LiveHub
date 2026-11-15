@@ -224,12 +224,18 @@ func parseMonitorLogLine(raw string) (MonitorLogEntry, bool) {
 	case strings.Contains(lower, "level=warn"), strings.Contains(lower, "[warn]"), strings.Contains(lower, "[warning]"), strings.Contains(lower, " warn "), strings.Contains(lower, " warning"): level = "WARN"
 	case strings.Contains(lower, "level=debug"), strings.Contains(lower, "[debug]"), strings.Contains(lower, " debug "): level = "DEBUG"
 	}
-	stamp := ""
+	stamp, message := "", line
 	if strings.HasPrefix(line, "time=") {
 		value := strings.TrimPrefix(line, "time=")
-		if end := strings.IndexByte(value, ' '); end > 0 { stamp = value[:end] }
-	} else if len(line) >= 19 { stamp = line[:19] }
-	return MonitorLogEntry{Time: stamp, Level: level, Message: line}, true
+		if end := strings.IndexByte(value, ' '); end > 0 {
+			stamp = value[:end]
+			message = strings.TrimSpace(value[end:])
+		}
+	} else if len(line) >= 19 {
+		stamp = line[:19]
+		message = strings.TrimSpace(line[19:])
+	}
+	return MonitorLogEntry{Time: stamp, Level: level, Message: message}, true
 }
 
 func monitorLogEntryTime(entry MonitorLogEntry) time.Time {
