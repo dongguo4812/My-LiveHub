@@ -2,6 +2,7 @@ package bilibili
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 )
 
