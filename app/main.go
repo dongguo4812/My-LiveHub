@@ -260,7 +260,7 @@ func main() {
 	// Keep debug-level Wails runtime records as well as info/warnings/errors.
 	wailsLogLevel := slog.LevelDebug
 	wailsLogger := slog.New(slog.NewTextHandler(applicationLogger.Output(), &slog.HandlerOptions{Level: wailsLogLevel}))
-	updateService := desktop.NewUpdateService(currentVersion, applicationPath)
+	updateService := desktop.NewUpdateService(currentVersion, applicationPath, func() { if wailsApp != nil { wailsApp.Quit() } })
 	app := application.New(application.Options{
 		Logger: wailsLogger,
 		LogLevel: wailsLogLevel,
@@ -296,7 +296,6 @@ func main() {
 	})
 
 	wailsApp = app
-	updateService.SetQuitFunc(func() { app.Quit() })
 	desktop.AttachApplication(platformService, app, appConfig.Appearance.Theme == "light")
 	desktop.AttachDanmakuDisplayApplication(danmakuDisplayService, app)
 	desktop.AttachMusicLyricsWindowApplication(musicLyricsWindowService, app)
