@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"log/slog"
 	"net/http/httputil"
 	"net/url"
 	"os"
@@ -187,7 +188,6 @@ func main() {
 	}
 
 	platformService := desktop.NewPlatformService(platformManager, bilibiliEvents, mediaCatalog)
-	monitorService := desktop.NewMonitorService(logDirectory)
 	var wailsApp *application.App
 	voiceService, err := voice.NewService(bilibiliEvents, configManager, voiceConfig, func(name string, data any) error {
 		if wailsApp == nil {
@@ -240,6 +240,13 @@ func main() {
 		// beside that bin directory in the application root.
 		extensionRoot = filepath.Join(filepath.Dir(filepath.Dir(applicationPath)), "extensions", "lol_hex_display")
 	}
+	// Read LOL Hex's own daily files as part of the unified diagnostics view.
+	// Source and packaged launch modes use different executable roots.
+	monitorService := desktop.NewMonitorService(
+		logDirectory,
+		filepath.Join(extensionRoot, "logs"),
+		filepath.Join(extensionRoot, "dist", "lol_hex_display", "logs"),
+	)
 	lolHexService, err := desktop.NewLOLHexService(extensionRoot, filepath.Join(paths.LocalDir, "lol_hex_display.json"))
 	if err != nil {
 		log.Printf("LOL Hex extension unavailable: %v", err)
@@ -269,7 +276,14 @@ func main() {
 	if err != nil { log.Fatalf("initialize scene browser source service: %v", err) }
 	sceneService.SetRequestNoticeBroker(requestNoticeBroker)
 	appearanceService := desktop.NewAppearanceService(configManager, appConfig, applicationLogger)
+	wailsLogLevel := slog.LevelInfo
+	if environment == config.EnvironmentDevelopment {
+		wailsLogLevel = slog.LevelDebug
+	}
+	wailsLogger := slog.New(slog.NewTextHandler(applicationLogger.Output(), &slog.HandlerOptions{Level: wailsLogLevel}))
 	app := application.New(application.Options{
+		Logger: wailsLogger,
+		LogLevel: wailsLogLevel,
 		Name:        "My-LiveHub",
 		Description: "多平台综合直播互动辅助平台",
 		Assets: application.AssetOptions{Handler: assetHandler},
