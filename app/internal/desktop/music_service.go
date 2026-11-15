@@ -665,22 +665,39 @@ func (s *MusicService) playNext(parent context.Context) error {
 	s.mu.RUnlock()
 	if !enabled { return errors.New("music module is disabled") }
 
-	current := s.queue.Snapshot().Current
-	if current == nil {
-		item, ok := s.queue.TakeNext()
-		if !ok { return errors.New("播放队列为空") }
-		current = &item
+	var lastStartErr error
+	for {
+		current := s.queue.Snapshot().Current
+		if current == nil {
+			item, ok := s.queue.TakeNext()
+			if !ok {
+				if lastStartErr != nil {
+					if nextTrack, supported := s.engine.(interface { NextTrack(context.Context) error }); supported {
+						if err := nextTrack.NextTrack(context.Background()); err == nil { return nil } else {
+							return fmt.Errorf("队列歌曲启动失败（%v），且洛雪切换下一首失败：%w", lastStartErr, err)
+						}
+					}
+					return lastStartErr
+				}
+				return errors.New("播放队列为空")
+			}
+			current = &item
+		}
+
+		resolvedTrack, err := s.resolveAndStartLXTrack(parent, current.Track, false)
+		if err != nil {
+			lastStartErr = fmt.Errorf("歌曲《%s》启动失败：%w", current.Track.Title, err)
+			s.setLastError(lastStartErr)
+			s.queue.FinishCurrent()
+			continue
+		}
+		current.Track = resolvedTrack
+		if err := s.queue.SetCurrent(*current); err != nil {
+			return fmt.Errorf("更新自动换源后的当前歌曲失败：%w", err)
+		}
+		s.startPlaybackWatcher()
+		return nil
 	}
-	resolvedTrack, err := s.resolveAndStartLXTrack(parent, current.Track, false)
-	if err != nil {
-		return err
-	}
-	current.Track = resolvedTrack
-	if err := s.queue.SetCurrent(*current); err != nil {
-		return fmt.Errorf("更新自动换源后的当前歌曲失败：%w", err)
-	}
-	s.startPlaybackWatcher()
-	return nil
 }
 
 
@@ -905,9 +922,16 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 			// 暂停期间不根据进度判断结束。
 			if snapshot.State == music.PlaybackPaused { continue }
 			if !sawPlaying {
-				if time.Since(startedAt) >= 20*time.Second {
+				if time.Since(startedAt) >= musicPlaybackStartTimeout {
 					if ctx.Err() != nil { return }
-					s.setLastError(errors.New("播放器未能开始播放；请检查音源解析结果和网络连接"))
+					timeoutErr := errors.New("播放器启动超时（10 秒内未进入播放状态）")
+					s.setLastError(timeoutErr)
+					currentItem := s.queue.Snapshot().Current
+					if currentItem != nil { s.pushHistory(*currentItem) }
+					s.queue.FinishCurrent()
+					if advanceErr := s.advanceAfterPlaybackEnd(snapshot, currentItem); advanceErr != nil {
+						s.setLastError(fmt.Errorf("播放启动超时后推进下一首失败：%w", advanceErr))
+					}
 					return
 				}
 				continue
@@ -929,6 +953,8 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 		}
 	}
 }
+
+const musicPlaybackStartTimeout = 10 * time.Second
 
 // playbackSnapshotEnded mirrors Bili_Live_Danmaku's wait_song_end:
 // after observing real playback, stopped or near-end progress means completion.
