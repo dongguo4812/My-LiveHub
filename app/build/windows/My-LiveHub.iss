@@ -56,5 +56,5 @@ Filename: "{app}\My-LiveHub.exe"; Description: "启动 My-LiveHub"; Flags: nowai
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
-    SaveStringToFile(ExpandConstant('{app}\\.my-livehub-installed'), 'My-LiveHub installer package', False);
+    SaveStringToFile(ExpandConstant('{app}\.my-livehub-installed'), 'My-LiveHub installer package', False);
 end;
