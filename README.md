@@ -133,7 +133,7 @@ task build
 
 CI 工作流位于 `.github/workflows/desktop-validation.yml`。它会检查 Go module 元数据、生成 Wails TypeScript 绑定、安装前端依赖、构建前端、运行 Go 测试并编译 Windows EXE。
 
-正式版通过推送 `v*` 格式的 Git Tag 发布，例如 `v0.1.1`。`.github/workflows/publish-release.yml` 会构建 Windows 客户端并生成 `SHA256SUMS`。正式版的数据统一保存在程序安装目录内：配置位于 `config/local/`，缓存位于 `cache/`，日志位于 `logs/`，登录凭据位于 `secure/`。程序更新不得覆盖或清理这些运行数据。Windows 安装包和自动更新流程仍需按安装版方案调整后再发布。
+正式版通过推送 `v*` 格式的 Git Tag 发布，例如 `v0.1.1`。`.github/workflows/publish-release.yml` 会同时构建 Windows 安装版和解压版。每次 Release 提供 `My-LiveHub-Setup.exe`、`My-LiveHub-Portable.zip`、供应用内更新器使用的 `My-LiveHub-windows-amd64.exe`，以及 `SHA256SUMS`。安装版默认安装到当前用户可写的程序目录；解压版解压后即可运行。正式版的数据统一保存在 EXE 所在目录内：配置位于 `config/local/`，缓存位于 `cache/`，日志位于 `logs/`，登录凭据位于 `secure/`。安装升级和手动更新程序时都必须保留这些运行数据；卸载安装版时也保留用户数据目录。
 
 ## 配置与运行数据
 
