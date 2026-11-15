@@ -558,3 +558,47 @@ func TestSelectSongRequestTrackByCombinedText(t *testing.T) {
 		t.Fatal("combined query must not match an unrelated artist")
 	}
 }
+
+
+type failFirstLoadTestEngine struct {
+	loadCalls atomic.Int32
+}
+func (e *failFirstLoadTestEngine) Load(context.Context, music.Track) error {
+	if e.loadCalls.Add(1) == 1 { return errors.New("模拟首首歌曲播放失败") }
+	return nil
+}
+func (e *failFirstLoadTestEngine) Pause(context.Context) error { return nil }
+func (e *failFirstLoadTestEngine) Resume(context.Context) error { return nil }
+func (e *failFirstLoadTestEngine) Stop(context.Context) error { return nil }
+func (e *failFirstLoadTestEngine) Snapshot(context.Context) (music.PlaybackSnapshot, error) {
+	return music.PlaybackSnapshot{State: music.PlaybackPlaying}, nil
+}
+
+func TestPlayNextSkipsFailedTrackAndStartsNextQueuedTrack(t *testing.T) {
+	value := config.DefaultMusicConfig()
+	value.Enabled = true
+	value.EnabledSearchSources = []string{"tx"}
+	engine := &failFirstLoadTestEngine{}
+	service := NewMusicServiceWithDependencies(nil, value, nil, engine)
+	defer service.cancelPlaybackWatcher()
+
+	first := music.Track{ID: "tx_first", SourceID: "tx", LXSourceKey: "tx", Title: "首首歌曲", Artist: "测试歌手"}
+	second := music.Track{ID: "tx_second", SourceID: "tx", LXSourceKey: "tx", Title: "第二首歌曲", Artist: "测试歌手"}
+	if _, err := service.queue.Enqueue(first, "viewer"); err != nil { t.Fatal(err) }
+	if _, err := service.queue.Enqueue(second, "viewer"); err != nil { t.Fatal(err) }
+
+	if err := service.PlayNext(); err != nil { t.Fatalf("PlayNext should continue to the next track after the first fails: %v", err) }
+	snapshot := service.queue.Snapshot()
+	if snapshot.Current == nil || snapshot.Current.Track.ID != second.ID {
+		t.Fatalf("current track = %#v, want second queued track", snapshot.Current)
+	}
+	if len(snapshot.Items) != 0 { t.Fatalf("pending queue = %#v, want empty", snapshot.Items) }
+	if got := engine.loadCalls.Load(); got != 2 { t.Fatalf("Load calls = %d, want 2", got) }
+	if service.GetStatus().LastError == "" { t.Fatal("failed first track should leave a diagnostic error") }
+}
+
+func TestMusicPlaybackStartTimeoutIsTenSeconds(t *testing.T) {
+	if musicPlaybackStartTimeout != 10*time.Second {
+		t.Fatalf("music playback start timeout = %s, want 10s", musicPlaybackStartTimeout)
+	}
+}
