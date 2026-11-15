@@ -26,12 +26,14 @@ type LXPlaybackEngine struct {
 	client *http.Client
 	mu sync.RWMutex
 	endpoints []string
+	openApp func() error
 }
 
 func NewLXPlaybackEngine(endpoints []string) *LXPlaybackEngine {
 	return &LXPlaybackEngine{
 		client: &http.Client{Timeout: 2 * time.Second},
 		endpoints: normalizeLXAPIEndpoints(endpoints),
+		openApp: func() error { return launchLXURI("lxmusic://") },
 	}
 }
 
@@ -56,7 +58,30 @@ func (e *LXPlaybackEngine) SetEndpoints(endpoints []string) {
 	e.mu.Unlock()
 }
 
-func (e *LXPlaybackEngine) Start(context.Context) error { return nil }
+// Start checks the local API first. If 洛雪 is not reachable, opening the
+// music module also asks Windows/macOS/Linux to launch the installed 洛雪 app
+// through its registered lxmusic:// protocol handler.
+func (e *LXPlaybackEngine) Start(ctx context.Context) error {
+	if e == nil {
+		return errors.New("洛雪播放服务不可用")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, _, err := e.endpointRequest(ctx, []string{"/status", "/api/status"}); err == nil {
+		return nil
+	}
+	e.mu.RLock()
+	openApp := e.openApp
+	e.mu.RUnlock()
+	if openApp == nil {
+		return errors.New("洛雪 API 不可用，且未配置本地洛雪启动方式")
+	}
+	if err := openApp(); err != nil {
+		return fmt.Errorf("洛雪 API 不可用，尝试启动本地洛雪音乐失败：%w", err)
+	}
+	return nil
+}
 func (e *LXPlaybackEngine) Close() error { return nil }
 
 func (e *LXPlaybackEngine) endpointRequest(ctx context.Context, paths []string) ([]byte, string, error) {
