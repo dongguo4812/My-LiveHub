@@ -71,3 +71,30 @@ func TestGetRecentLogsReturnsNewestFirst(t *testing.T) {
 		}
 	}
 }
+
+func TestGetLogsByDateMergesExtensionLogsNewestFirst(t *testing.T) {
+	mainDir := t.TempDir()
+	extensionDir := t.TempDir()
+	writeMonitorTestLog(t, filepath.Join(mainDir, "my-livehub-2026-11-15.log"),
+		"2026/11/15 08:00:00.000000 main-log",
+	)
+	writeMonitorTestLog(t, filepath.Join(extensionDir, "2026-11-15.log"),
+		"2026-11-15 08:05:00 [WARNING] [lol_hex_display] extension-log",
+	)
+
+	service := NewMonitorService(mainDir, extensionDir)
+	dates := service.GetLogDates()
+	if len(dates) != 1 || dates[0] != "2026-11-15" {
+		t.Fatalf("dates = %#v, want one merged date", dates)
+	}
+	entries := service.GetLogsByDate("2026-11-15")
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries, want 2: %#v", len(entries), entries)
+	}
+	if entries[0].Message == "" || entries[0].Time != "2026-11-15 08:05:00" {
+		t.Fatalf("newest extension entry = %#v", entries[0])
+	}
+	if entries[1].Message == "" || entries[1].Time != "2026/11/15 08:00:00" {
+		t.Fatalf("older main entry = %#v", entries[1])
+	}
+}
