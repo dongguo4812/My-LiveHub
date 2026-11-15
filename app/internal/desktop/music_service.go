@@ -705,7 +705,7 @@ func (s *MusicService) Pause() error {
 func (s *MusicService) Resume() error {
 	if s == nil || s.engine == nil { return music.ErrPlaybackEngineUnavailable }
 	if err := s.engine.Resume(context.Background()); err != nil { return err }
-	s.startPlaybackWatcher()
+	if s.queue.Snapshot().Current != nil { s.startPlaybackWatcher() }
 	return nil
 }
 func (s *MusicService) Next() error {
@@ -827,19 +827,34 @@ func (s *MusicService) GetLyrics(track music.Track) (string, error) {
 
 func absFloat(value float64) float64 { if value < 0 { return -value }; return value }
 
+// GetPlaybackStatus performs an explicit live API read (used by the connection test).
 func (s *MusicService) GetPlaybackStatus() (music.PlaybackSnapshot, error) {
+	if s == nil || s.engine == nil { return music.PlaybackSnapshot{}, music.ErrPlaybackEngineUnavailable }
+	snapshot, err := s.engine.Snapshot(context.Background())
+	if err != nil { return snapshot, err }
+	s.setPlaybackSnapshot(snapshot)
+	return s.attachCurrentQueueTrack(snapshot), nil
+}
+
+// GetCachedPlaybackStatus returns the latest snapshot collected by the single
+// background watcher. UI surfaces must use this instead of querying 洛雪 directly.
+func (s *MusicService) GetCachedPlaybackStatus() (music.PlaybackSnapshot, error) {
 	if s == nil || s.engine == nil { return music.PlaybackSnapshot{}, music.ErrPlaybackEngineUnavailable }
 	s.mu.RLock()
 	snapshot, valid := s.playbackSnapshot, s.playbackSnapshotValid
 	s.mu.RUnlock()
 	if !valid { return music.PlaybackSnapshot{State: music.PlaybackIdle}, nil }
+	return s.attachCurrentQueueTrack(snapshot), nil
+}
+
+func (s *MusicService) attachCurrentQueueTrack(snapshot music.PlaybackSnapshot) music.PlaybackSnapshot {
 	if current := s.queue.Snapshot().Current; current != nil {
 		if snapshot.Track == nil || sameLXTrackIdentity(current.Track, *snapshot.Track) {
 			track := current.Track
 			snapshot.Track = &track
 		}
 	}
-	return snapshot, nil
+	return snapshot
 }
 
 func (s *MusicService) GetStatus() MusicStatus {
