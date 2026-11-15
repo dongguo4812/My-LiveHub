@@ -302,36 +302,38 @@ try {
         $p -eq 'extensions/lol_hex_display/logs' -or $p.StartsWith('extensions/lol_hex_display/logs/') -or
         $p -eq 'extensions/lol_hex_display/dist/lol_hex_display/logs' -or $p.StartsWith('extensions/lol_hex_display/dist/lol_hex_display/logs/')
     }
-    $oldFiles = @(Get-ChildItem -LiteralPath $root -File -Recurse -Force)
-    foreach ($file in $oldFiles) {
-      $relative = $file.FullName.Substring($root.Length).TrimStart([char]92)
+    $newFiles = @(Get-ChildItem -LiteralPath $source -File -Recurse -Force)
+    $backupFiles = @{}
+    foreach ($file in $newFiles) {
+      $relative = $file.FullName.Substring($source.Length).TrimStart([char]92)
       if (Is-Preserved $relative) { continue }
-      $backupFile = Join-Path $backup $relative
-      New-Item -ItemType Directory -Force -Path (Split-Path -Parent $backupFile) | Out-Null
-      Copy-Item -LiteralPath $file.FullName -Destination $backupFile -Force
+      $destination = Join-Path $root $relative
+      if (Test-Path -LiteralPath $destination -PathType Leaf) {
+        $backupFile = Join-Path $backup $relative
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $backupFile) | Out-Null
+        Copy-Item -LiteralPath $destination -Destination $backupFile -Force
+        $backupFiles[$relative] = $true
+      }
     }
     try {
-      foreach ($file in $oldFiles) {
-        $relative = $file.FullName.Substring($root.Length).TrimStart([char]92)
-        if (!(Is-Preserved $relative)) { Remove-Item -LiteralPath $file.FullName -Force }
-      }
-      Get-ChildItem -LiteralPath $source -File -Recurse -Force | ForEach-Object {
-        $relative = $_.FullName.Substring($source.Length).TrimStart([char]92)
-        if (Is-Preserved $relative) { return }
+      foreach ($file in $newFiles) {
+        $relative = $file.FullName.Substring($source.Length).TrimStart([char]92)
+        if (Is-Preserved $relative) { continue }
         $destination = Join-Path $root $relative
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
-        Copy-Item -LiteralPath $_.FullName -Destination $destination -Force
+        Copy-Item -LiteralPath $file.FullName -Destination $destination -Force
       }
     } catch {
-      Get-ChildItem -LiteralPath $root -File -Recurse -Force | ForEach-Object {
-        $relative = $_.FullName.Substring($root.Length).TrimStart([char]92)
-        if (!(Is-Preserved $relative)) { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
-      }
-      Get-ChildItem -LiteralPath $backup -File -Recurse -Force | ForEach-Object {
-        $relative = $_.FullName.Substring($backup.Length).TrimStart([char]92)
+      foreach ($file in $newFiles) {
+        $relative = $file.FullName.Substring($source.Length).TrimStart([char]92)
+        if (Is-Preserved $relative) { continue }
         $destination = Join-Path $root $relative
-        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
-        Copy-Item -LiteralPath $_.FullName -Destination $destination -Force
+        if ($backupFiles.ContainsKey($relative)) {
+          $backupFile = Join-Path $backup $relative
+          Copy-Item -LiteralPath $backupFile -Destination $destination -Force
+        } elseif (Test-Path -LiteralPath $destination -PathType Leaf) {
+          Remove-Item -LiteralPath $destination -Force -ErrorAction SilentlyContinue
+        }
       }
       throw
     }
