@@ -46,6 +46,6 @@ wails3 build
 ## 配置路径
 
 - 开发环境：默认配置 `config/default/`；本机覆盖配置 `config/local/`。
-- 正式环境：默认配置从程序内嵌资源读取；本机覆盖配置位于 `%APPDATA%/My-LiveHub/config/local/`。
+- 正式环境：默认配置从程序内嵌资源读取；配置位于程序所在目录的 `config/local/`。日志、缓存和登录凭据分别位于程序目录下的 `logs/`、`cache/` 和 `secure/`。
 
 正式运行不依赖源码目录。不要将个人配置、Cookie、令牌或密钥提交到 Git。
