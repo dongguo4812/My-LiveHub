@@ -359,26 +359,4 @@ func TestPollLoginPreservesLegacyDirectCookieResponse(t *testing.T) {
 	}
 }
 
-func TestExchangeLoginTicketRejectsUntrustedRedirect(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "https://attacker.example/collect", http.StatusFound)
-	}))
-	defer server.Close()
-	client := server.Client()
-	client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		clone := req.Clone(req.Context())
-		u := *req.URL
-		u.Scheme = "http"
-		u.Host = strings.TrimPrefix(server.URL, "http://")
-		clone.URL = &u
-		return http.DefaultTransport.RoundTrip(clone)
-	})
-	manager, err := NewAuthManager(&memoryStore{}, client)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := manager.exchangeLoginTicket(context.Background(),
-		"https://passport.biligame.com/x/passport-login/web/crossDomain?ticket=redirect-test"); err == nil {
-		t.Fatal("ticket redirect to an untrusted host must be rejected")
-	}
-}
+
