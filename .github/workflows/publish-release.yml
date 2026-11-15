@@ -119,7 +119,11 @@ jobs:
           $extensionTarget = "$package/extensions/lol_hex_display"
           New-Item -ItemType Directory -Force -Path $extensionTarget | Out-Null
           robocopy $extensionSource $extensionTarget /E /XD .venv build dist data screenshots logs __pycache__ /XF *.pid *.spec
-          if ($LASTEXITCODE -ge 8) { throw "Copying LOL Hex extension sources failed with exit code $LASTEXITCODE" }
+          $robocopyExitCode = $LASTEXITCODE
+          if ($robocopyExitCode -ge 8) { throw "Copying LOL Hex extension sources failed with exit code $robocopyExitCode" }
+          # Robocopy exit codes 0-7 indicate success (including copied files).
+          # Reset LASTEXITCODE so PowerShell does not report a successful copy as a failed step.
+          $global:LASTEXITCODE = 0
           New-Item -ItemType Directory -Force -Path "$extensionTarget/dist" | Out-Null
           Copy-Item -Recurse -Force "$extensionSource/dist/lol_hex_display" "$extensionTarget/dist/lol_hex_display"
 
