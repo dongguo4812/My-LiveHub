@@ -202,16 +202,18 @@ func TestLoadCredentialsDeletesExpiredCredentials(t *testing.T) {
 }
 
 
-func TestExchangeLoginTicketCollectsCookiesAcrossRedirects(t *testing.T) {
+func TestExchangeLoginTicketDoesNotFollowRedirectAndCollectsResponseCookies(t *testing.T) {
+	finalRequested := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/x/passport-login/web/crossDomain":
-			http.SetCookie(w, &http.Cookie{Name: "bili_jct", Value: "redirect-csrf", Path: "/"})
-			http.Redirect(w, r, "https://passport.bilibili.com/final", http.StatusFound)
-		case "/final":
-			http.SetCookie(w, &http.Cookie{Name: "SESSDATA", Value: "final-session", Path: "/"})
+			http.SetCookie(w, &http.Cookie{Name: "SESSDATA", Value: "ticket-session", Path: "/"})
 			http.SetCookie(w, &http.Cookie{Name: "DedeUserID", Value: "456", Path: "/"})
-			_, _ = w.Write([]byte("ok"))
+			http.SetCookie(w, &http.Cookie{Name: "bili_jct", Value: "ticket-csrf", Path: "/"})
+			http.Redirect(w, r, "https://passport.huasheng.cn/landing", http.StatusFound)
+		case "/landing":
+			finalRequested = true
+			_, _ = w.Write([]byte("should not be requested"))
 		default:
 			http.NotFound(w, r)
 		}
@@ -235,8 +237,11 @@ func TestExchangeLoginTicketCollectsCookiesAcrossRedirects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if values["bili_jct"] != "redirect-csrf" || values["SESSDATA"] != "final-session" || values["DedeUserID"] != "456" {
-		t.Fatalf("cookies from ticket redirect chain were not collected: %#v", values)
+	if finalRequested {
+		t.Fatal("crossDomain redirect destination must not be requested")
+	}
+	if values["SESSDATA"] != "ticket-session" || values["bili_jct"] != "ticket-csrf" || values["DedeUserID"] != "456" {
+		t.Fatalf("cookies from the crossDomain response were not collected: %#v", values)
 	}
 }
 
