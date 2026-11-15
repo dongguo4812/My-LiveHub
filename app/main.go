@@ -2,7 +2,6 @@ package main
 
 import (
 	"embed"
-	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -25,8 +24,6 @@ import (
 	"github.com/dongguo4812/My-LiveHub/app/internal/voice"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
-	"github.com/wailsapp/wails/v3/pkg/updater"
-	"github.com/wailsapp/wails/v3/pkg/updater/providers/github"
 )
 
 var currentVersion = "0.1.0" // Overridden by release builds via -ldflags.
@@ -278,6 +275,7 @@ func main() {
 		},
 		Services: []application.Service{
 			application.NewService(desktop.NewCoreService(coreApp)),
+			application.NewService(updateService),
 			application.NewService(monitorService),
 			application.NewService(platformService),
 			application.NewService(desktop.NewBilibiliAuthService(bilibiliAuth, platformManager)),
@@ -295,39 +293,10 @@ func main() {
 			application.NewService(bilibiliWebViewService),
 		},
 	})
-	githubProvider, updaterErr := github.New(github.Config{
-		Repository:    "dongguo4812/My-LiveHub",
-		ChecksumAsset: "SHA256SUMS",
-		AssetMatcher: func(req updater.CheckRequest, assets []github.ReleaseAsset) int {
-			// Only replace the running application binary. Setup.exe and the
-			// portable ZIP are full distribution packages, not executable updates.
-			if req.Platform != "windows" || req.Arch != "amd64" {
-				return -1
-			}
-			for i, asset := range assets {
-				if asset.Name == "My-LiveHub-windows-amd64.exe" {
-					return i
-				}
-			}
-			return -1
-		},
-	})
-	if updaterErr != nil {
-		log.Printf("initialize GitHub update provider: %v", updaterErr)
-	} else if updaterErr = app.Updater.Init(updater.Config{
-		CurrentVersion: currentVersion,
-		Providers:      []updater.Provider{githubProvider},
-		Window: &updater.BuiltinWindow{
-			Options: updater.WindowOptions{
-				Title:  "My-LiveHub 更新",
-				Width:  420,
-				Height: 180,
-			},
-		},
-	}); updaterErr != nil {
-		log.Printf("initialize application updater: %v", updaterErr)
-	}
+	updateService := desktop.NewUpdateService(currentVersion, applicationPath)
+
 	wailsApp = app
+	updateService.SetQuitFunc(func() { app.Quit() })
 	desktop.AttachApplication(platformService, app, appConfig.Appearance.Theme == "light")
 	desktop.AttachDanmakuDisplayApplication(danmakuDisplayService, app)
 	desktop.AttachMusicLyricsWindowApplication(musicLyricsWindowService, app)
@@ -384,13 +353,16 @@ func main() {
 		mainWindow.Focus()
 	})
 	trayMenu.Add("检查更新").OnClick(func(_ *application.Context) {
-		if updaterErr != nil {
-			log.Printf("check application updates: updater is unavailable: %v", updaterErr)
-			return
-		}
 		go func() {
-			if err := app.Updater.CheckAndInstall(context.Background()); err != nil {
+			info, err := updateService.CheckForUpdates()
+			if err != nil {
 				log.Printf("check application updates: %v", err)
+				return
+			}
+			if info.Available {
+				log.Printf("application update available: %s (open Settings to install)", info.LatestVersion)
+			} else {
+				log.Printf("application is up to date: %s", info.CurrentVersion)
 			}
 		}()
 	})
