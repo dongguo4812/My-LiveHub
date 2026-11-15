@@ -15,7 +15,7 @@ import (
 // launchLXApp resolves the executable registered for the lxmusic protocol and
 // starts it without relying on a root URI being accepted by the deeplink router.
 func launchLXApp() error {
-	key, err := registry.OpenKey(registry.CLASSES_ROOT, `lxmusic\\shell\\open\\command`, registry.QUERY_VALUE)
+	key, err := registry.OpenKey(registry.CLASSES_ROOT, `lxmusic\shell\open\command`, registry.QUERY_VALUE)
 	if err != nil {
 		return fmt.Errorf("未找到洛雪音乐的 Windows 协议注册信息：%w", err)
 	}
