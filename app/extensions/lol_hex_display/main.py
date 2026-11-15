@@ -74,7 +74,8 @@ def initialize_runtime_resources():
     settings = _load_logging_settings()
     LOG_LEVEL = logging.DEBUG if settings.get("debug") is True else logging.INFO
     try:
-        LOG_RETENTION_DAYS = max(0, int(settings.get("retention_days", 7)))
+        configured_retention = int(settings.get("retention_days", 14))
+        LOG_RETENTION_DAYS = 14 if configured_retention == 0 else max(1, min(365, configured_retention))
     except (TypeError, ValueError):
         LOG_RETENTION_DAYS = 14
 
