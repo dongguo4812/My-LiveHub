@@ -72,7 +72,7 @@ func (s *MonitorService) WriteFrontendLog(level, message string) {
 		return
 	}
 	message = strings.ReplaceAll(message, "\r", "")
-	message = strings.ReplaceAll(message, "\r", "")
+	message = strings.ReplaceAll(message, "\n", "\\n")
 	if len(message) > 32768 {
 		message = message[:32768] + "…[truncated]"
 	}
@@ -192,7 +192,7 @@ func appendMonitorLogFile(entries []MonitorLogEntry, path string) []MonitorLogEn
 	return entries
 }
 
-var plainDatedMonitorLogName = regexp.MustCompile(\`^(\d{4}-\d{2}-\d{2})\.log$\`)
+var plainDatedMonitorLogName = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2})\.log$`)
 
 func filterAndSortDatedLogFiles(files []string, date string) []string {
 	valid := make([]string, 0, len(files))
