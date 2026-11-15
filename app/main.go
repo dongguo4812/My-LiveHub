@@ -304,6 +304,13 @@ func main() {
 	} else if updaterErr = app.Updater.Init(updater.Config{
 		CurrentVersion: currentVersion,
 		Providers:      []updater.Provider{githubProvider},
+		Window: &updater.BuiltinWindow{
+			Options: updater.WindowOptions{
+				Title:  "My-LiveHub 更新",
+				Width:  420,
+				Height: 180,
+			},
+		},
 	}); updaterErr != nil {
 		log.Printf("initialize application updater: %v", updaterErr)
 	}
