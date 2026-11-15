@@ -39,15 +39,15 @@ var embeddedDefaultConfig embed.FS
 
 func main() {
 	environment := config.ResolveEnvironment(os.Args[1:])
+	paths, err := config.ResolveRuntimePaths(environment)
+	if err != nil {
+		log.Fatalf("initialize application data paths: %v", err)
+	}
 	dataDir := paths.DataDir
 	logDirectory := filepath.Join(dataDir, "logs")
-	var applicationLogger *applogging.Logger
-	var loggerErr error
-	applicationLogger, loggerErr = applogging.New(logDirectory)
+	applicationLogger, loggerErr := applogging.New(logDirectory)
 	if loggerErr != nil {
-		
-	if loggerErr != nil {
-		log.Printf("initialize application file logging: %v", loggerErr)
+		log.Printf("initialize application file logging at %q: %v", logDirectory, loggerErr)
 	} else {
 		log.SetOutput(applicationLogger.Output())
 		log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
@@ -58,12 +58,7 @@ func main() {
 			}
 		}()
 	}
-	log.Printf("starting My-LiveHub (environment=%s)", environment)
-
-	paths, err := config.ResolveRuntimePaths(environment)
-	if err != nil {
-		log.Fatalf("initialize configuration paths: %v", err)
-	}
+	log.Printf("starting My-LiveHub (environment=%s, data=%s)", environment, dataDir)
 
 	var defaultConfigFS fs.FS
 	if environment == config.EnvironmentDevelopment {
