@@ -43,7 +43,7 @@ jobs:
       - name: Add Go bin to PATH
         shell: pwsh
         run: |
-          "$(go env GOPATH)\\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "$(go env GOPATH)\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Cache Wails CLI
         uses: actions/cache@v4
@@ -127,7 +127,7 @@ jobs:
           choco install innosetup --yes --no-progress
           if ($LASTEXITCODE -ne 0) { throw "Installing Inno Setup failed" }
           $env:APP_VERSION = $env:GITHUB_REF_NAME.TrimStart('v')
-          $compiler = "${env:ProgramFiles(x86)}\\Inno Setup 6\\ISCC.exe"
+          $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (!(Test-Path $compiler)) { throw "Inno Setup compiler not found: $compiler" }
           & $compiler "build/windows/My-LiveHub.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
