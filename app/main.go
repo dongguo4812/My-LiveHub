@@ -35,33 +35,49 @@ var embeddedDefaultConfig embed.FS
 func main() {
 	environment := config.ResolveEnvironment(os.Args[1:])
 	logDirectory := ""
+	var logDirectoryErr error
 	var applicationLogger *applogging.Logger
 	if environment == config.EnvironmentDevelopment {
 		if workingDir, getwdErr := os.Getwd(); getwdErr == nil {
 			logDirectory = filepath.Join(workingDir, "logs")
 		} else {
-			log.Printf("resolve development log directory: %v", getwdErr)
+			logDirectoryErr = fmt.Errorf("resolve development log directory: %w", getwdErr)
 		}
 	} else if userConfigDir, configDirErr := os.UserConfigDir(); configDirErr == nil {
 		logDirectory = filepath.Join(userConfigDir, "My-LiveHub", "logs")
 	} else {
-		log.Printf("resolve application log directory: %v", configDirErr)
+		logDirectoryErr = fmt.Errorf("resolve application log directory: %w", configDirErr)
 	}
-	if logDirectory != "" {
-		var loggerErr error
-		applicationLogger, loggerErr = applogging.New(logDirectory)
-		if loggerErr != nil {
-			log.Printf("initialize application file logging: %v", loggerErr)
-		} else {
-			log.SetOutput(applicationLogger.Output())
-			log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
-			defer func() {
-				if closeErr := applicationLogger.Close(); closeErr != nil {
-					log.Printf("close application log file: %v", closeErr)
-				}
-			}()
-			log.Printf("application logging initialized; file=%s", applicationLogger.Path())
+	// If the preferred location is unavailable, retain logs under the OS temp
+	// directory instead of falling back to console-only output.
+	if logDirectory == "" {
+		logDirectory = filepath.Join(os.TempDir(), "My-LiveHub", "logs")
+	}
+	var loggerErr error
+	applicationLogger, loggerErr = applogging.New(logDirectory)
+	if loggerErr != nil {
+		fallbackDirectory := filepath.Join(os.TempDir(), "My-LiveHub", "logs")
+		if fallbackDirectory != logDirectory {
+			applicationLogger, loggerErr = applogging.New(fallbackDirectory)
+			if loggerErr == nil {
+				logDirectory = fallbackDirectory
+			}
 		}
+	}
+	if loggerErr != nil {
+		log.Printf("initialize application file logging: %v", loggerErr)
+	} else {
+		log.SetOutput(applicationLogger.Output())
+		log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
+		log.Printf("application logging initialized; file=%s", applicationLogger.Path())
+		if logDirectoryErr != nil {
+			log.Printf("preferred log directory unavailable; using fallback: %v", logDirectoryErr)
+		}
+		defer func() {
+			if closeErr := applicationLogger.Close(); closeErr != nil {
+				log.Printf("close application log file: %v", closeErr)
+			}
+		}()
 	}
 	log.Printf("starting My-LiveHub (environment=%s)", environment)
 
