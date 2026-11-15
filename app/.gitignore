@@ -14,7 +14,8 @@
 # Per-workspace local configuration must never be committed
 /config/local/
 
-# Runtime media cache and logs are local-only
+# Runtime media cache, logs and credentials are local-only
+/secure/
 /cache/
 /logs/
 
