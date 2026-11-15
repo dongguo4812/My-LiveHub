@@ -94,7 +94,7 @@ func TestGetLogsByDateMergesExtensionLogsNewestFirst(t *testing.T) {
 	if entries[0].Message == "" || entries[0].Time != "2026-11-15 08:05:00" {
 		t.Fatalf("newest extension entry = %#v", entries[0])
 	}
-	if entries[1].Message == "" || entries[1].Time != "2026/11/15 08:00:00" {
+	if entries[1].Message == "" || entries[1].Time != "2026/11/15 08:00:00.000000" {
 		t.Fatalf("older main entry = %#v", entries[1])
 	}
 }
