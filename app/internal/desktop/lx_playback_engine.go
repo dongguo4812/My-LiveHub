@@ -33,7 +33,7 @@ func NewLXPlaybackEngine(endpoints []string) *LXPlaybackEngine {
 	return &LXPlaybackEngine{
 		client: &http.Client{Timeout: 2 * time.Second},
 		endpoints: normalizeLXAPIEndpoints(endpoints),
-		openApp: func() error { return launchLXURI("lxmusic://") },
+		openApp: launchLXApp,
 	}
 }
 
@@ -59,8 +59,8 @@ func (e *LXPlaybackEngine) SetEndpoints(endpoints []string) {
 }
 
 // Start checks the local API first. If 洛雪 is not reachable, opening the
-// music module also asks Windows/macOS/Linux to launch the installed 洛雪 app
-// through its registered lxmusic:// protocol handler.
+// music module attempts to launch the installed desktop app directly where the
+// platform provides a reliable app registration, then falls back to its URI scheme.
 func (e *LXPlaybackEngine) Start(ctx context.Context) error {
 	if e == nil {
 		return errors.New("洛雪播放服务不可用")
