@@ -2,16 +2,16 @@ package bilibili
 
 import (
 	"errors"
-	"os"
 	"path/filepath"
 )
 
 type DPAPICredentialStore struct { path string }
 
-func NewDPAPICredentialStore() (*DPAPICredentialStore, error) {
-	root, err := os.UserConfigDir()
-	if err != nil { return nil, err }
-	return &DPAPICredentialStore{path:filepath.Join(root, "My-LiveHub", "secure", "bilibili-auth.dat")}, nil
+func NewDPAPICredentialStore(applicationDir string) (*DPAPICredentialStore, error) {
+	if applicationDir == "" {
+		return nil, errors.New("application data directory is unavailable")
+	}
+	return &DPAPICredentialStore{path: filepath.Join(applicationDir, "secure", "bilibili-auth.dat")}, nil
 }
 
 func (s *DPAPICredentialStore) Save(data []byte) error {
