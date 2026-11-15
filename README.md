@@ -66,17 +66,62 @@ My-LiveHub/
 └── README.md
 ```
 
-## 环境要求
+## 下载与运行环境
 
-主要开发和构建环境：
+My-LiveHub 提供 Windows 安装版和解压版。两种版本的运行环境要求相同，均面向 Windows 10/11 64 位系统。
 
-- Windows 10/11
-- Go 1.27.x
-- Node.js 26.x 与 npm
-- Wails CLI v3.0.0
-- Microsoft Edge WebView2 Runtime
+### 安装版
 
-CI 在 Windows Runner 上执行前端构建、Go 测试和 Windows 可执行文件编译。开发时请确保 Go、Node.js/npm、Wails CLI 均已安装并加入 PATH。
+1. 下载 `My-LiveHub-Setup.exe`。
+2. 双击运行安装程序，按提示完成安装。
+3. 安装完成后，从桌面快捷方式或开始菜单启动 My-LiveHub。
+
+安装版默认安装到当前用户目录下的 `%LOCALAPPDATA%\Programs\My-LiveHub`，不需要管理员权限。
+
+### 解压版
+
+1. 下载 `My-LiveHub-Portable.zip`。
+2. 将 ZIP 文件解压到一个有读写权限的目录。
+3. 进入解压后的 `My-LiveHub` 文件夹，双击 `My-LiveHub.exe` 启动。
+
+解压版不需要执行安装程序，但不要只提取 EXE 单文件运行；请保留压缩包中的完整目录结构。建议将程序放在长期使用的固定目录中，避免频繁移动程序目录。
+
+### WebView2 Runtime
+
+My-LiveHub 使用 Wails v3 构建桌面窗口，需要 Microsoft Edge WebView2 Runtime 才能正常显示应用界面。
+
+- Windows 11 通常已预装 WebView2 Runtime。
+- Windows 10 如果尚未安装 WebView2 Runtime，需要先安装再启动 My-LiveHub。
+- 安装版和解压版都需要该运行环境；当前安装包不会自动安装 WebView2 Runtime。
+
+可从微软官方页面下载并安装 **Evergreen WebView2 Runtime**：
+
+https://developer.microsoft.com/microsoft-edge/webview2/
+
+如果启动时提示缺少 WebView2 Runtime，请安装后重新启动 My-LiveHub。
+
+### 洛雪音乐客户端
+
+音乐点播和洛雪播放功能需要另外安装并运行 **洛雪音乐（LX Music）桌面客户端**。洛雪客户端不包含在 My-LiveHub 安装包或解压包中。
+
+使用前请确认：
+
+1. 已单独安装洛雪音乐桌面客户端。
+2. 在洛雪音乐中启用本地 API 服务，使 My-LiveHub 能够通过本机接口连接。
+3. API 地址与 My-LiveHub「音乐播放」设置中的地址一致。默认地址为 `http://127.0.0.1:23330`。
+4. 如需使用自定义音源，请在洛雪音乐客户端中自行安装和配置对应的音源脚本。
+
+点播歌曲时，如果检测到洛雪 API 尚未响应，My-LiveHub 会尝试通过系统注册的 `lxmusic://` 协议启动洛雪客户端，并等待 API 就绪。请确保系统已正确注册该协议。
+
+### 按需安装的软件与资源
+
+以下项目不是启动 My-LiveHub 的必需条件，仅在使用对应功能时需要：
+
+- **OBS Studio**：需要将直播展示内容、浏览器来源或相关画面接入 OBS 时安装并配置。
+- **Live2D 模型资源**：使用 Live2D 展示时，按模块要求准备并配置模型资源。
+- **直播平台账号及网络权限**：使用对应平台的直播连接、弹幕和互动功能时，需要完成账号登录并确保网络可用。
+
+以上外部软件和资源不会因为安装 My-LiveHub 而自动安装或提供，请根据实际使用的功能自行准备。
 
 ## 开发启动
 
@@ -148,15 +193,7 @@ CI 工作流位于 `.github/workflows/desktop-validation.yml`。它会检查 Go 
 
 ## 外部依赖说明
 
-部分功能需要外部软件或服务配合，例如：
-
-- OBS Studio：用于直播画面与浏览器展示。
-- 洛雪音乐：用于洛雪客户端连接及兼容自定义音源脚本的相关功能。
-- mpv：音乐播放引擎所需的外部播放器组件。
-- Live2D 模型资源及相关运行依赖。
-- 各直播平台的账号登录、网络连接及平台侧权限。
-
-这些依赖并非全部随 My-LiveHub 一起分发。请在对应功能的设置页面中检查连接状态、资源路径和运行要求。
+下载后的运行要求及外部软件配置请参阅[下载与运行环境](#下载与运行环境)。OBS Studio、洛雪音乐客户端、Live2D 模型资源及直播平台账号等，均根据实际使用的功能按需准备。
 
 ## 文档
 
