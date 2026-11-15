@@ -114,10 +114,8 @@ func (m *ModuleManager) StartAll(ctx context.Context) error {
 		m.setStatus(entry, ModuleStarting, nil)
 		if err := entry.module.Start(ctx); err != nil {
 			startErr := fmt.Errorf("start module %q: %w", entry.name, err)
-			cleanupCtx, cancel := newModuleCleanupContext(ctx)
-			cleanupErr := m.cleanupFailedStart(cleanupCtx, entry, startErr)
-			rollbackErr := m.stopEntries(cleanupCtx, started)
-			cancel()
+			cleanupErr := m.cleanupFailedStart(ctx, entry, startErr)
+			rollbackErr := m.stopEntriesWithCleanup(ctx, started)
 
 			m.mu.Lock()
 			m.stopped = true
@@ -176,9 +174,7 @@ func (m *ModuleManager) StartModule(ctx context.Context, name string) error {
 	m.setStatus(entry, ModuleStarting, nil)
 	if err := entry.module.Start(ctx); err != nil {
 		startErr := fmt.Errorf("start module %q: %w", name, err)
-		cleanupCtx, cancel := newModuleCleanupContext(ctx)
-		cleanupErr := m.cleanupFailedStart(cleanupCtx, entry, startErr)
-		cancel()
+		cleanupErr := m.cleanupFailedStart(ctx, entry, startErr)
 		return errors.Join(startErr, cleanupErr)
 	}
 	m.setStatus(entry, ModuleRunning, nil)
@@ -253,7 +249,9 @@ func newModuleCleanupContext(parent context.Context) (context.Context, context.C
 // cleanupFailedStart attempts to undo resources created by a Start call that
 // returned an error. A successful cleanup does not erase the startup failure:
 // the module stays Failed and can be explicitly stopped or retried later.
-func (m *ModuleManager) cleanupFailedStart(ctx context.Context, entry *registeredModule, startErr error) error {
+func (m *ModuleManager) cleanupFailedStart(parent context.Context, entry *registeredModule, startErr error) error {
+	ctx, cancel := newModuleCleanupContext(parent)
+	defer cancel()
 	if err := entry.module.Stop(ctx); err != nil {
 		cleanupErr := fmt.Errorf("cleanup module %q after startup failure: %w", entry.name, err)
 		m.setStatus(entry, ModuleFailed, errors.Join(startErr, cleanupErr))
@@ -269,6 +267,18 @@ func (m *ModuleManager) stopEntries(ctx context.Context, entries []*registeredMo
 		if err := m.stopEntry(ctx, entries[i]); err != nil {
 			stopErrors = append(stopErrors, err)
 		}
+	}
+	return errors.Join(stopErrors...)
+}
+
+func (m *ModuleManager) stopEntriesWithCleanup(parent context.Context, entries []*registeredModule) error {
+	var stopErrors []error
+	for i := len(entries) - 1; i >= 0; i-- {
+		ctx, cancel := newModuleCleanupContext(parent)
+		if err := m.stopEntry(ctx, entries[i]); err != nil {
+			stopErrors = append(stopErrors, err)
+		}
+		cancel()
 	}
 	return errors.Join(stopErrors...)
 }
