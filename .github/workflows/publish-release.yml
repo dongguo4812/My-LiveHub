@@ -86,7 +86,7 @@ jobs:
         run: |
           $version = $env:GITHUB_REF_NAME.TrimStart('v')
           New-Item -ItemType Directory -Force -Path bin | Out-Null
-          go build -ldflags "-X main.currentVersion=$version" -o bin/My-LiveHub-windows-amd64.exe .
+          go build -ldflags "-H=windowsgui -X main.currentVersion=$version" -o bin/My-LiveHub-windows-amd64.exe .
 
       - name: Generate SHA256SUMS
         shell: pwsh
