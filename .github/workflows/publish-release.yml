@@ -2,8 +2,8 @@ name: Publish Windows release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - master
   workflow_dispatch:
 
 permissions:
@@ -133,23 +133,6 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$extensionTarget/dist" | Out-Null
           Copy-Item -Recurse -Force "$extensionSource/dist/lol_hex_display" "$extensionTarget/dist/lol_hex_display"
 
-          # Keep a standalone executable asset for the in-app Wails updater.
-          Copy-Item "$package/My-LiveHub.exe" "bin/My-LiveHub-windows-amd64.exe"
-
-      - name: Build Windows installer
-        shell: pwsh
-        run: |
-          choco install innosetup --yes --no-progress
-          if ($LASTEXITCODE -ne 0) { throw "Installing Inno Setup failed" }
-          if ($env:GITHUB_REF -like 'refs/tags/v*') {
-            $env:APP_VERSION = $env:GITHUB_REF_NAME.TrimStart('v')
-          } else {
-            $env:APP_VERSION = '0.0.0'
-          }
-          $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          if (!(Test-Path $compiler)) { throw "Inno Setup compiler not found: $compiler" }
-          & $compiler "build/windows/My-LiveHub.iss"
-          if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
 
       - name: Build portable ZIP
         shell: pwsh
@@ -163,8 +146,6 @@ jobs:
         shell: pwsh
         run: |
           $assets = @(
-            "bin/My-LiveHub-windows-amd64.exe",
-            "bin/My-LiveHub-Setup.exe",
             "bin/My-LiveHub-Portable.zip"
           )
           $lines = foreach ($path in $assets) {
@@ -179,20 +160,7 @@ jobs:
         with:
           name: My-LiveHub-Windows-build-${{ github.run_number }}
           path: |
-            app/bin/My-LiveHub-Setup.exe
             app/bin/My-LiveHub-Portable.zip
-            app/bin/My-LiveHub-windows-amd64.exe
             app/bin/SHA256SUMS
           if-no-files-found: error
           retention-days: 14
-
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          generate_release_notes: true
-          files: |
-            app/bin/My-LiveHub-Setup.exe
-            app/bin/My-LiveHub-Portable.zip
-            app/bin/My-LiveHub-windows-amd64.exe
-            app/bin/SHA256SUMS
