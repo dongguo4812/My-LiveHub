@@ -30,6 +30,10 @@ function forwardFrontendLog(level: string, values: unknown[]) {
 
 // Keep the WebView console quiet while retaining application console output in
 // the daily application log file.
+const mutableConsole = console as unknown as Record<
+  'log' | 'info' | 'debug' | 'warn' | 'error' | 'trace',
+  (...values: unknown[]) => void
+>
 for (const [method, level] of [
   ['log', 'INFO'],
   ['info', 'INFO'],
@@ -38,11 +42,11 @@ for (const [method, level] of [
   ['error', 'ERROR'],
   ['trace', 'DEBUG'],
 ] as const) {
-  console[method] = (...values: unknown[]) => forwardFrontendLog(level, values)
+  mutableConsole[method] = (...values: unknown[]) => forwardFrontendLog(level, values)
 }
-console.assert = (condition?: boolean, ...values: unknown[]) => {
+console.assert = ((condition?: boolean, ...values: unknown[]) => {
   if (!condition) forwardFrontendLog('ERROR', ['Assertion failed:', ...values])
-}
+}) as typeof console.assert
 
 window.addEventListener('error', event => {
   forwardFrontendLog('ERROR', [
