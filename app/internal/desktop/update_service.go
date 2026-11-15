@@ -281,9 +281,44 @@ $temp = [string]$taskData.temp_dir
 try {
   Wait-Process -Id $pidToWait -ErrorAction SilentlyContinue
   if ($taskData.package_type -eq 'installer') {
-    $arguments = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR="' + $root + '"'))
-    $installer = Start-Process -FilePath $package -ArgumentList $arguments -Wait -PassThru
-    if ($installer.ExitCode -ne 0) { throw "Installer exited with code $($installer.ExitCode)" }
+    $backup = Join-Path $temp 'installer-backup'
+    New-Item -ItemType Directory -Force -Path $backup | Out-Null
+    function Is-Preserved([string]$relative) {
+      $p = $relative.Replace([string][char]92,'/').ToLowerInvariant()
+      return $p -eq 'config/local' -or $p.StartsWith('config/local/') -or
+        $p -eq 'cache' -or $p.StartsWith('cache/') -or
+        $p -eq 'logs' -or $p.StartsWith('logs/') -or
+        $p -eq 'secure' -or $p.StartsWith('secure/') -or
+        $p -eq 'extensions/lol_hex_display/data' -or $p.StartsWith('extensions/lol_hex_display/data/') -or
+        $p -eq 'extensions/lol_hex_display/screenshots' -or $p.StartsWith('extensions/lol_hex_display/screenshots/') -or
+        $p -eq 'extensions/lol_hex_display/logs' -or $p.StartsWith('extensions/lol_hex_display/logs/') -or
+        $p -eq 'extensions/lol_hex_display/dist/lol_hex_display/logs' -or $p.StartsWith('extensions/lol_hex_display/dist/lol_hex_display/logs/')
+    }
+    $oldFiles = @(Get-ChildItem -LiteralPath $root -File -Recurse -Force)
+    foreach ($file in $oldFiles) {
+      $relative = $file.FullName.Substring($root.Length).TrimStart([char]92)
+      if (Is-Preserved $relative) { continue }
+      $backupFile = Join-Path $backup $relative
+      New-Item -ItemType Directory -Force -Path (Split-Path -Parent $backupFile) | Out-Null
+      Copy-Item -LiteralPath $file.FullName -Destination $backupFile -Force
+    }
+    try {
+      $arguments = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR="' + $root + '"'))
+      $installer = Start-Process -FilePath $package -ArgumentList $arguments -Wait -PassThru
+      if ($installer.ExitCode -ne 0) { throw "Installer exited with code $($installer.ExitCode)" }
+    } catch {
+      Get-ChildItem -LiteralPath $root -File -Recurse -Force | ForEach-Object {
+        $relative = $_.FullName.Substring($root.Length).TrimStart([char]92)
+        if (!(Is-Preserved $relative)) { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
+      }
+      Get-ChildItem -LiteralPath $backup -File -Recurse -Force | ForEach-Object {
+        $relative = $_.FullName.Substring($backup.Length).TrimStart([char]92)
+        $destination = Join-Path $root $relative
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
+        Copy-Item -LiteralPath $_.FullName -Destination $destination -Force
+      }
+      throw
+    }
   } else {
     $stage = Join-Path $temp 'stage'
     $backup = Join-Path $temp 'backup'
