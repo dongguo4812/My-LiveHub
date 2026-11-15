@@ -120,7 +120,7 @@ func (s *MonitorService) GetRecentLogs(limit int) []MonitorLogEntry {
 		for j := len(current)-1; j >= 0 && len(lines) < limit; j-- { lines = append(lines, current[j]) }
 	}
 	result := make([]MonitorLogEntry, 0, len(lines))
-	for i := len(lines)-1; i >= 0; i-- {
+	for i := 0; i < len(lines); i++ {
 		line := strings.TrimSpace(lines[i])
 		if line == "" { continue }
 		level := "INFO"
@@ -198,6 +198,11 @@ func (s *MonitorService) GetLogsByDate(date string) []MonitorLogEntry {
 			}
 		}
 		_ = file.Close()
+	}
+	// Files are read oldest-to-newest (older rotations first); reverse the
+	// merged entries so callers always receive newest-first results.
+	for left, right := 0, len(result)-1; left < right; left, right = left+1, right-1 {
+		result[left], result[right] = result[right], result[left]
 	}
 	return result
 }
