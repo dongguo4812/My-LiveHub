@@ -240,13 +240,14 @@ func main() {
 		// beside that bin directory in the application root.
 		extensionRoot = filepath.Join(filepath.Dir(filepath.Dir(applicationPath)), "extensions", "lol_hex_display")
 	}
-	// Read LOL Hex's own daily files as part of the unified diagnostics view.
-	// Source and packaged launch modes use different executable roots.
-	monitorService := desktop.NewMonitorService(
-		logDirectory,
-		filepath.Join(extensionRoot, "logs"),
-		filepath.Join(extensionRoot, "dist", "lol_hex_display", "logs"),
-	)
+	// Read the active LOL Hex process's daily files as part of diagnostics.
+	// The packaged executable writes beside itself; source mode writes in the extension root.
+	extensionLogDir := filepath.Join(extensionRoot, "logs")
+	packagedHexExecutable := filepath.Join(extensionRoot, "dist", "lol_hex_display", "lol_hex_display.exe")
+	if _, statErr := os.Stat(packagedHexExecutable); statErr == nil {
+		extensionLogDir = filepath.Join(extensionRoot, "dist", "lol_hex_display", "logs")
+	}
+	monitorService := desktop.NewMonitorService(logDirectory, extensionLogDir)
 	lolHexService, err := desktop.NewLOLHexService(extensionRoot, filepath.Join(paths.LocalDir, "lol_hex_display.json"))
 	if err != nil {
 		log.Printf("LOL Hex extension unavailable: %v", err)
