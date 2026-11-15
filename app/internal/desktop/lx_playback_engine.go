@@ -58,10 +58,19 @@ func (e *LXPlaybackEngine) SetEndpoints(endpoints []string) {
 	e.mu.Unlock()
 }
 
-// Start checks the local API first. If 洛雪 is not reachable, opening the
-// music module attempts to launch the installed desktop app directly where the
-// platform provides a reliable app registration, then falls back to its URI scheme.
+// Start deliberately does not probe or launch 洛雪 when the music module opens.
+// The desktop client is checked and started lazily when an actual song is requested.
 func (e *LXPlaybackEngine) Start(ctx context.Context) error {
+	if e == nil {
+		return errors.New("洛雪播放服务不可用")
+	}
+	return nil
+}
+
+// ensureAPIReadyForPlayback checks 洛雪 only when a song is about to be played.
+// If its API is unavailable, launch the installed app and wait up to 10 seconds
+// for its local API to become reachable before sending the song URI.
+func (e *LXPlaybackEngine) ensureAPIReadyForPlayback(ctx context.Context) error {
 	if e == nil {
 		return errors.New("洛雪播放服务不可用")
 	}
@@ -80,7 +89,25 @@ func (e *LXPlaybackEngine) Start(ctx context.Context) error {
 	if err := openApp(); err != nil {
 		return fmt.Errorf("洛雪 API 不可用，尝试启动本地洛雪音乐失败：%w", err)
 	}
-	return nil
+	deadline := time.NewTimer(10 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	var lastErr error
+	for {
+		if _, _, err := e.endpointRequest(ctx, []string{"/status", "/api/status"}); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline.C:
+			return fmt.Errorf("已尝试启动洛雪，但 10 秒内状态 API 仍不可用：%w", lastErr)
+		case <-ticker.C:
+		}
+	}
 }
 func (e *LXPlaybackEngine) Close() error { return nil }
 
@@ -183,15 +210,16 @@ func (e *LXPlaybackEngine) Load(ctx context.Context, track music.Track) error {
 	if ctx == nil { ctx = context.Background() }
 	uri, err := buildLXPlayURI(track)
 	if err != nil { return err }
+	if err := e.ensureAPIReadyForPlayback(ctx); err != nil { return err }
 	if err := launchLXURI(uri); err != nil { return fmt.Errorf("启动洛雪播放协议失败：%w", err) }
-	deadline := time.NewTimer(6 * time.Second)
+	deadline := time.NewTimer(10 * time.Second)
 	defer deadline.Stop()
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done(): return ctx.Err()
-		case <-deadline.C: return fmt.Errorf("已调用洛雪播放协议，但 6 秒内未能从状态 API 确认播放：%s - %s", track.Title, track.Artist)
+		case <-deadline.C: return fmt.Errorf("已调用洛雪播放协议，但 10 秒内未能从状态 API 确认播放：%s - %s", track.Title, track.Artist)
 		case <-ticker.C:
 			snapshot, statusErr := e.Snapshot(ctx)
 			if statusErr != nil { continue }
