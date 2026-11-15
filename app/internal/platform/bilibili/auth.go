@@ -198,8 +198,13 @@ func formatLoginCookies(values map[string]string) string {
 }
 
 func trustedTicketHost(host string) bool {
+	// Bilibili's cross-domain ticket endpoint may redirect through the
+	// passport .cn host and finish at the main .com website. Keep this as an
+	// exact host allowlist: accepting arbitrary *.bilibili.* hosts would make
+	// the login ticket and session cookies vulnerable to lookalike domains.
 	switch strings.ToLower(host) {
-	case "passport.biligame.com", "passport.bilibili.com":
+	case "passport.biligame.com", "passport.bilibili.com",
+		"passport.bilibili.cn", "www.bilibili.com", "bilibili.com":
 		return true
 	default:
 		return false
