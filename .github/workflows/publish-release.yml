@@ -1,4 +1,4 @@
-name: Build Windows portable ZIP
+name: Build Windows portable ZIP and EXE
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   release:
-    name: Build Windows portable package
+    name: Build Windows portable ZIP and EXE
     runs-on: windows-latest
     defaults:
       run:
@@ -111,7 +111,7 @@ jobs:
       - name: Assemble application directory
         shell: pwsh
         run: |
-          $version = '0.0.0'
+          $version = '0.1.3'
           $package = "bin/package"
           New-Item -ItemType Directory -Force -Path $package | Out-Null
           go build -ldflags "-H=windowsgui -X main.currentVersion=$version" -o "$package/My-LiveHub.exe" .
@@ -130,6 +130,11 @@ jobs:
           Copy-Item -Recurse -Force "$extensionSource/dist/lol_hex_display" "$extensionTarget/dist/lol_hex_display"
 
 
+      - name: Export standalone EXE
+        shell: pwsh
+        run: |
+          Copy-Item -Force bin/package/My-LiveHub.exe bin/My-LiveHub.exe
+
       - name: Build portable ZIP
         shell: pwsh
         run: |
@@ -142,7 +147,8 @@ jobs:
         shell: pwsh
         run: |
           $assets = @(
-            "bin/My-LiveHub-Portable.zip"
+            "bin/My-LiveHub-Portable.zip",
+            "bin/My-LiveHub.exe"
           )
           $lines = foreach ($path in $assets) {
             $file = Get-Item $path
@@ -157,6 +163,7 @@ jobs:
           name: My-LiveHub-Windows-build-${{ github.run_number }}
           path: |
             app/bin/My-LiveHub-Portable.zip
+            app/bin/My-LiveHub.exe
             app/bin/SHA256SUMS
           if-no-files-found: error
           retention-days: 14
