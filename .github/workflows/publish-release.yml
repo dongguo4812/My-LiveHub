@@ -59,7 +59,7 @@ jobs:
         run: |
           $wails = Join-Path (go env GOPATH) 'bin/wails3.exe'
           if (!(Test-Path $wails)) {
-            go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
+            go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
           }
 
       - name: Generate frontend bindings
@@ -95,7 +95,7 @@ jobs:
             </application>
           </assembly>
           '@ | Set-Content -Path build/manifest.xml -Encoding utf8
-          go run github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0 generate syso -manifest build/manifest.xml -icon build/icon.ico -arch amd64 -out rsrc_windows_amd64.syso
+          go run github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0 generate syso -manifest build/manifest.xml -icon build/icon.ico -arch amd64 -out rsrc_windows_amd64.syso
 
       - name: Build LOL Hex standalone extension
         shell: pwsh
@@ -160,6 +160,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path bin/portable | Out-Null
           if (Test-Path bin/portable/My-LiveHub) { Remove-Item -Recurse -Force bin/portable/My-LiveHub }
           Copy-Item -Recurse -Force bin/package bin/portable/My-LiveHub
+          Set-Content -Path bin/portable/My-LiveHub/.my-livehub-portable -Value 'My-LiveHub portable package' -Encoding ascii
           Compress-Archive -Path bin/portable/My-LiveHub -DestinationPath bin/My-LiveHub-Portable.zip -CompressionLevel Optimal
 
       - name: Generate SHA256SUMS
