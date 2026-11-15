@@ -1,4 +1,4 @@
-name: Publish Windows release
+name: Build Windows portable ZIP
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   release:
-    name: Build Windows installer and portable package
+    name: Build Windows portable package
     runs-on: windows-latest
     defaults:
       run:
@@ -111,11 +111,7 @@ jobs:
       - name: Assemble application directory
         shell: pwsh
         run: |
-          if ($env:GITHUB_REF -like 'refs/tags/v*') {
-            $version = $env:GITHUB_REF_NAME.TrimStart('v')
-          } else {
-            $version = '0.0.0'
-          }
+          $version = '0.0.0'
           $package = "bin/package"
           New-Item -ItemType Directory -Force -Path $package | Out-Null
           go build -ldflags "-H=windowsgui -X main.currentVersion=$version" -o "$package/My-LiveHub.exe" .
