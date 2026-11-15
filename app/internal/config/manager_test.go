@@ -27,6 +27,7 @@ func TestResolvePaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := Paths{
+		DataDir:    filepath.Join("work", "app"),
 		DefaultDir: filepath.Join("work", "app", "config", "default"),
 		LocalDir: filepath.Join("work", "app", "config", "local"),
 	}
