@@ -56,7 +56,7 @@ type UpdateService struct {
 	quit func()
 }
 
-func NewUpdateService(version, executablePath string) *UpdateService {
+func NewUpdateService(version, executablePath string, quit func()) *UpdateService {
 	absolute, _ := filepath.Abs(executablePath)
 	root := filepath.Dir(absolute)
 	return &UpdateService{
@@ -64,13 +64,8 @@ func NewUpdateService(version, executablePath string) *UpdateService {
 		executablePath: absolute,
 		applicationDir: root,
 		packageType:    detectUpdatePackageType(root),
+		quit:           quit,
 		httpClient:     &http.Client{Timeout: 30 * time.Second},
-	}
-}
-
-func (s *UpdateService) SetQuitFunc(quit func()) {
-	if s != nil {
-		s.quit = quit
 	}
 }
 
