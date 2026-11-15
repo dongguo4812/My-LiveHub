@@ -182,16 +182,13 @@ async function clearQueue() {
   }
 }
 async function refreshPlayback() {
-  // Queue state is local to My-LiveHub and safe to refresh at any time.
-  // Do not poll 洛雪's /status until an actual My-LiveHub track is current.
+  // 洛雪 can be playing a song started outside My-LiveHub's request queue.
+  // Read the backend's shared playback snapshot so both external and queued
+  // playback are reflected without issuing another direct 洛雪 API request.
   await refreshQueue()
-  if (!queue.value?.current) {
-    playback.value = null
-    return
-  }
   try {
-    playback.value = await MusicService.GetPlaybackStatus()
-  } catch { /* Playback status is unavailable until 洛雪 is started by a song request. */ }
+    playback.value = await MusicService.GetCachedPlaybackStatus()
+  } catch { /* Keep the last known playback snapshot if the cache is unavailable. */ }
 }
 async function saveConfig() {
   if (!config.value) return
