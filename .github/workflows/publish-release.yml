@@ -52,7 +52,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/go/bin/wails3.exe
-          key: wails3-${{ runner.os }}-go1.27-v3.0.0
+          key: wails3-${{ runner.os }}-go1.27-v3.1.0
 
       - name: Install Wails CLI
         shell: pwsh
