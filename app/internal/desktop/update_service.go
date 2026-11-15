@@ -231,8 +231,7 @@ func (s *UpdateService) downloadAndVerify(destination string) error {
 	if readErr != nil { return fmt.Errorf("读取校验清单失败：%w", readErr) }
 	if checksumResponse.StatusCode != http.StatusOK { return fmt.Errorf("下载校验清单失败：HTTP %d", checksumResponse.StatusCode) }
 	expected := ""
-	for _, line := range strings.Split(string(checksumData), "
-") {
+	for _, line := range strings.Split(string(checksumData), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) == 2 && strings.TrimPrefix(fields[1], "*") == s.asset.Name {
 			expected = strings.ToLower(fields[0])
