@@ -44,6 +44,20 @@ jobs:
       - name: Test Go
         run: go test ./...
 
+      - name: Embed Windows application icon
+        shell: pwsh
+        run: |
+          @'
+          <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+          <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+            <assemblyIdentity version="1.0.0.0" name="My-LiveHub"/>
+            <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+              <security><requestedPrivileges><requestedExecutionLevel level="asInvoker" uiAccess="false"/></requestedPrivileges></security>
+            </trustInfo>
+          </assembly>
+          '@ | Set-Content -Path build/manifest.xml -Encoding utf8
+          go run github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0 generate syso -manifest build/manifest.xml -icon build/icon.ico -arch amd64 -out rsrc_windows_amd64.syso
+
       - name: Build portable executable
         shell: pwsh
         run: |
