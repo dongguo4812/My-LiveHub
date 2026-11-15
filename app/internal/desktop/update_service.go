@@ -287,7 +287,7 @@ $temp = [string]$taskData.temp_dir
 try {
   Wait-Process -Id $pidToWait -ErrorAction SilentlyContinue
   if ($taskData.package_type -eq 'installer') {
-    $arguments = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR=' + $root))
+    $arguments = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR="' + $root + '"'))
     $installer = Start-Process -FilePath $package -ArgumentList $arguments -Wait -PassThru
     if ($installer.ExitCode -ne 0) { throw "Installer exited with code $($installer.ExitCode)" }
   } else {
@@ -298,7 +298,7 @@ try {
     if (!(Test-Path -LiteralPath (Join-Path $source 'My-LiveHub.exe'))) { throw 'Portable archive layout is invalid' }
     New-Item -ItemType Directory -Force -Path $backup | Out-Null
     function Is-Preserved([string]$relative) {
-      $p = $relative.Replace('','/').ToLowerInvariant()
+      $p = $relative.Replace([string][char]92,'/').ToLowerInvariant()
       return $p -eq 'config/local' -or $p.StartsWith('config/local/') -or
         $p -eq 'cache' -or $p.StartsWith('cache/') -or
         $p -eq 'logs' -or $p.StartsWith('logs/') -or
@@ -310,7 +310,7 @@ try {
     }
     $oldFiles = @(Get-ChildItem -LiteralPath $root -File -Recurse -Force)
     foreach ($file in $oldFiles) {
-      $relative = $file.FullName.Substring($root.Length).TrimStart('')
+      $relative = $file.FullName.Substring($root.Length).TrimStart([char]92)
       if (Is-Preserved $relative) { continue }
       $backupFile = Join-Path $backup $relative
       New-Item -ItemType Directory -Force -Path (Split-Path -Parent $backupFile) | Out-Null
@@ -318,11 +318,11 @@ try {
     }
     try {
       foreach ($file in $oldFiles) {
-        $relative = $file.FullName.Substring($root.Length).TrimStart('')
+        $relative = $file.FullName.Substring($root.Length).TrimStart([char]92)
         if (!(Is-Preserved $relative)) { Remove-Item -LiteralPath $file.FullName -Force }
       }
       Get-ChildItem -LiteralPath $source -File -Recurse -Force | ForEach-Object {
-        $relative = $_.FullName.Substring($source.Length).TrimStart('')
+        $relative = $_.FullName.Substring($source.Length).TrimStart([char]92)
         if (Is-Preserved $relative) { return }
         $destination = Join-Path $root $relative
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
@@ -330,11 +330,11 @@ try {
       }
     } catch {
       Get-ChildItem -LiteralPath $root -File -Recurse -Force | ForEach-Object {
-        $relative = $_.FullName.Substring($root.Length).TrimStart('')
+        $relative = $_.FullName.Substring($root.Length).TrimStart([char]92)
         if (!(Is-Preserved $relative)) { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
       }
       Get-ChildItem -LiteralPath $backup -File -Recurse -Force | ForEach-Object {
-        $relative = $_.FullName.Substring($backup.Length).TrimStart('')
+        $relative = $_.FullName.Substring($backup.Length).TrimStart([char]92)
         $destination = Join-Path $root $relative
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
         Copy-Item -LiteralPath $_.FullName -Destination $destination -Force
@@ -352,4 +352,3 @@ try {
 }
 `
 
-var _ = strconv.IntSize
