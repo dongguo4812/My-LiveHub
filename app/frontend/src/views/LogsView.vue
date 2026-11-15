@@ -144,7 +144,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
         </el-table-column>
         <el-table-column prop="message" label="日志内容" min-width="320" show-overflow-tooltip />
       </el-table>
-      <p class="footnote">点击任意日志行可查看完整内容。日历仅允许选择存在日志的日期；同一天的轮转文件会合并，最新日志显示在最上方。保留期限可在「系统设置」中调整。</p>
+      <p class="footnote">点击任意日志行可查看完整内容。日历仅允许选择存在日志的日期；主程序与 LOL Hex 日志会合并，按时间倒序展示，最新记录在最上方。保留期限可在「系统设置」中调整。</p>
     </el-card>
 
     <el-drawer :model-value="!!selected" title="日志详情" size="min(680px, 92vw)" @close="selected = null">
