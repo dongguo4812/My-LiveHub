@@ -133,16 +133,16 @@ task build
 
 CI 工作流位于 `.github/workflows/desktop-validation.yml`。它会检查 Go module 元数据、生成 Wails TypeScript 绑定、安装前端依赖、构建前端、运行 Go 测试并编译 Windows EXE。
 
-正式版通过推送 `v*` 格式的 Git Tag 发布，例如 `v0.1.1`。`.github/workflows/publish-release.yml` 会构建 Windows 绿色版单 EXE、生成 `SHA256SUMS` 并发布 GitHub Release。客户端可从系统托盘菜单选择“检查更新”，通过 Wails 更新器下载、校验并安装新版本。更新只替换程序 EXE；正式环境的配置、日志和缓存继续保存在 `%APPDATA%/My-LiveHub/`，不会随版本更新清理。
+正式版通过推送 `v*` 格式的 Git Tag 发布，例如 `v0.1.1`。`.github/workflows/publish-release.yml` 会构建 Windows 客户端并生成 `SHA256SUMS`。正式版的数据统一保存在程序安装目录内：配置位于 `config/local/`，缓存位于 `cache/`，日志位于 `logs/`，登录凭据位于 `secure/`。程序更新不得覆盖或清理这些运行数据。Windows 安装包和自动更新流程仍需按安装版方案调整后再发布。
 
 ## 配置与运行数据
 
 配置分为随程序发布的默认配置和本机覆盖配置：
 
 - **开发环境**：默认配置位于 `app/config/default/`，本机覆盖配置位于 `app/config/local/`。
-- **正式环境**：默认配置由程序内嵌资源提供；本机覆盖配置位于 `%APPDATA%/My-LiveHub/config/local/`。
+- **正式环境**：默认配置由程序内嵌资源提供；本机覆盖配置位于程序所在目录的 `config/local/`。缓存、日志和登录凭据也保存在程序目录下对应的 `cache/`、`logs/` 和 `secure/`。
 
-正式环境不依赖源码目录。日志、缓存、数据库、下载媒体等运行时数据应由应用按各自数据路径管理，不应手动放入源码目录。
+正式环境不依赖源码目录；所有可写运行数据均保存在程序所在目录。安装程序必须将客户端安装到当前用户可写的位置，避免写入权限不足。
 
 请勿将个人配置、访问令牌、Cookie、密钥或其他凭据提交到 Git。需要分享配置示例时，应先移除所有敏感值。
 
