@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -24,7 +25,11 @@ import (
 	"github.com/dongguo4812/My-LiveHub/app/internal/voice"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
+	"github.com/wailsapp/wails/v3/pkg/updater"
+	"github.com/wailsapp/wails/v3/pkg/updater/providers/github"
 )
+
+var currentVersion = "0.1.0" // Overridden by release builds via -ldflags.
 
 //go:embed all:frontend/dist
 var assets embed.FS
@@ -328,6 +333,18 @@ func main() {
 			application.NewService(bilibiliWebViewService),
 		},
 	})
+	githubProvider, updaterErr := github.New(github.Config{
+		Repository:    "dongguo4812/My-LiveHub",
+		ChecksumAsset: "SHA256SUMS",
+	})
+	if updaterErr != nil {
+		log.Printf("initialize GitHub update provider: %v", updaterErr)
+	} else if updaterErr = app.Updater.Init(updater.Config{
+		CurrentVersion: currentVersion,
+		Providers:      []updater.Provider{githubProvider},
+	}); updaterErr != nil {
+		log.Printf("initialize application updater: %v", updaterErr)
+	}
 	wailsApp = app
 	desktop.AttachApplication(platformService, app, appConfig.Appearance.Theme == "light")
 	desktop.AttachDanmakuDisplayApplication(danmakuDisplayService, app)
@@ -383,6 +400,17 @@ func main() {
 	trayMenu.Add("显示主界面").OnClick(func(_ *application.Context) {
 		mainWindow.Show()
 		mainWindow.Focus()
+	})
+	trayMenu.Add("检查更新").OnClick(func(_ *application.Context) {
+		if updaterErr != nil {
+			log.Printf("check application updates: updater is unavailable: %v", updaterErr)
+			return
+		}
+		go func() {
+			if err := app.Updater.CheckAndInstall(context.Background()); err != nil {
+				log.Printf("check application updates: %v", err)
+			}
+		}()
 	})
 	trayMenu.AddSeparator()
 	trayMenu.Add("退出 My-LiveHub").OnClick(func(_ *application.Context) {
