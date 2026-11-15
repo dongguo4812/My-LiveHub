@@ -182,10 +182,16 @@ async function clearQueue() {
   }
 }
 async function refreshPlayback() {
+  // Queue state is local to My-LiveHub and safe to refresh at any time.
+  // Do not poll 洛雪's /status until an actual My-LiveHub track is current.
+  await refreshQueue()
+  if (!queue.value?.current) {
+    playback.value = null
+    return
+  }
   try {
     playback.value = await MusicService.GetPlaybackStatus()
-  } catch { /* The engine is not started until the first play request. */ }
-  await refreshQueue()
+  } catch { /* Playback status is unavailable until 洛雪 is started by a song request. */ }
 }
 async function saveConfig() {
   if (!config.value) return
