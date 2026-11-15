@@ -25,43 +25,50 @@ func ResolveEnvironment(args []string) Environment {
 }
 
 type Paths struct {
+	DataDir    string
 	DefaultDir string
 	LocalDir   string
 }
 
 // ResolvePaths calculates configuration locations without creating directories.
-func ResolvePaths(env Environment, workingDir, userConfigDir string) (Paths, error) {
+func ResolvePaths(env Environment, workingDir, applicationDir string) (Paths, error) {
 	switch env {
 	case EnvironmentDevelopment:
 		if workingDir == "" {
 			return Paths{}, fmt.Errorf("development workspace directory is empty")
 		}
 		return Paths{
+			DataDir:    workingDir,
 			DefaultDir: filepath.Join(workingDir, "config", "default"),
 			LocalDir:   filepath.Join(workingDir, "config", "local"),
 		}, nil
 	case EnvironmentProduction:
-		if userConfigDir == "" {
-			return Paths{}, fmt.Errorf("user configuration directory is unavailable")
+		if applicationDir == "" {
+			return Paths{}, fmt.Errorf("application directory is unavailable")
 		}
 		return Paths{
-			LocalDir: filepath.Join(userConfigDir, "My-LiveHub", "config", "local"),
+			DataDir:  applicationDir,
+			LocalDir: filepath.Join(applicationDir, "config", "local"),
 		}, nil
 	default:
 		return Paths{}, fmt.Errorf("unsupported environment %q", env)
 	}
 }
 
-// ResolveRuntimePaths uses the workspace in development and the OS user config
-// directory in production (%%APPDATA%% on Windows).
+// ResolveRuntimePaths keeps writable runtime data beside the application
+// executable in production, and inside the current workspace in development.
 func ResolveRuntimePaths(env Environment) (Paths, error) {
 	workingDir, err := os.Getwd()
 	if err != nil && env == EnvironmentDevelopment {
 		return Paths{}, fmt.Errorf("resolve development workspace: %w", err)
 	}
-	userConfigDir, err := os.UserConfigDir()
-	if err != nil && env == EnvironmentProduction {
-		return Paths{}, fmt.Errorf("resolve user configuration directory: %w", err)
+	applicationDir := ""
+	if env == EnvironmentProduction {
+		executable, executableErr := os.Executable()
+		if executableErr != nil {
+			return Paths{}, fmt.Errorf("resolve application executable: %w", executableErr)
+		}
+		applicationDir = filepath.Dir(executable)
 	}
-	return ResolvePaths(env, workingDir, userConfigDir)
+	return ResolvePaths(env, workingDir, applicationDir)
 }
