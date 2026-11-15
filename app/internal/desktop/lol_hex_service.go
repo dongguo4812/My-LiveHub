@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -204,7 +205,9 @@ func (s *LOLHexService) Start() (LOLHexStatus, error) {
 	// environment variable for compatibility with existing launch paths.
 	command.Args = append(command.Args, "--manager-token", s.token)
 	command.Env = append(os.Environ(), "PYTHONUNBUFFERED=1", "LOL_HEX_MANAGED_BY_MY_LIVEHUB=1", "LOL_HEX_MANAGER_TOKEN="+s.token)
-	command.Stdout, command.Stderr = nil, nil
+	// Keep early Python startup tracebacks in the main application log; the
+	// extension also retains its own structured daily log after initialization.
+	command.Stdout, command.Stderr = log.Writer(), log.Writer()
 	if err := command.Start(); err != nil {
 		s.lastErr = err.Error()
 		return LOLHexStatus{}, fmt.Errorf("启动 LOL Hex 失败：%w", err)
