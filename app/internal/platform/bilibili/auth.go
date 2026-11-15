@@ -261,27 +261,11 @@ func (m *AuthManager) exchangeLoginTicket(ctx context.Context, rawURL string) (m
 	}
 
 	client := *m.client
-	previousCheckRedirect := m.client.CheckRedirect
-	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if !trustedTicketHost(req.URL.Hostname()) || req.URL.Scheme != "https" || req.URL.User != nil || req.URL.Port() != "" {
-			fromHost := ""
-			if len(via) > 0 && via[len(via)-1].URL != nil {
-				fromHost = strings.ToLower(via[len(via)-1].URL.Hostname())
-			}
-			return fmt.Errorf("Bilibili ticket redirected from %s to untrusted host %s", fromHost, strings.ToLower(req.URL.Hostname()))
-		}
-		if req.Response != nil {
-			for name, value := range collectCookieValues(req.Response.Cookies()) {
-				values[name] = value
-			}
-		}
-		if len(via) >= 10 {
-			return errors.New("too many Bilibili ticket redirects")
-		}
-		if previousCheckRedirect != nil {
-			return previousCheckRedirect(req, via)
-		}
-		return nil
+	// The crossDomain endpoint itself returns the login cookies. Do not follow
+	// its redirect: the destination may be an unrelated passport/landing host,
+	// and following it is unnecessary for completing the login.
+	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ticketURL.String(), nil)
@@ -297,7 +281,9 @@ func (m *AuthManager) exchangeLoginTicket(ctx context.Context, rawURL string) (m
 	for name, value := range collectCookieValues(resp.Cookies()) {
 		values[name] = value
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	// A 3xx response is intentional here: cookies are read from the
+	// crossDomain response itself and its redirect is deliberately not followed.
+	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("Bilibili ticket endpoint returned HTTP %d", resp.StatusCode)
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
