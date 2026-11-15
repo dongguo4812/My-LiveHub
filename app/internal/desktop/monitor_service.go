@@ -233,7 +233,12 @@ func parseMonitorLogLine(raw string) (MonitorLogEntry, bool) {
 		}
 	} else if len(line) >= 19 {
 		stamp = line[:19]
-		message = strings.TrimSpace(line[19:])
+		if len(line) > 20 && line[19] == '.' {
+			if end := strings.IndexByte(line[19:], ' '); end > 0 {
+				stamp = line[:19+end]
+			}
+		}
+		message = strings.TrimSpace(line[len(stamp):])
 	}
 	return MonitorLogEntry{Time: stamp, Level: level, Message: message}, true
 }
