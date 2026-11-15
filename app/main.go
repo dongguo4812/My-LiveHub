@@ -260,6 +260,7 @@ func main() {
 	// Keep debug-level Wails runtime records as well as info/warnings/errors.
 	wailsLogLevel := slog.LevelDebug
 	wailsLogger := slog.New(slog.NewTextHandler(applicationLogger.Output(), &slog.HandlerOptions{Level: wailsLogLevel}))
+	updateService := desktop.NewUpdateService(currentVersion, applicationPath)
 	app := application.New(application.Options{
 		Logger: wailsLogger,
 		LogLevel: wailsLogLevel,
@@ -293,7 +294,6 @@ func main() {
 			application.NewService(bilibiliWebViewService),
 		},
 	})
-	updateService := desktop.NewUpdateService(currentVersion, applicationPath)
 
 	wailsApp = app
 	updateService.SetQuitFunc(func() { app.Quit() })
