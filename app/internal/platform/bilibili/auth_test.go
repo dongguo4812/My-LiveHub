@@ -377,3 +377,69 @@ func TestExchangeLoginTicketRejectsUntrustedRedirect(t *testing.T) {
 		t.Fatal("ticket redirect to an untrusted host must be rejected")
 	}
 }
+
+
+func TestExchangeLoginTicketAllowsOfficialBilibiliCrossDomainRedirects(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/x/passport-login/web/crossDomain":
+			http.SetCookie(w, &http.Cookie{Name: "bili_jct", Value: "ticket-csrf", Path: "/"})
+			http.Redirect(w, r, "https://passport.bilibili.cn/step", http.StatusFound)
+		case "/step":
+			http.SetCookie(w, &http.Cookie{Name: "SESSDATA", Value: "ticket-session", Path: "/"})
+			http.Redirect(w, r, "https://www.bilibili.com/final", http.StatusFound)
+		case "/final":
+			http.SetCookie(w, &http.Cookie{Name: "DedeUserID", Value: "789", Path: "/"})
+			_, _ = w.Write([]byte("ok"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := server.Client()
+	client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		clone := req.Clone(req.Context())
+		u := *req.URL
+		u.Scheme = "http"
+		u.Host = strings.TrimPrefix(server.URL, "http://")
+		clone.URL = &u
+		return http.DefaultTransport.RoundTrip(clone)
+	})
+	manager, err := NewAuthManager(&memoryStore{}, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values, err := manager.exchangeLoginTicket(context.Background(),
+		"https://passport.biligame.com/x/passport-login/web/crossDomain?ticket=official-redirect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if values["bili_jct"] != "ticket-csrf" || values["SESSDATA"] != "ticket-session" || values["DedeUserID"] != "789" {
+		t.Fatalf("cookies from official Bilibili redirect chain were not collected: %#v", values)
+	}
+}
+
+func TestTrustedTicketHostUsesExactOfficialHostAllowlist(t *testing.T) {
+	for _, host := range []string{
+		"passport.biligame.com",
+		"passport.bilibili.com",
+		"passport.bilibili.cn",
+		"www.bilibili.com",
+		"bilibili.com",
+	} {
+		if !trustedTicketHost(host) {
+			t.Errorf("expected official Bilibili host to be trusted: %q", host)
+		}
+	}
+	for _, host := range []string{
+		"evil.example",
+		"passport.bilibili.cn.evil.example",
+		"evil-bilibili.com",
+		"foo.bilibili.cn",
+	} {
+		if trustedTicketHost(host) {
+			t.Errorf("unexpected host accepted as trusted: %q", host)
+		}
+	}
+}
