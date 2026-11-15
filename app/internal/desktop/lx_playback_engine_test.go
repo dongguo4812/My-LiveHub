@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/music"
@@ -146,28 +147,8 @@ func TestLXPlaybackEngineFallsBackToPlainLyrics(t *testing.T) {
 }
 
 
-func TestLXPlaybackEngineStartOpensLocalAppWhenAPIUnavailable(t *testing.T) {
+func TestLXPlaybackEngineStartDoesNotProbeOrOpenLocalApp(t *testing.T) {
 	engine := NewLXPlaybackEngine(nil)
-	opened := false
-	engine.openApp = func() error {
-		opened = true
-		return nil
-	}
-	if err := engine.Start(context.Background()); err != nil {
-		t.Fatalf("Start returned error after successful app launch request: %v", err)
-	}
-	if !opened {
-		t.Fatal("opening the music module did not attempt to launch the local 洛雪 app")
-	}
-}
-
-func TestLXPlaybackEngineStartDoesNotOpenAnotherAppWhenAPIAvailable(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"playing","name":"稻香","singer":"周杰伦"}`))
-	}))
-	defer server.Close()
-	engine := NewLXPlaybackEngine([]string{server.URL})
 	opened := false
 	engine.openApp = func() error {
 		opened = true
@@ -177,6 +158,30 @@ func TestLXPlaybackEngineStartDoesNotOpenAnotherAppWhenAPIAvailable(t *testing.T
 		t.Fatal(err)
 	}
 	if opened {
-		t.Fatal("洛雪 API is already available; Start should not launch another app instance")
+		t.Fatal("opening the music module must not launch 洛雪")
+	}
+}
+
+func TestLXPlaybackEngineEnsuresAPIOnlyWhenPlaybackRequested(t *testing.T) {
+	var opened atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !opened.Load() {
+			http.Error(w, "not ready", http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"playing","name":"稻香","singer":"周杰伦"}`))
+	}))
+	defer server.Close()
+	engine := NewLXPlaybackEngine([]string{server.URL})
+	engine.openApp = func() error {
+		opened.Store(true)
+		return nil
+	}
+	if err := engine.ensureAPIReadyForPlayback(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !opened.Load() {
+		t.Fatal("playback request did not launch 洛雪 after the status API was unavailable")
 	}
 }
