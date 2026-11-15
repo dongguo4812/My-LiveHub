@@ -87,4 +87,4 @@ jobs:
 
       - name: Build Windows executable
         shell: pwsh
-        run: go build -o bin/My-LiveHub.exe .
+        run: go build -ldflags "-H=windowsgui" -o bin/My-LiveHub.exe .
