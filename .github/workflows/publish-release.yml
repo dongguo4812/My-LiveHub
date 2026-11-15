@@ -168,6 +168,18 @@ jobs:
           }
           $lines | Set-Content -Path bin/SHA256SUMS -Encoding ascii
 
+      - name: Upload Windows build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: My-LiveHub-Windows-build-${{ github.run_number }}
+          path: |
+            app/bin/My-LiveHub-Setup.exe
+            app/bin/My-LiveHub-Portable.zip
+            app/bin/My-LiveHub-windows-amd64.exe
+            app/bin/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
