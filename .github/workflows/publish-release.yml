@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -104,7 +105,11 @@ jobs:
       - name: Assemble application directory
         shell: pwsh
         run: |
-          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          } else {
+            $version = '0.0.0'
+          }
           $package = "bin/package"
           New-Item -ItemType Directory -Force -Path $package | Out-Null
           go build -ldflags "-H=windowsgui -X main.currentVersion=$version" -o "$package/My-LiveHub.exe" .
@@ -126,7 +131,11 @@ jobs:
         run: |
           choco install innosetup --yes --no-progress
           if ($LASTEXITCODE -ne 0) { throw "Installing Inno Setup failed" }
-          $env:APP_VERSION = $env:GITHUB_REF_NAME.TrimStart('v')
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $env:APP_VERSION = $env:GITHUB_REF_NAME.TrimStart('v')
+          } else {
+            $env:APP_VERSION = '0.0.0'
+          }
           $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (!(Test-Path $compiler)) { throw "Inno Setup compiler not found: $compiler" }
           & $compiler "build/windows/My-LiveHub.iss"
@@ -156,6 +165,7 @@ jobs:
           $lines | Set-Content -Path bin/SHA256SUMS -Encoding ascii
 
       - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
