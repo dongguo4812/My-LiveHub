@@ -110,11 +110,18 @@ const musicCoverKey = computed(() => {
   const track = playback.value?.track
   return track?.cover_url ? [track.source_id, track.id, track.cover_url].join('|') : ''
 })
-function handleMusicCoverLoad(key: string) {
-  if (key === musicCoverKey.value) musicCoverLoadedKey.value = key
-}
-function handleMusicCoverError(key: string) {
+function handleMusicCoverLoad(event: Event) {
+  const key = (event.currentTarget as HTMLImageElement | null)?.dataset.coverKey || ''
   if (key !== musicCoverKey.value) return
+  if (musicCoverRetryTimer) {
+    clearTimeout(musicCoverRetryTimer)
+    musicCoverRetryTimer = undefined
+  }
+  musicCoverLoadedKey.value = key
+}
+function handleMusicCoverError(event: Event) {
+  const key = (event.currentTarget as HTMLImageElement | null)?.dataset.coverKey || ''
+  if (!key || key !== musicCoverKey.value) return
   musicCoverLoadedKey.value = ''
   if (musicCoverRetryTimer) clearTimeout(musicCoverRetryTimer)
   musicCoverRetryTimer = setTimeout(() => {
@@ -600,7 +607,7 @@ onUnmounted(() => {
           <div class="music-cover-wrap">
             <div class="music-cover-blur" :style="{ backgroundImage: playback.track.cover_url ? 'url(' + JSON.stringify(playback.track.cover_url) + ')' : 'none' }"></div>
             <div v-if="!musicCoverKey || musicCoverLoadedKey !== musicCoverKey" class="music-cover-fallback">♫</div>
-            <img v-if="musicCoverKey" :key="musicCoverKey + ':' + musicCoverRetryCount" class="music-cover" :src="playback.track.cover_url" alt="" referrerpolicy="no-referrer" @load="handleMusicCoverLoad(musicCoverKey)" @error="handleMusicCoverError(musicCoverKey)" />
+            <img v-if="musicCoverKey" :key="musicCoverKey + ':' + musicCoverRetryCount" class="music-cover" :src="playback.track.cover_url" :data-cover-key="musicCoverKey" alt="" referrerpolicy="no-referrer" @load="handleMusicCoverLoad" @error="handleMusicCoverError" />
           </div>
           <div class="music-details">
             <div class="music-song-info">
