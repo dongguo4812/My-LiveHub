@@ -2,8 +2,8 @@ package desktop
 
 import (
 	"archive/zip"
-	"crypto/sha256"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
