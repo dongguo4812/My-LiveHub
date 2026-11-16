@@ -82,7 +82,23 @@ func runUpdaterHelper(t *testing.T, scriptPath, taskPath string, env ...string) 
 	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath, "-Task", taskPath)
 	cmd.Env = append(os.Environ(), env...)
 	output, err := cmd.CombinedOutput()
-	if err != nil { t.Logf("updater PowerShell output: %s", output) }
+	if len(output) > 0 { t.Logf("updater PowerShell output: %s", output) }
+	taskBytes, readErr := os.ReadFile(taskPath)
+	if readErr == nil {
+		var task map[string]any
+		if json.Unmarshal(taskBytes, &task) == nil {
+			if temp, ok := task["temp_dir"].(string); ok {
+				if data, logErr := os.ReadFile(filepath.Join(temp, "update-helper.log")); logErr == nil {
+					t.Logf("updater helper log:\\n%s", data)
+				}
+			}
+			if root, ok := task["root"].(string); ok {
+				if data, logErr := os.ReadFile(filepath.Join(root, "logs", "update-failed.txt")); logErr == nil {
+					t.Logf("updater failure log:\\n%s", data)
+				}
+			}
+		}
+	}
 	return err
 }
 
