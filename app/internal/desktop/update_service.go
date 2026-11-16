@@ -3,6 +3,7 @@ package desktop
 import (
 	"archive/zip"
 	"crypto/sha256"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -232,6 +233,19 @@ func (s *UpdateService) InstallUpdate() error {
 	return nil
 }
 
+type downloadIdleTimeoutReader struct {
+	reader io.Reader
+	timer  *time.Timer
+}
+
+func (r *downloadIdleTimeoutReader) Read(buffer []byte) (int, error) {
+	n, err := r.reader.Read(buffer)
+	if n > 0 {
+		r.timer.Reset(90 * time.Second)
+	}
+	return n, err
+}
+
 func (s *UpdateService) downloadAndVerify(destination string) error {
 	checksumsURL := ""
 	for _, asset := range s.latest.Assets {
@@ -263,18 +277,39 @@ func (s *UpdateService) downloadAndVerify(destination string) error {
 	if len(expected) != 64 {
 		return fmt.Errorf("校验清单中没有 %s 的有效 SHA256", s.asset.Name)
 	}
-	request, _ := http.NewRequest(http.MethodGet, s.asset.BrowserDownloadURL, nil)
-	response, err := (&http.Client{Timeout: 15 * time.Minute}).Do(request)
+	downloadContext, cancelDownload := context.WithCancel(context.Background())
+	defer cancelDownload()
+	request, err := http.NewRequestWithContext(downloadContext, http.MethodGet, s.asset.BrowserDownloadURL, nil)
+	if err != nil { return fmt.Errorf("创建更新包下载请求失败：%w", err) }
+	downloadClient := &http.Client{Timeout: 15 * time.Minute}
+	response, err := downloadClient.Do(request)
 	if err != nil { return fmt.Errorf("下载更新包失败：%w", err) }
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK { return fmt.Errorf("下载更新包失败：HTTP %d", response.StatusCode) }
+	if response.ContentLength == 0 {
+		return errors.New("下载服务器返回了空更新包（0 字节），已取消更新")
+	}
+	if response.ContentLength > 0 && s.asset.Size > 0 && response.ContentLength != s.asset.Size {
+		return fmt.Errorf("下载服务器返回的文件大小不匹配：期望 %d 字节，响应为 %d 字节", s.asset.Size, response.ContentLength)
+	}
 	file, err := os.Create(destination)
-	if err != nil { return err }
+	if err != nil { return fmt.Errorf("创建更新包文件失败：%w", err) }
 	hash := sha256.New()
-	written, copyErr := io.Copy(io.MultiWriter(file, hash), io.LimitReader(response.Body, 1<<30))
+	idleTimer := time.AfterFunc(90*time.Second, cancelDownload)
+	body := &downloadIdleTimeoutReader{reader: io.LimitReader(response.Body, 1<<30), timer: idleTimer}
+	written, copyErr := io.Copy(io.MultiWriter(file, hash), body)
+	idleTimer.Stop()
 	closeErr := file.Close()
-	if copyErr != nil { return fmt.Errorf("保存更新包失败：%w", copyErr) }
-	if closeErr != nil { return closeErr }
+	if copyErr != nil {
+		if downloadContext.Err() != nil {
+			return errors.New("下载更新包连续 90 秒没有收到新数据，已中止更新；请检查网络后重试")
+		}
+		return fmt.Errorf("保存更新包失败：%w", copyErr)
+	}
+	if closeErr != nil { return fmt.Errorf("关闭更新包文件失败：%w", closeErr) }
+	if written == 0 {
+		return errors.New("下载完成但更新包为 0 字节，已取消更新")
+	}
 	if s.asset.Size > 0 && written != s.asset.Size {
 		return fmt.Errorf("更新包大小不匹配：期望 %d，实际 %d", s.asset.Size, written)
 	}
