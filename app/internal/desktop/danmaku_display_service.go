@@ -102,6 +102,7 @@ func (s *DanmakuDisplayService) OpenWindow() error {
 	options := application.WebviewWindowOptions{
 		Name: "danmaku-overlay", Title: "", Width: cfg.Width, Height: cfg.Height,
 		MinWidth: 420, MinHeight: 180, Frameless: true, DisableResize: false,
+		AlwaysOnTop: cfg.Pinned, IgnoreMouseEvents: cfg.Pinned,
 		BackgroundType: application.BackgroundTypeTransparent, BackgroundColour: application.NewRGBA(0, 0, 0, 0),
 		URL: "/#/danmaku/overlay",
 		Windows: application.WindowsWindow{DisableFramelessWindowDecorations: true, HiddenOnTaskbar: true},
@@ -120,7 +121,15 @@ func (s *DanmakuDisplayService) OpenWindow() error {
 	window.OnWindowEvent(events.Common.WindowDidResize, func(_ *application.WindowEvent) { s.scheduleWindowGeometrySave(window) })
 	restorePinned := func(_ *application.WindowEvent) {
 		s.mu.RLock(); shouldRestore := s.window == window && s.pinned; s.mu.RUnlock()
-		if shouldRestore { go func() { window.UnMinimise(); window.Show(); window.SetAlwaysOnTop(true); window.SetIgnoreMouseEvents(true) }() }
+		if shouldRestore {
+			go func() {
+				window.UnMinimise()
+				window.Show()
+				window.SetAlwaysOnTop(true)
+				window.SetIgnoreMouseEvents(true)
+				_ = restoreNativeTopmost(window)
+			}()
+		}
 	}
 	window.OnWindowEvent(events.Common.WindowMinimise, restorePinned)
 	window.OnWindowEvent(events.Common.WindowHide, restorePinned)
