@@ -26,8 +26,11 @@ func Acquire() (bool, error) {
 		if callErr != syscall.Errno(0) { return false, fmt.Errorf("create single-instance mutex: %w", callErr) }
 		return false, fmt.Errorf("create single-instance mutex failed")
 	}
+	if callErr == errorAlreadyExists {
+		_ = syscall.CloseHandle(syscall.Handle(handle))
+		return false, nil
+	}
 	mutexHandle = syscall.Handle(handle)
-	if callErr == errorAlreadyExists { return false, nil }
 	return true, nil
 }
 
