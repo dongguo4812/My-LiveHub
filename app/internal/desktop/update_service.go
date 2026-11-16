@@ -360,6 +360,16 @@ try {
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
         Copy-Item -LiteralPath $_.FullName -Destination $destination -Force
       }
+      $exeRelative = $exe.Substring($root.Length).TrimStart([char]92)
+      $backupExe = Join-Path $backup $exeRelative
+      if (!(Test-Path -LiteralPath $backupExe -PathType Leaf)) {
+        throw "Installer rollback backup is missing executable: $backupExe"
+      }
+      Copy-Item -LiteralPath $backupExe -Destination $exe -Force
+      if (!(Test-Path -LiteralPath $exe -PathType Leaf)) {
+        throw "Installer rollback could not restore executable: $exe"
+      }
+      Write-UpdateLog "Installer rollback restored executable from $backupExe"
       throw
     }
   } else {
