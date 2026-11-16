@@ -171,6 +171,10 @@ func compareVersions(left, right string) int {
 	return 0
 }
 
+func createUpdateWorkspace(applicationDir string) (string, error) {
+	return os.MkdirTemp(applicationDir, ".my-livehub-update-*")
+}
+
 func (s *UpdateService) InstallUpdate() error {
 	if s == nil || s.latest == nil || s.asset == nil {
 		return errors.New("请先检查更新")
@@ -184,7 +188,7 @@ func (s *UpdateService) InstallUpdate() error {
 	// which can create confusing directories such as "veHub" and make the
 	// helper operate on an unintended path. The application directory is
 	// already required to be writable for portable updates.
-	tempDir, err := os.MkdirTemp(s.applicationDir, ".my-livehub-update-*")
+	tempDir, err := createUpdateWorkspace(s.applicationDir)
 	if err != nil {
 		return fmt.Errorf("创建更新临时目录失败：%w", err)
 	}
