@@ -45,7 +45,11 @@ function navigate(path: string) { router.push(path) }
 onMounted(async () => {
   await router.isReady()
   unsubscribeTrayUpdate = Events.On('tray-check-updates', () => {
+    const requestedAt = new Date().toISOString()
+    console.info('[tray-update-diagnostic] frontend event received', requestedAt, 'route=', route.fullPath)
     void router.push({ path: '/settings', query: { ...route.query, checkUpdate: String(Date.now()) } })
+      .then(() => console.info('[tray-update-diagnostic] router.push resolved', new Date().toISOString(), 'route=', route.fullPath))
+      .catch(error => console.error('[tray-update-diagnostic] router.push failed', error))
   })
   if (route.path.startsWith('/scene/')) return
   initializeVoiceAudio()
