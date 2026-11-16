@@ -58,6 +58,15 @@ func TestUpdaterVerifiesTargetExecutableVersion(t *testing.T) {
 	}
 }
 
+func TestInstallerRollbackExcludesActiveUpdateWorkspace(t *testing.T) {
+	if !strings.Contains(updatePowerShellScript, "$oldFiles = @(Get-ChildItem -LiteralPath $root -File -Recurse -Force | Where-Object") {
+		t.Fatal("installer backup must exclude the active update workspace")
+	}
+	if !strings.Contains(updatePowerShellScript, "Where-Object { !$_.FullName.StartsWith(($temp.TrimEnd([char]92)") {
+		t.Fatal("installer rollback cleanup must not delete the active update workspace")
+	}
+}
+
 func TestUpdateWorkspaceIsCreatedBesideApplication(t *testing.T) {
 	root := t.TempDir()
 	dir, err := createUpdateWorkspace(root)
