@@ -21,6 +21,7 @@ import (
 	"github.com/dongguo4812/My-LiveHub/app/internal/media/resource"
 	"github.com/dongguo4812/My-LiveHub/app/internal/platform"
 	"github.com/dongguo4812/My-LiveHub/app/internal/platform/bilibili"
+	"github.com/dongguo4812/My-LiveHub/app/internal/singleinstance"
 	"github.com/dongguo4812/My-LiveHub/app/internal/voice"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -43,6 +44,18 @@ func main() {
 		}
 		return
 	}
+	// Prevent multiple processes from opening the same configuration, logs,
+	// databases, tray icon, and background services concurrently.
+	acquired, instanceErr := singleinstance.Acquire()
+	if instanceErr != nil {
+		fmt.Fprintf(os.Stderr, "无法检查程序实例状态：%v\\n", instanceErr)
+		os.Exit(1)
+	}
+	if !acquired {
+		return
+	}
+	defer singleinstance.Release()
+
 	environment := config.ResolveEnvironment(os.Args[1:])
 	paths, err := config.ResolveRuntimePaths(environment)
 	if err != nil {
