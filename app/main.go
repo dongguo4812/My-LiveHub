@@ -278,8 +278,10 @@ func main() {
 	if err != nil { log.Fatalf("initialize scene browser source service: %v", err) }
 	sceneService.SetRequestNoticeBroker(requestNoticeBroker)
 	appearanceService := desktop.NewAppearanceService(configManager, appConfig, applicationLogger)
-	// Keep debug-level Wails runtime records as well as info/warnings/errors.
-	wailsLogLevel := slog.LevelDebug
+	wailsLogLevel := slog.LevelInfo
+	if environment == config.EnvironmentDevelopment {
+		wailsLogLevel = slog.LevelDebug
+	}
 	wailsLogger := slog.New(slog.NewTextHandler(applicationLogger.Output(), &slog.HandlerOptions{Level: wailsLogLevel}))
 	updateService := desktop.NewUpdateService(currentVersion, applicationPath, func() { if wailsApp != nil { wailsApp.Quit() } })
 	app := application.New(application.Options{
