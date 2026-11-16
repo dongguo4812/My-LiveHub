@@ -48,7 +48,7 @@ func main() {
 	// databases, tray icon, and background services concurrently.
 	acquired, instanceErr := singleinstance.Acquire()
 	if instanceErr != nil {
-		fmt.Fprintf(os.Stderr, "无法检查程序实例状态：%v\\n", instanceErr)
+		fmt.Fprintf(os.Stderr, "无法检查程序实例状态：%v\n", instanceErr)
 		os.Exit(1)
 	}
 	if !acquired {
