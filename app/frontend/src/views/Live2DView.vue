@@ -100,6 +100,8 @@ let live2DStatusEndpoint = ''
 let live2DModuleStatusTimer: ReturnType<typeof setInterval> | undefined
 const live2DModuleEnabled = ref(false)
 let microphoneStarting = false
+let microphoneResumePromise: Promise<void> | null = null
+let microphoneAudioStateHandler: (() => void) | null = null
 let resolvingLive2DEndpoint = false
 let lastKnownLive2DModuleEnabled: boolean | null = null
 
@@ -461,6 +463,27 @@ function driveModelMouth(value: number) {
   model.lipSyncValue = bounded
 }
 
+
+async function resumeMicrophoneAudio() {
+  const context = audioContext
+  if (!context || context.state === 'running' || context.state === 'closed' || !micActive.value) return
+  if (microphoneResumePromise) return microphoneResumePromise
+  microphoneResumePromise = context.resume().then(() => {
+    if (context.state !== 'running' && micActive.value) {
+      micError.value = '麦克风音频上下文未能恢复运行，请重新启动麦克风'
+    }
+  }).catch(error => {
+    if (micActive.value) micError.value = '恢复麦克风音频失败：' + String(error)
+  }).finally(() => {
+    microphoneResumePromise = null
+  })
+  return microphoneResumePromise
+}
+
+function handleMicrophoneVisibilityChange() {
+  if (document.visibilityState === 'visible') void resumeMicrophoneAudio()
+}
+
 function stopMicrophone() {
   if (micWorkletNode) {
     micWorkletNode.port.onmessage = null
@@ -471,8 +494,13 @@ function stopMicrophone() {
   micMuteGain = null
   stream?.getTracks().forEach(track => track.stop())
   stream = null
-  void audioContext?.close()
+  if (audioContext) {
+    audioContext.onstatechange = null
+    void audioContext.close()
+  }
   audioContext = null
+  microphoneAudioStateHandler = null
+  microphoneResumePromise = null
   micActive.value = false
   level.value = 0
   mouthOpen.value = 0
@@ -521,6 +549,13 @@ async function startMicrophone() {
     micWorkletNode.connect(micMuteGain)
     micMuteGain.connect(audioContext.destination)
     micActive.value = true
+    microphoneAudioStateHandler = () => {
+      // WebView2 may suspend an AudioContext when its window is hidden.
+      // Re-arm capture whenever Chromium suspends the live microphone graph.
+      if (audioContext?.state === 'suspended' && micActive.value) void resumeMicrophoneAudio()
+    }
+    audioContext.onstatechange = microphoneAudioStateHandler
+    await resumeMicrophoneAudio()
     await enumerateDevices()
   } catch (error) {
     stopMicrophone()
@@ -546,14 +581,19 @@ function previewMicrophoneTuning(patch: Partial<Pick<Live2DConfig, 'microphone_s
 }
 
 async function changeDevice(deviceID: string) {
+  const wasActive = micActive.value
+  if (wasActive) stopMicrophone()
   await save({ microphone_device_id: deviceID })
-  if (micActive.value) await startMicrophone()
+  if (wasActive) await startMicrophone()
 }
 
 onMounted(() => {
   mouthSyncChannel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('my-livehub-live2d-mouth') : null
   runtimeMessageHandler = onRuntimeMessage
   window.addEventListener('message', runtimeMessageHandler)
+  document.addEventListener('visibilitychange', handleMicrophoneVisibilityChange)
+  window.addEventListener('focus', handleMicrophoneVisibilityChange)
+  window.addEventListener('pageshow', handleMicrophoneVisibilityChange)
   void refresh()
   live2DModuleStatusTimer = setInterval(() => {
     if (!live2DStatusEndpoint) void resolveMouthSyncEndpoint()
@@ -564,6 +604,9 @@ onUnmounted(() => {
   if (live2DModuleStatusTimer) clearInterval(live2DModuleStatusTimer)
   live2DModuleStatusTimer = undefined
   stopMicrophone()
+  document.removeEventListener('visibilitychange', handleMicrophoneVisibilityChange)
+  window.removeEventListener('focus', handleMicrophoneVisibilityChange)
+  window.removeEventListener('pageshow', handleMicrophoneVisibilityChange)
   mouthSyncChannel?.close()
   mouthSyncChannel = null
   if (runtimeMessageHandler) window.removeEventListener('message', runtimeMessageHandler)
