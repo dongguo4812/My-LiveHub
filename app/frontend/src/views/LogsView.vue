@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ArrowDown } from '@element-plus/icons-vue'
 import * as MonitorService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/monitorservice.js'
 
@@ -23,7 +23,12 @@ const keyword = ref('')
 const level = ref('ALL')
 const loading = ref(false)
 const error = ref('')
-const autoRefresh = ref(true)
+const autoRefresh = ref(false)
+const pageSize = ref(100)
+const visibleEntries = computed(() => filtered.value.slice(0, pageSize.value))
+const hasMore = computed(() => filtered.value.length > visibleEntries.value.length)
+watch([keyword, level, selectedDate], () => { pageSize.value = 100 })
+function loadMore() { pageSize.value += 100 }
 const selected = ref<LogEntry | null>(null)
 let timer: ReturnType<typeof setInterval> | undefined
 
@@ -91,9 +96,9 @@ async function onDateChange() {
 function setAutoRefresh(value: string | number | boolean) {
   autoRefresh.value = Boolean(value)
   if (timer) clearInterval(timer)
-  timer = value ? setInterval(() => void refresh(), 5000) : undefined
+  timer = value ? setInterval(() => void refresh(), 30000) : undefined
 }
-onMounted(() => { void refresh(); setAutoRefresh(true) })
+onMounted(() => { void refresh() })
 onUnmounted(() => { if (timer) clearInterval(timer) })
 </script>
 
@@ -130,20 +135,21 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
           <el-option label="信息 INFO" value="INFO" />
           <el-option label="调试 DEBUG" value="DEBUG" />
         </el-select>
-        <el-switch :model-value="autoRefresh" active-text="每 5 秒自动刷新" @change="setAutoRefresh" />
+        <el-switch :model-value="autoRefresh" active-text="每 30 秒自动刷新" @change="setAutoRefresh" />
         <el-dropdown @command="exportLogs">
           <el-button>导出日志<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
           <template #dropdown><el-dropdown-menu><el-dropdown-item command="txt">导出为 TXT</el-dropdown-item><el-dropdown-item command="json">导出为 JSON</el-dropdown-item></el-dropdown-menu></template>
         </el-dropdown>
       </div>
       <div class="table-meta"><span>显示 {{ filtered.length }} / {{ entries.length }} 条</span><span>当前日期 {{ selectedDate || '—' }} · 已加载该日期全部轮转日志</span></div>
-      <el-table :data="filtered" size="small" stripe height="520" empty-text="没有匹配的日志记录" @row-click="handleLogRowClick">
+      <el-table :data="visibleEntries" size="small" stripe height="520" empty-text="没有匹配的日志记录" @row-click="handleLogRowClick">
         <el-table-column prop="time" label="时间" width="180" />
         <el-table-column label="级别" width="105">
           <template #default="{ row }"><el-tag size="small" :type="levelType(row.level)">{{ row.level }}</el-tag></template>
         </el-table-column>
         <el-table-column prop="message" label="日志内容" min-width="320" show-overflow-tooltip />
       </el-table>
+      <div v-if="hasMore" class="load-more"><span>已显示 {{ visibleEntries.length }} / {{ filtered.length }} 条匹配日志</span><el-button size="small" @click="loadMore">加载更多（100 条）</el-button></div>
       <p class="footnote">点击任意日志行可查看完整内容。日历仅允许选择存在日志的日期；主程序与 LOL Hex 日志会合并，按时间倒序展示，最新记录在最上方。保留期限可在「系统设置」中调整。</p>
     </el-card>
 
@@ -158,5 +164,5 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 </template>
 
 <style scoped>
-:deep(.has-log-date .el-date-table-cell__text){font-weight:700;color:var(--el-color-primary)}.logs-page{display:flex;flex-direction:column;gap:18px;min-width:0}.page-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 8px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.updated,.footnote,.table-meta{color:var(--el-text-color-secondary);font-size:13px}.toolbar,.filters,.table-meta,.detail-meta{display:flex;align-items:center;gap:12px}.toolbar{flex-wrap:wrap;justify-content:flex-end}.summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.summary{min-width:0}.summary span,.summary small{display:block;color:var(--el-text-color-secondary);font-size:12px}.summary strong{display:block;margin:8px 0;font-size:26px;font-variant-numeric:tabular-nums}.summary .danger{color:var(--el-color-danger)}.summary .warning{color:var(--el-color-warning)}.filters{flex-wrap:wrap;margin-bottom:14px}.search{max-width:360px;flex:1}.table-meta{justify-content:space-between;margin:4px 0 10px}.footnote{margin:12px 0 0}.detail-meta{margin-bottom:18px}.detail-message{white-space:pre-wrap;overflow-wrap:anywhere;padding:14px;border:1px solid var(--app-border);border-radius:8px;background:var(--app-bg-control);font:13px/1.7 ui-monospace,Consolas,monospace;max-height:60vh;overflow:auto}@media(max-width:900px){.summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.page-heading{flex-direction:column}.toolbar{justify-content:flex-start}}
+:deep(.has-log-date .el-date-table-cell__text){font-weight:700;color:var(--el-color-primary)}.logs-page{display:flex;flex-direction:column;gap:18px;min-width:0}.page-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 8px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.updated,.footnote,.table-meta{color:var(--el-text-color-secondary);font-size:13px}.toolbar,.filters,.table-meta,.detail-meta{display:flex;align-items:center;gap:12px}.toolbar{flex-wrap:wrap;justify-content:flex-end}.summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.summary{min-width:0}.summary span,.summary small{display:block;color:var(--el-text-color-secondary);font-size:12px}.summary strong{display:block;margin:8px 0;font-size:26px;font-variant-numeric:tabular-nums}.summary .danger{color:var(--el-color-danger)}.summary .warning{color:var(--el-color-warning)}.filters{flex-wrap:wrap;margin-bottom:14px}.search{max-width:360px;flex:1}.table-meta{justify-content:space-between;margin:4px 0 10px}.footnote{margin:12px 0 0}.load-more{display:flex;justify-content:center;align-items:center;gap:14px;padding:14px;color:var(--el-text-color-secondary);font-size:13px}.detail-meta{margin-bottom:18px}.detail-message{white-space:pre-wrap;overflow-wrap:anywhere;padding:14px;border:1px solid var(--app-border);border-radius:8px;background:var(--app-bg-control);font:13px/1.7 ui-monospace,Consolas,monospace;max-height:60vh;overflow:auto}@media(max-width:900px){.summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.page-heading{flex-direction:column}.toolbar{justify-content:flex-start}}
 </style>
