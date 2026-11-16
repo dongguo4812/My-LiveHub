@@ -86,9 +86,8 @@ const levelPercent = computed(() => Math.round(level.value * 100))
 const mouthPercent = computed(() => Math.round(mouthOpen.value * 100))
 let stream: MediaStream | null = null
 let audioContext: AudioContext | null = null
-let analyser: AnalyserNode | null = null
-let raf = 0
-let samples: Float32Array<ArrayBuffer> | null = null
+let micWorkletNode: AudioWorkletNode | null = null
+let micMuteGain: GainNode | null = null
 let activeModelURL = ''
 let activeMoc2MouthParameter = ''
 let activeMoc2TransformBase: { model: LegacyModel; scaleX: number; scaleY: number; centerX: number; centerY: number } | null = null
@@ -101,6 +100,8 @@ let live2DStatusEndpoint = ''
 let live2DModuleStatusTimer: ReturnType<typeof setInterval> | undefined
 const live2DModuleEnabled = ref(false)
 let microphoneStarting = false
+let microphoneResumePromise: Promise<void> | null = null
+let microphoneAudioStateHandler: (() => void) | null = null
 let resolvingLive2DEndpoint = false
 let lastKnownLive2DModuleEnabled: boolean | null = null
 
@@ -462,34 +463,50 @@ function driveModelMouth(value: number) {
   model.lipSyncValue = bounded
 }
 
+
+async function resumeMicrophoneAudio() {
+  const context = audioContext
+  if (!context || context.state === 'running' || context.state === 'closed' || !micActive.value) return
+  if (microphoneResumePromise) return microphoneResumePromise
+  microphoneResumePromise = context.resume().then(() => {
+    if (context.state !== 'running' && micActive.value) {
+      micError.value = '麦克风音频上下文未能恢复运行，请重新启动麦克风'
+    }
+  }).catch(error => {
+    if (micActive.value) micError.value = '恢复麦克风音频失败：' + String(error)
+  }).finally(() => {
+    microphoneResumePromise = null
+  })
+  return microphoneResumePromise
+}
+
+function handleMicrophoneVisibilityChange() {
+  if (document.visibilityState === 'visible') void resumeMicrophoneAudio()
+}
+
 function stopMicrophone() {
-  if (raf) cancelAnimationFrame(raf)
-  raf = 0
+  if (micWorkletNode) {
+    micWorkletNode.port.onmessage = null
+    micWorkletNode.disconnect()
+    micWorkletNode = null
+  }
+  micMuteGain?.disconnect()
+  micMuteGain = null
   stream?.getTracks().forEach(track => track.stop())
   stream = null
-  analyser = null
-  samples = null
-  void audioContext?.close()
+  if (audioContext) {
+    audioContext.onstatechange = null
+    void audioContext.close()
+  }
   audioContext = null
+  microphoneAudioStateHandler = null
+  microphoneResumePromise = null
   micActive.value = false
   level.value = 0
   mouthOpen.value = 0
   driveModelMouth(0)
 }
 
-function analyseMicrophone() {
-  if (!analyser || !samples || !settings.value) return
-  analyser.getFloatTimeDomainData(samples)
-  let sum = 0
-  for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i]
-  const rms = Math.sqrt(sum / samples.length)
-  const raw = Math.max(0, Math.min(1, (rms * settings.value.microphone_sensitivity - 0.012) * 8))
-  const smoothing = settings.value.microphone_smoothing
-  level.value = level.value * smoothing + Math.min(1, rms * 8) * (1 - smoothing)
-  mouthOpen.value = mouthOpen.value * smoothing + raw * (1 - smoothing)
-  driveModelMouth(mouthOpen.value)
-  raf = requestAnimationFrame(analyseMicrophone)
-}
 
 async function startMicrophone() {
   if (micActive.value || microphoneStarting) return
@@ -511,15 +528,35 @@ async function startMicrophone() {
       },
     })
     audioContext = new AudioContext()
+    await audioContext.audioWorklet.addModule('/live2d-runtime/mic-processor.js')
     await audioContext.resume()
-    analyser = audioContext.createAnalyser()
-    analyser.fftSize = 1024
-    analyser.smoothingTimeConstant = 0
-    audioContext.createMediaStreamSource(stream).connect(analyser)
-    samples = new Float32Array(analyser.fftSize) as Float32Array<ArrayBuffer>
+    const source = audioContext.createMediaStreamSource(stream)
+    micWorkletNode = new AudioWorkletNode(audioContext, 'livehub-mic-analyser')
+    micMuteGain = audioContext.createGain()
+    // Keep the audio graph actively rendered while the main window is hidden.
+    // The zero-gain output is silent but prevents the capture graph from idling.
+    micMuteGain.gain.value = 0
+    micWorkletNode.port.onmessage = (event: MessageEvent<{ rms?: number }>) => {
+      if (!settings.value || !micActive.value) return
+      const rms = Math.max(0, Number(event.data?.rms) || 0)
+      const raw = Math.max(0, Math.min(1, (rms * settings.value.microphone_sensitivity - 0.012) * 8))
+      const smoothing = settings.value.microphone_smoothing
+      level.value = level.value * smoothing + Math.min(1, rms * 8) * (1 - smoothing)
+      mouthOpen.value = mouthOpen.value * smoothing + raw * (1 - smoothing)
+      driveModelMouth(mouthOpen.value)
+    }
+    source.connect(micWorkletNode)
+    micWorkletNode.connect(micMuteGain)
+    micMuteGain.connect(audioContext.destination)
     micActive.value = true
+    microphoneAudioStateHandler = () => {
+      // WebView2 may suspend an AudioContext when its window is hidden.
+      // Re-arm capture whenever Chromium suspends the live microphone graph.
+      if (audioContext?.state === 'suspended' && micActive.value) void resumeMicrophoneAudio()
+    }
+    audioContext.onstatechange = microphoneAudioStateHandler
+    await resumeMicrophoneAudio()
     await enumerateDevices()
-    analyseMicrophone()
   } catch (error) {
     stopMicrophone()
     micError.value = String(error)
@@ -544,14 +581,19 @@ function previewMicrophoneTuning(patch: Partial<Pick<Live2DConfig, 'microphone_s
 }
 
 async function changeDevice(deviceID: string) {
+  const wasActive = micActive.value
+  if (wasActive) stopMicrophone()
   await save({ microphone_device_id: deviceID })
-  if (micActive.value) await startMicrophone()
+  if (wasActive) await startMicrophone()
 }
 
 onMounted(() => {
   mouthSyncChannel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('my-livehub-live2d-mouth') : null
   runtimeMessageHandler = onRuntimeMessage
   window.addEventListener('message', runtimeMessageHandler)
+  document.addEventListener('visibilitychange', handleMicrophoneVisibilityChange)
+  window.addEventListener('focus', handleMicrophoneVisibilityChange)
+  window.addEventListener('pageshow', handleMicrophoneVisibilityChange)
   void refresh()
   live2DModuleStatusTimer = setInterval(() => {
     if (!live2DStatusEndpoint) void resolveMouthSyncEndpoint()
@@ -562,6 +604,9 @@ onUnmounted(() => {
   if (live2DModuleStatusTimer) clearInterval(live2DModuleStatusTimer)
   live2DModuleStatusTimer = undefined
   stopMicrophone()
+  document.removeEventListener('visibilitychange', handleMicrophoneVisibilityChange)
+  window.removeEventListener('focus', handleMicrophoneVisibilityChange)
+  window.removeEventListener('pageshow', handleMicrophoneVisibilityChange)
   mouthSyncChannel?.close()
   mouthSyncChannel = null
   if (runtimeMessageHandler) window.removeEventListener('message', runtimeMessageHandler)
