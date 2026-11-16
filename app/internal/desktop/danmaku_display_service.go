@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"errors"
+	"log"
 	"sync"
 	"time"
 
@@ -120,7 +121,17 @@ func (s *DanmakuDisplayService) OpenWindow() error {
 	window.OnWindowEvent(events.Common.WindowDidResize, func(_ *application.WindowEvent) { s.scheduleWindowGeometrySave(window) })
 	restorePinned := func(_ *application.WindowEvent) {
 		s.mu.RLock(); shouldRestore := s.window == window && s.pinned; s.mu.RUnlock()
-		if shouldRestore { go func() { window.UnMinimise(); window.Show(); window.SetAlwaysOnTop(true); window.SetIgnoreMouseEvents(true) }() }
+		if shouldRestore {
+			go func() {
+				window.UnMinimise()
+				window.Show()
+				window.SetAlwaysOnTop(true)
+				window.SetIgnoreMouseEvents(true)
+				if !restoreDanmakuWindowComposition(window, true) {
+					log.Printf("restore pinned danmaku window composition failed")
+				}
+			}()
+		}
 	}
 	window.OnWindowEvent(events.Common.WindowMinimise, restorePinned)
 	window.OnWindowEvent(events.Common.WindowHide, restorePinned)
