@@ -388,9 +388,19 @@ try {
     $stage = Join-Path $temp 'stage'
     $backup = Join-Path $temp 'backup'
     Expand-Archive -LiteralPath $package -DestinationPath $stage -Force
-    $source = Join-Path $stage 'My-LiveHub'
-    if (!(Test-Path -LiteralPath (Join-Path $source 'My-LiveHub.exe'))) { throw 'Portable archive layout is invalid' }
+    # Locate the actual application payload instead of assuming a fixed ZIP
+    # nesting depth. Compress-Archive and third-party ZIP tools can differ in
+    # how they preserve the top-level directory.
+    $exeCandidates = @(Get-ChildItem -LiteralPath $stage -Filter 'My-LiveHub.exe' -File -Recurse -Force)
+    if ($exeCandidates.Count -ne 1) { throw "Portable archive must contain exactly one My-LiveHub.exe; found $($exeCandidates.Count)" }
+    $source = $exeCandidates[0].Directory.FullName
+    Write-UpdateLog "Portable payload directory: $source"
     New-Item -ItemType Directory -Force -Path $backup | Out-Null
+    $backupExe = Join-Path $backup 'My-LiveHub.exe'
+    if (!(Test-Path -LiteralPath $exe -PathType Leaf)) { throw "Portable target executable is missing: $exe" }
+    Copy-Item -LiteralPath $exe -Destination $backupExe -Force
+    if (!(Test-Path -LiteralPath $backupExe -PathType Leaf)) { throw "Portable executable backup failed: $backupExe" }
+    Write-UpdateLog "Portable executable backed up to $backupExe"
     function Is-Preserved([string]$relative) {
       $p = $relative.Replace([string][char]92,'/').ToLowerInvariant()
       return $p -eq 'config/local' -or $p.StartsWith('config/local/') -or
@@ -443,7 +453,7 @@ try {
     } catch {
       foreach ($file in $newFiles) {
         $relative = $file.FullName.Substring($source.Length).TrimStart([char]92)
-        if (Is-Preserved $relative) { continue }
+        if (Is-Preserved $relative -or $relative -ieq 'My-LiveHub.exe') { continue }
         $destination = Join-Path $root $relative
         if ($backupFiles.ContainsKey($relative)) {
           $backupFile = Join-Path $backup $relative
@@ -452,6 +462,10 @@ try {
           Remove-Item -LiteralPath $destination -Force -ErrorAction SilentlyContinue
         }
       }
+      if (!(Test-Path -LiteralPath $backupExe -PathType Leaf)) { throw "Portable rollback backup is missing executable: $backupExe" }
+      [IO.File]::Copy($backupExe, $exe, $true)
+      if (!(Test-Path -LiteralPath $exe -PathType Leaf)) { throw "Portable rollback could not restore executable: $exe" }
+      Write-UpdateLog "Portable rollback restored executable; bytes=$((Get-Item -LiteralPath $exe).Length)"
       throw
     }
   }
