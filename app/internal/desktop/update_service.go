@@ -306,9 +306,21 @@ func (s *UpdateService) downloadAndVerify(destination string) error {
 	}
 	request.Header.Set("Accept", "application/octet-stream")
 
+	// Start the idle watchdog before waiting for response headers as well:
+	// a stalled TLS/redirect/header phase must not leave the UI waiting for 30 minutes.
+	var idleTimedOut atomic.Bool
+	idleTimer := time.AfterFunc(60*time.Second, func() {
+		idleTimedOut.Store(true)
+		cancel()
+	})
+	defer idleTimer.Stop()
+
 	client := &http.Client{Timeout: 30 * time.Minute}
 	response, err := client.Do(request)
 	if err != nil {
+		if idleTimedOut.Load() {
+			return errors.New("连接 GitHub 更新服务器后连续 60 秒没有收到响应，已中止；请检查网络或 GitHub 下载连接")
+		}
 		return fmt.Errorf("下载更新包失败：%w", err)
 	}
 	defer response.Body.Close()
@@ -319,25 +331,22 @@ func (s *UpdateService) downloadAndVerify(destination string) error {
 		return fmt.Errorf("下载服务器返回的文件大小不匹配：Release 标记 %d 字节，响应声明 %d 字节", s.asset.Size, response.ContentLength)
 	}
 
-	var idleTimedOut atomic.Bool
-	idleTimer := time.AfterFunc(60*time.Second, func() {
-		idleTimedOut.Store(true)
-		cancel()
-	})
-	defer idleTimer.Stop()
-
 	file, err := os.OpenFile(partialPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 	if err != nil {
 		return fmt.Errorf("创建更新包临时文件失败：%w", err)
 	}
 	hash := sha256.New()
 	written, copyErr := io.Copy(io.MultiWriter(file, hash), &idleTimeoutReader{reader: response.Body, timer: idleTimer})
+	syncErr := file.Sync()
 	closeErr := file.Close()
 	if idleTimedOut.Load() {
 		return errors.New("下载更新包连续 60 秒没有收到任何数据，已中止；请检查网络或 GitHub 下载连接")
 	}
 	if copyErr != nil {
 		return fmt.Errorf("保存更新包失败：%w", copyErr)
+	}
+	if syncErr != nil {
+		return fmt.Errorf("写入更新包磁盘失败：%w", syncErr)
 	}
 	if closeErr != nil {
 		return fmt.Errorf("关闭更新包临时文件失败：%w", closeErr)
