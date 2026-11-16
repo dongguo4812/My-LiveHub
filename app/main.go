@@ -368,14 +368,24 @@ func main() {
 	tray := app.SystemTray.New()
 	tray.SetIcon(createTrayIcon()).SetTooltip("My-LiveHub")
 	trayMenu := app.NewMenu()
+	// The tray popup temporarily owns foreground activation. Defer the
+	// settings navigation until the main window has actually regained focus;
+	// navigating its WebView during native window activation can disturb the
+	// separate transparent danmaku WebView composition on Windows.
+	var trayCheckUpdatesPending atomic.Bool
+	mainWindow.OnWindowEvent(events.Common.WindowFocus, func(_ *application.WindowEvent) {
+		if trayCheckUpdatesPending.Swap(false) {
+			mainWindow.EmitEvent("tray-check-updates", nil)
+		}
+	})
 	trayMenu.Add("显示主界面").OnClick(func(_ *application.Context) {
 		mainWindow.Show()
 		mainWindow.Focus()
 	})
 	trayMenu.Add("检查更新").OnClick(func(_ *application.Context) {
+		trayCheckUpdatesPending.Store(true)
 		mainWindow.Show()
 		mainWindow.Focus()
-		mainWindow.EmitEvent("tray-check-updates", nil)
 	})
 	trayMenu.AddSeparator()
 	trayMenu.Add("退出 My-LiveHub").OnClick(func(_ *application.Context) {
