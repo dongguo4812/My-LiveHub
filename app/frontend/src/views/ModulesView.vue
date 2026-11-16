@@ -16,6 +16,7 @@ let microphoneWorkletNode: AudioWorkletNode | null = null
 let microphoneMuteGain: GainNode | null = null
 let microphoneEndpoint = ''
 let microphoneResumePromise: Promise<void> | null = null
+let microphoneMouthPrevious = 0
 
 async function resumeModuleMicrophoneAudio() {
   const context = microphoneContext
@@ -63,14 +64,12 @@ function analyseModuleMicrophone(rms: number, sensitivity: number, smoothing: nu
   if (!microphoneActive.value) return
   const boundedRms = Math.max(0, Number(rms) || 0)
   const raw = Math.max(0, Math.min(1, (boundedRms * sensitivity - 0.012) * 8))
-  const value = analyseModuleMicrophone.previous * smoothing + raw * (1 - smoothing)
-  analyseModuleMicrophone.previous = value
+  const value = microphoneMouthPrevious * smoothing + raw * (1 - smoothing)
+  microphoneMouthPrevious = value
   if (microphoneEndpoint) {
     void fetch(microphoneEndpoint, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: JSON.stringify({ value }), cache: 'no-store' }).catch(() => undefined)
   }
 }
-analyseModuleMicrophone.previous = 0
-
 async function toggleModuleMicrophone() {
   if (microphoneLoading.value) return
   if (microphoneActive.value) {
@@ -113,7 +112,7 @@ async function toggleModuleMicrophone() {
     microphoneWorkletNode = new AudioWorkletNode(microphoneContext, 'livehub-mic-analyser')
     microphoneMuteGain = microphoneContext.createGain()
     microphoneMuteGain.gain.value = 0
-    analyseModuleMicrophone.previous = 0
+    microphoneMouthPrevious = 0
     microphoneWorkletNode.port.onmessage = (event: MessageEvent<{ rms?: number }>) => {
       if (!microphoneActive.value) return
       analyseModuleMicrophone(Number(event.data?.rms) || 0, config.microphone_sensitivity, config.microphone_smoothing)
