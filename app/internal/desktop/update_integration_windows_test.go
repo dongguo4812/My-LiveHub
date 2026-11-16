@@ -56,7 +56,7 @@ func buildUpdaterFixture(t *testing.T, version string) string {
 	source := filepath.Join(dir, "main.go")
 	if err := os.WriteFile(source, []byte(updaterFixtureSource), 0644); err != nil { t.Fatal(err) }
 	output := filepath.Join(dir, "fixture.exe")
-	cmd := exec.Command("go", "build", "-ldflags", "-X main.version="+version, "-o", output, source)
+	cmd := exec.Command("go", "build", "-ldflags", "-X command-line-arguments.version="+version, "-o", output, source)
 	if data, err := cmd.CombinedOutput(); err != nil { t.Fatalf("build updater fixture: %v\n%s", err, data) }
 	return output
 }
