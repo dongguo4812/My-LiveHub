@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
 	"github.com/dongguo4812/My-LiveHub/app/internal/core"
@@ -278,6 +279,7 @@ func main() {
 	if err != nil { log.Fatalf("initialize scene browser source service: %v", err) }
 	sceneService.SetRequestNoticeBroker(requestNoticeBroker)
 	appearanceService := desktop.NewAppearanceService(configManager, appConfig, applicationLogger)
+	// Keep debug-level Wails runtime records as well as info/warnings/errors.
 	wailsLogLevel := slog.LevelInfo
 	if environment == config.EnvironmentDevelopment {
 		wailsLogLevel = slog.LevelDebug
@@ -370,27 +372,25 @@ func main() {
 	tray := app.SystemTray.New()
 	tray.SetIcon(createTrayIcon()).SetTooltip("My-LiveHub")
 	trayMenu := app.NewMenu()
+	// The tray popup temporarily owns foreground activation. Defer the
+	// settings navigation until the main window has actually regained focus;
+	// navigating its WebView during native window activation can disturb the
+	// separate transparent danmaku WebView composition on Windows.
+	var trayCheckUpdatesPending atomic.Bool
+	mainWindow.OnWindowEvent(events.Common.WindowFocus, func(_ *application.WindowEvent) {
+		pending := trayCheckUpdatesPending.Swap(false)
+		if pending {
+			mainWindow.EmitEvent("tray-check-updates", nil)
+		}
+	})
 	trayMenu.Add("显示主界面").OnClick(func(_ *application.Context) {
 		mainWindow.Show()
 		mainWindow.Focus()
 	})
 	trayMenu.Add("检查更新").OnClick(func(_ *application.Context) {
-		// Reassert the transparent overlay's native window state as soon as the
-		// tray menu closes, then once more after the network check completes.
-		danmakuDisplayService.RestorePinnedWindow()
-		go func() {
-			defer danmakuDisplayService.RestorePinnedWindow()
-			info, err := updateService.CheckForUpdates()
-			if err != nil {
-				log.Printf("check application updates: %v", err)
-				return
-			}
-			if info.Available {
-				log.Printf("application update available: %s (open Settings to install)", info.LatestVersion)
-			} else {
-				log.Printf("application is up to date: %s", info.CurrentVersion)
-			}
-		}()
+		trayCheckUpdatesPending.Store(true)
+		mainWindow.Show()
+		mainWindow.Focus()
 	})
 	trayMenu.AddSeparator()
 	trayMenu.Add("退出 My-LiveHub").OnClick(func(_ *application.Context) {

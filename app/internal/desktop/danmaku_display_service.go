@@ -218,9 +218,14 @@ func (s *DanmakuDisplayService) SetWindowPinned(pinned bool) error {
 	if pinned {
 		s.window.SetAlwaysOnTop(true)
 		s.window.SetIgnoreMouseEvents(true)
-		_ = restoreNativeTopmost(s.window)
+		if !restoreDanmakuWindowComposition(s.window, true) {
+			return errors.New("恢复弹幕窗口鼠标穿透样式失败")
+		}
 	} else {
 		s.window.SetIgnoreMouseEvents(false)
+		if !restoreDanmakuWindowComposition(s.window, false) {
+			return errors.New("恢复弹幕窗口透明合成样式失败")
+		}
 		s.window.SetAlwaysOnTop(false)
 	}
 	s.windowCfg = next; s.pinned = pinned; return nil
