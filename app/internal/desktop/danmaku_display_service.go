@@ -178,7 +178,19 @@ func (s *DanmakuDisplayService) SetWindowPinned(pinned bool) error {
 	if s.manager == nil { return errors.New("弹幕窗口配置服务不可用") }
 	next := s.windowCfg; next.Pinned = pinned
 	if err := config.SaveTyped(s.manager, "danmaku_window.json", next, func(value config.DanmakuWindowConfig) error { return value.Validate() }); err != nil { return err }
-	if pinned { s.window.SetAlwaysOnTop(true); s.window.SetIgnoreMouseEvents(true) } else { s.window.SetIgnoreMouseEvents(false); s.window.SetAlwaysOnTop(false) }
+	if pinned {
+		s.window.SetAlwaysOnTop(true)
+		s.window.SetIgnoreMouseEvents(true)
+		if !restoreDanmakuWindowComposition(s.window, true) {
+			return errors.New("恢复弹幕窗口鼠标穿透样式失败")
+		}
+	} else {
+		s.window.SetIgnoreMouseEvents(false)
+		if !restoreDanmakuWindowComposition(s.window, false) {
+			return errors.New("恢复弹幕窗口透明合成样式失败")
+		}
+		s.window.SetAlwaysOnTop(false)
+	}
 	s.windowCfg = next; s.pinned = pinned; return nil
 }
 func (s *DanmakuDisplayService) GetWindowState() DanmakuWindowState {
