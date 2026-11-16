@@ -9,7 +9,7 @@ const theme=ref('dark'),accentColor=ref('indigo')
 const updateInfo=ref<UpdateInfo|null>(null),updateBusy=ref(false),installBusy=ref(false),updateError=ref('')
 const skippedVersion=ref(localStorage.getItem('my-livehub-skipped-update-version')||''),updateDeferred=ref(false)
 const showUpdateChoices=ref(false)
-async function checkUpdate(){updateBusy.value=true;updateError.value='';updateDeferred.value=false;showUpdateChoices.value=false;try{updateInfo.value=await UpdateService.CheckForUpdates();showUpdateChoices.value=!!updateInfo.value?.available&&skippedVersion.value!==updateInfo.value.latest_version}catch(error){updateError.value=error instanceof Error?error.message:String(error)}finally{updateBusy.value=false}}
+async function checkUpdate(){console.info('[tray-update-diagnostic] SettingsView checkUpdate started',new Date().toISOString());updateBusy.value=true;updateError.value='';updateDeferred.value=false;showUpdateChoices.value=false;try{updateInfo.value=await UpdateService.CheckForUpdates();showUpdateChoices.value=!!updateInfo.value?.available&&skippedVersion.value!==updateInfo.value.latest_version;console.info('[tray-update-diagnostic] CheckForUpdates resolved',new Date().toISOString(),'available=',updateInfo.value?.available)}catch(error){updateError.value=error instanceof Error?error.message:String(error);console.error('[tray-update-diagnostic] CheckForUpdates rejected',new Date().toISOString(),error)}finally{updateBusy.value=false;console.info('[tray-update-diagnostic] SettingsView checkUpdate finished',new Date().toISOString())}}
 function deferUpdate(){updateDeferred.value=true;showUpdateChoices.value=false}
 function skipUpdate(){if(!updateInfo.value?.latest_version)return;skippedVersion.value=updateInfo.value.latest_version;localStorage.setItem('my-livehub-skipped-update-version',skippedVersion.value);showUpdateChoices.value=false;updateDeferred.value=false}
 async function installUpdate(){if(!updateInfo.value?.available)return;if(!window.confirm('确认下载并安装 My-LiveHub '+updateInfo.value.latest_version+'？安装时程序将自动退出并在完成后重新启动。'))return;installBusy.value=true;updateError.value='';try{await UpdateService.InstallUpdate()}catch(error){updateError.value=error instanceof Error?error.message:String(error);installBusy.value=false}}
@@ -18,6 +18,7 @@ watch(appearance,v=>{theme.value=v.theme;accentColor.value=v.accent_color},{imme
 onMounted(()=>{void loadAppearance()})
 watch(()=>route.query.checkUpdate, value=>{
   if(!value) return
+  console.info('[tray-update-diagnostic] SettingsView route query received',new Date().toISOString(),'value=',value)
   void checkUpdate()
   const query={...route.query}
   delete query.checkUpdate
