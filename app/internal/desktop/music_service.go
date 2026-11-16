@@ -55,6 +55,7 @@ type MusicService struct {
 	workerDone chan struct{}
 	requests chan events.Event
 	requestDropped atomic.Uint64
+	requestCooldowns map[string]time.Time
 	lastError string
 
 	watchCancel context.CancelFunc
@@ -89,7 +90,7 @@ func NewMusicServiceWithDependencies(manager *config.Manager, value config.Music
 	service := &MusicService{
 		manager: manager, buffer: buffer, value: cloneMusicConfig(value),
 		sources: sources, engine: engine, queue: music.NewQueue(value.QueueCapacity),
-		searcher: music.NewLXSearchClient(nil), lyricsCache: make(map[string]string),
+		searcher: music.NewLXSearchClient(nil), lyricsCache: make(map[string]string), requestCooldowns: make(map[string]time.Time),
 	}
 	// Keep the lightweight command listener alive while the module is stopped,
 	// matching the video module so users still receive an explicit failure notice.
@@ -262,6 +263,11 @@ func (s *MusicService) processSongRequest(ctx context.Context, event events.Even
 		s.publishRequestNotice("music_request_failed", event.UserName, "", "请在点歌指令后输入歌曲名称")
 		return
 	}
+	if remaining := s.requestCooldownRemaining(event); remaining > 0 {
+		seconds := int((remaining + time.Second - 1) / time.Second)
+		s.publishRequestNotice("music_request_failed", event.UserName, "", fmt.Sprintf("点歌冷却中，请等待 %d 秒后再试", seconds))
+		return
+	}
 	if requireFanMedal && !event.IsRoomOwner && !event.IsModerator {
 		if checker == nil { reason := "音乐点播粉丝勋章校验服务不可用"; s.setLastError(errors.New(reason)); s.publishRequestNotice("music_request_failed", event.UserName, "", reason); return }
 		allowed, level, checkErr := checker.Check(ctx, event.UserID, fanMedalLevel)
@@ -282,8 +288,42 @@ func (s *MusicService) processSongRequest(ctx context.Context, event events.Even
 		s.setLastError(fmt.Errorf("加入观众点播队列失败：%w", err))
 		s.publishRequestNotice("music_request_failed", event.UserName, "", err.Error())
 	} else {
+		s.recordRequestCooldown(event)
 		s.publishRequestNotice("music_request_success", event.UserName, track.Title, "")
 	}
+}
+
+func musicRequestCooldownKey(event events.Event) string {
+	if event.UserID > 0 { return fmt.Sprintf("uid:%d", event.UserID) }
+	name := strings.ToLower(strings.TrimSpace(event.UserName))
+	if name == "" { return "" }
+	return "name:" + name
+}
+
+func (s *MusicService) requestCooldownRemaining(event events.Event) time.Duration {
+	if s == nil || event.IsRoomOwner || event.IsModerator { return 0 }
+	key := musicRequestCooldownKey(event)
+	if key == "" { return 0 }
+	now := time.Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for user, expiresAt := range s.requestCooldowns {
+		if !now.Before(expiresAt) { delete(s.requestCooldowns, user) }
+	}
+	expiresAt, ok := s.requestCooldowns[key]
+	if !ok { return 0 }
+	return expiresAt.Sub(now)
+}
+
+func (s *MusicService) recordRequestCooldown(event events.Event) {
+	if s == nil || event.IsRoomOwner || event.IsModerator { return }
+	key := musicRequestCooldownKey(event)
+	if key == "" { return }
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.value.RequestCooldownSeconds <= 0 { return }
+	if s.requestCooldowns == nil { s.requestCooldowns = make(map[string]time.Time) }
+	s.requestCooldowns[key] = time.Now().Add(time.Duration(s.value.RequestCooldownSeconds) * time.Second)
 }
 
 // searchSongRequestTrack tries enabled sources in configured priority order.

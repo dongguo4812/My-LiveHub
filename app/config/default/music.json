@@ -1,11 +1,12 @@
 {
-  "config_version": 13,
+  "config_version": 14,
   "enabled": true,
   "command_enabled": true,
   "skip_command_enabled": true,
   "skip_command": "切歌",
   "command_prefix": "点歌",
   "queue_capacity": 100,
+  "request_cooldown_seconds": 0,
   "queue_display_count": 5,
   "require_fan_medal": false,
   "fan_medal_level": 1,

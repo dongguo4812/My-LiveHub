@@ -430,6 +430,8 @@ onUnmounted(() => {
         <div class="setting-row"><div><strong>切歌命令</strong><p>发送完整命令即可切换下一首，例如：切歌。</p></div><el-input v-model="config.skip_command" maxlength="16" style="width:220px" /></div>
         <el-divider />
         <div class="setting-row"><div><strong>播放队列容量</strong><p>统一队列允许等待的歌曲数量。</p></div><el-input-number v-model="config.queue_capacity" :min="1" :max="1000" /></div>
+        <el-divider />
+        <div class="setting-row"><div><strong>普通观众点播冷却时间（秒）</strong><p>每位普通观众成功点播后，需要等待指定时间才能再次点播；设置为 0 则不限制。主播和房管不受限制。</p></div><el-input-number v-model="config.request_cooldown_seconds" :min="0" :max="86400" :step="5" /></div>
  
       </div>
       <div class="card-actions"><el-button type="primary" :loading="saving" :disabled="!config" @click="saveConfig">保存全部设置</el-button></div>

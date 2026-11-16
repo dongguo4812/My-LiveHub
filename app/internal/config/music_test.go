@@ -197,3 +197,26 @@ func TestMusicConfigV12MigrationPreservesEmptyEndpoints(t *testing.T) {
 	if !changed { t.Fatal("expected v12 configuration migration") }
 	if got.LXAPIEndpoints == nil || len(got.LXAPIEndpoints) != 0 { t.Fatalf("explicitly empty API endpoints should remain empty, got %#v", got.LXAPIEndpoints) }
 }
+
+
+func TestMusicConfigRequestCooldownValidation(t *testing.T) {
+	c := DefaultMusicConfig()
+	c.RequestCooldownSeconds = 0
+	if err := c.Validate(); err != nil { t.Fatalf("zero should disable cooldown: %v", err) }
+	c.RequestCooldownSeconds = 86400
+	if err := c.Validate(); err != nil { t.Fatalf("maximum cooldown rejected: %v", err) }
+	c.RequestCooldownSeconds = -1
+	if err := c.Validate(); err == nil { t.Fatal("negative cooldown should be rejected") }
+	c.RequestCooldownSeconds = 86401
+	if err := c.Validate(); err == nil { t.Fatal("cooldown above 24 hours should be rejected") }
+}
+
+func TestMusicConfigV13MigrationAddsRequestCooldownDefault(t *testing.T) {
+	got, changed := MigrateMusicConfig(MusicConfig{
+		ConfigVersion: 13, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
+		SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100, QueueDisplayCount: 5,
+	})
+	if !changed { t.Fatal("expected v13 configuration migration") }
+	if err := got.Validate(); err != nil { t.Fatal(err) }
+	if got.RequestCooldownSeconds != 0 { t.Fatalf("expected cooldown disabled by default, got %d", got.RequestCooldownSeconds) }
+}
