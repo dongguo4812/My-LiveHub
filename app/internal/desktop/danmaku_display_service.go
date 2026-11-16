@@ -130,6 +130,26 @@ func (s *DanmakuDisplayService) OpenWindow() error {
 	return nil
 }
 
+// RestorePinnedWindow reapplies the overlay's native topmost and click-through
+// state after a system-tray menu has been dismissed. Windows may otherwise
+// leave another window above a transparent, click-through overlay.
+func (s *DanmakuDisplayService) RestorePinnedWindow() {
+	if s == nil {
+		return
+	}
+	s.mu.RLock()
+	window := s.window
+	pinned := s.pinned && window != nil
+	s.mu.RUnlock()
+	if !pinned {
+		return
+	}
+	window.UnMinimise()
+	window.Show()
+	window.SetAlwaysOnTop(true)
+	window.SetIgnoreMouseEvents(true)
+}
+
 func (s *DanmakuDisplayService) scheduleWindowGeometrySave(window *application.WebviewWindow) {
 	if s == nil || window == nil { return }
 	s.mu.Lock(); defer s.mu.Unlock()
