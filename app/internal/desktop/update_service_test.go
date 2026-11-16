@@ -1,6 +1,12 @@
 package desktop
 
 import (
+	"archive/zip"
+	"bytes"
+	"crypto/sha256"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
