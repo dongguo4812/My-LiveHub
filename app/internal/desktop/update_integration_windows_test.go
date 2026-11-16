@@ -113,6 +113,18 @@ func waitForFile(t *testing.T, path string) string {
 	return ""
 }
 
+func readFixtureVersion(t *testing.T, executable string) string {
+	t.Helper()
+	versionFile := filepath.Join(t.TempDir(), "version.txt")
+	cmd := exec.Command(executable, "--write-version", versionFile)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("read fixture version: %v\\n%s", err, output)
+	}
+	data, err := os.ReadFile(versionFile)
+	if err != nil { t.Fatal(err) }
+	return strings.TrimSpace(string(data))
+}
+
 func writePortableArchive(t *testing.T, archivePath, executable string) {
 	t.Helper()
 	file, err := os.Create(archivePath)
@@ -176,7 +188,7 @@ func TestPortableUpdaterIntegrationRollback(t *testing.T) {
 	script := writeUpdaterTask(t, root, temp, exe, archive, "portable", "1.0.2")
 	started := filepath.Join(t.TempDir(), "started-old.txt")
 	if err := runUpdaterHelper(t, script, filepath.Join(temp, "task.json"), "MY_LIVEHUB_FIXTURE_STARTED="+started); err == nil { t.Fatal("expected version mismatch to fail") }
-	if got := waitForFile(t, started); got != "1.0.0" { t.Fatalf("rollback restarted version %q, want 1.0.0", got) }
+	if got := readFixtureVersion(t, exe); got != "1.0.0" { t.Fatalf("rollback executable version %q, want 1.0.0", got) }
 	data, err := os.ReadFile(exe)
 	if err != nil { t.Fatal(err) }
 	if len(data) != len(oldBytes) { t.Fatal("old executable was not restored") }
@@ -220,7 +232,7 @@ func TestInstallerUpdaterIntegrationRollback(t *testing.T) {
 	if err := runUpdaterHelper(t, script, filepath.Join(temp, "task.json"),
 		"MY_LIVEHUB_FIXTURE_MODE=installer", "MY_LIVEHUB_FIXTURE_TARGET="+exe,
 		"MY_LIVEHUB_FIXTURE_FAIL=1", "MY_LIVEHUB_FIXTURE_STARTED="+started); err == nil { t.Fatal("expected installer failure") }
-	if got := waitForFile(t, started); got != "1.0.0" { t.Fatalf("rollback restarted version %q, want 1.0.0", got) }
+	if got := readFixtureVersion(t, exe); got != "1.0.0" { t.Fatalf("rollback executable version %q, want 1.0.0", got) }
 	data, err := os.ReadFile(exe)
 	if err != nil { t.Fatal(err) }
 	if len(data) != len(oldBytes) { t.Fatal("old executable was not restored") }
