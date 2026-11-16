@@ -142,6 +142,8 @@ func (s *UpdateService) CheckForUpdates() (UpdateInfo, error) {
 
 func compareVersions(left, right string) int {
 	parse := func(value string) []int {
+		value = strings.TrimSpace(value)
+		value = strings.TrimPrefix(strings.TrimPrefix(value, "v"), "V")
 		value = strings.SplitN(value, "-", 2)[0]
 		parts := strings.Split(value, ".")
 		result := make([]int, len(parts))
@@ -153,10 +155,18 @@ func compareVersions(left, right string) int {
 	a, b := parse(left), parse(right)
 	for i := 0; i < len(a) || i < len(b); i++ {
 		x, y := 0, 0
-		if i < len(a) { x = a[i] }
-		if i < len(b) { y = b[i] }
-		if x > y { return 1 }
-		if x < y { return -1 }
+		if i < len(a) {
+			x = a[i]
+		}
+		if i < len(b) {
+			y = b[i]
+		}
+		if x > y {
+			return 1
+		}
+		if x < y {
+			return -1
+		}
 	}
 	return 0
 }
