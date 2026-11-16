@@ -102,7 +102,6 @@ func (s *DanmakuDisplayService) OpenWindow() error {
 	options := application.WebviewWindowOptions{
 		Name: "danmaku-overlay", Title: "", Width: cfg.Width, Height: cfg.Height,
 		MinWidth: 420, MinHeight: 180, Frameless: true, DisableResize: false,
-		AlwaysOnTop: cfg.Pinned, IgnoreMouseEvents: cfg.Pinned,
 		BackgroundType: application.BackgroundTypeTransparent, BackgroundColour: application.NewRGBA(0, 0, 0, 0),
 		URL: "/#/danmaku/overlay",
 		Windows: application.WindowsWindow{DisableFramelessWindowDecorations: true, HiddenOnTaskbar: true},
@@ -121,50 +120,14 @@ func (s *DanmakuDisplayService) OpenWindow() error {
 	window.OnWindowEvent(events.Common.WindowDidResize, func(_ *application.WindowEvent) { s.scheduleWindowGeometrySave(window) })
 	restorePinned := func(_ *application.WindowEvent) {
 		s.mu.RLock(); shouldRestore := s.window == window && s.pinned; s.mu.RUnlock()
-		if shouldRestore {
-			go func() {
-				window.UnMinimise()
-				window.Show()
-				window.SetAlwaysOnTop(true)
-				window.SetIgnoreMouseEvents(true)
-				_ = restoreNativeTopmost(window)
-			}()
-		}
+		if shouldRestore { go func() { window.UnMinimise(); window.Show(); window.SetAlwaysOnTop(true); window.SetIgnoreMouseEvents(true) }() }
 	}
 	window.OnWindowEvent(events.Common.WindowMinimise, restorePinned)
 	window.OnWindowEvent(events.Common.WindowHide, restorePinned)
 	if !cfg.PositionSaved { window.Center() }
 	window.Show()
-	if cfg.Pinned {
-		window.SetAlwaysOnTop(true)
-		window.SetIgnoreMouseEvents(true)
-		_ = restoreNativeTopmost(window)
-	}
+	if cfg.Pinned { window.SetAlwaysOnTop(true); window.SetIgnoreMouseEvents(true) }
 	return nil
-}
-
-// RestorePinnedWindow reapplies the overlay's native topmost and click-through
-// state after a system-tray menu has been dismissed. Windows may otherwise
-// leave another window above a transparent, click-through overlay.
-func (s *DanmakuDisplayService) RestorePinnedWindow() {
-	if s == nil {
-		return
-	}
-	s.mu.RLock()
-	window := s.window
-	pinned := s.pinned && window != nil
-	s.mu.RUnlock()
-	if !pinned {
-		return
-	}
-	window.UnMinimise()
-	window.Show()
-	window.SetAlwaysOnTop(true)
-	window.SetIgnoreMouseEvents(true)
-	// Wails updates the topmost style through its platform abstraction. Reapply
-	// HWND_TOPMOST directly as well: Windows tray popup menus can disturb the
-	// z-order of transparent, click-through windows.
-	_ = restoreNativeTopmost(window)
 }
 
 func (s *DanmakuDisplayService) scheduleWindowGeometrySave(window *application.WebviewWindow) {
