@@ -12,39 +12,64 @@ const microphoneActive = ref(false)
 const microphoneError = ref('')
 let microphoneStream: MediaStream | null = null
 let microphoneContext: AudioContext | null = null
-let microphoneAnalyser: AnalyserNode | null = null
-let microphoneSamples: Float32Array<ArrayBuffer> | null = null
-let microphoneFrame = 0
+let microphoneWorkletNode: AudioWorkletNode | null = null
+let microphoneMuteGain: GainNode | null = null
 let microphoneEndpoint = ''
+let microphoneResumePromise: Promise<void> | null = null
+
+async function resumeModuleMicrophoneAudio() {
+  const context = microphoneContext
+  if (!context || context.state === 'running' || context.state === 'closed' || !microphoneActive.value) return
+  if (microphoneResumePromise) return microphoneResumePromise
+  microphoneResumePromise = context.resume().then(() => {
+    if (context.state !== 'running' && microphoneActive.value) {
+      microphoneError.value = '麦克风音频上下文未能恢复运行，请重新启动麦克风'
+    }
+  }).catch(error => {
+    if (microphoneActive.value) microphoneError.value = '恢复麦克风音频失败：' + String(error)
+  }).finally(() => {
+    microphoneResumePromise = null
+  })
+  return microphoneResumePromise
+}
+
+function handleModuleMicrophoneVisibilityChange() {
+  if (document.visibilityState === 'visible') void resumeModuleMicrophoneAudio()
+}
 
 function stopModuleMicrophone() {
-  if (microphoneFrame) cancelAnimationFrame(microphoneFrame)
-  microphoneFrame = 0
+  if (microphoneWorkletNode) {
+    microphoneWorkletNode.port.onmessage = null
+    microphoneWorkletNode.disconnect()
+    microphoneWorkletNode = null
+  }
+  microphoneMuteGain?.disconnect()
+  microphoneMuteGain = null
   microphoneStream?.getTracks().forEach(track => track.stop())
   microphoneStream = null
-  microphoneAnalyser = null
-  microphoneSamples = null
-  void microphoneContext?.close()
+  if (microphoneContext) {
+    microphoneContext.onstatechange = null
+    void microphoneContext.close()
+  }
   microphoneContext = null
+  microphoneResumePromise = null
   microphoneActive.value = false
   if (microphoneEndpoint) {
     void fetch(microphoneEndpoint, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: JSON.stringify({ value: 0 }), cache: 'no-store' }).catch(() => undefined)
   }
 }
 
-function analyseModuleMicrophone(sensitivity: number, smoothing: number, previous = 0) {
-  if (!microphoneAnalyser || !microphoneSamples) return
-  microphoneAnalyser.getFloatTimeDomainData(microphoneSamples)
-  let sum = 0
-  for (let i = 0; i < microphoneSamples.length; i++) sum += microphoneSamples[i] * microphoneSamples[i]
-  const rms = Math.sqrt(sum / microphoneSamples.length)
-  const raw = Math.max(0, Math.min(1, (rms * sensitivity - 0.012) * 8))
-  const value = previous * smoothing + raw * (1 - smoothing)
+function analyseModuleMicrophone(rms: number, sensitivity: number, smoothing: number) {
+  if (!microphoneActive.value) return
+  const boundedRms = Math.max(0, Number(rms) || 0)
+  const raw = Math.max(0, Math.min(1, (boundedRms * sensitivity - 0.012) * 8))
+  const value = analyseModuleMicrophone.previous * smoothing + raw * (1 - smoothing)
+  analyseModuleMicrophone.previous = value
   if (microphoneEndpoint) {
     void fetch(microphoneEndpoint, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: JSON.stringify({ value }), cache: 'no-store' }).catch(() => undefined)
   }
-  microphoneFrame = requestAnimationFrame(() => analyseModuleMicrophone(sensitivity, smoothing, value))
 }
+analyseModuleMicrophone.previous = 0
 
 async function toggleModuleMicrophone() {
   if (microphoneLoading.value) return
@@ -82,15 +107,26 @@ async function toggleModuleMicrophone() {
       },
     })
     microphoneContext = new AudioContext()
+    await microphoneContext.audioWorklet.addModule('/live2d-runtime/mic-processor.js')
     await microphoneContext.resume()
-    microphoneAnalyser = microphoneContext.createAnalyser()
-    microphoneAnalyser.fftSize = 1024
-    microphoneAnalyser.smoothingTimeConstant = 0
-    microphoneContext.createMediaStreamSource(microphoneStream).connect(microphoneAnalyser)
-    microphoneSamples = new Float32Array(microphoneAnalyser.fftSize) as Float32Array<ArrayBuffer>
-    await updateLive2DSettings({ ...config, microphone_enabled: true })
+    const source = microphoneContext.createMediaStreamSource(microphoneStream)
+    microphoneWorkletNode = new AudioWorkletNode(microphoneContext, 'livehub-mic-analyser')
+    microphoneMuteGain = microphoneContext.createGain()
+    microphoneMuteGain.gain.value = 0
+    analyseModuleMicrophone.previous = 0
+    microphoneWorkletNode.port.onmessage = (event: MessageEvent<{ rms?: number }>) => {
+      if (!microphoneActive.value) return
+      analyseModuleMicrophone(Number(event.data?.rms) || 0, config.microphone_sensitivity, config.microphone_smoothing)
+    }
+    source.connect(microphoneWorkletNode)
+    microphoneWorkletNode.connect(microphoneMuteGain)
+    microphoneMuteGain.connect(microphoneContext.destination)
     microphoneActive.value = true
-    analyseModuleMicrophone(config.microphone_sensitivity, config.microphone_smoothing)
+    microphoneContext.onstatechange = () => {
+      if (microphoneContext?.state === 'suspended' && microphoneActive.value) void resumeModuleMicrophoneAudio()
+    }
+    await resumeModuleMicrophoneAudio()
+    await updateLive2DSettings({ ...config, microphone_enabled: true })
     ElMessage.success('麦克风已启动')
   } catch (error) {
     stopModuleMicrophone()
@@ -133,8 +169,20 @@ async function toggle(name: string, status: string) {
   } finally { loading.value = { ...loading.value, [name]: false } }
 }
 let timer: ReturnType<typeof setInterval> | undefined
-onMounted(() => { void refresh(); timer = setInterval(() => void refresh(), 3000) })
-onUnmounted(() => { if (timer) clearInterval(timer); stopModuleMicrophone() })
+onMounted(() => {
+  void refresh()
+  timer = setInterval(() => void refresh(), 3000)
+  document.addEventListener('visibilitychange', handleModuleMicrophoneVisibilityChange)
+  window.addEventListener('focus', handleModuleMicrophoneVisibilityChange)
+  window.addEventListener('pageshow', handleModuleMicrophoneVisibilityChange)
+})
+onUnmounted(() => {
+  if (timer) clearInterval(timer)
+  document.removeEventListener('visibilitychange', handleModuleMicrophoneVisibilityChange)
+  window.removeEventListener('focus', handleModuleMicrophoneVisibilityChange)
+  window.removeEventListener('pageshow', handleModuleMicrophoneVisibilityChange)
+  stopModuleMicrophone()
+})
 </script>
 <template>
   <section class="modules-page">
