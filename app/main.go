@@ -373,7 +373,11 @@ func main() {
 		mainWindow.Focus()
 	})
 	trayMenu.Add("检查更新").OnClick(func(_ *application.Context) {
+		// Reassert the transparent overlay's native window state as soon as the
+		// tray menu closes, then once more after the network check completes.
+		danmakuDisplayService.RestorePinnedWindow()
 		go func() {
+			defer danmakuDisplayService.RestorePinnedWindow()
 			info, err := updateService.CheckForUpdates()
 			if err != nil {
 				log.Printf("check application updates: %v", err)
