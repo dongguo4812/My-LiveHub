@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import brandIcon from '../../build/icon.png'
 import {
   HomeFilled, DataLine, Connection, ChatDotRound, User, SetUp,
   Grid, Monitor, Setting, Document, Fold, Expand, Microphone, Headset, VideoPlay,
@@ -58,7 +59,7 @@ onUnmounted(() => {
   <el-container v-else class="shell">
     <el-aside :width="collapsed ? '68px' : '226px'" class="sidebar">
       <div class="brand">
-        <div class="brand-mark">L</div>
+        <div class="brand-mark"><img :src="brandIcon" alt="My-LiveHub" /></div>
         <div v-if="!collapsed" class="brand-copy">
           <strong>My-LiveHub</strong>
           <small>LIVE CONTROL CENTER</small>
