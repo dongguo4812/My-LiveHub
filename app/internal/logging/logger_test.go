@@ -11,7 +11,7 @@ import (
 func TestDailyWriterCreatesSeparateFiles(t *testing.T) {
 	now := time.Date(2026, 11, 14, 10, 0, 0, 0, time.Local)
 	directory := t.TempDir()
-	writer, err := newDailyWriter(directory, 14, 1024, 2, func() time.Time { return now })
+	writer, err := newDailyWriter(directory, 14, func() time.Time { return now })
 	if err != nil { t.Fatal(err) }
 	if _, err := writer.Write([]byte("day one\n")); err != nil { t.Fatal(err) }
 	now = now.AddDate(0, 0, 1)
@@ -33,7 +33,7 @@ func TestDailyWriterRemovesExpiredLogs(t *testing.T) {
 	for _, name := range []string{"my-livehub-2026-11-12.log", "my-livehub-2026-11-13.log", "my-livehub-2026-11-14.log", "keep-me.txt"} {
 		if err := os.WriteFile(filepath.Join(directory, name), []byte("x"), 0o644); err != nil { t.Fatal(err) }
 	}
-	writer, err := newDailyWriter(directory, 2, 1024, 2, func() time.Time { return now })
+	writer, err := newDailyWriter(directory, 2, func() time.Time { return now })
 	if err != nil { t.Fatal(err) }
 	defer writer.Close()
 	if _, err := os.Stat(filepath.Join(directory, "my-livehub-2026-11-12.log")); !os.IsNotExist(err) {
@@ -53,4 +53,30 @@ func TestNewCreatesLogFileAndDirectory(t *testing.T) {
 		t.Fatalf("unexpected daily log path: %s", logger.Path())
 	}
 	if err := logger.Close(); err != nil { t.Fatal(err) }
+}
+
+func TestDailyWriterDoesNotCreateSizeRotationFiles(t *testing.T) {
+	now := time.Date(2026, 11, 16, 10, 0, 0, 0, time.Local)
+	directory := t.TempDir()
+	writer, err := newDailyWriter(directory, 14, func() time.Time { return now })
+	if err != nil { t.Fatal(err) }
+	payload := strings.Repeat("x", 12<<20)
+	if _, err := writer.Write([]byte(payload)); err != nil { t.Fatal(err) }
+	if err := writer.Close(); err != nil { t.Fatal(err) }
+	entries, err := os.ReadDir(directory)
+	if err != nil { t.Fatal(err) }
+	if len(entries) != 1 || entries[0].Name() != "my-livehub-2026-11-16.log" {
+		t.Fatalf("expected one date-only log file, got %v", entries)
+	}
+}
+
+func TestDailyWriterKeepsExistingRotationFiles(t *testing.T) {
+	now := time.Date(2026, 11, 16, 10, 0, 0, 0, time.Local)
+	directory := t.TempDir()
+	oldBackup := filepath.Join(directory, "my-livehub-2026-11-16.log.1")
+	if err := os.WriteFile(oldBackup, []byte("previous log"), 0o644); err != nil { t.Fatal(err) }
+	writer, err := newDailyWriter(directory, 14, func() time.Time { return now })
+	if err != nil { t.Fatal(err) }
+	defer writer.Close()
+	if _, err := os.Stat(oldBackup); err != nil { t.Fatalf("existing log backup should be preserved: %v", err) }
 }
