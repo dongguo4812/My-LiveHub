@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { Events } from '@wailsio/runtime'
 import { useRoute, useRouter } from 'vue-router'
 import brandIcon from '../../build/icon.png'
 import {
@@ -38,10 +39,18 @@ const groups = [
 
 let refreshTimer: ReturnType<typeof setInterval> | undefined
 let voiceAudioInitialized = false
+let unsubscribeTrayUpdate: (() => void) | undefined
 function navigate(path: string) { router.push(path) }
 
 onMounted(async () => {
   await router.isReady()
+  unsubscribeTrayUpdate = Events.On('tray-check-updates', () => {
+    // Wails broadcasts events to every WebView. Auxiliary standalone windows
+    // (danmaku overlay, desktop lyrics, scene output, etc.) must never navigate
+    // in response to a main-window tray command.
+    if (route.meta.standalone) return
+    void router.push({ path: '/settings', query: { ...route.query, checkUpdate: String(Date.now()) } })
+  })
   if (route.path.startsWith('/scene/')) return
   initializeVoiceAudio()
   voiceAudioInitialized = true
@@ -49,6 +58,7 @@ onMounted(async () => {
   refreshTimer = setInterval(() => void refreshCoreStatus(), 3000)
 })
 onUnmounted(() => {
+  unsubscribeTrayUpdate?.()
   if (voiceAudioInitialized) disposeVoiceAudio()
   if (refreshTimer) clearInterval(refreshTimer)
 })
