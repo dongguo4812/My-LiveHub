@@ -29,7 +29,7 @@ func main() {
 		if err := os.WriteFile(args[1], []byte(version), 0644); err != nil { os.Exit(2) }
 		return
 	}
-	if os.Getenv("MY_LIVEHUB_FIXTURE_MODE") == "installer" {
+	if os.Getenv("MY_LIVEHUB_FIXTURE_MODE") == "installer" && len(args) > 0 && args[0] == "/VERYSILENT" {
 		if os.Getenv("MY_LIVEHUB_FIXTURE_FAIL") == "1" { os.Exit(9) }
 		self, err := os.Executable()
 		if err != nil { os.Exit(3) }
