@@ -57,3 +57,29 @@ func TestUpdaterVerifiesTargetExecutableVersion(t *testing.T) {
 		t.Fatal("updater does not wait for the old application process")
 	}
 }
+
+func TestInstallerRollbackExcludesActiveUpdateWorkspace(t *testing.T) {
+	if !strings.Contains(updatePowerShellScript, "$oldFiles = @(Get-ChildItem -LiteralPath $root -File -Recurse -Force | Where-Object") {
+		t.Fatal("installer backup must exclude the active update workspace")
+	}
+	if !strings.Contains(updatePowerShellScript, "Where-Object { !$_.FullName.StartsWith(($temp.TrimEnd([char]92)") {
+		t.Fatal("installer rollback cleanup must not delete the active update workspace")
+	}
+}
+
+func TestUpdateWorkspaceIsCreatedBesideApplication(t *testing.T) {
+	root := t.TempDir()
+	dir, err := createUpdateWorkspace(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	relative, err := filepath.Rel(root, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.HasPrefix(relative, "..") || filepath.IsAbs(relative) {
+		t.Fatalf("update workspace %q is not inside application directory %q", dir, root)
+	}
+}
+

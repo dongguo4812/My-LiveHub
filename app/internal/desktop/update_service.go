@@ -171,6 +171,10 @@ func compareVersions(left, right string) int {
 	return 0
 }
 
+func createUpdateWorkspace(applicationDir string) (string, error) {
+	return os.MkdirTemp(applicationDir, ".my-livehub-update-*")
+}
+
 func (s *UpdateService) InstallUpdate() error {
 	if s == nil || s.latest == nil || s.asset == nil {
 		return errors.New("请先检查更新")
@@ -178,7 +182,13 @@ func (s *UpdateService) InstallUpdate() error {
 	if compareVersions(strings.TrimPrefix(s.latest.TagName, "v"), s.currentVersion) <= 0 {
 		return errors.New("当前已经是最新版本")
 	}
-	tempDir, err := os.MkdirTemp("", "my-livehub-update-*")
+	// Keep the update workspace beside the running application instead of
+	// relying on os.TempDir(). On Windows, TEMP/TMP may point inside the
+	// portable application directory (or to an unexpected custom location),
+	// which can create confusing directories such as "veHub" and make the
+	// helper operate on an unintended path. The application directory is
+	// already required to be writable for portable updates.
+	tempDir, err := createUpdateWorkspace(s.applicationDir)
 	if err != nil {
 		return fmt.Errorf("创建更新临时目录失败：%w", err)
 	}
@@ -326,7 +336,7 @@ try {
         $p -eq 'extensions/lol_hex_display/logs' -or $p.StartsWith('extensions/lol_hex_display/logs/') -or
         $p -eq 'extensions/lol_hex_display/dist/lol_hex_display/logs' -or $p.StartsWith('extensions/lol_hex_display/dist/lol_hex_display/logs/')
     }
-    $oldFiles = @(Get-ChildItem -LiteralPath $root -File -Recurse -Force)
+    $oldFiles = @(Get-ChildItem -LiteralPath $root -File -Recurse -Force | Where-Object { !$_.FullName.StartsWith(($temp.TrimEnd([char]92) + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase) })
     foreach ($file in $oldFiles) {
       $relative = $file.FullName.Substring($root.Length).TrimStart([char]92)
       if (Is-Preserved $relative) { continue }
@@ -334,15 +344,27 @@ try {
       New-Item -ItemType Directory -Force -Path (Split-Path -Parent $backupFile) | Out-Null
       Copy-Item -LiteralPath $file.FullName -Destination $backupFile -Force
     }
+    # Preserve the running executable explicitly; do not rely only on recursive enumeration.
+    $exeRelative = $exe.Substring($root.Length).TrimStart([char]92)
+    $backupExe = Join-Path $backup $exeRelative
+    if (!(Test-Path -LiteralPath $exe -PathType Leaf)) {
+      throw "Installer target executable is missing before update: $exe"
+    }
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $backupExe) | Out-Null
+    Copy-Item -LiteralPath $exe -Destination $backupExe -Force
+    if (!(Test-Path -LiteralPath $backupExe -PathType Leaf)) {
+      throw "Could not back up installer target executable: $backupExe"
+    }
+    Write-UpdateLog "Installer executable backed up to $backupExe"
     try {
       $arguments = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR="' + $root + '"'))
       $installer = Start-Process -FilePath $package -ArgumentList $arguments -Wait -PassThru
       if ($installer.ExitCode -ne 0) { throw "Installer exited with code $($installer.ExitCode)" }
       Assert-ExecutableVersion $exe
     } catch {
-      Get-ChildItem -LiteralPath $root -File -Recurse -Force | ForEach-Object {
+      Get-ChildItem -LiteralPath $root -File -Recurse -Force | Where-Object { !$_.FullName.StartsWith(($temp.TrimEnd([char]92) + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object {
         $relative = $_.FullName.Substring($root.Length).TrimStart([char]92)
-        if (!(Is-Preserved $relative)) { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
+        if ($_.FullName -ne $exe -and !(Is-Preserved $relative)) { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
       }
       Get-ChildItem -LiteralPath $backup -File -Recurse -Force | ForEach-Object {
         $relative = $_.FullName.Substring($backup.Length).TrimStart([char]92)
@@ -350,15 +372,35 @@ try {
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
         Copy-Item -LiteralPath $_.FullName -Destination $destination -Force
       }
+      if (!(Test-Path -LiteralPath $backupExe -PathType Leaf)) {
+        throw "Installer rollback backup is missing executable: $backupExe"
+      }
+      New-Item -ItemType Directory -Force -Path (Split-Path -Parent $exe) | Out-Null
+      [IO.File]::Copy($backupExe, $exe, $true)
+      if (!(Test-Path -LiteralPath $exe -PathType Leaf)) {
+        throw "Installer rollback could not restore executable: $exe"
+      }
+      Write-UpdateLog "Installer rollback executable restored; bytes=$((Get-Item -LiteralPath $exe).Length)"
+      Write-UpdateLog "Installer rollback restored executable from $backupExe"
       throw
     }
   } else {
     $stage = Join-Path $temp 'stage'
     $backup = Join-Path $temp 'backup'
     Expand-Archive -LiteralPath $package -DestinationPath $stage -Force
-    $source = Join-Path $stage 'My-LiveHub'
-    if (!(Test-Path -LiteralPath (Join-Path $source 'My-LiveHub.exe'))) { throw 'Portable archive layout is invalid' }
+    # Locate the actual application payload instead of assuming a fixed ZIP
+    # nesting depth. Compress-Archive and third-party ZIP tools can differ in
+    # how they preserve the top-level directory.
+    $exeCandidates = @(Get-ChildItem -LiteralPath $stage -Filter 'My-LiveHub.exe' -File -Recurse -Force)
+    if ($exeCandidates.Count -ne 1) { throw "Portable archive must contain exactly one My-LiveHub.exe; found $($exeCandidates.Count)" }
+    $source = $exeCandidates[0].Directory.FullName
+    Write-UpdateLog "Portable payload directory: $source"
     New-Item -ItemType Directory -Force -Path $backup | Out-Null
+    $backupExe = Join-Path $backup 'My-LiveHub.exe'
+    if (!(Test-Path -LiteralPath $exe -PathType Leaf)) { throw "Portable target executable is missing: $exe" }
+    Copy-Item -LiteralPath $exe -Destination $backupExe -Force
+    if (!(Test-Path -LiteralPath $backupExe -PathType Leaf)) { throw "Portable executable backup failed: $backupExe" }
+    Write-UpdateLog "Portable executable backed up to $backupExe"
     function Is-Preserved([string]$relative) {
       $p = $relative.Replace([string][char]92,'/').ToLowerInvariant()
       return $p -eq 'config/local' -or $p.StartsWith('config/local/') -or
@@ -386,16 +428,32 @@ try {
     try {
       foreach ($file in $newFiles) {
         $relative = $file.FullName.Substring($source.Length).TrimStart([char]92)
-        if (Is-Preserved $relative) { continue }
+        if (Is-Preserved $relative -or $relative -ieq 'My-LiveHub.exe') { continue }
         $destination = Join-Path $root $relative
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
+        if (Test-Path -LiteralPath $destination -PathType Leaf) {
+          Remove-Item -LiteralPath $destination -Force
+        }
         Copy-Item -LiteralPath $file.FullName -Destination $destination -Force
+        if (!(Test-Path -LiteralPath $destination -PathType Leaf)) {
+          throw "Portable update did not create destination file: $destination"
+        }
+        Write-UpdateLog "Portable file replaced: $relative"
       }
+      # Replace the application executable explicitly after all supporting files.
+      # This avoids relying on recursive enumeration order for the critical file.
+      $exeSource = Join-Path $source 'My-LiveHub.exe'
+      $exeStaged = Join-Path $temp 'My-LiveHub.new.exe'
+      Copy-Item -LiteralPath $exeSource -Destination $exeStaged -Force
+      if (!(Test-Path -LiteralPath $exeStaged -PathType Leaf)) { throw 'Portable update did not stage the new executable' }
+      Remove-Item -LiteralPath $exe -Force -ErrorAction SilentlyContinue
+      Move-Item -LiteralPath $exeStaged -Destination $exe -Force
+      Write-UpdateLog "Portable executable replaced explicitly; bytes=$((Get-Item -LiteralPath $exe).Length)"
       Assert-ExecutableVersion $exe
     } catch {
       foreach ($file in $newFiles) {
         $relative = $file.FullName.Substring($source.Length).TrimStart([char]92)
-        if (Is-Preserved $relative) { continue }
+        if (Is-Preserved $relative -or $relative -ieq 'My-LiveHub.exe') { continue }
         $destination = Join-Path $root $relative
         if ($backupFiles.ContainsKey($relative)) {
           $backupFile = Join-Path $backup $relative
@@ -404,6 +462,10 @@ try {
           Remove-Item -LiteralPath $destination -Force -ErrorAction SilentlyContinue
         }
       }
+      if (!(Test-Path -LiteralPath $backupExe -PathType Leaf)) { throw "Portable rollback backup is missing executable: $backupExe" }
+      [IO.File]::Copy($backupExe, $exe, $true)
+      if (!(Test-Path -LiteralPath $exe -PathType Leaf)) { throw "Portable rollback could not restore executable: $exe" }
+      Write-UpdateLog "Portable rollback restored executable; bytes=$((Get-Item -LiteralPath $exe).Length)"
       throw
     }
   }
