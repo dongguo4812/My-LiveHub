@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import {onMounted,ref,watch} from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import * as UpdateService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/updateservice.js'
 type UpdateInfo = Awaited<ReturnType<typeof UpdateService.CheckForUpdates>>
 import {appearance,appearanceBusy,appearanceError,loadAppearance,saveAppearance,logRetentionDays,logRetentionBusy,logRetentionError,saveLogRetentionDays,windowCloseBehavior,windowCloseBehaviorError,saveWindowCloseBehavior} from '../services/appearance'
+const route=useRoute(),router=useRouter()
 const theme=ref('dark'),accentColor=ref('indigo')
 const updateInfo=ref<UpdateInfo|null>(null),updateBusy=ref(false),installBusy=ref(false),updateError=ref('')
 const skippedVersion=ref(localStorage.getItem('my-livehub-skipped-update-version')||''),updateDeferred=ref(false)
@@ -14,6 +16,13 @@ async function installUpdate(){if(!updateInfo.value?.available)return;if(!window
 const accents=[{value:'indigo',label:'蓝紫',color:'#7c8cff'},{value:'blue',label:'蓝色',color:'#5798e8'},{value:'violet',label:'紫色',color:'#a184e8'},{value:'teal',label:'青绿',color:'#43b9a6'},{value:'rose',label:'玫瑰',color:'#df829b'}]
 watch(appearance,v=>{theme.value=v.theme;accentColor.value=v.accent_color},{immediate:true})
 onMounted(()=>{void loadAppearance()})
+watch(()=>route.query.checkUpdate, value=>{
+  if(!value) return
+  void checkUpdate()
+  const query={...route.query}
+  delete query.checkUpdate
+  void router.replace({path:route.path,query})
+},{immediate:true})
 async function apply(){await saveAppearance(theme.value,accentColor.value)}
 async function saveRetention(){await saveLogRetentionDays(logRetentionDays.value)}
 async function saveCloseBehavior(){await saveWindowCloseBehavior(windowCloseBehavior.value)}
