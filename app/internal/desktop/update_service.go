@@ -344,6 +344,18 @@ try {
       New-Item -ItemType Directory -Force -Path (Split-Path -Parent $backupFile) | Out-Null
       Copy-Item -LiteralPath $file.FullName -Destination $backupFile -Force
     }
+    # Preserve the running executable explicitly; do not rely only on recursive enumeration.
+    $exeRelative = $exe.Substring($root.Length).TrimStart([char]92)
+    $backupExe = Join-Path $backup $exeRelative
+    if (!(Test-Path -LiteralPath $exe -PathType Leaf)) {
+      throw "Installer target executable is missing before update: $exe"
+    }
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $backupExe) | Out-Null
+    Copy-Item -LiteralPath $exe -Destination $backupExe -Force
+    if (!(Test-Path -LiteralPath $backupExe -PathType Leaf)) {
+      throw "Could not back up installer target executable: $backupExe"
+    }
+    Write-UpdateLog "Installer executable backed up to $backupExe"
     try {
       $arguments = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR="' + $root + '"'))
       $installer = Start-Process -FilePath $package -ArgumentList $arguments -Wait -PassThru
@@ -360,8 +372,6 @@ try {
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
         Copy-Item -LiteralPath $_.FullName -Destination $destination -Force
       }
-      $exeRelative = $exe.Substring($root.Length).TrimStart([char]92)
-      $backupExe = Join-Path $backup $exeRelative
       if (!(Test-Path -LiteralPath $backupExe -PathType Leaf)) {
         throw "Installer rollback backup is missing executable: $backupExe"
       }
@@ -409,7 +419,14 @@ try {
         if (Is-Preserved $relative) { continue }
         $destination = Join-Path $root $relative
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
+        if (Test-Path -LiteralPath $destination -PathType Leaf) {
+          Remove-Item -LiteralPath $destination -Force
+        }
         Copy-Item -LiteralPath $file.FullName -Destination $destination -Force
+        if (!(Test-Path -LiteralPath $destination -PathType Leaf)) {
+          throw "Portable update did not create destination file: $destination"
+        }
+        Write-UpdateLog "Portable file replaced: $relative"
       }
       Assert-ExecutableVersion $exe
     } catch {
