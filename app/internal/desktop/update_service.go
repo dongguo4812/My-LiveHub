@@ -336,7 +336,7 @@ func (s *UpdateService) downloadAndVerify(destination string) error {
 		return fmt.Errorf("创建更新包临时文件失败：%w", err)
 	}
 	hash := sha256.New()
-	written, copyErr := io.Copy(io.MultiWriter(file, hash), &idleTimeoutReader{reader: response.Body, timer: idleTimer})
+	written, copyErr := io.Copy(io.MultiWriter(file, hash), io.LimitReader(&idleTimeoutReader{reader: response.Body, timer: idleTimer}, s.asset.Size+1))
 	syncErr := file.Sync()
 	closeErr := file.Close()
 	if idleTimedOut.Load() {
