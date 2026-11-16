@@ -57,7 +57,7 @@ func buildUpdaterFixture(t *testing.T, version string) string {
 	output := filepath.Join(dir, "fixture.exe")
 	fixtureSource := strings.ReplaceAll(updaterFixtureSource, "__FIXTURE_VERSION__", version)
 	if err := os.WriteFile(source, []byte(fixtureSource), 0644); err != nil { t.Fatal(err) }
-	cmd := exec.Command("go", "build", "-o", output, source)
+	cmd := exec.Command("go", "build", "-a", "-o", output, source)
 	if data, err := cmd.CombinedOutput(); err != nil { t.Fatalf("build updater fixture: %v\n%s", err, data) }
 	return output
 }
@@ -147,6 +147,7 @@ func TestPortableUpdaterIntegrationSuccess(t *testing.T) {
 	if runtime.GOOS != "windows" { t.Skip("Windows-only updater integration test") }
 	oldExe := buildUpdaterFixture(t, "1.0.0")
 	newExe := buildUpdaterFixture(t, "1.0.2")
+	if got := readFixtureVersion(t, newExe); got != "1.0.2" { t.Fatalf("new fixture version = %q, want 1.0.2", got) }
 	root := t.TempDir()
 	exe := filepath.Join(root, "My-LiveHub.exe")
 	oldBytes, _ := os.ReadFile(oldExe)
@@ -179,6 +180,7 @@ func TestPortableUpdaterIntegrationSuccess(t *testing.T) {
 func TestPortableUpdaterIntegrationRollback(t *testing.T) {
 	oldExe := buildUpdaterFixture(t, "1.0.0")
 	wrongExe := buildUpdaterFixture(t, "1.0.1")
+	if got := readFixtureVersion(t, wrongExe); got != "1.0.1" { t.Fatalf("wrong fixture version = %q, want 1.0.1", got) }
 	root := t.TempDir()
 	exe := filepath.Join(root, "My-LiveHub.exe")
 	oldBytes, _ := os.ReadFile(oldExe)
