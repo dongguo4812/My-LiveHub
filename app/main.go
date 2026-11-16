@@ -37,8 +37,10 @@ var embeddedDefaultConfig embed.FS
 func main() {
 	// The updater invokes this lightweight mode to verify the version of the
 	// executable after replacement without starting Wails or touching user data.
-	if len(os.Args) == 2 && os.Args[1] == "--print-version" {
-		fmt.Println(currentVersion)
+	if len(os.Args) == 3 && os.Args[1] == "--write-version" {
+		if err := os.WriteFile(os.Args[2], []byte(currentVersion), 0o600); err != nil {
+			os.Exit(2)
+		}
 		return
 	}
 	environment := config.ResolveEnvironment(os.Args[1:])
