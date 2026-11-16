@@ -142,6 +142,8 @@ func (s *UpdateService) CheckForUpdates() (UpdateInfo, error) {
 
 func compareVersions(left, right string) int {
 	parse := func(value string) []int {
+		value = strings.TrimSpace(value)
+		value = strings.TrimPrefix(strings.TrimPrefix(value, "v"), "V")
 		value = strings.SplitN(value, "-", 2)[0]
 		parts := strings.Split(value, ".")
 		result := make([]int, len(parts))
@@ -153,10 +155,18 @@ func compareVersions(left, right string) int {
 	a, b := parse(left), parse(right)
 	for i := 0; i < len(a) || i < len(b); i++ {
 		x, y := 0, 0
-		if i < len(a) { x = a[i] }
-		if i < len(b) { y = b[i] }
-		if x > y { return 1 }
-		if x < y { return -1 }
+		if i < len(a) {
+			x = a[i]
+		}
+		if i < len(b) {
+			y = b[i]
+		}
+		if x > y {
+			return 1
+		}
+		if x < y {
+			return -1
+		}
 	}
 	return 0
 }
@@ -183,6 +193,7 @@ func (s *UpdateService) InstallUpdate() error {
 		"exe": s.executablePath,
 		"package": packagePath,
 		"package_type": s.packageType,
+		"target_version": strings.TrimPrefix(s.latest.TagName, "v"),
 		"temp_dir": tempDir,
 	}
 	taskBytes, err := json.Marshal(task)
@@ -205,6 +216,7 @@ func (s *UpdateService) InstallUpdate() error {
 		return fmt.Errorf("启动独立更新进程失败：%w", err)
 	}
 	if s.quit != nil {
+		// The helper independently waits for this process to exit before replacing the executable.
 		go s.quit()
 	}
 	return nil
@@ -276,8 +288,30 @@ $root = [IO.Path]::GetFullPath([string]$taskData.root)
 $exe = [IO.Path]::GetFullPath([string]$taskData.exe)
 $package = [string]$taskData.package
 $temp = [string]$taskData.temp_dir
+$targetVersion = [string]$taskData.target_version
+$helperLog = Join-Path $temp 'update-helper.log'
+function Write-UpdateLog([string]$message) {
+  Add-Content -LiteralPath $helperLog -Value ("[{0}] {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $message) -Encoding UTF8
+}
+function Assert-ExecutableVersion([string]$path) {
+  $versionFile = Join-Path $temp 'verified-version.txt'
+  Remove-Item -LiteralPath $versionFile -Force -ErrorAction SilentlyContinue
+  $probe = Start-Process -FilePath $path -ArgumentList @('--write-version', ('"' + $versionFile + '"')) -Wait -PassThru -WindowStyle Hidden
+  if ($probe.ExitCode -ne 0 -or !(Test-Path -LiteralPath $versionFile)) {
+    throw "Unable to read version from updated executable (exit code $($probe.ExitCode))"
+  }
+  $actualVersion = (Get-Content -LiteralPath $versionFile -Raw).Trim()
+  if ($actualVersion -ne $targetVersion) {
+    throw "Updated executable version mismatch: expected $targetVersion, got $actualVersion"
+  }
+  Write-UpdateLog "Verified executable version $actualVersion"
+}
 try {
-  Wait-Process -Id $pidToWait -ErrorAction SilentlyContinue
+  Write-UpdateLog "Starting update: target=$targetVersion root=$root exe=$exe"
+  Wait-Process -Id $pidToWait -Timeout 180 -ErrorAction SilentlyContinue
+  $stillRunning = Get-Process -Id $pidToWait -ErrorAction SilentlyContinue
+  if ($null -ne $stillRunning) { throw "Application process $pidToWait did not exit within 180 seconds" }
+  Write-UpdateLog 'Application process exited; applying files.'
   if ($taskData.package_type -eq 'installer') {
     $backup = Join-Path $temp 'installer-backup'
     New-Item -ItemType Directory -Force -Path $backup | Out-Null
@@ -304,6 +338,7 @@ try {
       $arguments = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR="' + $root + '"'))
       $installer = Start-Process -FilePath $package -ArgumentList $arguments -Wait -PassThru
       if ($installer.ExitCode -ne 0) { throw "Installer exited with code $($installer.ExitCode)" }
+      Assert-ExecutableVersion $exe
     } catch {
       Get-ChildItem -LiteralPath $root -File -Recurse -Force | ForEach-Object {
         $relative = $_.FullName.Substring($root.Length).TrimStart([char]92)
@@ -356,6 +391,7 @@ try {
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
         Copy-Item -LiteralPath $file.FullName -Destination $destination -Force
       }
+      Assert-ExecutableVersion $exe
     } catch {
       foreach ($file in $newFiles) {
         $relative = $file.FullName.Substring($source.Length).TrimStart([char]92)
@@ -371,14 +407,23 @@ try {
       throw
     }
   }
+  Write-UpdateLog "Update completed; launching $exe"
   Start-Process -FilePath $exe
   Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
 } catch {
+  $errorText = ($_ | Out-String)
+  try {
+    Write-UpdateLog "UPDATE FAILED: $errorText"
+  } catch {}
   $failureDir = Join-Path $root 'logs'
-  New-Item -ItemType Directory -Force -Path $failureDir | Out-Null
-  $failure = Join-Path $failureDir 'update-failed.txt'
-  $_ | Out-String | Set-Content -LiteralPath $failure -Encoding UTF8
-  Start-Process -FilePath $exe
+  try {
+    New-Item -ItemType Directory -Force -Path $failureDir | Out-Null
+    $failure = Join-Path $failureDir 'update-failed.txt'
+    $errorText | Set-Content -LiteralPath $failure -Encoding UTF8
+  } catch {
+    try { $errorText | Set-Content -LiteralPath (Join-Path $temp 'update-failed.txt') -Encoding UTF8 } catch {}
+  }
+  try { Start-Process -FilePath $exe } catch { Write-UpdateLog "Could not restart application: $_" }
   exit 1
 }
 `
