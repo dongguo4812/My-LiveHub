@@ -145,7 +145,7 @@ func (w *dailyWriter) ensureFile(now time.Time) error {
 	}
 	w.date = date
 	w.path = filepath.Join(w.directory, "my-livehub-"+date+".log")
- 	file, err := os.OpenFile(w.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	file, err := os.OpenFile(w.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("open log file %q: %w", w.path, err)
 	}
