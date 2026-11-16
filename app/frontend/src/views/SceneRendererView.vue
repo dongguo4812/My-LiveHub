@@ -103,6 +103,26 @@ let musicConfigRefreshTimer: ReturnType<typeof setInterval> | undefined
 let live2DRefreshTimer: ReturnType<typeof setInterval> | undefined
 let musicTrackKey = ''
 let musicRefreshing = false
+const musicCoverLoadedKey = ref('')
+const musicCoverRetryCount = ref(0)
+let musicCoverRetryTimer: ReturnType<typeof setTimeout> | undefined
+const musicCoverKey = computed(() => {
+  const track = playback.value?.track
+  return track?.cover_url ? [track.source_id, track.id, track.cover_url].join('|') : ''
+})
+function handleMusicCoverLoad(key: string) {
+  if (key === musicCoverKey.value) musicCoverLoadedKey.value = key
+}
+function handleMusicCoverError(key: string) {
+  if (key !== musicCoverKey.value) return
+  musicCoverLoadedKey.value = ''
+  if (musicCoverRetryTimer) clearTimeout(musicCoverRetryTimer)
+  musicCoverRetryTimer = setTimeout(() => {
+    musicCoverRetryTimer = undefined
+    if (key !== musicCoverKey.value) return
+    musicCoverRetryCount.value++
+  }, 2000)
+}
 let mouthSyncChannel: BroadcastChannel | null = null
 let mouthSyncPollTimer: ReturnType<typeof setInterval> | undefined
 let currentMouthOpen = 0
@@ -447,6 +467,11 @@ onMounted(() => {
 })
 onUpdated(() => { applyLive2DFrameTransforms() })
 onUnmounted(() => {
+  if (musicCoverRetryTimer) {
+    clearTimeout(musicCoverRetryTimer)
+    musicCoverRetryTimer = undefined
+  }
+
   sceneRendererUnmounted = true
   mouthSyncChannel?.close()
   mouthSyncChannel = null
@@ -574,8 +599,8 @@ onUnmounted(() => {
         <div class="music-main">
           <div class="music-cover-wrap">
             <div class="music-cover-blur" :style="{ backgroundImage: playback.track.cover_url ? 'url(' + JSON.stringify(playback.track.cover_url) + ')' : 'none' }"></div>
-            <div v-if="!playback.track.cover_url" class="music-cover-fallback">♫</div>
-            <img v-if="playback.track.cover_url" class="music-cover" :src="playback.track.cover_url" alt="" referrerpolicy="no-referrer" />
+            <div v-if="!musicCoverKey || musicCoverLoadedKey !== musicCoverKey" class="music-cover-fallback">♫</div>
+            <img v-if="musicCoverKey" :key="musicCoverKey + ':' + musicCoverRetryCount" class="music-cover" :src="playback.track.cover_url" alt="" referrerpolicy="no-referrer" @load="handleMusicCoverLoad(musicCoverKey)" @error="handleMusicCoverError(musicCoverKey)" />
           </div>
           <div class="music-details">
             <div class="music-song-info">
