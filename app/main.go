@@ -35,6 +35,12 @@ var assets embed.FS
 var embeddedDefaultConfig embed.FS
 
 func main() {
+	// The updater invokes this lightweight mode to verify the version of the
+	// executable after replacement without starting Wails or touching user data.
+	if len(os.Args) == 2 && os.Args[1] == "--print-version" {
+		fmt.Println(currentVersion)
+		return
+	}
 	environment := config.ResolveEnvironment(os.Args[1:])
 	paths, err := config.ResolveRuntimePaths(environment)
 	if err != nil {
