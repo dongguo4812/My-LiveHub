@@ -373,18 +373,9 @@ func main() {
 		mainWindow.Focus()
 	})
 	trayMenu.Add("检查更新").OnClick(func(_ *application.Context) {
-		go func() {
-			info, err := updateService.CheckForUpdates()
-			if err != nil {
-				log.Printf("check application updates: %v", err)
-				return
-			}
-			if info.Available {
-				log.Printf("application update available: %s (open Settings to install)", info.LatestVersion)
-			} else {
-				log.Printf("application is up to date: %s", info.CurrentVersion)
-			}
-		}()
+		mainWindow.Show()
+		mainWindow.Focus()
+		mainWindow.EmitEvent("tray-check-updates", nil)
 	})
 	trayMenu.AddSeparator()
 	trayMenu.Add("退出 My-LiveHub").OnClick(func(_ *application.Context) {
