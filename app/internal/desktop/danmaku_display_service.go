@@ -126,7 +126,11 @@ func (s *DanmakuDisplayService) OpenWindow() error {
 	window.OnWindowEvent(events.Common.WindowHide, restorePinned)
 	if !cfg.PositionSaved { window.Center() }
 	window.Show()
-	if cfg.Pinned { window.SetAlwaysOnTop(true); window.SetIgnoreMouseEvents(true) }
+	if cfg.Pinned {
+		window.SetAlwaysOnTop(true)
+		window.SetIgnoreMouseEvents(true)
+		_ = restoreNativeTopmost(window)
+	}
 	return nil
 }
 
@@ -151,9 +155,7 @@ func (s *DanmakuDisplayService) RestorePinnedWindow() {
 	// Wails updates the topmost style through its platform abstraction. Reapply
 	// HWND_TOPMOST directly as well: Windows tray popup menus can disturb the
 	// z-order of transparent, click-through windows.
-	if !restoreNativeTopmost(window) {
-		// Keep the Wails-level state even if the native fallback is unavailable.
-	}
+	_ = restoreNativeTopmost(window)
 }
 
 func (s *DanmakuDisplayService) scheduleWindowGeometrySave(window *application.WebviewWindow) {
@@ -204,7 +206,14 @@ func (s *DanmakuDisplayService) SetWindowPinned(pinned bool) error {
 	if s.manager == nil { return errors.New("弹幕窗口配置服务不可用") }
 	next := s.windowCfg; next.Pinned = pinned
 	if err := config.SaveTyped(s.manager, "danmaku_window.json", next, func(value config.DanmakuWindowConfig) error { return value.Validate() }); err != nil { return err }
-	if pinned { s.window.SetAlwaysOnTop(true); s.window.SetIgnoreMouseEvents(true) } else { s.window.SetIgnoreMouseEvents(false); s.window.SetAlwaysOnTop(false) }
+	if pinned {
+		s.window.SetAlwaysOnTop(true)
+		s.window.SetIgnoreMouseEvents(true)
+		_ = restoreNativeTopmost(s.window)
+	} else {
+		s.window.SetIgnoreMouseEvents(false)
+		s.window.SetAlwaysOnTop(false)
+	}
 	s.windowCfg = next; s.pinned = pinned; return nil
 }
 func (s *DanmakuDisplayService) GetWindowState() DanmakuWindowState {
