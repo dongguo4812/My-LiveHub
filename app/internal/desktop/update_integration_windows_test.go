@@ -54,7 +54,6 @@ func buildUpdaterFixture(t *testing.T, version string) string {
 	t.Helper()
 	dir := t.TempDir()
 	source := filepath.Join(dir, "main.go")
-	if err := os.WriteFile(source, []byte(updaterFixtureSource), 0644); err != nil { t.Fatal(err) }
 	output := filepath.Join(dir, "fixture.exe")
 	fixtureSource := strings.ReplaceAll(updaterFixtureSource, "__FIXTURE_VERSION__", version)
 	if err := os.WriteFile(source, []byte(fixtureSource), 0644); err != nil { t.Fatal(err) }
