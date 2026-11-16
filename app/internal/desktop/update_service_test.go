@@ -57,3 +57,21 @@ func TestUpdaterVerifiesTargetExecutableVersion(t *testing.T) {
 		t.Fatal("updater does not wait for the old application process")
 	}
 }
+
+func TestUpdateWorkspaceIsCreatedBesideApplication(t *testing.T) {
+	root := t.TempDir()
+	service := &UpdateService{applicationDir: root}
+	dir, err := os.MkdirTemp(service.applicationDir, ".my-livehub-update-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	relative, err := filepath.Rel(root, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.HasPrefix(relative, "..") || filepath.IsAbs(relative) {
+		t.Fatalf("update workspace %q is not inside application directory %q", dir, root)
+	}
+}
+
