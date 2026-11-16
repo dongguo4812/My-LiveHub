@@ -178,7 +178,13 @@ func (s *UpdateService) InstallUpdate() error {
 	if compareVersions(strings.TrimPrefix(s.latest.TagName, "v"), s.currentVersion) <= 0 {
 		return errors.New("当前已经是最新版本")
 	}
-	tempDir, err := os.MkdirTemp("", "my-livehub-update-*")
+	// Keep the update workspace beside the running application instead of
+	// relying on os.TempDir(). On Windows, TEMP/TMP may point inside the
+	// portable application directory (or to an unexpected custom location),
+	// which can create confusing directories such as "veHub" and make the
+	// helper operate on an unintended path. The application directory is
+	// already required to be writable for portable updates.
+	tempDir, err := os.MkdirTemp(s.applicationDir, ".my-livehub-update-*")
 	if err != nil {
 		return fmt.Errorf("创建更新临时目录失败：%w", err)
 	}
