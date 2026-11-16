@@ -148,6 +148,12 @@ func (s *DanmakuDisplayService) RestorePinnedWindow() {
 	window.Show()
 	window.SetAlwaysOnTop(true)
 	window.SetIgnoreMouseEvents(true)
+	// Wails updates the topmost style through its platform abstraction. Reapply
+	// HWND_TOPMOST directly as well: Windows tray popup menus can disturb the
+	// z-order of transparent, click-through windows.
+	if !restoreNativeTopmost(window) {
+		// Keep the Wails-level state even if the native fallback is unavailable.
+	}
 }
 
 func (s *DanmakuDisplayService) scheduleWindowGeometrySave(window *application.WebviewWindow) {
