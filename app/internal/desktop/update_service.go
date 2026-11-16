@@ -364,7 +364,7 @@ try {
     } catch {
       Get-ChildItem -LiteralPath $root -File -Recurse -Force | Where-Object { !$_.FullName.StartsWith(($temp.TrimEnd([char]92) + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object {
         $relative = $_.FullName.Substring($root.Length).TrimStart([char]92)
-        if (!(Is-Preserved $relative)) { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
+        if ($_.FullName -ne $exe -and !(Is-Preserved $relative)) { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
       }
       Get-ChildItem -LiteralPath $backup -File -Recurse -Force | ForEach-Object {
         $relative = $_.FullName.Substring($backup.Length).TrimStart([char]92)
@@ -375,10 +375,12 @@ try {
       if (!(Test-Path -LiteralPath $backupExe -PathType Leaf)) {
         throw "Installer rollback backup is missing executable: $backupExe"
       }
-      Copy-Item -LiteralPath $backupExe -Destination $exe -Force
+      New-Item -ItemType Directory -Force -Path (Split-Path -Parent $exe) | Out-Null
+      [IO.File]::Copy($backupExe, $exe, $true)
       if (!(Test-Path -LiteralPath $exe -PathType Leaf)) {
         throw "Installer rollback could not restore executable: $exe"
       }
+      Write-UpdateLog "Installer rollback executable restored; bytes=$((Get-Item -LiteralPath $exe).Length)"
       Write-UpdateLog "Installer rollback restored executable from $backupExe"
       throw
     }
@@ -416,7 +418,7 @@ try {
     try {
       foreach ($file in $newFiles) {
         $relative = $file.FullName.Substring($source.Length).TrimStart([char]92)
-        if (Is-Preserved $relative) { continue }
+        if (Is-Preserved $relative -or $relative -ieq 'My-LiveHub.exe') { continue }
         $destination = Join-Path $root $relative
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
         if (Test-Path -LiteralPath $destination -PathType Leaf) {
@@ -428,6 +430,15 @@ try {
         }
         Write-UpdateLog "Portable file replaced: $relative"
       }
+      # Replace the application executable explicitly after all supporting files.
+      # This avoids relying on recursive enumeration order for the critical file.
+      $exeSource = Join-Path $source 'My-LiveHub.exe'
+      $exeStaged = Join-Path $temp 'My-LiveHub.new.exe'
+      Copy-Item -LiteralPath $exeSource -Destination $exeStaged -Force
+      if (!(Test-Path -LiteralPath $exeStaged -PathType Leaf)) { throw 'Portable update did not stage the new executable' }
+      Remove-Item -LiteralPath $exe -Force -ErrorAction SilentlyContinue
+      Move-Item -LiteralPath $exeStaged -Destination $exe -Force
+      Write-UpdateLog "Portable executable replaced explicitly; bytes=$((Get-Item -LiteralPath $exe).Length)"
       Assert-ExecutableVersion $exe
     } catch {
       foreach ($file in $newFiles) {
