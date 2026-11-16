@@ -602,3 +602,35 @@ func TestMusicPlaybackStartTimeoutIsTenSeconds(t *testing.T) {
 		t.Fatalf("music playback start timeout = %s, want 10s", musicPlaybackStartTimeout)
 	}
 }
+
+
+func TestMusicRequestCooldownIsPerViewerAndExemptsOwnerAndModerator(t *testing.T) {
+	value := config.DefaultMusicConfig()
+	value.RequestCooldownSeconds = 30
+	service := NewMusicServiceWithDependencies(nil, value, nil, &nextTrackTestEngine{})
+	viewer := events.Event{UserID: 101, UserName: "观众"}
+	if got := service.requestCooldownRemaining(viewer); got != 0 { t.Fatalf("new viewer should not be cooling down, got %v", got) }
+	service.recordRequestCooldown(viewer)
+	if got := service.requestCooldownRemaining(viewer); got <= 0 || got > 30*time.Second { t.Fatalf("viewer should be cooling down, got %v", got) }
+	otherViewer := events.Event{UserID: 102, UserName: "另一位观众"}
+	if got := service.requestCooldownRemaining(otherViewer); got != 0 { t.Fatalf("cooldown must be per viewer, got %v", got) }
+	if got := service.requestCooldownRemaining(events.Event{UserID: 101, IsRoomOwner: true}); got != 0 { t.Fatalf("room owner must be exempt, got %v", got) }
+	if got := service.requestCooldownRemaining(events.Event{UserID: 101, IsModerator: true}); got != 0 { t.Fatalf("moderator must be exempt, got %v", got) }
+}
+
+func TestMusicRequestCooldownDisabledWhenZero(t *testing.T) {
+	value := config.DefaultMusicConfig()
+	service := NewMusicServiceWithDependencies(nil, value, nil, &nextTrackTestEngine{})
+	viewer := events.Event{UserID: 101, UserName: "观众"}
+	service.recordRequestCooldown(viewer)
+	if got := service.requestCooldownRemaining(viewer); got != 0 { t.Fatalf("zero cooldown should be disabled, got %v", got) }
+}
+
+func TestMusicRequestCooldownUsesNameWhenUserIDUnavailable(t *testing.T) {
+	value := config.DefaultMusicConfig()
+	value.RequestCooldownSeconds = 30
+	service := NewMusicServiceWithDependencies(nil, value, nil, &nextTrackTestEngine{})
+	viewer := events.Event{UserName: " Viewer "}
+	service.recordRequestCooldown(viewer)
+	if got := service.requestCooldownRemaining(events.Event{UserName: "viewer"}); got <= 0 { t.Fatalf("username fallback should identify the same viewer, got %v", got) }
+}

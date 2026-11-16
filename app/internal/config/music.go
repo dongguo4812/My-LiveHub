@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const CurrentMusicConfigVersion = 13
+const CurrentMusicConfigVersion = 14
 
 type MusicConfig struct {
 	ConfigVersion  int    `json:"config_version"`
@@ -16,6 +16,7 @@ type MusicConfig struct {
 	SkipCommandEnabled bool `json:"skip_command_enabled"`
 	SkipCommand string `json:"skip_command"`
 	QueueCapacity  int    `json:"queue_capacity"`
+	RequestCooldownSeconds int `json:"request_cooldown_seconds"`
 	QueueDisplayCount int `json:"queue_display_count"`
 	LXAPIEndpoints []string `json:"lx_api_endpoints"`
 	EnabledSearchSources []string `json:"enabled_search_sources"`
@@ -32,6 +33,7 @@ func DefaultMusicConfig() MusicConfig {
 		SkipCommandEnabled: true,
 		SkipCommand: "切歌",
 		QueueCapacity: 100,
+		RequestCooldownSeconds: 0,
 		QueueDisplayCount: 5,
 		FanMedalLevel: 1,
 		LXAPIEndpoints: []string{"http://127.0.0.1:23330"},
@@ -56,6 +58,7 @@ func MigrateMusicConfig(c MusicConfig) (MusicConfig, bool) {
 	if c.QueueCapacity >= 1 && c.QueueCapacity <= 1000 {
 		n.QueueCapacity = c.QueueCapacity
 	}
+	if c.RequestCooldownSeconds >= 0 && c.RequestCooldownSeconds <= 86400 { n.RequestCooldownSeconds = c.RequestCooldownSeconds }
 	if c.QueueDisplayCount >= 1 && c.QueueDisplayCount <= 1000 {
 		n.QueueDisplayCount = c.QueueDisplayCount
 	}
@@ -84,6 +87,7 @@ func (c MusicConfig) Validate() error {
 	if c.SkipCommandEnabled && strings.TrimSpace(c.SkipCommand) == "" { return fmt.Errorf("music skip command is required") }
 	if len([]rune(c.SkipCommand)) > 16 { return fmt.Errorf("music skip command is too long") }
 	if c.RequireFanMedal && (c.FanMedalLevel < 1 || c.FanMedalLevel > 120) { return fmt.Errorf("音乐点播粉丝勋章等级必须在 1 到 120 之间") }
+	if c.RequestCooldownSeconds < 0 || c.RequestCooldownSeconds > 86400 { return fmt.Errorf("普通观众点播冷却时间必须在 0 到 86400 秒之间") }
 	if c.QueueCapacity < 1 || c.QueueCapacity > 1000 {
 		return fmt.Errorf("music queue capacity must be between 1 and 1000")
 	}
@@ -130,6 +134,7 @@ func LoadMusicConfig(m *Manager) (MusicConfig, error) {
 			"skip_command_enabled": true,
 			"skip_command": true,
 			"queue_capacity": true,
+			"request_cooldown_seconds": true,
 			"queue_display_count": true,
 			"lx_api_endpoints": true,
 			"enabled_search_sources": true,
