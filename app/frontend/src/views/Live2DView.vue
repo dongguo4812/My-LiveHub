@@ -86,9 +86,8 @@ const levelPercent = computed(() => Math.round(level.value * 100))
 const mouthPercent = computed(() => Math.round(mouthOpen.value * 100))
 let stream: MediaStream | null = null
 let audioContext: AudioContext | null = null
-let analyser: AnalyserNode | null = null
-let raf = 0
-let samples: Float32Array<ArrayBuffer> | null = null
+let micWorkletNode: AudioWorkletNode | null = null
+let micMuteGain: GainNode | null = null
 let activeModelURL = ''
 let activeMoc2MouthParameter = ''
 let activeMoc2TransformBase: { model: LegacyModel; scaleX: number; scaleY: number; centerX: number; centerY: number } | null = null
@@ -463,12 +462,15 @@ function driveModelMouth(value: number) {
 }
 
 function stopMicrophone() {
-  if (raf) cancelAnimationFrame(raf)
-  raf = 0
+  if (micWorkletNode) {
+    micWorkletNode.port.onmessage = null
+    micWorkletNode.disconnect()
+    micWorkletNode = null
+  }
+  micMuteGain?.disconnect()
+  micMuteGain = null
   stream?.getTracks().forEach(track => track.stop())
   stream = null
-  analyser = null
-  samples = null
   void audioContext?.close()
   audioContext = null
   micActive.value = false
@@ -477,19 +479,6 @@ function stopMicrophone() {
   driveModelMouth(0)
 }
 
-function analyseMicrophone() {
-  if (!analyser || !samples || !settings.value) return
-  analyser.getFloatTimeDomainData(samples)
-  let sum = 0
-  for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i]
-  const rms = Math.sqrt(sum / samples.length)
-  const raw = Math.max(0, Math.min(1, (rms * settings.value.microphone_sensitivity - 0.012) * 8))
-  const smoothing = settings.value.microphone_smoothing
-  level.value = level.value * smoothing + Math.min(1, rms * 8) * (1 - smoothing)
-  mouthOpen.value = mouthOpen.value * smoothing + raw * (1 - smoothing)
-  driveModelMouth(mouthOpen.value)
-  raf = requestAnimationFrame(analyseMicrophone)
-}
 
 async function startMicrophone() {
   if (micActive.value || microphoneStarting) return
@@ -511,15 +500,28 @@ async function startMicrophone() {
       },
     })
     audioContext = new AudioContext()
+    await audioContext.audioWorklet.addModule('/live2d-runtime/mic-processor.js')
     await audioContext.resume()
-    analyser = audioContext.createAnalyser()
-    analyser.fftSize = 1024
-    analyser.smoothingTimeConstant = 0
-    audioContext.createMediaStreamSource(stream).connect(analyser)
-    samples = new Float32Array(analyser.fftSize) as Float32Array<ArrayBuffer>
+    const source = audioContext.createMediaStreamSource(stream)
+    micWorkletNode = new AudioWorkletNode(audioContext, 'livehub-mic-analyser')
+    micMuteGain = audioContext.createGain()
+    // Keep the audio graph actively rendered while the main window is hidden.
+    // The zero-gain output is silent but prevents the capture graph from idling.
+    micMuteGain.gain.value = 0
+    micWorkletNode.port.onmessage = (event: MessageEvent<{ rms?: number }>) => {
+      if (!settings.value || !micActive.value) return
+      const rms = Math.max(0, Number(event.data?.rms) || 0)
+      const raw = Math.max(0, Math.min(1, (rms * settings.value.microphone_sensitivity - 0.012) * 8))
+      const smoothing = settings.value.microphone_smoothing
+      level.value = level.value * smoothing + Math.min(1, rms * 8) * (1 - smoothing)
+      mouthOpen.value = mouthOpen.value * smoothing + raw * (1 - smoothing)
+      driveModelMouth(mouthOpen.value)
+    }
+    source.connect(micWorkletNode)
+    micWorkletNode.connect(micMuteGain)
+    micMuteGain.connect(audioContext.destination)
     micActive.value = true
     await enumerateDevices()
-    analyseMicrophone()
   } catch (error) {
     stopMicrophone()
     micError.value = String(error)
