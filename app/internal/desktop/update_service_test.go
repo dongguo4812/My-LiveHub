@@ -60,8 +60,7 @@ func TestUpdaterVerifiesTargetExecutableVersion(t *testing.T) {
 
 func TestUpdateWorkspaceIsCreatedBesideApplication(t *testing.T) {
 	root := t.TempDir()
-	service := &UpdateService{applicationDir: root}
-	dir, err := os.MkdirTemp(service.applicationDir, ".my-livehub-update-*")
+	dir, err := createUpdateWorkspace(root)
 	if err != nil {
 		t.Fatal(err)
 	}
