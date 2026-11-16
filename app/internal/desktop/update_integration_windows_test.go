@@ -21,7 +21,7 @@ import (
 	"path/filepath"
 )
 
-var version = "0.0.0"
+var version = "__FIXTURE_VERSION__"
 
 func main() {
 	args := os.Args[1:]
@@ -56,7 +56,9 @@ func buildUpdaterFixture(t *testing.T, version string) string {
 	source := filepath.Join(dir, "main.go")
 	if err := os.WriteFile(source, []byte(updaterFixtureSource), 0644); err != nil { t.Fatal(err) }
 	output := filepath.Join(dir, "fixture.exe")
-	cmd := exec.Command("go", "build", "-ldflags", "-X command-line-arguments.version="+version, "-o", output, source)
+	fixtureSource := strings.ReplaceAll(updaterFixtureSource, "__FIXTURE_VERSION__", version)
+	if err := os.WriteFile(source, []byte(fixtureSource), 0644); err != nil { t.Fatal(err) }
+	cmd := exec.Command("go", "build", "-o", output, source)
 	if data, err := cmd.CombinedOutput(); err != nil { t.Fatalf("build updater fixture: %v\n%s", err, data) }
 	return output
 }
