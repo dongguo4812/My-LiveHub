@@ -336,7 +336,7 @@ try {
         $p -eq 'extensions/lol_hex_display/logs' -or $p.StartsWith('extensions/lol_hex_display/logs/') -or
         $p -eq 'extensions/lol_hex_display/dist/lol_hex_display/logs' -or $p.StartsWith('extensions/lol_hex_display/dist/lol_hex_display/logs/')
     }
-    $oldFiles = @(Get-ChildItem -LiteralPath $root -File -Recurse -Force)
+    $oldFiles = @(Get-ChildItem -LiteralPath $root -File -Recurse -Force | Where-Object { !$_.FullName.StartsWith(($temp.TrimEnd([char]92) + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase) })
     foreach ($file in $oldFiles) {
       $relative = $file.FullName.Substring($root.Length).TrimStart([char]92)
       if (Is-Preserved $relative) { continue }
@@ -350,7 +350,7 @@ try {
       if ($installer.ExitCode -ne 0) { throw "Installer exited with code $($installer.ExitCode)" }
       Assert-ExecutableVersion $exe
     } catch {
-      Get-ChildItem -LiteralPath $root -File -Recurse -Force | ForEach-Object {
+      Get-ChildItem -LiteralPath $root -File -Recurse -Force | Where-Object { !$_.FullName.StartsWith(($temp.TrimEnd([char]92) + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object {
         $relative = $_.FullName.Substring($root.Length).TrimStart([char]92)
         if (!(Is-Preserved $relative)) { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
       }
