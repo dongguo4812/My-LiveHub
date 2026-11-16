@@ -376,9 +376,7 @@ func main() {
 	var trayCheckUpdatesPending atomic.Bool
 	mainWindow.OnWindowEvent(events.Common.WindowFocus, func(_ *application.WindowEvent) {
 		pending := trayCheckUpdatesPending.Swap(false)
-		log.Printf("[tray-update-diagnostic] main-window focus event; pending=%t", pending)
 		if pending {
-			log.Printf("[tray-update-diagnostic] emitting tray-check-updates")
 			mainWindow.EmitEvent("tray-check-updates", nil)
 		}
 	})
@@ -387,12 +385,9 @@ func main() {
 		mainWindow.Focus()
 	})
 	trayMenu.Add("检查更新").OnClick(func(_ *application.Context) {
-		log.Printf("[tray-update-diagnostic] tray menu clicked; main-visible=%t", mainWindow.IsVisible())
 		trayCheckUpdatesPending.Store(true)
 		mainWindow.Show()
-		log.Printf("[tray-update-diagnostic] Show() returned; main-visible=%t", mainWindow.IsVisible())
 		mainWindow.Focus()
-		log.Printf("[tray-update-diagnostic] Focus() returned")
 	})
 	trayMenu.AddSeparator()
 	trayMenu.Add("退出 My-LiveHub").OnClick(func(_ *application.Context) {
