@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import sys
-import traceback
 from pathlib import Path
 
 
@@ -49,7 +48,6 @@ def main() -> int:
         return result
     except Exception as exc:
         _write_startup_status("failed", f"{type(exc).__name__}: {exc}")
-        traceback.print_exc()
         return 1
 
 
