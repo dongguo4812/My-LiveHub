@@ -296,7 +296,8 @@ def check_admin_privileges():
             executable = sys.executable
             parameters = subprocess.list2cmdline([str(Path(__file__).resolve()), *sys.argv[1:]])
 
-        shell_execute = ctypes.windll.shell32.ShellExecuteW
+        shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+        shell_execute = shell32.ShellExecuteW
         shell_execute.restype = ctypes.c_void_p
         # SW_HIDE keeps the elevated background extension from opening a console window.
         ctypes.set_last_error(0)
