@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { useRouter } from 'vue-router'
 import { getLOLHexStatus, type LOLHexStatus } from '../services/lolHex'
 
-const router = useRouter()
 const status = ref<LOLHexStatus | null>(null)
 const loading = ref(true)
 const error = ref('')
@@ -43,7 +41,6 @@ onUnmounted(() => {
         <h2>LOL Hex 管理</h2>
         <p>管理海克斯识别、截图、OCR、LCU 连接和战绩条等功能设置。</p>
       </div>
-      <el-button @click="router.push('/modules')">功能模块管理</el-button>
     </header>
 
     <el-skeleton v-if="loading" :rows="4" animated />
