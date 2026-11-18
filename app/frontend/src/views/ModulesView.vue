@@ -141,7 +141,7 @@ const info: Record<string, { title: string; description: string; controllable: b
   music: { title: '音乐播放', description: '控制弹幕点歌监听与播放服务。停止时会结束当前播放并清空待播队列。', controllable: true },
   video: { title: '视频点播', description: '控制视频点播事件监听与待播队列。停止时清空待播队列，重新启动后可继续点播。', controllable: true },
   live2d: { title: 'Live2D', description: '控制 Live2D 模型资源服务及场景展示。', controllable: true },
-  'lol-hex-display': { title: 'LOL Hex Display', description: '控制 LOL Hex 独立扩展服务；应用启动时不会自动启动。', controllable: true },
+  'lol-hex-display': { title: 'LOL Hex', description: '控制内置 LOL Hex 服务。启动后提供海克斯识别、战绩条和综合展示图层；应用启动时不会自动启动。', controllable: true },
 }
 const modules = computed(() => coreModules.value.filter(item => info[item.name]?.controllable).map(item => ({ ...item, ...info[item.name] })))
 const statusText = (s: string) => ({ registered: '待启动', starting: '启动中', running: '运行中', stopping: '停止中', stopped: '已停止', failed: '启动失败' } as Record<string,string>)[s] ?? s
@@ -197,7 +197,6 @@ onUnmounted(() => {
             <el-button :type="microphoneActive ? 'danger' : 'success'" plain :loading="microphoneLoading" :disabled="microphoneLoading || (item.status !== 'running' && !microphoneActive)" @click="toggleModuleMicrophone">{{ microphoneActive ? '关闭麦克风' : '启动麦克风' }}</el-button>
             <el-tag :type="microphoneActive ? 'success' : 'info'" size="small" class="mic-state">{{ microphoneActive ? '麦克风采集中' : '麦克风未启动' }}</el-tag>
           </div>
-          <el-tag v-if="!item.controllable" type="info" effect="plain">{{ item.name === 'lol-hex-display' ? '前往扩展管理' : '暂不支持单独启停' }}</el-tag>
         </div>
         <el-alert v-if="item.name === 'live2d' && microphoneError" :title="microphoneError" type="error" :closable="false" show-icon class="mic-error" />
       </el-card>
