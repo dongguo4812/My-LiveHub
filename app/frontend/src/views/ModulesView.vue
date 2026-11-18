@@ -85,7 +85,7 @@ async function toggle(name: string, status: string) {
     ElMessage.success(status === 'running' ? '模块已停止' : '模块已启动')
   } catch (e) {
     await refresh()
-    ElMessage.error(e instanceof Error ? e.message : String(e))
+    ElMessage.error(moduleErrorMessage(name, e))
   } finally { loading.value = { ...loading.value, [name]: false } }
 }
 let timer: ReturnType<typeof setInterval> | undefined
