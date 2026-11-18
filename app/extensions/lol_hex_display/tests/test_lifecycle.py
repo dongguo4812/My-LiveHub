@@ -79,11 +79,24 @@ class HexLifecycleTests(unittest.TestCase):
             )
             get.assert_not_called()
 
-    def test_f1_callback_cannot_start_screenshot_after_shutdown_begins(self):
-        hex_main.stop_event.set()
-        with mock.patch.object(hex_main.threading, "Thread") as thread_factory:
+    def test_f1_callback_waiting_on_selector_lock_cannot_start_after_shutdown(self):
+        callback_attempting = threading.Event()
+        hex_main.selector._lock.acquire()
+
+        def invoke_f1():
+            callback_attempting.set()
             hex_main.selector.toggle()
-            thread_factory.assert_not_called()
+
+        callback = threading.Thread(target=invoke_f1, name="F1CallbackRaceTest")
+        callback.start()
+        self.assertTrue(callback_attempting.wait(timeout=1))
+
+        # 模拟停止流程先设置 stop_event，而已排队的 F1 回调仍在等待选择器锁。
+        hex_main.stop_event.set()
+        hex_main.selector._lock.release()
+        callback.join(timeout=2)
+
+        self.assertFalse(callback.is_alive())
         self.assertIsNone(hex_main.selector.thread)
 
 
