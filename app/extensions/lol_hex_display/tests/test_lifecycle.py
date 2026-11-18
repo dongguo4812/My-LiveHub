@@ -37,6 +37,22 @@ class HexLifecycleTests(unittest.TestCase):
             thread.join(timeout=2)
         hex_main.stop_event.clear()
 
+    def test_health_endpoint_reports_ready_and_allows_composite_display_origin(self):
+        with mock.patch.object(hex_main, 'HTTP_SERVER', object()):
+            response = self.client.get('/api/health')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()['ready'])
+        self.assertEqual(response.headers.get('Access-Control-Allow-Origin'), '*')
+        self.assertEqual(response.headers.get('Cache-Control'), 'no-store')
+
+    def test_health_endpoint_reports_not_ready_after_shutdown_begins(self):
+        with mock.patch.object(hex_main, 'HTTP_SERVER', object()):
+            hex_main.stop_event.set()
+            response = self.client.get('/api/health')
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.get_json()['ready'])
+        self.assertEqual(response.headers.get('Access-Control-Allow-Origin'), '*')
+
     def test_manual_update_endpoint_rejects_requests_after_shutdown_begins(self):
         hex_main.stop_event.set()
         response = self.client.post("/api/update-assets")
