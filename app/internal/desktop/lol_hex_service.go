@@ -201,9 +201,12 @@ func (s *LOLHexService) Start() (LOLHexStatus, error) {
 	tokenBytes := make([]byte, 24)
 	if _, err := rand.Read(tokenBytes); err != nil { return LOLHexStatus{}, fmt.Errorf("生成扩展进程身份令牌失败：%w", err) }
 	s.token = hex.EncodeToString(tokenBytes)
+	startupStatusPath := filepath.Join(os.TempDir(), "MyLiveHub-LOLHex-"+s.token+".json")
+	_ = os.Remove(startupStatusPath)
+	defer os.Remove(startupStatusPath)
 	// Explicit argv survives the ShellExecuteW UAC relaunch; retain the
 	// environment variable for compatibility with existing launch paths.
-	command.Args = append(command.Args, "--manager-token", s.token)
+	command.Args = append(command.Args, "--manager-token", s.token, "--startup-status", startupStatusPath)
 	command.Env = append(os.Environ(), "PYTHONUNBUFFERED=1", "LOL_HEX_MANAGED_BY_MY_LIVEHUB=1", "LOL_HEX_MANAGER_TOKEN="+s.token)
 	// Keep early Python startup tracebacks in the main application log; the
 	// extension also retains its own structured daily log after initialization.
@@ -220,6 +223,20 @@ func (s *LOLHexService) Start() (LOLHexStatus, error) {
 
 	deadline := time.Now().Add(35 * time.Second)
 	for time.Now().Before(deadline) {
+		if data, readErr := os.ReadFile(startupStatusPath); readErr == nil {
+			var startup struct {
+				State   string `json:"state"`
+				Message string `json:"message"`
+			}
+			if json.Unmarshal(data, &startup) == nil && startup.State == "failed" {
+				s.owned, s.launch, s.token = false, nil, ""
+				s.lastErr = startup.Message
+				if s.lastErr == "" {
+					s.lastErr = "LOL Hex 启动失败，初始化资源未能完成。"
+				}
+				return s.GetStatusUnlocked(), errors.New(s.lastErr)
+			}
+		}
 		select {
 		case waitErr := <-launchDone:
 			launchDone = nil
