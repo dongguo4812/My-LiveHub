@@ -2104,6 +2104,14 @@ def api_update_assets():
 
 @app.post('/api/reset-update-assets')
 def api_reset_update_assets():
+    # 停止流程开始后不再创建新的索引重建任务。
+    if stop_event.is_set():
+        return jsonify({
+            'ok': False,
+            'running': False,
+            'message': 'LOL Hex 正在停止，不能启动新的索引重建任务'
+        }), 503
+
     # 与自动更新、普通手动更新共用同一把锁，避免清空与更新并发。
     if not _asset_update_mutex.acquire(blocking=False):
         return jsonify({
@@ -2143,7 +2151,7 @@ def api_reset_update_assets():
                     'updated_at': time.time()
                 })
 
-            ok = _update_assets_impl(False)
+            ok = _update_assets_impl(False, cancel_event=stop_event)
             if ok:
                 with assets_lock:
                     count = len(assets)
@@ -2732,26 +2740,27 @@ def main():
         except Exception:
             log.exception('取消截图选择器失败')
 
-        # 自动与手动索引更新共用互斥锁，网络请求最长 30 秒。
-        # 所有 Hex 后台线程共用一个收尾期限，避免分别等待导致退出时间累加。
-        shutdown_deadline = time.monotonic() + 32.0
-
-        # 先阻止并发请求在停止过程中再创建手动更新线程，再等待已登记的任务退出。
+        # 海克斯数据索引及图标更新属于非关键后台任务：收到 stop_event 后
+        # 不再启动新请求，正在进行的网络请求不阻塞模块关闭。线程均为 daemon，
+        # 主进程完成资源释放并退出时由操作系统一并回收。
         with manual_update_lock:
-            manual_threads_to_join = list(manual_update_threads)
+            pending_asset_updates = sum(
+                1 for thread in manual_update_threads if thread.is_alive()
+            )
+        if pending_asset_updates:
+            log.info(
+                "关闭时跳过等待 %d 个海克斯手动索引更新任务",
+                pending_asset_updates,
+            )
 
-        for thread in manual_threads_to_join:
-            if thread is threading.current_thread() or not thread.is_alive():
-                continue
-            remaining = shutdown_deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            thread.join(timeout=remaining)
-
-        # LCU 请求也有明确的网络超时；继续使用同一个收尾期限。
-        threads_to_join = list(
-            background_threads if 'background_threads' in locals() else ()
-        )
+        # LCU、游戏状态、截图选择器仍需有限收尾；AssetUpdater 只负责
+        # 版本检查和海克斯索引/图标下载，不应拖慢退出。
+        shutdown_deadline = time.monotonic() + 8.0
+        threads_to_join = [
+            thread
+            for thread in (background_threads if 'background_threads' in locals() else ())
+            if thread.name != 'AssetUpdater'
+        ]
         selector_thread = getattr(selector, 'thread', None)
         if selector_thread is not None:
             threads_to_join.append(selector_thread)

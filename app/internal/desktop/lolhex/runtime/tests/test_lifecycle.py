@@ -78,6 +78,37 @@ class HexLifecycleTests(unittest.TestCase):
             self.assertNotIn(worker, hex_main.manual_update_threads)
         self.assertFalse(hex_main._asset_update_mutex.locked())
 
+
+    def test_shutdown_does_not_wait_for_manual_asset_update(self):
+        started = threading.Event()
+        release = threading.Event()
+
+        def slow_update(*_args, **_kwargs):
+            started.set()
+            release.wait(timeout=5)
+            return False
+
+        with mock.patch.object(hex_main, "_update_assets_impl", side_effect=slow_update):
+            response = self.client.post("/api/update-assets")
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(started.wait(timeout=2))
+            with hex_main.manual_update_lock:
+                workers = list(hex_main.manual_update_threads)
+            self.assertEqual(len(workers), 1)
+            worker = workers[0]
+
+            # 关闭流程不 join 资源更新线程；stop_event 使其在请求返回后取消。
+            hex_main.stop_event.set()
+            self.assertTrue(worker.is_alive())
+            release.set()
+            worker.join(timeout=2)
+            self.assertFalse(worker.is_alive())
+
+    def test_reset_update_endpoint_rejects_requests_after_shutdown_begins(self):
+        hex_main.stop_event.set()
+        response = self.client.post("/api/reset-update-assets")
+        self.assertEqual(response.status_code, 503)
+
     def test_asset_update_observes_preexisting_cancellation_before_network_io(self):
         cancel_event = threading.Event()
         cancel_event.set()
