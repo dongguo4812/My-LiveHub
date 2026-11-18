@@ -37,6 +37,9 @@ func TestMigrateLOLHexRuntimeDataCopiesLegacyFilesWithoutOverwriting(t *testing.
 		t.Fatalf("MigrateLOLHexRuntimeData() error = %v", err)
 	}
 	for relative, want := range legacyFiles {
+		if relative == "data/state.json" {
+			continue // This destination already existed and must not be overwritten.
+		}
 		path := filepath.Join(runtime, filepath.FromSlash(relative))
 		got, err := os.ReadFile(path)
 		if err != nil {
