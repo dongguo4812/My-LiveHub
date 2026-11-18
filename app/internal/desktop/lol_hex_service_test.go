@@ -11,6 +11,12 @@ import (
 	"time"
 )
 
+func TestLOLHexStopCleanupTimeoutCoversPythonShutdownWindow(t *testing.T) {
+	if lolHexStopCleanupTimeout <= 32*time.Second {
+		t.Fatalf("stop cleanup timeout %s must exceed Python's 32-second shutdown window", lolHexStopCleanupTimeout)
+	}
+}
+
 func TestLOLHexStopWaitsForPIDRecordCleanupWhenHTTPIsAlreadyDown(t *testing.T) {
 	runtimeDir := t.TempDir()
 	pidPath := filepath.Join(runtimeDir, "lol_hex_display.pid")
