@@ -72,11 +72,13 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.hex-manager-page{display:flex;flex-direction:column;gap:16px;min-height:100%}
+.hex-manager-page{display:flex;flex-direction:column;gap:16px;height:100%;min-height:0;overflow:hidden}
 .page-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}
 .page-heading h2{margin:0;font-size:24px}
 .page-heading p{margin:9px 0 0;color:var(--el-text-color-secondary)}
 .service-state{display:flex;align-items:center;gap:12px;flex-wrap:wrap;color:var(--el-text-color-secondary);font-size:13px}
-.manager-frame{display:block;width:100%;height:calc(100vh - 190px);min-height:620px;border:1px solid var(--el-border-color);border-radius:8px;background:#fff}
+.manager-frame{display:block;flex:1 1 0;width:100%;height:0;min-height:0;border:1px solid var(--el-border-color);border-radius:8px;background:#fff}
+:global(.main-column){min-height:0}
+:global(.workspace){min-height:0;overflow:hidden}
 .empty-hint{max-width:480px;color:var(--el-text-color-secondary);line-height:1.7;text-align:center}
 </style>
