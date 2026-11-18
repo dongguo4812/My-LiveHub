@@ -252,8 +252,12 @@ func main() {
 	monitorService := desktop.NewMonitorService(logDirectory, extensionLogDir)
 	lolHexService, err := desktop.NewLOLHexService(extensionRoot, filepath.Join(paths.LocalDir, "lol_hex_display.json"))
 	if err != nil {
-		log.Printf("LOL Hex extension unavailable: %v", err)
-	} else if err := coreApp.Modules().Register("lol-hex-display", desktop.NewLOLHexModule(lolHexService)); err != nil {
+		log.Printf("LOL Hex built-in module unavailable: %v", err)
+	}
+	// Hex is a built-in, manually started module. Register it even when its
+	// runtime resources are missing so the module manager can report a clear
+	// startup error instead of silently hiding it from the module list.
+	if err := coreApp.Modules().Register("lol-hex-display", desktop.NewLOLHexModule(lolHexService)); err != nil {
 		log.Fatalf("register LOL Hex module: %v", err)
 	}
 	bilibiliSettingsService := desktop.NewBilibiliSettingsService(configManager, bilibiliConfig, bilibiliAdapter, fanMedalChecker)
@@ -314,7 +318,6 @@ func main() {
 			application.NewService(musicLyricsWindowService),
 			application.NewService(videoQueueService),
 			application.NewService(live2dService),
-			application.NewService(lolHexService),
 			application.NewService(bilibiliWebViewService),
 		},
 	})
