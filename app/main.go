@@ -304,6 +304,7 @@ func main() {
 		},
 		Services: []application.Service{
 			application.NewService(desktop.NewCoreService(coreApp)),
+			application.NewService(lolHexService),
 			application.NewService(updateService),
 			application.NewService(monitorService),
 			application.NewService(platformService),
