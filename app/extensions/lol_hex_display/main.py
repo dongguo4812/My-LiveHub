@@ -264,8 +264,17 @@ DEFAULT_CONFIG = {
     'ocr_inter_op_num_threads': 1,
     'lol_client_path': r'D:\WeGameApps\英雄联盟（含经典模式）',
 }
+ADMIN_LAUNCH_RESULT = "not_requested"
+
+
 def check_admin_privileges():
-    """确保源码版和打包版均通过 UAC 以管理员权限运行。"""
+    """确保源码版和打包版均通过 UAC 以管理员权限运行。
+
+    ADMIN_LAUNCH_RESULT 区分正常提权交接、用户取消和真正的启动错误，
+    供 My-LiveHub 在启动阶段立即回报结果，而不是等待健康检查超时。
+    """
+    global ADMIN_LAUNCH_RESULT
+    ADMIN_LAUNCH_RESULT = "not_requested"
     if os.name != "nt":
         return True
 
@@ -290,13 +299,22 @@ def check_admin_privileges():
         shell_execute = ctypes.windll.shell32.ShellExecuteW
         shell_execute.restype = ctypes.c_void_p
         # SW_HIDE keeps the elevated background extension from opening a console window.
+        ctypes.set_last_error(0)
         result = shell_execute(None, "runas", executable, parameters, str(ROOT), 0)
         if result and result > 32:
+            ADMIN_LAUNCH_RESULT = "handoff"
             log.info("[权限检查] 已请求 Windows 以管理员权限重新启动 LOL Hex")
             return False
 
         error_code = int(result or 0)
-        log.error("[权限检查] Windows 管理员启动失败，ShellExecuteW 返回：%s", error_code)
+        win_error = int(ctypes.get_last_error())
+        if win_error == 1223 or error_code == 5:
+            ADMIN_LAUNCH_RESULT = "cancelled"
+            log.info("[权限检查] 用户取消了 LOL Hex 管理员权限请求")
+            return False
+
+        ADMIN_LAUNCH_RESULT = "failed"
+        log.error("[权限检查] Windows 管理员启动失败，ShellExecuteW 返回：%s，LastError：%s", error_code, win_error)
         try:
             ctypes.windll.user32.MessageBoxW(
                 None,
@@ -308,6 +326,7 @@ def check_admin_privileges():
         except Exception:
             pass
     except Exception as exc:
+        ADMIN_LAUNCH_RESULT = "failed"
         log.exception("[权限检查] 请求管理员启动失败：%s", exc)
         try:
             ctypes.windll.user32.MessageBoxW(
@@ -2682,5 +2701,5 @@ if __name__ == "__main__":
     if check_admin_privileges():
         sys.exit(main())
     else:
-        # 提权成功时由新的管理员进程接管；失败或用户拒绝时不继续运行。
-        sys.exit(0)
+        # 提权成功时由新的管理员进程接管；用户取消必须向主程序返回非零状态。
+        sys.exit(0 if ADMIN_LAUNCH_RESULT == "handoff" else (1223 if ADMIN_LAUNCH_RESULT == "cancelled" else 1))
