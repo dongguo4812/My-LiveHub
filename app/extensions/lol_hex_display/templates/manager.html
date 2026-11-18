@@ -17,8 +17,8 @@
 
 /* 所有管理内容统一宽度，并整体居中 */
 	main:has(#barAdminPanel) {
-	  width: 1549px !important;
-	  max-width: calc(100vw - 32px) !important;
+	  width:100% !important;
+	  max-width:100% !important;
 	  margin: 18px auto !important;
 	  box-sizing: border-box;
 	  overflow: visible !important;
@@ -57,7 +57,7 @@
   align-items: center;
   justify-content: flex-start;
   gap: 16px;
-  flex-wrap: nowrap;
+  flex-wrap:wrap;
   min-width: 0;
 }
 
@@ -100,8 +100,8 @@
 	}
 
   #barAdminPanel {
-    width: 1549px !important;
-    max-width: calc(100vw - 32px) !important;
+    width:100% !important;
+    max-width:100% !important;
     margin: 18px auto !important;
     padding: 16px !important;
     box-sizing: border-box !important;
@@ -109,28 +109,29 @@
   }
 
   #barAdminPreview {
-    width: 1515px !important;
+    width:100% !important;
     max-width: 100% !important;
     box-sizing: border-box !important;
-    overflow-x: auto !important;
+    overflow-x:hidden !important;
     overflow-y: visible !important;
   }
 
   #barAdminPreview .bar-admin-header {
-    width: 1515px;
-    max-width: none;
+          width:100%;
+          flex-wrap:wrap;
+    max-width:100%;
     box-sizing: border-box;
   }
 
   #barAdminPreview .bar-admin-games {
     display: grid;
-    grid-template-columns: repeat(20, 71px);
+    grid-template-columns:repeat(auto-fill,minmax(71px,1fr));
     grid-auto-rows: 90px;
     gap: 5px;
     align-content: start;
     align-items: start;
-    width: 1515px;
-    max-width: none;
+    width:100%;
+    max-width:100%;
     overflow: visible;
   }
 
@@ -177,8 +178,7 @@
 
       <label>
         批次间隔（分钟）
-        <input id="barGapMin" type="number" min="1" max="100000" value="100000" style="width:100px">
-      </label>
+        <input id="barGapMin" type="number" min="1" max="100000" value="100000" style="width:100px">      </label>
 
       <label style="display:inline-flex;align-items:center;gap:6px">
         <input id="barShowLobbyMemberCount" type="checkbox" checked>
@@ -357,8 +357,7 @@ async function loadClientStatus() {
     }
   } catch (e) {
     el.textContent = '客户端状态读取失败：' + e.message;
-    el.style.color = '#e08b8b';
-  }
+    el.style.color = '#e08b8b';  }
 }
 
 let lastRenderedAt = null;
@@ -495,9 +494,9 @@ async function loadBarAdmin() {
     preview.innerHTML = `
       <style>
         #barAdminPreview {
-          width: 1515px !important;
+          width:100% !important;
           max-width: 100% !important;
-          overflow-x: auto !important;
+          overflow-x:hidden !important;
           overflow-y: visible !important;
           box-sizing: border-box;
         }
@@ -507,8 +506,8 @@ async function loadBarAdmin() {
           justify-content: space-between;
           align-items: center;
           gap: 16px;
-          width: 1515px;
-          max-width: none;
+          width:100%;
+          max-width:100%;
           margin-bottom: 12px;
           box-sizing: border-box;
         }
@@ -537,8 +536,7 @@ async function loadBarAdmin() {
           white-space: nowrap;
         }
 
-        #barAdminPreview .bar-admin-wins {
-          color: #38a889;
+        #barAdminPreview .bar-admin-wins {          color: #38a889;
         }
 
         #barAdminPreview .bar-admin-losses {
@@ -547,13 +545,13 @@ async function loadBarAdmin() {
 
         #barAdminPreview .bar-admin-games {
           display: grid;
-          grid-template-columns: repeat(20, 71px);
+          grid-template-columns:repeat(auto-fill,minmax(71px,1fr));
           grid-auto-rows: 90px;
           gap: 5px;
           align-content: start;
           align-items: start;
-          width: 1515px;
-          max-width: none;
+          width:100%;
+          max-width:100%;
           overflow: visible;
         }
 
@@ -717,7 +715,6 @@ async function saveBarConfig() {
     status.style.color = '#e08b8b';
   }
 }
-
 async function barAction(action) {
   const status = document.getElementById('barAdminStatus');
 
