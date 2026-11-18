@@ -292,10 +292,24 @@ func (s *LOLHexService) Stop() (LOLHexStatus, error) {
 		return s.GetStatusUnlocked(), nil
 	}
 	if !healthy {
-		// 启动超时或服务暂时失去响应时，不能把“HTTP 不可达”当作“进程已退出”。
-		// 尤其 UAC 交接后，s.launch 只代表未提权父进程，不能据此判断管理员子进程。
-		// 保留 owned/token 状态，避免主程序误报停止或丢失对该实例的管理关系。
-		return s.GetStatusUnlocked(), errors.New("LOL Hex 当前没有健康响应，无法通过受控关闭接口确认进程已停止；已保留进程管理状态，请稍后重试。")
+		// HTTP 服务停止不代表 Python 进程已经完成后台线程、日志和单实例锁清理。
+		// 等待由本次 manager token 标识的 PID 记录被进程最终清理；Python 端保证
+		// 先释放单实例互斥锁，再删除 PID 文件，因而观察到记录消失后才允许重新启动。
+		record := s.readPIDRecord()
+		if record.PID <= 0 || record.ManagerToken != s.token || s.token == "" {
+			return s.GetStatusUnlocked(), errors.New("LOL Hex 当前没有健康响应，且无法核验本次启动的进程身份；已保留进程管理状态。")
+		}
+		deadline := time.Now().Add(12 * time.Second)
+		for time.Now().Before(deadline) {
+			current := s.readPIDRecord()
+			if current.PID <= 0 || current.ManagerToken != s.token {
+				s.owned, s.launch = false, nil
+				s.lastErr = ""
+				return s.GetStatusUnlocked(), nil
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		return s.GetStatusUnlocked(), errors.New("LOL Hex HTTP 服务已停止，但进程尚未完成退出清理；请稍后重试，未清除进程管理状态。")
 	}
 	record := s.readPIDRecord()
 	if s.token == "" || record.ManagerToken != s.token {
