@@ -31,7 +31,7 @@ type LOLHexStatus struct {
 }
 
 type LOLHexService struct {
-	extensionDir string
+	runtimeDir string
 	configPath   string
 	pythonPath   string
 	host         string
@@ -45,9 +45,9 @@ type LOLHexService struct {
 	token    string
 }
 
-func NewLOLHexService(extensionDir, configPath string) (*LOLHexService, error) {
-	if extensionDir == "" || configPath == "" {
-		return nil, errors.New("LOL Hex 扩展目录和配置文件路径不能为空")
+func NewLOLHexService(runtimeDir, configPath string) (*LOLHexService, error) {
+	if runtimeDir == "" || configPath == "" {
+		return nil, errors.New("LOL Hex 内置运行目录和配置文件路径不能为空")
 	}
 	if runtime.GOOS != "windows" {
 		return nil, errors.New("LOL Hex 当前仅支持 Windows")
@@ -74,7 +74,7 @@ func NewLOLHexService(extensionDir, configPath string) (*LOLHexService, error) {
 		pythonPath = "pythonw"
 	}
 	return &LOLHexService{
-		extensionDir: extensionDir,
+		runtimeDir: runtimeDir,
 		configPath: configPath,
 		pythonPath: pythonPath,
 		host: cfg.Host,
@@ -113,8 +113,8 @@ func (s *LOLHexService) readPIDRecord() lolHexPIDRecord {
 	// Source mode writes beside launcher.py; the packaged EXE writes beside
 	// itself under dist/lol_hex_display. Check both locations.
 	paths := []string{
-		filepath.Join(s.extensionDir, "lol_hex_display.pid"),
-		filepath.Join(s.extensionDir, "dist", "lol_hex_display", "lol_hex_display.pid"),
+		filepath.Join(s.runtimeDir, "lol_hex_display.pid"),
+		filepath.Join(s.runtimeDir, "dist", "lol_hex_display", "lol_hex_display.pid"),
 	}
 	var fallback lolHexPIDRecord
 	for _, path := range paths {
@@ -171,35 +171,35 @@ func (s *LOLHexService) Start() (LOLHexStatus, error) {
 	if s.owned {
 		return s.GetStatusUnlocked(), errors.New("LOL Hex 已由 My-LiveHub 启动，正在等待服务恢复")
 	}
-	if _, err := os.Stat(filepath.Join(s.extensionDir, "launcher.py")); err != nil {
+	if _, err := os.Stat(filepath.Join(s.runtimeDir, "launcher.py")); err != nil {
 		return LOLHexStatus{}, fmt.Errorf("找不到 LOL Hex 启动入口：%w", err)
 	}
 	var command *exec.Cmd
-	exePath := filepath.Join(s.extensionDir, "dist", "lol_hex_display", "lol_hex_display.exe")
+	exePath := filepath.Join(s.runtimeDir, "dist", "lol_hex_display", "lol_hex_display.exe")
 	if _, err := os.Stat(exePath); err != nil {
-		exePath = filepath.Join(s.extensionDir, "lol_hex_display.exe")
+		exePath = filepath.Join(s.runtimeDir, "lol_hex_display.exe")
 	}
 	if _, err := os.Stat(exePath); err == nil {
 		command = exec.Command(exePath, "--config", s.configPath)
 	} else {
-		python := filepath.Join(s.extensionDir, ".venv", "Scripts", "pythonw.exe")
+		python := filepath.Join(s.runtimeDir, ".venv", "Scripts", "pythonw.exe")
 		if _, err := os.Stat(python); err != nil {
-			python = filepath.Join(s.extensionDir, ".venv", "Scripts", "python.exe")
+			python = filepath.Join(s.runtimeDir, ".venv", "Scripts", "python.exe")
 			if _, statErr := os.Stat(python); statErr != nil {
 				python, err = exec.LookPath(s.pythonPath)
 				if err != nil && s.pythonPath == "pythonw" {
 					python, err = exec.LookPath("python")
 				}
 				if err != nil {
-					return LOLHexStatus{}, fmt.Errorf("未找到 Python 运行环境。请在扩展目录创建 .venv，或设置 MY_LIVEHUB_PYTHON：%w", err)
+					return LOLHexStatus{}, fmt.Errorf("未找到 Python 运行环境。请在内置运行目录创建 .venv，或设置 MY_LIVEHUB_PYTHON：%w", err)
 				}
 			}
 		}
 		command = exec.Command(python, "launcher.py", "--config", s.configPath)
 	}
-	command.Dir = s.extensionDir
+	command.Dir = s.runtimeDir
 	tokenBytes := make([]byte, 24)
-	if _, err := rand.Read(tokenBytes); err != nil { return LOLHexStatus{}, fmt.Errorf("生成扩展进程身份令牌失败：%w", err) }
+	if _, err := rand.Read(tokenBytes); err != nil { return LOLHexStatus{}, fmt.Errorf("生成内置模块进程身份令牌失败：%w", err) }
 	s.token = hex.EncodeToString(tokenBytes)
 	startupStatusPath := filepath.Join(os.TempDir(), "MyLiveHub-LOLHex-"+s.token+".json")
 	_ = os.Remove(startupStatusPath)
@@ -267,7 +267,7 @@ func (s *LOLHexService) Start() (LOLHexStatus, error) {
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
-	s.lastErr = "等待 LOL Hex 服务启动超时。请检查 UAC 提权提示和扩展日志。"
+	s.lastErr = "等待 LOL Hex 服务启动超时。请检查 UAC 提权提示和模块日志。"
 	return s.GetStatusUnlocked(), errors.New(s.lastErr)
 }
 

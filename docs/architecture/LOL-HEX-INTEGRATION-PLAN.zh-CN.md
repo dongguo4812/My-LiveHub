@@ -1,6 +1,6 @@
 # LOL Hex 内置化改造方案
 
-> 状态：改造实施中（第一阶段：统一生命周期与启动失败回报）  
+> 状态：实施中（内置运行组件目录迁移、发布链路和旧数据兼容）  
 > 目标分支：`feature/hex-integration`  
 > 基线分支：`dev`  
 > 基线提交：`f9bd2e6d3e034b2ce5ca0b79a8ea6f1ec2968e26`
@@ -25,7 +25,7 @@
 
 - 产品入口仍然把它呈现为“扩展”，而不是正式功能。
 - 业务运行时仍是独立 Python/Flask 进程，源码运行依赖 Python 环境，发布运行依赖独立打包的目录式 EXE。
-- Hex 发布目录需要额外放入主程序发布目录；主程序更新器目前按 Portable ZIP 或 Setup EXE 更新整套应用，没有独立的 Hex 组件版本协议。
+- 旧版本 Hex 源码位于 `app/extensions/lol_hex_display`；本阶段将源码迁入 `app/internal/desktop/lolhex/runtime`，正式包统一部署到应用根目录的 `modules/lol_hex_display`。主程序更新器按 Portable ZIP 或 Setup EXE 更新整套应用，不使用独立 Hex 组件版本协议。
 - Hex 的本机配置、数据、截图和日志需要在升级及迁移时明确保护。
 - Windows F1 全局热键存在管理员权限要求。当前通过独立进程处理权限边界；不能简单把提权转移到整个主程序。
 
@@ -61,13 +61,13 @@
 - `app/frontend/src/views/ExtensionsView.vue`：移除 Hex 专属卡片，不再把 Hex 作为普通扩展管理。
 - 当前主导航、路由和设置页面：增加正式功能入口，入口名称和交互与其他内置功能一致。
 - `app/internal/desktop/lol_hex_module.go`：保留模块生命周期能力，补齐正式模块的启停策略和错误呈现。
-- `app/internal/desktop/lol_hex_service.go`：保留进程身份令牌、外部进程不接管、只停止本程序拥有进程等安全行为；完善资源定位和健康检查。
+- `app/internal/desktop/lol_hex_service.go`：保留进程身份令牌、外部进程不接管、只停止本程序拥有进程等安全行为；运行入口只定位内置模块目录，不再从 `app/extensions` 加载代码。
 
 不应在本阶段顺手重构无关模块管理逻辑。
 
 ### 5.2 运行文件与资源打包
 
-目标是让正式发布产物天然包含 Hex，不再要求用户单独执行扩展的 `build.bat` 或手动复制 `dist/lol_hex_display`。
+目标是让正式发布产物天然包含 Hex，不再要求用户单独执行运行组件的 `build.bat` 或手动复制 `dist/lol_hex_display`。运行组件源码固定放在 `app/internal/desktop/lolhex/runtime`，正式包部署到 `modules/lol_hex_display`；构建工作流从新源码位置构建并组装运行资源。
 
 需要逐项核对并修改：
 

@@ -2,7 +2,6 @@ package main
 
 import (
 	"embed"
-	"errors"
 	"fmt"
 	"io/fs"
 	"log"
@@ -232,25 +231,32 @@ func main() {
 	if err != nil {
 		log.Fatalf("resolve application executable: %v", err)
 	}
-	extensionRoot := filepath.Join(filepath.Dir(applicationPath), "extensions", "lol_hex_display")
+	applicationRoot := filepath.Dir(applicationPath)
+	if filepath.Base(applicationRoot) == "bin" {
+		// Wails development/release builds place the executable in app/bin.
+		applicationRoot = filepath.Dir(applicationRoot)
+	}
+	runtimeRoot := filepath.Join(applicationRoot, "modules", "lol_hex_display")
+	legacyRuntimeRoot := filepath.Join(applicationRoot, "extensions", "lol_hex_display")
 	if environment == config.EnvironmentDevelopment {
 		if workingDir, getwdErr := os.Getwd(); getwdErr == nil {
-			extensionRoot = filepath.Join(workingDir, "extensions", "lol_hex_display")
+			runtimeRoot = filepath.Join(workingDir, "internal", "desktop", "lolhex", "runtime")
+			legacyRuntimeRoot = filepath.Join(workingDir, "extensions", "lol_hex_display")
 		}
-	} else if _, statErr := os.Stat(extensionRoot); errors.Is(statErr, os.ErrNotExist) {
-		// Wails places the executable in app/bin; allow extensions to be shipped
-		// beside that bin directory in the application root.
-		extensionRoot = filepath.Join(filepath.Dir(filepath.Dir(applicationPath)), "extensions", "lol_hex_display")
 	}
-	// Read the active LOL Hex process's daily files as part of diagnostics.
-	// The packaged executable writes beside itself; source mode writes in the extension root.
-	extensionLogDir := filepath.Join(extensionRoot, "logs")
-	packagedHexExecutable := filepath.Join(extensionRoot, "dist", "lol_hex_display", "lol_hex_display.exe")
+	// Migrate only user-owned runtime data from older releases. The application
+	// no longer loads code or starts the worker from the legacy extensions path.
+	if err := desktop.MigrateLOLHexRuntimeData(legacyRuntimeRoot, runtimeRoot); err != nil {
+		log.Printf("migrate legacy LOL Hex runtime data: %v", err)
+	}
+	// Read the built-in LOL Hex worker's daily files as part of diagnostics.
+	lolHexLogDir := filepath.Join(runtimeRoot, "logs")
+	packagedHexExecutable := filepath.Join(runtimeRoot, "dist", "lol_hex_display", "lol_hex_display.exe")
 	if _, statErr := os.Stat(packagedHexExecutable); statErr == nil {
-		extensionLogDir = filepath.Join(extensionRoot, "dist", "lol_hex_display", "logs")
+		lolHexLogDir = filepath.Join(runtimeRoot, "dist", "lol_hex_display", "logs")
 	}
-	monitorService := desktop.NewMonitorService(logDirectory, extensionLogDir)
-	lolHexService, err := desktop.NewLOLHexService(extensionRoot, filepath.Join(paths.LocalDir, "lol_hex_display.json"))
+	monitorService := desktop.NewMonitorService(logDirectory, lolHexLogDir)
+	lolHexService, err := desktop.NewLOLHexService(runtimeRoot, filepath.Join(paths.LocalDir, "lol_hex_display.json"))
 	if err != nil {
 		log.Printf("LOL Hex built-in module unavailable: %v", err)
 	}
