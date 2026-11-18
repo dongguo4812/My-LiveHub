@@ -20,6 +20,7 @@ let startPromise: Promise<void> | null = null
 let generation = 0
 let previousMouth = 0
 let currentConfig: Live2DConfig | null = null
+let microphonePreferenceOverride: boolean | null = null
 let mouthDriver: ((value: number) => void) | null = null
 
 async function resolveMouthEndpoint() {
@@ -98,6 +99,14 @@ export function setLive2DMouthDriver(driver: ((value: number) => void) | null) {
 
 export function updateLive2DMicrophoneConfig(config: Live2DConfig) {
   currentConfig = config
+}
+
+export function setLive2DMicrophonePreference(enabled: boolean) {
+  microphonePreferenceOverride = enabled
+}
+
+export function isLive2DMicrophonePreferred() {
+  return microphonePreferenceOverride ?? currentConfig?.microphone_enabled ?? false
 }
 
 export async function startLive2DMicrophone() {
