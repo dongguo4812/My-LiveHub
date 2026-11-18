@@ -4,7 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import * as CoreService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/coreservice.js'
 import { coreModules } from '../services/coreStatus'
 import { getLive2DSettings, updateLive2DSettings } from '../services/live2d'
-import { getLive2DMicrophoneState, startLive2DMicrophone, stopLive2DMicrophone } from '../services/live2dMicrophone'
+import { getLive2DMicrophoneState, setLive2DMicrophonePreference, updateLive2DMicrophoneConfig, startLive2DMicrophone, stopLive2DMicrophone } from '../services/live2dMicrophone'
 const loading = ref<Record<string, boolean>>({})
 const microphoneState = getLive2DMicrophoneState()
 const microphoneLoading = computed(() => microphoneState.starting)
@@ -14,10 +14,13 @@ const microphoneError = computed(() => microphoneState.error)
 async function toggleModuleMicrophone() {
   if (microphoneState.starting) return
   if (microphoneState.active) {
+    setLive2DMicrophonePreference(false)
     stopLive2DMicrophone()
     try {
       const config = await getLive2DSettings()
-      await updateLive2DSettings({ ...config, microphone_enabled: false })
+      const next = { ...config, microphone_enabled: false }
+      updateLive2DMicrophoneConfig(next)
+      await updateLive2DSettings(next)
     } catch (error) {
       ElMessage.error('保存麦克风设置失败：' + String(error))
     }
@@ -30,9 +33,12 @@ async function toggleModuleMicrophone() {
   }
   await startLive2DMicrophone()
   if (microphoneState.active) {
+    setLive2DMicrophonePreference(true)
     try {
       const config = await getLive2DSettings()
-      await updateLive2DSettings({ ...config, microphone_enabled: true })
+      const next = { ...config, microphone_enabled: true }
+      updateLive2DMicrophoneConfig(next)
+      await updateLive2DSettings(next)
       ElMessage.success('麦克风已启动')
     } catch (error) {
       microphoneState.error = '保存麦克风设置失败：' + String(error)
