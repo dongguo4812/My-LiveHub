@@ -205,7 +205,8 @@ def register_bar_routes(
         refresh_wakeup_event.set()
 
         # 所有消费者和自动刷新线程共享一个收尾期限，避免逐线程累加等待。
-        shutdown_deadline = time.monotonic() + 0.5
+        # LCU 请求有网络超时，给在途请求足够的机会完成并释放响应资源。
+        shutdown_deadline = time.monotonic() + 3.5
         for current_worker in list(worker_threads):
             if (
                 current_worker is threading.current_thread()
