@@ -2720,22 +2720,23 @@ def main():
         except Exception:
             log.exception('取消截图选择器失败')
 
+        # 自动与手动索引更新共用互斥锁，网络请求最长 30 秒。
+        # 所有 Hex 后台线程共用一个收尾期限，避免分别等待导致退出时间累加。
+        shutdown_deadline = time.monotonic() + 32.0
+
         # 先阻止并发请求在停止过程中再创建手动更新线程，再等待已登记的任务退出。
         with manual_update_lock:
             manual_threads_to_join = list(manual_update_threads)
 
-        # 更新源请求最长 30 秒；允许在途请求完成后释放响应、文件和互斥锁。
-        manual_deadline = time.monotonic() + 32.0
         for thread in manual_threads_to_join:
             if thread is threading.current_thread() or not thread.is_alive():
                 continue
-            remaining = manual_deadline - time.monotonic()
+            remaining = shutdown_deadline - time.monotonic()
             if remaining <= 0:
                 break
             thread.join(timeout=remaining)
 
-        # LCU 请求有明确的网络超时；共享 5 秒收尾窗口，避免逐线程累加等待。
-        shutdown_deadline = time.monotonic() + 5.0
+        # LCU 请求也有明确的网络超时；继续使用同一个收尾期限。
         threads_to_join = list(
             background_threads if 'background_threads' in locals() else ()
         )
