@@ -34,7 +34,7 @@ func (s *CoreService) StartModule(name string) error {
 }
 
 func (s *CoreService) StopModule(name string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	return s.app.Modules().StopModule(ctx, name)
 }

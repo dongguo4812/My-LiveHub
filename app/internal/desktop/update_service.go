@@ -425,7 +425,21 @@ try {
         $p -eq 'extensions/lol_hex_display/data' -or $p.StartsWith('extensions/lol_hex_display/data/') -or
         $p -eq 'extensions/lol_hex_display/screenshots' -or $p.StartsWith('extensions/lol_hex_display/screenshots/') -or
         $p -eq 'extensions/lol_hex_display/logs' -or $p.StartsWith('extensions/lol_hex_display/logs/') -or
-        $p -eq 'extensions/lol_hex_display/dist/lol_hex_display/logs' -or $p.StartsWith('extensions/lol_hex_display/dist/lol_hex_display/logs/')
+        $p -eq 'extensions/lol_hex_display/dist/lol_hex_display/data' -or $p.StartsWith('extensions/lol_hex_display/dist/lol_hex_display/data/') -or
+        $p -eq 'extensions/lol_hex_display/dist/lol_hex_display/screenshots' -or $p.StartsWith('extensions/lol_hex_display/dist/lol_hex_display/screenshots/') -or
+        $p -eq 'extensions/lol_hex_display/dist/lol_hex_display/logs' -or $p.StartsWith('extensions/lol_hex_display/dist/lol_hex_display/logs/') -or
+        $p -eq 'modules/lol_hex_display/data' -or $p.StartsWith('modules/lol_hex_display/data/') -or
+        $p -eq 'modules/lol_hex_display/screenshots' -or $p.StartsWith('modules/lol_hex_display/screenshots/') -or
+        $p -eq 'modules/lol_hex_display/logs' -or $p.StartsWith('modules/lol_hex_display/logs/') -or
+        $p -eq 'modules/lol_hex_display/dist/lol_hex_display/data' -or $p.StartsWith('modules/lol_hex_display/dist/lol_hex_display/data/') -or
+        $p -eq 'modules/lol_hex_display/dist/lol_hex_display/screenshots' -or $p.StartsWith('modules/lol_hex_display/dist/lol_hex_display/screenshots/') -or
+        $p -eq 'modules/lol_hex_display/dist/lol_hex_display/logs' -or $p.StartsWith('modules/lol_hex_display/dist/lol_hex_display/logs/') -or
+        $p -eq 'modules/lol_hex_display/data' -or $p.StartsWith('modules/lol_hex_display/data/') -or
+        $p -eq 'modules/lol_hex_display/screenshots' -or $p.StartsWith('modules/lol_hex_display/screenshots/') -or
+        $p -eq 'modules/lol_hex_display/logs' -or $p.StartsWith('modules/lol_hex_display/logs/') -or
+        $p -eq 'modules/lol_hex_display/dist/lol_hex_display/data' -or $p.StartsWith('modules/lol_hex_display/dist/lol_hex_display/data/') -or
+        $p -eq 'modules/lol_hex_display/dist/lol_hex_display/screenshots' -or $p.StartsWith('modules/lol_hex_display/dist/lol_hex_display/screenshots/') -or
+        $p -eq 'modules/lol_hex_display/dist/lol_hex_display/logs' -or $p.StartsWith('modules/lol_hex_display/dist/lol_hex_display/logs/')
     }
     $oldFiles = @(Get-ChildItem -LiteralPath $root -File -Recurse -Force | Where-Object { !$_.FullName.StartsWith(($temp.TrimEnd([char]92) + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase) })
     foreach ($file in $oldFiles) {
@@ -492,7 +506,7 @@ try {
     Copy-Item -LiteralPath $exe -Destination $backupExe -Force
     if (!(Test-Path -LiteralPath $backupExe -PathType Leaf)) { throw "Portable executable backup failed: $backupExe" }
     Write-UpdateLog "Portable executable backed up to $backupExe"
-    function Is-Preserved([string]$relative) {
+        function Is-Preserved([string]$relative) {
       $p = $relative.Replace([string][char]92,'/').ToLowerInvariant()
       return $p -eq 'config/local' -or $p.StartsWith('config/local/') -or
         $p -eq 'cache' -or $p.StartsWith('cache/') -or
@@ -501,7 +515,15 @@ try {
         $p -eq 'extensions/lol_hex_display/data' -or $p.StartsWith('extensions/lol_hex_display/data/') -or
         $p -eq 'extensions/lol_hex_display/screenshots' -or $p.StartsWith('extensions/lol_hex_display/screenshots/') -or
         $p -eq 'extensions/lol_hex_display/logs' -or $p.StartsWith('extensions/lol_hex_display/logs/') -or
-        $p -eq 'extensions/lol_hex_display/dist/lol_hex_display/logs' -or $p.StartsWith('extensions/lol_hex_display/dist/lol_hex_display/logs/')
+        $p -eq 'extensions/lol_hex_display/dist/lol_hex_display/data' -or $p.StartsWith('extensions/lol_hex_display/dist/lol_hex_display/data/') -or
+        $p -eq 'extensions/lol_hex_display/dist/lol_hex_display/screenshots' -or $p.StartsWith('extensions/lol_hex_display/dist/lol_hex_display/screenshots/') -or
+        $p -eq 'extensions/lol_hex_display/dist/lol_hex_display/logs' -or $p.StartsWith('extensions/lol_hex_display/dist/lol_hex_display/logs/') -or
+        $p -eq 'modules/lol_hex_display/data' -or $p.StartsWith('modules/lol_hex_display/data/') -or
+        $p -eq 'modules/lol_hex_display/screenshots' -or $p.StartsWith('modules/lol_hex_display/screenshots/') -or
+        $p -eq 'modules/lol_hex_display/logs' -or $p.StartsWith('modules/lol_hex_display/logs/') -or
+        $p -eq 'modules/lol_hex_display/dist/lol_hex_display/data' -or $p.StartsWith('modules/lol_hex_display/dist/lol_hex_display/data/') -or
+        $p -eq 'modules/lol_hex_display/dist/lol_hex_display/screenshots' -or $p.StartsWith('modules/lol_hex_display/dist/lol_hex_display/screenshots/') -or
+        $p -eq 'modules/lol_hex_display/dist/lol_hex_display/logs' -or $p.StartsWith('modules/lol_hex_display/dist/lol_hex_display/logs/')
     }
     $newFiles = @(Get-ChildItem -LiteralPath $source -File -Recurse -Force)
     $backupFiles = @{}

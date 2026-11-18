@@ -3,7 +3,7 @@ chcp 65001 >nul
 setlocal
 cd /d "%~dp0"
 
-echo Checking LOL Hex extension sources...
+echo Checking built-in LOL Hex runtime sources...
 if not exist "launcher.py" exit /b 1
 if not exist "main.py" exit /b 1
 if not exist "bar_integration.py" exit /b 1
@@ -27,7 +27,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo Building LOL Hex standalone directory...
+echo Building LOL Hex runtime bundle...
 python -m PyInstaller --noconfirm --clean --onedir --noconsole --manifest "lol_hex_display.manifest" --name "lol_hex_display" --collect-all rapidocr_onnxruntime --collect-all onnxruntime --hidden-import keyboard --hidden-import mss --hidden-import tkinter "launcher.py"
 if errorlevel 1 exit /b 1
 

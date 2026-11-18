@@ -64,6 +64,32 @@ func TestUpdaterVerifiesTargetExecutableVersion(t *testing.T) {
 	}
 }
 
+func TestPortableUpdaterPreservesBuiltInLOLHexData(t *testing.T) {
+	preservedPaths := []string{
+		"modules/lol_hex_display/data",
+		"modules/lol_hex_display/screenshots",
+		"modules/lol_hex_display/logs",
+		"modules/lol_hex_display/dist/lol_hex_display/data",
+		"modules/lol_hex_display/dist/lol_hex_display/screenshots",
+		"modules/lol_hex_display/dist/lol_hex_display/logs",
+	}
+	portableStart := strings.LastIndex(updatePowerShellScript, "function Is-Preserved([string]$relative)")
+	if portableStart < 0 {
+		t.Fatal("portable updater preservation function was not found")
+	}
+	portableEnd := strings.Index(updatePowerShellScript[portableStart:], "$newFiles =")
+	if portableEnd < 0 {
+		t.Fatal("portable updater preservation function boundary was not found")
+	}
+	portableBlock := updatePowerShellScript[portableStart : portableStart+portableEnd]
+	for _, path := range preservedPaths {
+		if !strings.Contains(portableBlock, "$p -eq '"+path+"'") ||
+			!strings.Contains(portableBlock, "$p.StartsWith('"+path+"/')") {
+			t.Errorf("portable updater does not preserve %s and its contents", path)
+		}
+	}
+}
+
 func TestInstallerRollbackExcludesActiveUpdateWorkspace(t *testing.T) {
 	if !strings.Contains(updatePowerShellScript, "$oldFiles = @(Get-ChildItem -LiteralPath $root -File -Recurse -Force | Where-Object") {
 		t.Fatal("installer backup must exclude the active update workspace")
