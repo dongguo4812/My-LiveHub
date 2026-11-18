@@ -38,9 +38,7 @@ class HexLifecycleTests(unittest.TestCase):
         hex_main.stop_event.clear()
 
     def test_health_endpoint_reports_ready_and_allows_composite_display_origin(self):
-        with mock.patch.object(hex_main, 'HTTP_SERVER', object()), mock.patch.object(
-            hex_main, 'stop_event', mock.Mock(is_set=mock.Mock(return_value=False))
-        ):
+        with mock.patch.object(hex_main, '_hex_runtime_ready', return_value=True):
             response = self.client.get('/api/health')
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.get_json()['ready'])
@@ -48,9 +46,7 @@ class HexLifecycleTests(unittest.TestCase):
         self.assertEqual(response.headers.get('Cache-Control'), 'no-store')
 
     def test_health_endpoint_reports_not_ready_after_shutdown_begins(self):
-        with mock.patch.object(hex_main, 'HTTP_SERVER', object()), mock.patch.object(
-            hex_main, 'stop_event', mock.Mock(is_set=mock.Mock(return_value=True))
-        ):
+        with mock.patch.object(hex_main, '_hex_runtime_ready', return_value=False):
             response = self.client.get('/api/health')
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.get_json()['ready'])
