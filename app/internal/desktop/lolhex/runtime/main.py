@@ -2663,6 +2663,17 @@ def start_hotkey():
         return False
 
 
+def _shutdown_threads_to_join(background_threads, selector_thread=None):
+    """返回关闭时需要等待的关键线程；索引更新线程不阻塞进程退出。"""
+    threads = [
+        thread for thread in background_threads
+        if thread.name != 'AssetUpdater'
+    ]
+    if selector_thread is not None:
+        threads.append(selector_thread)
+    return threads
+
+
 def main():
     global HTTP_SERVER, F1_HOTKEY_HANDLE, F1_HOTKEY_REGISTERED
     # 必须在任何运行期文件操作、日志线程、后台任务、F1 和 HTTP 端口之前取得锁。
@@ -2756,14 +2767,11 @@ def main():
         # LCU、游戏状态、截图选择器仍需有限收尾；AssetUpdater 只负责
         # 版本检查和海克斯索引/图标下载，不应拖慢退出。
         shutdown_deadline = time.monotonic() + 8.0
-        threads_to_join = [
-            thread
-            for thread in (background_threads if 'background_threads' in locals() else ())
-            if thread.name != 'AssetUpdater'
-        ]
         selector_thread = getattr(selector, 'thread', None)
-        if selector_thread is not None:
-            threads_to_join.append(selector_thread)
+        threads_to_join = _shutdown_threads_to_join(
+            background_threads if 'background_threads' in locals() else (),
+            selector_thread,
+        )
 
         for thread in threads_to_join:
             if thread is threading.current_thread() or not thread.is_alive():

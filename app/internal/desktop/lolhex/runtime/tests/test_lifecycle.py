@@ -79,6 +79,24 @@ class HexLifecycleTests(unittest.TestCase):
         self.assertFalse(hex_main._asset_update_mutex.locked())
 
 
+    def test_shutdown_wait_list_excludes_asset_updater_but_keeps_critical_workers(self):
+        screenshot = threading.Thread(name="ScreenshotWatcher")
+        assets = threading.Thread(name="AssetUpdater")
+        lcu = threading.Thread(name="LcuRecognition")
+        gameflow = threading.Thread(name="GameflowWatcher")
+        selector = threading.Thread(name="ScreenshotSelector")
+
+        waiting = hex_main._shutdown_threads_to_join(
+            [screenshot, assets, lcu, gameflow],
+            selector,
+        )
+
+        self.assertEqual(
+            waiting,
+            [screenshot, lcu, gameflow, selector],
+        )
+        self.assertNotIn(assets, waiting)
+
     def test_shutdown_does_not_wait_for_manual_asset_update(self):
         started = threading.Event()
         release = threading.Event()
