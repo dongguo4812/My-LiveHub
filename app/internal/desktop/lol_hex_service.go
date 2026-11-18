@@ -215,10 +215,28 @@ func (s *LOLHexService) Start() (LOLHexStatus, error) {
 	s.launch = command
 	s.owned = true
 	s.lastErr = ""
-	go func(cmd *exec.Cmd) { _ = cmd.Wait() }(command)
+	launchDone := make(chan error, 1)
+	go func(cmd *exec.Cmd) { launchDone <- cmd.Wait() }(command)
 
 	deadline := time.Now().Add(35 * time.Second)
 	for time.Now().Before(deadline) {
+		select {
+		case waitErr := <-launchDone:
+			launchDone = nil
+			if waitErr != nil {
+				s.owned, s.launch, s.token = false, nil, ""
+				var exitErr *exec.ExitError
+				if errors.As(waitErr, &exitErr) && exitErr.ExitCode() == 1223 {
+					s.lastErr = "已取消 LOL Hex 管理员权限请求，模块未启动。"
+				} else {
+					s.lastErr = fmt.Sprintf("LOL Hex 启动入口提前退出：%v", waitErr)
+				}
+				return s.GetStatusUnlocked(), errors.New(s.lastErr)
+			}
+			// Exit code 0 is expected when the unelevated launcher successfully
+			// hands off to its elevated child. Continue waiting for the child PID.
+		default:
+		}
 		if healthy, _ := s.health(); healthy {
 			record := s.readPIDRecord()
 			if record.ManagerToken == s.token {
