@@ -507,18 +507,33 @@ assets_lock=threading.RLock(); assets={}
 state_lock=threading.RLock(); state={'cards':[],'updated_at':0}
 
 
-def _update_assets_impl(force=False):
+def _update_assets_impl(force=False, cancel_event=None):
     global assets
+    cancel_event = cancel_event or stop_event
+
+    def cancelled():
+        return cancel_event.is_set()
+
     try:
+        if cancelled():
+            return False
         r=requests.get(AUGMENTS_URL,timeout=20,headers={'User-Agent':'Mozilla/5.0'}); r.raise_for_status()
+        if cancelled():
+            return False
         new=normalize_assets(r.json())
         tencent_count=len(new)
         cdragon_added=0
         try:
+            if cancelled():
+                return False
             cr=requests.get(CDRAGON_AUGMENTS_URL,timeout=30,headers={'User-Agent':'Mozilla/5.0'})
             cr.raise_for_status()
+            if cancelled():
+                return False
             cdragon_added=merge_cdragon_assets(new,cr.json())
         except Exception as cdragon_error:
+            if cancelled():
+                return False
             # CommunityDragon 是补充源；其不可用不应阻止腾讯主数据正常更新。
             log.warning('CommunityDragon 海克斯补充失败，仅使用腾讯数据：%s',cdragon_error)
         log.info(
@@ -531,6 +546,8 @@ def _update_assets_impl(force=False):
         with assets_lock:
             current_assets = assets
         changed = digest(new) != digest(current_assets)
+        if cancelled():
+            return False
         if changed:
             # 先在锁外持久化；写入失败时保留旧内存索引，避免内存与缓存不一致。
             atomic_json(ASSET_CACHE, new)
@@ -566,6 +583,8 @@ def _update_assets_impl(force=False):
             new_icon_sources = {}
         icon_sources_changed = False
         for aid,item in new.items():
+            if cancelled():
+                return False
             url=item.get('icon_url',''); dest=ICON_DIR/f'{aid}.png'
             if not url: continue
             # 本地文件存在且来源 URL 未变化时直接复用，避免每轮更新重复读取并校验全部 PNG。
@@ -576,6 +595,12 @@ def _update_assets_impl(force=False):
             temp_dest = dest.with_name(f".{dest.name}.tmp")
             # 图片请求在独立资源线程中执行，10 秒超时；仅对临时网络错误有限重试。
             for attempt in range(3):
+                if cancelled():
+                    try:
+                        temp_dest.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                    return False
                 try:
                     ir=requests.get(url,timeout=10,headers={'User-Agent':'Mozilla/5.0'})
                     ir.raise_for_status()
@@ -600,7 +625,12 @@ def _update_assets_impl(force=False):
                             '图标下载暂时失败 id=%s，%d/2 次重试，%d 秒后重试：%s',
                             aid, attempt + 1, delay, e
                         )
-                        time.sleep(delay)
+                        if cancel_event.wait(delay):
+                            try:
+                                temp_dest.unlink(missing_ok=True)
+                            except OSError:
+                                pass
+                            return False
                         continue
                     log.warning('图标下载失败 id=%s，已重试 2 次：%s',aid,e)
                 except Exception as e:
@@ -611,6 +641,8 @@ def _update_assets_impl(force=False):
                         pass
                     log.warning('图标下载失败 id=%s：%s',aid,e)
                     break
+        if cancelled():
+            return False
         if icon_sources_changed:
             atomic_json(ICON_SOURCE_PATH,new_icon_sources)
         return True
@@ -620,8 +652,10 @@ def _update_assets_impl(force=False):
 _asset_update_mutex=threading.Lock()
 def update_assets(force=False):
     # 自动检查与管理页手动检查串行执行，避免同时写入缓存或重复下载同一图标。
+    if stop_event.is_set():
+        return False
     with _asset_update_mutex:
-        return _update_assets_impl(force)
+        return _update_assets_impl(force, cancel_event=stop_event)
 
 def find_game_version():
     """使用已缓存的 LCU 凭据读取游戏版本，并丢弃账号切换期间的旧响应。"""
@@ -1649,6 +1683,7 @@ def process_screenshot(path):
         return processed
 
 stop_event=threading.Event(); processed_files=OrderedDict(); PROCESSED_FILES_LIMIT=100; update_status_lock=threading.Lock(); update_status={'running':False,'message':'尚未手动检查','updated_at':0}; manual_update_lock=threading.Lock()
+manual_update_threads = set()
 def _mark_processed_file(name):
     with processed_files_lock:
         processed_files[name] = None
@@ -2010,34 +2045,49 @@ def _api_action_impl(data):
 
 @app.post('/api/update-assets')
 def api_update_assets():
-    # 如果自动检查或其他手动检查正在运行，不再排队启动重复任务。
-    if not _asset_update_mutex.acquire(blocking=False):
-        return jsonify({'ok':True,'running':True,'message':'自动或手动更新任务正在执行，请稍候'}),202
-    with update_status_lock:
-        if update_status['running']:
-            _asset_update_mutex.release()
-            return jsonify({'ok':True,'running':True,'message':'更新任务已在执行，请稍候'}),202
-        update_status.update({'running':True,'message':'正在请求腾讯与 CommunityDragon 海克斯数据源…','updated_at':time.time()})
-    def worker():
+    # 与停止流程共享门闩：停止开始后不再允许创建新的手动更新线程。
+    with manual_update_lock:
+        if stop_event.is_set():
+            return jsonify({'ok':False,'running':False,'message':'LOL Hex 正在停止，不能启动新的更新任务'}),503
+        # 如果自动检查或其他手动检查正在运行，不再排队启动重复任务。
+        if not _asset_update_mutex.acquire(blocking=False):
+            return jsonify({'ok':True,'running':True,'message':'自动或手动更新任务正在执行，请稍候'}),202
+        with update_status_lock:
+            if update_status['running']:
+                _asset_update_mutex.release()
+                return jsonify({'ok':True,'running':True,'message':'更新任务已在执行，请稍候'}),202
+            update_status.update({'running':True,'message':'正在请求腾讯与 CommunityDragon 海克斯数据源…','updated_at':time.time()})
+
+        def worker():
+            ok = False
+            try:
+                ok = _update_assets_impl(False, cancel_event=stop_event)
+                if stop_event.is_set():
+                    message = 'LOL Hex 正在停止，手动更新任务已取消。'
+                else:
+                    message = '检查完成；请查看日志了解数据是否变化及图标下载情况。' if ok else '请求或数据校验失败，已保留上一份有效缓存。'
+            except Exception as e:
+                log.exception('手动更新海克斯数据失败')
+                message = f'更新失败：{type(e).__name__}: {e}'
+            finally:
+                _asset_update_mutex.release()
+                with update_status_lock:
+                    update_status.update({'running':False,'message':message,'updated_at':time.time(),'ok':ok})
+                with manual_update_lock:
+                    manual_update_threads.discard(threading.current_thread())
+
+        worker_thread = threading.Thread(target=worker, daemon=True, name='ManualAssetUpdater')
+        manual_update_threads.add(worker_thread)
         try:
-            ok=_update_assets_impl(False)
-            message='检查完成；请查看日志了解数据是否变化及图标下载情况。' if ok else '请求或数据校验失败，已保留上一份有效缓存。'
-        except Exception as e:
-            log.exception('手动更新海克斯数据失败')
-            ok=False; message=f'更新失败：{type(e).__name__}: {e}'
-        finally:
+            worker_thread.start()
+        except Exception as exc:
+            manual_update_threads.discard(worker_thread)
             _asset_update_mutex.release()
-        with update_status_lock:
-            update_status.update({'running':False,'message':message,'updated_at':time.time(),'ok':ok})
-    try:
-        threading.Thread(target=worker, daemon=True, name='ManualAssetUpdater').start()
-    except Exception as exc:
-        _asset_update_mutex.release()
-        message = f'无法启动海克斯数据更新线程：{type(exc).__name__}: {exc}'
-        log.exception('启动手动海克斯数据更新线程失败')
-        with update_status_lock:
-            update_status.update({'running': False, 'message': message, 'updated_at': time.time(), 'ok': False})
-        return jsonify({'ok': False, 'running': False, 'message': message}), 500
+            message = f'无法启动海克斯数据更新线程：{type(exc).__name__}: {exc}'
+            log.exception('启动手动海克斯数据更新线程失败')
+            with update_status_lock:
+                update_status.update({'running': False, 'message': message, 'updated_at': time.time(), 'ok': False})
+            return jsonify({'ok': False, 'running': False, 'message': message}), 500
     return jsonify({'ok':True,'running':True,'message':'已开始检查海克斯数据接口'})
 
 @app.post('/api/reset-update-assets')
@@ -2173,6 +2223,10 @@ class ScreenshotSelector:
         """F1：未截图则开始；截图中则取消。"""
 
         with self._lock:
+            # F1 回调可能与注销热键同时发生；停止标记在同一把锁的保护下
+            # 阻止任何新的截图线程进入，已进入的任务由 cancel() 收尾。
+            if stop_event.is_set():
+                return
             # 只有确认旧线程已经退出，才允许释放线程引用并启动新任务。
             if self.thread is not None and not self.thread.is_alive():
                 if self.active:
@@ -2560,6 +2614,9 @@ def start_hotkey():
 
     if os.name != 'nt':
         return True
+    if stop_event.is_set():
+        F1_HOTKEY_ERROR = 'LOL Hex 正在停止，拒绝注册 F1 热键'
+        return False
 
     try:
         if not ctypes.windll.shell32.IsUserAnAdmin():
@@ -2662,6 +2719,20 @@ def main():
             selector.cancel()
         except Exception:
             log.exception('取消截图选择器失败')
+
+        # 先阻止并发请求在停止过程中再创建手动更新线程，再等待已登记的任务退出。
+        with manual_update_lock:
+            manual_threads_to_join = list(manual_update_threads)
+
+        # 更新源请求最长 30 秒；允许在途请求完成后释放响应、文件和互斥锁。
+        manual_deadline = time.monotonic() + 32.0
+        for thread in manual_threads_to_join:
+            if thread is threading.current_thread() or not thread.is_alive():
+                continue
+            remaining = manual_deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            thread.join(timeout=remaining)
 
         # LCU 请求有明确的网络超时；共享 5 秒收尾窗口，避免逐线程累加等待。
         shutdown_deadline = time.monotonic() + 5.0
