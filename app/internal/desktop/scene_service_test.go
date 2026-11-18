@@ -98,6 +98,41 @@ func TestSceneMusicHandlers(t *testing.T) {
 }
 
 
+func TestValidateLayoutConfigSupportsLOLHexDisplayLayers(t *testing.T) {
+	for _, layerType := range []string{"lol_hex_display", "lol_hex_bar"} {
+		t.Run(layerType, func(t *testing.T) {
+			layer := LayoutLayer{
+				ID: "hex", Type: layerType, Name: "Hex layer",
+				Width: 520, Height: 420, Visible: true, Opacity: 1,
+				URL: "http://127.0.0.1:8767/" + map[string]string{
+					"lol_hex_display": "display",
+					"lol_hex_bar": "bar",
+				}[layerType],
+				ContentScale: 125,
+			}
+			value := LayoutConfig{Scenes: []LayoutScene{{
+				ID: "main", Name: "Main", Width: 1920, Height: 1080,
+				Layers: []LayoutLayer{layer},
+			}}}
+			if err := validateLayoutConfig(value); err != nil {
+				t.Fatalf("valid Hex layer rejected: %v", err)
+			}
+			data, err := json.Marshal(value)
+			if err != nil {
+				t.Fatalf("marshal Hex layer: %v", err)
+			}
+			var decoded LayoutConfig
+			if err := json.Unmarshal(data, &decoded); err != nil {
+				t.Fatalf("unmarshal Hex layer: %v", err)
+			}
+			got := decoded.Scenes[0].Layers[0]
+			if got.Type != layerType || got.URL != layer.URL || got.ContentScale != 125 {
+				t.Fatalf("Hex layer settings were not preserved: %#v", got)
+			}
+		})
+	}
+}
+
 func TestValidateLayoutConfig(t *testing.T) {
 	valid := LayoutConfig{Scenes: []LayoutScene{{
 		ID: "main", Name: "主场景", Width: 1920, Height: 1080, Background: "transparent",
