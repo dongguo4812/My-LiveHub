@@ -294,7 +294,7 @@ def check_admin_privileges():
             parameters = subprocess.list2cmdline(sys.argv[1:])
         else:
             executable = sys.executable
-            parameters = subprocess.list2cmdline([str(Path(__file__).resolve()), *sys.argv[1:]])
+            parameters = subprocess.list2cmdline([str(Path(__file__).resolve().with_name("launcher.py")), *sys.argv[1:]])
 
         shell32 = ctypes.WinDLL("shell32", use_last_error=True)
         shell_execute = shell32.ShellExecuteW
