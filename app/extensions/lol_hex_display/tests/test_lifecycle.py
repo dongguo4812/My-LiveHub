@@ -15,11 +15,12 @@ import main as hex_main  # noqa: E402
 
 class HexLifecycleTests(unittest.TestCase):
     def setUp(self):
-        hex_main.stop_event.clear()
+        hex_main.stop_event.set()
         with hex_main.manual_update_lock:
             stale = list(hex_main.manual_update_threads)
         for thread in stale:
-            thread.join(timeout=1)
+            thread.join(timeout=2)
+        hex_main.stop_event.clear()
         with hex_main.update_status_lock:
             hex_main.update_status.update({
                 "running": False,
