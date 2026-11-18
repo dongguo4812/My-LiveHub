@@ -10,8 +10,8 @@ import (
 )
 
 func TestLOLHexStopWaitsForPIDRecordCleanupWhenHTTPIsAlreadyDown(t *testing.T) {
-	extensionDir := t.TempDir()
-	pidPath := filepath.Join(extensionDir, "lol_hex_display.pid")
+	runtimeDir := t.TempDir()
+	pidPath := filepath.Join(runtimeDir, "lol_hex_display.pid")
 	record := lolHexPIDRecord{PID: 12345, ManagerToken: "test-manager-token"}
 	data, err := json.Marshal(record)
 	if err != nil {
@@ -22,7 +22,7 @@ func TestLOLHexStopWaitsForPIDRecordCleanupWhenHTTPIsAlreadyDown(t *testing.T) {
 	}
 
 	service := &LOLHexService{
-		extensionDir: extensionDir,
+		runtimeDir: runtimeDir,
 		host:         "127.0.0.1",
 		port:         1,
 		client:       &http.Client{Timeout: 100 * time.Millisecond},
@@ -53,7 +53,7 @@ func TestLOLHexStopWaitsForPIDRecordCleanupWhenHTTPIsAlreadyDown(t *testing.T) {
 
 func TestLOLHexStopPreservesOwnershipWhenPIDIdentityCannotBeVerified(t *testing.T) {
 	service := &LOLHexService{
-		extensionDir: t.TempDir(),
+		runtimeDir: t.TempDir(),
 		host:         "127.0.0.1",
 		port:         1,
 		client:       &http.Client{Timeout: 100 * time.Millisecond},

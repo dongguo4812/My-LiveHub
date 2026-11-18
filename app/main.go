@@ -244,10 +244,17 @@ func main() {
 			legacyRuntimeRoot = filepath.Join(workingDir, "extensions", "lol_hex_display")
 		}
 	}
-	// Migrate only user-owned runtime data from older releases. The application
-	// no longer loads code or starts the worker from the legacy extensions path.
-	if err := desktop.MigrateLOLHexRuntimeData(legacyRuntimeRoot, runtimeRoot); err != nil {
-		log.Printf("migrate legacy LOL Hex runtime data: %v", err)
+	// Migrate legacy user data only once. The marker lives in config/local so
+	// routine updates preserve it and intentionally deleted files are not restored.
+	migrationMarker := filepath.Join(paths.LocalDir, ".lol_hex_runtime_data_migrated")
+	if _, statErr := os.Stat(migrationMarker); os.IsNotExist(statErr) {
+		if err := desktop.MigrateLOLHexRuntimeData(legacyRuntimeRoot, runtimeRoot); err != nil {
+			log.Printf("migrate legacy LOL Hex runtime data: %v", err)
+		} else if err := os.WriteFile(migrationMarker, []byte("1"), 0o600); err != nil {
+			log.Printf("record LOL Hex data migration: %v", err)
+		}
+	} else if statErr != nil {
+		log.Printf("check LOL Hex data migration marker: %v", statErr)
 	}
 	// Read the built-in LOL Hex worker's daily files as part of diagnostics.
 	lolHexLogDir := filepath.Join(runtimeRoot, "logs")
