@@ -323,14 +323,24 @@ func (s *LOLHexService) Stop() (LOLHexStatus, error) {
 		// Flask 在响应后开始退出时可能提前关闭连接；继续核验服务状态。
 		if !errors.Is(err, net.ErrClosed) { s.lastErr = err.Error() }
 	} else { response.Body.Close() }
-	deadline := time.Now().Add(10 * time.Second)
+	// HTTP 服务停止后，Python 进程仍需完成后台线程清理并释放单实例互斥锁。
+	// Python 端保证先释放互斥锁、再删除带 manager token 的 PID 文件；
+	// 因此只有观察到本次 PID 记录消失，才能允许下一次 Start。
+	deadline := time.Now().Add(12 * time.Second)
 	for time.Now().Before(deadline) {
-		if healthy, _ := s.health(); !healthy {
-			s.owned, s.launch = false, nil
-			s.lastErr = ""
-			return s.GetStatusUnlocked(), nil
+		healthy, _ := s.health()
+		if !healthy {
+			current := s.readPIDRecord()
+			if current.PID <= 0 || current.ManagerToken != s.token {
+				s.owned, s.launch = false, nil
+				s.lastErr = ""
+				return s.GetStatusUnlocked(), nil
+			}
 		}
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
+	}
+	if healthy, _ := s.health(); !healthy {
+		return s.GetStatusUnlocked(), errors.New("LOL Hex HTTP 服务已停止，但进程尚未释放单实例锁并完成退出清理；已保留进程管理状态，请稍后重试")
 	}
 	return s.GetStatusUnlocked(), errors.New("LOL Hex 未在规定时间内退出；为避免误关其他进程，没有强制结束进程")
 }
