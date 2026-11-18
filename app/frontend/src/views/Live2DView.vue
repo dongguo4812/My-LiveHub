@@ -4,7 +4,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getLive2DSettings, updateLive2DSettings, listLive2DModels, type Live2DConfig, type Live2DModel } from '../services/live2d'
 import { getScenes, getBrowserSourceURL } from '../services/layouts'
-import { getLive2DMicrophoneState, setLive2DMouthDriver, startLive2DMicrophone, stopLive2DMicrophone, updateLive2DMicrophoneConfig } from '../services/live2dMicrophone'
+import { getLive2DMicrophoneState, isLive2DMicrophonePreferred, setLive2DMicrophonePreference, setLive2DMouthDriver, startLive2DMicrophone, stopLive2DMicrophone, updateLive2DMicrophoneConfig } from '../services/live2dMicrophone'
 
 type LegacyModel = {
   initialized?: boolean
@@ -148,7 +148,7 @@ async function refreshLive2DModuleStatus() {
   if (lastKnownLive2DModuleEnabled === true && !live2DModuleEnabled.value && micActive.value) stopLive2DMicrophone()
   lastKnownLive2DModuleEnabled = live2DModuleEnabled.value
   // Preserve the user's microphone preference across Live2D module restarts.
-  if (live2DModuleEnabled.value && settings.value?.microphone_enabled && !micActive.value && !microphoneState.starting) {
+  if (live2DModuleEnabled.value && isLive2DMicrophonePreferred() && !micActive.value && !microphoneState.starting) {
     await startLive2DMicrophone()
   }
 }
@@ -464,8 +464,12 @@ function driveModelMouth(value: number) {
 async function toggleMicrophone(enabled: boolean) {
   if (enabled) {
     await startLive2DMicrophone()
-    if (micActive.value) await save({ microphone_enabled: true })
+    if (micActive.value) {
+      setLive2DMicrophonePreference(true)
+      await save({ microphone_enabled: true })
+    }
   } else {
+    setLive2DMicrophonePreference(false)
     stopLive2DMicrophone()
     await save({ microphone_enabled: false })
   }
