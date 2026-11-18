@@ -492,7 +492,11 @@ try {
   } else {
     $stage = Join-Path $temp 'stage'
     $backup = Join-Path $temp 'backup'
-    Expand-Archive -LiteralPath $package -DestinationPath $stage -Force
+    New-Item -ItemType Directory -Force -Path $stage | Out-Null
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    # Use the two-argument overload for compatibility with Windows PowerShell/.NET
+    # runtimes that do not expose the overwrite-enabled ExtractToDirectory overload.
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($package, $stage)
     # Locate the actual application payload instead of assuming a fixed ZIP
     # nesting depth. Compress-Archive and third-party ZIP tools can differ in
     # how they preserve the top-level directory.
