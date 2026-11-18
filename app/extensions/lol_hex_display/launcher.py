@@ -33,7 +33,8 @@ def main() -> int:
     if not hex_main.check_admin_privileges():
         result = getattr(hex_main, "ADMIN_LAUNCH_RESULT", "failed")
         if result == "handoff":
-            _write_startup_status("handoff")
+            # Do not write a handoff marker: the elevated child may already have
+            # reported a startup failure to the same status file.
             return 0
         if result == "cancelled":
             _write_startup_status("failed", "用户取消了管理员权限请求")
