@@ -425,7 +425,15 @@ try {
         $p -eq 'extensions/lol_hex_display/data' -or $p.StartsWith('extensions/lol_hex_display/data/') -or
         $p -eq 'extensions/lol_hex_display/screenshots' -or $p.StartsWith('extensions/lol_hex_display/screenshots/') -or
         $p -eq 'extensions/lol_hex_display/logs' -or $p.StartsWith('extensions/lol_hex_display/logs/') -or
+        $p -eq 'extensions/lol_hex_display/dist/lol_hex_display/data' -or $p.StartsWith('extensions/lol_hex_display/dist/lol_hex_display/data/') -or
+        $p -eq 'extensions/lol_hex_display/dist/lol_hex_display/screenshots' -or $p.StartsWith('extensions/lol_hex_display/dist/lol_hex_display/screenshots/') -or
         $p -eq 'extensions/lol_hex_display/dist/lol_hex_display/logs' -or $p.StartsWith('extensions/lol_hex_display/dist/lol_hex_display/logs/') -or
+        $p -eq 'modules/lol_hex_display/data' -or $p.StartsWith('modules/lol_hex_display/data/') -or
+        $p -eq 'modules/lol_hex_display/screenshots' -or $p.StartsWith('modules/lol_hex_display/screenshots/') -or
+        $p -eq 'modules/lol_hex_display/logs' -or $p.StartsWith('modules/lol_hex_display/logs/') -or
+        $p -eq 'modules/lol_hex_display/dist/lol_hex_display/data' -or $p.StartsWith('modules/lol_hex_display/dist/lol_hex_display/data/') -or
+        $p -eq 'modules/lol_hex_display/dist/lol_hex_display/screenshots' -or $p.StartsWith('modules/lol_hex_display/dist/lol_hex_display/screenshots/') -or
+        $p -eq 'modules/lol_hex_display/dist/lol_hex_display/logs' -or $p.StartsWith('modules/lol_hex_display/dist/lol_hex_display/logs/') -or
         $p -eq 'modules/lol_hex_display/data' -or $p.StartsWith('modules/lol_hex_display/data/') -or
         $p -eq 'modules/lol_hex_display/screenshots' -or $p.StartsWith('modules/lol_hex_display/screenshots/') -or
         $p -eq 'modules/lol_hex_display/logs' -or $p.StartsWith('modules/lol_hex_display/logs/') -or
