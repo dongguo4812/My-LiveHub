@@ -1781,10 +1781,6 @@ app = Flask(
 PID_FILE = Path(BASE_DIR) / 'lol_hex_display.pid'
 HTTP_SERVER = None
 INSTANCE_MUTEX_HANDLE = None
-
-
-def _hex_runtime_ready():
-    return HTTP_SERVER is not None and not stop_event.is_set()
 _shutdown_lock = threading.Lock()
 _shutdown_started = False
 
@@ -1954,8 +1950,8 @@ def display(): return render_template('display.html')
 def api_health():
     """跨域健康检查，供 My-LiveHub 综合展示判断 Hex 图层是否可用。"""
     response = jsonify({
-        'ready': _hex_runtime_ready(),
-        'running': _hex_runtime_ready(),
+        'ready': HTTP_SERVER is not None,
+        'running': HTTP_SERVER is not None,
     })
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Cache-Control'] = 'no-store'
