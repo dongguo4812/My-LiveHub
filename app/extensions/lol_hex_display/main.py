@@ -2644,16 +2644,27 @@ def main():
         HTTP_SERVER.serve_forever()
     finally:
         # 无论初始化、热键注册、端口绑定还是服务运行阶段发生异常，都统一回收已启动资源。
-        # 先停止 Hex 自身的后台任务，再通知战绩条线程退出，避免关闭等待期间继续产生新状态。
+        # 先关闭任务入口，再通知现有任务退出，避免收尾期间又创建新的截图线程。
         stop_event.set()
+
+        if os.name == 'nt' and F1_HOTKEY_HANDLE is not None:
+            try:
+                import keyboard
+                keyboard.remove_hotkey(F1_HOTKEY_HANDLE)
+                log.debug('F1 全局热键已注销')
+            except Exception:
+                log.exception('注销 F1 全局热键失败')
+            finally:
+                F1_HOTKEY_HANDLE = None
+                F1_HOTKEY_REGISTERED = False
 
         try:
             selector.cancel()
         except Exception:
             log.exception('取消截图选择器失败')
 
-        # 后台任务均为守护线程；只给一个共享的极短收尾窗口，不逐线程累加等待。
-        shutdown_deadline = time.monotonic() + 0.25
+        # LCU 请求有明确的网络超时；共享 5 秒收尾窗口，避免逐线程累加等待。
+        shutdown_deadline = time.monotonic() + 5.0
         threads_to_join = list(
             background_threads if 'background_threads' in locals() else ()
         )
@@ -2673,17 +2684,6 @@ def main():
             stop_bar_worker()
         except Exception:
             log.exception('停止战绩条后台线程失败')
-
-        if os.name == 'nt' and F1_HOTKEY_HANDLE is not None:
-            try:
-                import keyboard
-                keyboard.remove_hotkey(F1_HOTKEY_HANDLE)
-                log.debug('F1 全局热键已注销')
-            except Exception:
-                log.exception('注销 F1 全局热键失败')
-            finally:
-                F1_HOTKEY_HANDLE = None
-                F1_HOTKEY_REGISTERED = False
 
         try:
             if HTTP_SERVER is not None:
