@@ -58,6 +58,12 @@ const info: Record<string, { title: string; description: string; controllable: b
 const modules = computed(() => coreModules.value.filter(item => info[item.name]?.controllable).map(item => ({ ...item, ...info[item.name] })))
 const statusText = (s: string) => ({ registered: '待启动', starting: '启动中', running: '运行中', stopping: '停止中', stopped: '已停止', failed: '启动失败' } as Record<string,string>)[s] ?? s
 const statusType = (s: string) => s === 'running' ? 'success' : s === 'failed' ? 'danger' : ['starting','stopping'].includes(s) ? 'warning' : 'info'
+function moduleErrorMessage(name: string, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  return name === 'lol-hex-display'
+    ? message.replace(/^stop module \"lol-hex-display\": /, '停止 LOL Hex 模块失败：')
+    : message
+}
 async function refresh() {
   try { coreModules.value = await CoreService.GetModules() }
   catch (e) { ElMessage.error(e instanceof Error ? e.message : String(e)) }
@@ -98,9 +104,9 @@ onUnmounted(() => {
       <el-card v-for="item in modules" :key="item.name" shadow="never" class="module-card">
         <div class="module-heading"><div><h3>{{ item.title }}</h3><small>{{ item.name }}</small></div><el-tag :type="statusType(item.status)">{{ statusText(item.status) }}</el-tag></div>
         <p>{{ item.description }}</p>
-        <el-alert v-if="item.error" :title="item.error" type="error" :closable="false" show-icon />
+        <el-alert v-if="item.error" :title="moduleErrorMessage(item.name, item.error)" type="error" :closable="false" show-icon />
         <div class="module-actions">
-          <el-button v-if="item.controllable" :type="item.status === 'running' ? 'danger' : 'primary'" :loading="loading[item.name]" :disabled="loading[item.name] || ['starting','stopping'].includes(item.status)" @click="toggle(item.name, item.status)">{{ item.status === 'running' ? '停止模块' : '启动模块' }}</el-button>
+          <el-button v-if="item.controllable" :type="item.status === 'running' ? 'danger' : 'primary'" :loading="loading[item.name]" :disabled="loading[item.name] || ['starting','stopping'].includes(item.status)" @click="toggle(item.name, item.status)">{{ item.status === 'stopping' ? '停止中' : item.status === 'starting' ? '启动中' : item.status === 'running' ? '停止模块' : '启动模块' }}</el-button>
           <div v-if="item.name === 'live2d'" class="mic-control">
             <el-button :type="microphoneActive ? 'danger' : 'success'" plain :loading="microphoneLoading" :disabled="microphoneLoading || (item.status !== 'running' && !microphoneActive)" @click="toggleModuleMicrophone">{{ microphoneActive ? '关闭麦克风' : '启动麦克风' }}</el-button>
             <el-tag :type="microphoneActive ? 'success' : 'info'" size="small" class="mic-state">{{ microphoneActive ? '麦克风采集中' : '麦克风未启动' }}</el-tag>
