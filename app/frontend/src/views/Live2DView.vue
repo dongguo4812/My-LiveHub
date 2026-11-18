@@ -148,7 +148,7 @@ async function refreshLive2DModuleStatus() {
   if (lastKnownLive2DModuleEnabled === true && !live2DModuleEnabled.value && micActive.value) stopLive2DMicrophone()
   lastKnownLive2DModuleEnabled = live2DModuleEnabled.value
   // Preserve the user's microphone preference across Live2D module restarts.
-  if (live2DModuleEnabled.value && settings.value?.microphone_enabled && !micActive.value && !microphoneStarting) {
+  if (live2DModuleEnabled.value && settings.value?.microphone_enabled && !micActive.value && !microphoneState.starting) {
     await startLive2DMicrophone()
   }
 }
