@@ -2764,11 +2764,14 @@ def main():
             log.exception('关闭 Hex HTTP 服务失败')
         HTTP_SERVER = None
 
-        remove_pid_file()
         log.info('Hex 管理员进程退出清理完成')
 
-        # 日志监听线程只等待有限时间，避免磁盘写入异常拖延退出。
+        # 先完成日志线程收尾，再释放单实例互斥锁；PID 文件必须最后删除。
+        # Go 管理器以 PID 文件消失作为“进程已完成清理”的确认信号，
+        # 从而避免 HTTP 已关闭、旧进程仍持锁时立即启动新实例。
         stop_async_logging(timeout=0.2)
+        release_single_instance_mutex()
+        remove_pid_file()
 
 if __name__ == "__main__":
     if check_admin_privileges():
