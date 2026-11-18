@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getLOLHexStatus, type LOLHexStatus } from '../services/lolHex'
 
+const router = useRouter()
 const status = ref<LOLHexStatus | null>(null)
 const loading = ref(true)
 const error = ref('')
