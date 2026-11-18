@@ -19,6 +19,8 @@ import (
 	"time"
 )
 
+const lolHexStopCleanupTimeout = 36 * time.Second
+
 type LOLHexStatus struct {
 	State   string `json:"state"`
 	Running bool   `json:"running"`
@@ -299,7 +301,7 @@ func (s *LOLHexService) Stop() (LOLHexStatus, error) {
 		if record.PID <= 0 || record.ManagerToken != s.token || s.token == "" {
 			return s.GetStatusUnlocked(), errors.New("LOL Hex 当前没有健康响应，且无法核验本次启动的进程身份；已保留进程管理状态。")
 		}
-		deadline := time.Now().Add(12 * time.Second)
+		deadline := time.Now().Add(lolHexStopCleanupTimeout)
 		for time.Now().Before(deadline) {
 			current := s.readPIDRecord()
 			if current.PID <= 0 || current.ManagerToken != s.token {
@@ -326,7 +328,7 @@ func (s *LOLHexService) Stop() (LOLHexStatus, error) {
 	// HTTP 服务停止后，Python 进程仍需完成后台线程清理并释放单实例互斥锁。
 	// Python 端保证先释放互斥锁、再删除带 manager token 的 PID 文件；
 	// 因此只有观察到本次 PID 记录消失，才能允许下一次 Start。
-	deadline := time.Now().Add(12 * time.Second)
+	deadline := time.Now().Add(lolHexStopCleanupTimeout)
 	for time.Now().Before(deadline) {
 		healthy, _ := s.health()
 		if !healthy {
