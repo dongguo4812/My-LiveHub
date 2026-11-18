@@ -8,7 +8,12 @@ def main() -> int:
     import main as hex_main
 
     if not hex_main.check_admin_privileges():
-        return 0
+        result = getattr(hex_main, "ADMIN_LAUNCH_RESULT", "failed")
+        if result == "handoff":
+            return 0
+        if result == "cancelled":
+            return 1223
+        return 1
 
     result = hex_main.main()
     return int(result or 0)
