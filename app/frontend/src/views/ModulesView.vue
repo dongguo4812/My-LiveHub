@@ -5,6 +5,9 @@ import * as CoreService from '../../bindings/github.com/dongguo4812/My-LiveHub/a
 import { coreModules } from '../services/coreStatus'
 import { getLive2DSettings, updateLive2DSettings } from '../services/live2d'
 import { getScenes, getBrowserSourceURL } from '../services/layouts'
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
 
 const loading = ref<Record<string, boolean>>({})
 const microphoneLoading = ref(false)
@@ -193,6 +196,7 @@ onUnmounted(() => {
         <el-alert v-if="item.error" :title="item.error" type="error" :closable="false" show-icon />
         <div class="module-actions">
           <el-button v-if="item.controllable" :type="item.status === 'running' ? 'danger' : 'primary'" :loading="loading[item.name]" :disabled="loading[item.name] || ['starting','stopping'].includes(item.status)" @click="toggle(item.name, item.status)">{{ item.status === 'running' ? '停止模块' : '启动模块' }}</el-button>
+          <el-button v-if="item.name === 'lol-hex-display'" @click="router.push('/lol-hex')">管理页面</el-button>
           <div v-if="item.name === 'live2d'" class="mic-control">
             <el-button :type="microphoneActive ? 'danger' : 'success'" plain :loading="microphoneLoading" :disabled="microphoneLoading || (item.status !== 'running' && !microphoneActive)" @click="toggleModuleMicrophone">{{ microphoneActive ? '关闭麦克风' : '启动麦克风' }}</el-button>
             <el-tag :type="microphoneActive ? 'success' : 'info'" size="small" class="mic-state">{{ microphoneActive ? '麦克风采集中' : '麦克风未启动' }}</el-tag>
