@@ -291,20 +291,24 @@ func (s *LOLHexService) Stop() (LOLHexStatus, error) {
 		if healthy { return s.GetStatusUnlocked(), errors.New("当前 LOL Hex 由外部启动，My-LiveHub 不会关闭它") }
 		return s.GetStatusUnlocked(), nil
 	}
-	if healthy {
-		record := s.readPIDRecord()
-		if s.token == "" || record.ManagerToken != s.token {
-			return s.GetStatusUnlocked(), errors.New("无法核验 LOL Hex 进程属于本次 My-LiveHub 启动；拒绝发送关闭请求")
-		}
-		payload, _ := json.Marshal(map[string]string{"action": "shutdown"})
-		request, _ := http.NewRequest(http.MethodPost, s.baseURL()+"/api/action", bytes.NewReader(payload))
-		request.Header.Set("Content-Type", "application/json")
-		response, err := s.client.Do(request)
-		if err != nil {
-			// Flask 在响应后开始退出时可能提前关闭连接；继续核验服务状态。
-			if !errors.Is(err, net.ErrClosed) { s.lastErr = err.Error() }
-		} else { response.Body.Close() }
+	if !healthy {
+		// 启动超时或服务暂时失去响应时，不能把“HTTP 不可达”当作“进程已退出”。
+		// 尤其 UAC 交接后，s.launch 只代表未提权父进程，不能据此判断管理员子进程。
+		// 保留 owned/token 状态，避免主程序误报停止或丢失对该实例的管理关系。
+		return s.GetStatusUnlocked(), errors.New("LOL Hex 当前没有健康响应，无法通过受控关闭接口确认进程已停止；已保留进程管理状态，请稍后重试。")
 	}
+	record := s.readPIDRecord()
+	if s.token == "" || record.ManagerToken != s.token {
+		return s.GetStatusUnlocked(), errors.New("无法核验 LOL Hex 进程属于本次 My-LiveHub 启动；拒绝发送关闭请求")
+	}
+	payload, _ := json.Marshal(map[string]string{"action": "shutdown"})
+	request, _ := http.NewRequest(http.MethodPost, s.baseURL()+"/api/action", bytes.NewReader(payload))
+	request.Header.Set("Content-Type", "application/json")
+	response, err := s.client.Do(request)
+	if err != nil {
+		// Flask 在响应后开始退出时可能提前关闭连接；继续核验服务状态。
+		if !errors.Is(err, net.ErrClosed) { s.lastErr = err.Error() }
+	} else { response.Body.Close() }
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if healthy, _ := s.health(); !healthy {
