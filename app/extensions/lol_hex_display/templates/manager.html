@@ -15,7 +15,10 @@
    * 面板总宽：1515 + 左右内边距 32 + 边框 2 = 1549px
    */
 
-/* 所有管理内容统一宽度，并整体居中 */
+/* 管理内容跟随可用宽度自适应，禁止横向溢出。 */
+  header, nav { flex-wrap:wrap; }
+  nav { min-width:0; }
+  main { min-width:0; }
 	main:has(#barAdminPanel) {
 	  width:100% !important;
 	  max-width:100% !important;
@@ -73,6 +76,8 @@
 
 .toolbar .toolbar-row > div {
   display: flex;
+  max-width:100%;
+  flex-wrap:wrap;
   flex-direction: row;
   align-items: center;
   gap: 8px;
@@ -177,8 +182,7 @@
       </label>
 
       <label>
-        批次间隔（分钟）
-        <input id="barGapMin" type="number" min="1" max="100000" value="100000" style="width:100px">      </label>
+        批次间隔（分钟）        <input id="barGapMin" type="number" min="1" max="100000" value="100000" style="width:100px">      </label>
 
       <label style="display:inline-flex;align-items:center;gap:6px">
         <input id="barShowLobbyMemberCount" type="checkbox" checked>
@@ -357,8 +361,7 @@ async function loadClientStatus() {
     }
   } catch (e) {
     el.textContent = '客户端状态读取失败：' + e.message;
-    el.style.color = '#e08b8b';  }
-}
+    el.style.color = '#e08b8b';  }}
 
 let lastRenderedAt = null;
 
@@ -502,7 +505,8 @@ async function loadBarAdmin() {
         }
 
         #barAdminPreview .bar-admin-header {
-          display: flex;
+          display:flex;
+          flex-wrap:wrap;
           justify-content: space-between;
           align-items: center;
           gap: 16px;
@@ -533,12 +537,11 @@ async function loadBarAdmin() {
           border: 1px solid #888;
           border-radius: 6px;
           font-weight: bold;
-          white-space: nowrap;
+          white-space:normal;
         }
 
         #barAdminPreview .bar-admin-wins {          color: #38a889;
         }
-
         #barAdminPreview .bar-admin-losses {
           color: #df6570;
         }
@@ -717,7 +720,6 @@ async function saveBarConfig() {
 }
 async function barAction(action) {
   const status = document.getElementById('barAdminStatus');
-
   if (
     action === 'new_batch' &&
     !confirm('确定开启新批次吗？战绩条将等待下一局符合模式的对局。')
