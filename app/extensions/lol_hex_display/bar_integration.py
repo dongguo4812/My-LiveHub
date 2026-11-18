@@ -95,6 +95,7 @@ def register_bar_routes(
     refresh_wakeup_event = threading.Event()
 
     worker = None
+    worker_threads = []
     worker_lock = threading.Lock()
 
     # SSE 订阅者只在人数变化时收到通知，不进行浏览器定时轮询。
@@ -135,18 +136,23 @@ def register_bar_routes(
                 return
             # 先启动头像消费者，再启动会立即刷新战绩并提交预取任务的线程。
             # 避免启动瞬间队列积压；队列本身虽可缓存任务，但此顺序更直观可靠。
+            # 保存每一个线程句柄，停止时统一发出信号并在同一截止时间内等待。
+            # 不能只跟踪战绩刷新线程而遗留头像预取消费者。
             for index in range(CHAMPION_ICON_WORKER_COUNT):
-                threading.Thread(
+                icon_worker = threading.Thread(
                     target=champion_icon_prefetch_worker,
                     name=f"lol-champion-icon-prefetch-{index + 1}",
                     daemon=True,
-                ).start()
+                )
+                icon_worker.start()
+                worker_threads.append(icon_worker)
             worker = threading.Thread(
                 target=auto_refresh_worker,
                 name="lol-match-bar-auto-refresh",
                 daemon=True,
             )
             worker.start()
+            worker_threads.append(worker)
 
             # 即使启动时客户端暂不可用，也先为磁盘中的历史战绩补齐 CDN 资源；
             # 若 LCU 已识别，则预取任务会优先走本地 LCU 接口。
@@ -198,20 +204,26 @@ def register_bar_routes(
         game_end_event.set()
         refresh_wakeup_event.set()
 
-        current_worker = worker
-        if (
-            current_worker is None
-            or current_worker is threading.current_thread()
-            or not current_worker.is_alive()
-        ):
-            return
+        # 所有消费者和自动刷新线程共享一个收尾期限，避免逐线程累加等待。
+        shutdown_deadline = time.monotonic() + 0.5
+        for current_worker in list(worker_threads):
+            if (
+                current_worker is threading.current_thread()
+                or not current_worker.is_alive()
+            ):
+                continue
+            remaining = shutdown_deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            current_worker.join(timeout=remaining)
 
-        # 不等待正在进行的网络请求或缓存刷新；线程为守护线程，不会阻塞进程退出。
-        current_worker.join(timeout=0.2)
-
-        if current_worker.is_alive():
-            log.debug(
-                "[战绩条] 后台自动刷新仍在收尾；主程序不再等待"
+        still_running = [
+            thread.name for thread in worker_threads if thread.is_alive()
+        ]
+        if still_running:
+            log.warning(
+                "[战绩条] 停止等待结束后仍有后台线程收尾：%s",
+                ", ".join(still_running),
             )
 
     def notify_game_ended():
