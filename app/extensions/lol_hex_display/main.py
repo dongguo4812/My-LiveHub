@@ -1946,6 +1946,18 @@ logging.getLogger('werkzeug').setLevel(logging.WARNING)
 def manager(): return render_template('manager.html')
 @app.get('/display')
 def display(): return render_template('display.html')
+@app.get('/api/health')
+def api_health():
+    """跨域健康检查，供 My-LiveHub 综合展示判断 Hex 图层是否可用。"""
+    response = jsonify({
+        'ready': HTTP_SERVER is not None and not stop_event.is_set(),
+        'running': HTTP_SERVER is not None and not stop_event.is_set(),
+    })
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
 @app.get('/api/client-status')
 def api_client_status():
     return jsonify(client_status())
