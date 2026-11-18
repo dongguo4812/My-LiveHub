@@ -125,16 +125,21 @@ export async function startLive2DMicrophone() {
         return
       }
       stream = nextStream
-      audioContext = new AudioContext()
-      await audioContext.audioWorklet.addModule('/live2d-runtime/mic-processor.js')
-      await audioContext.resume()
+      const context = new AudioContext()
+      audioContext = context
+      await context.audioWorklet.addModule('/live2d-runtime/mic-processor.js')
       if (runGeneration !== generation) {
         cleanupAudio()
         return
       }
-      const source = audioContext.createMediaStreamSource(stream)
-      workletNode = new AudioWorkletNode(audioContext, 'livehub-mic-analyser')
-      muteGain = audioContext.createGain()
+      await context.resume()
+      if (runGeneration !== generation) {
+        cleanupAudio()
+        return
+      }
+      const source = context.createMediaStreamSource(nextStream)
+      workletNode = new AudioWorkletNode(context, 'livehub-mic-analyser')
+      muteGain = context.createGain()
       muteGain.gain.value = 0
       previousMouth = 0
       workletNode.port.onmessage = (event: MessageEvent<{ rms?: number }>) => {
@@ -149,9 +154,9 @@ export async function startLive2DMicrophone() {
       }
       source.connect(workletNode)
       workletNode.connect(muteGain)
-      muteGain.connect(audioContext.destination)
+      muteGain.connect(context.destination)
       state.active = true
-      audioContext.addEventListener('statechange', handleAudioStateChange)
+      context.addEventListener('statechange', handleAudioStateChange)
       await resumeAudio()
     } catch (error) {
       cleanupAudio()
