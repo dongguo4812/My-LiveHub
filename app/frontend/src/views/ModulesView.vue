@@ -4,135 +4,47 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import * as CoreService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/coreservice.js'
 import { coreModules } from '../services/coreStatus'
 import { getLive2DSettings, updateLive2DSettings } from '../services/live2d'
-import { getScenes, getBrowserSourceURL } from '../services/layouts'
-
+import { getLive2DMicrophoneState, setLive2DMicrophonePreference, updateLive2DMicrophoneConfig, startLive2DMicrophone, stopLive2DMicrophone } from '../services/live2dMicrophone'
 const loading = ref<Record<string, boolean>>({})
-const microphoneLoading = ref(false)
-const microphoneActive = ref(false)
-const microphoneError = ref('')
-let microphoneStream: MediaStream | null = null
-let microphoneContext: AudioContext | null = null
-let microphoneWorkletNode: AudioWorkletNode | null = null
-let microphoneMuteGain: GainNode | null = null
-let microphoneEndpoint = ''
-let microphoneResumePromise: Promise<void> | null = null
-let microphoneMouthPrevious = 0
+const microphoneState = getLive2DMicrophoneState()
+const microphoneLoading = computed(() => microphoneState.starting)
+const microphoneActive = computed(() => microphoneState.active)
+const microphoneError = computed(() => microphoneState.error)
 
-async function resumeModuleMicrophoneAudio() {
-  const context = microphoneContext
-  if (!context || context.state === 'running' || context.state === 'closed' || !microphoneActive.value) return
-  if (microphoneResumePromise) return microphoneResumePromise
-  microphoneResumePromise = context.resume().then(() => {
-    if (context.state !== 'running' && microphoneActive.value) {
-      microphoneError.value = '麦克风音频上下文未能恢复运行，请重新启动麦克风'
-    }
-  }).catch(error => {
-    if (microphoneActive.value) microphoneError.value = '恢复麦克风音频失败：' + String(error)
-  }).finally(() => {
-    microphoneResumePromise = null
-  })
-  return microphoneResumePromise
-}
-
-function handleModuleMicrophoneVisibilityChange() {
-  if (document.visibilityState === 'visible') void resumeModuleMicrophoneAudio()
-}
-
-function stopModuleMicrophone() {
-  if (microphoneWorkletNode) {
-    microphoneWorkletNode.port.onmessage = null
-    microphoneWorkletNode.disconnect()
-    microphoneWorkletNode = null
-  }
-  microphoneMuteGain?.disconnect()
-  microphoneMuteGain = null
-  microphoneStream?.getTracks().forEach(track => track.stop())
-  microphoneStream = null
-  if (microphoneContext) {
-    microphoneContext.onstatechange = null
-    void microphoneContext.close()
-  }
-  microphoneContext = null
-  microphoneResumePromise = null
-  microphoneActive.value = false
-  if (microphoneEndpoint) {
-    void fetch(microphoneEndpoint, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: JSON.stringify({ value: 0 }), cache: 'no-store' }).catch(() => undefined)
-  }
-}
-
-function analyseModuleMicrophone(rms: number, sensitivity: number, smoothing: number) {
-  if (!microphoneActive.value) return
-  const boundedRms = Math.max(0, Number(rms) || 0)
-  const raw = Math.max(0, Math.min(1, (boundedRms * sensitivity - 0.012) * 8))
-  const value = microphoneMouthPrevious * smoothing + raw * (1 - smoothing)
-  microphoneMouthPrevious = value
-  if (microphoneEndpoint) {
-    void fetch(microphoneEndpoint, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: JSON.stringify({ value }), cache: 'no-store' }).catch(() => undefined)
-  }
-}
 async function toggleModuleMicrophone() {
-  if (microphoneLoading.value) return
-  if (microphoneActive.value) {
-    stopModuleMicrophone()
+  if (microphoneState.starting) return
+  if (microphoneState.active) {
+    setLive2DMicrophonePreference(false)
+    stopLive2DMicrophone()
     try {
       const config = await getLive2DSettings()
-      await updateLive2DSettings({ ...config, microphone_enabled: false })
+      const next = { ...config, microphone_enabled: false }
+      updateLive2DMicrophoneConfig(next)
+      await updateLive2DSettings(next)
     } catch (error) {
-      microphoneError.value = '保存麦克风设置失败：' + String(error)
+      ElMessage.error('保存麦克风设置失败：' + String(error))
     }
     return
   }
-  microphoneLoading.value = true
-  microphoneError.value = ''
-  try {
-    const live2d = modules.value.find(item => item.name === 'live2d')
-    if (live2d?.status !== 'running') throw new Error('请先启动 Live2D 模块')
-    if (!navigator.mediaDevices?.getUserMedia) throw new Error('当前 WebView 不支持麦克风采集')
-    const scenes = await getScenes()
-    if (!scenes.length) throw new Error('尚未创建综合展示场景，无法连接 Live2D 口型接口')
-    const sourceURL = await getBrowserSourceURL(scenes[0].id)
-    const statusURL = new URL('/api/live2d', sourceURL).toString()
-    microphoneEndpoint = new URL('/api/live2d/mouth', sourceURL).toString()
-    const statusResponse = await fetch(statusURL, { cache: 'no-store' })
-    const status = statusResponse.ok ? await statusResponse.json() as { enabled?: boolean } : null
-    if (status?.enabled !== true) throw new Error('Live2D 服务尚未就绪，请稍后重试')
-    const config = await getLive2DSettings()
-    microphoneStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        deviceId: config.microphone_device_id ? { exact: config.microphone_device_id } : undefined,
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-      },
-    })
-    microphoneContext = new AudioContext()
-    await microphoneContext.audioWorklet.addModule('/live2d-runtime/mic-processor.js')
-    await microphoneContext.resume()
-    const source = microphoneContext.createMediaStreamSource(microphoneStream)
-    microphoneWorkletNode = new AudioWorkletNode(microphoneContext, 'livehub-mic-analyser')
-    microphoneMuteGain = microphoneContext.createGain()
-    microphoneMuteGain.gain.value = 0
-    microphoneMouthPrevious = 0
-    microphoneWorkletNode.port.onmessage = (event: MessageEvent<{ rms?: number }>) => {
-      if (!microphoneActive.value) return
-      analyseModuleMicrophone(Number(event.data?.rms) || 0, config.microphone_sensitivity, config.microphone_smoothing)
+  const live2d = modules.value.find(item => item.name === 'live2d')
+  if (live2d?.status !== 'running') {
+    ElMessage.error('请先启动 Live2D 模块')
+    return
+  }
+  await startLive2DMicrophone()
+  if (microphoneState.active) {
+    setLive2DMicrophonePreference(true)
+    try {
+      const config = await getLive2DSettings()
+      const next = { ...config, microphone_enabled: true }
+      updateLive2DMicrophoneConfig(next)
+      await updateLive2DSettings(next)
+      ElMessage.success('麦克风已启动')
+    } catch (error) {
+      microphoneState.error = '保存麦克风设置失败：' + String(error)
     }
-    source.connect(microphoneWorkletNode)
-    microphoneWorkletNode.connect(microphoneMuteGain)
-    microphoneMuteGain.connect(microphoneContext.destination)
-    microphoneActive.value = true
-    microphoneContext.onstatechange = () => {
-      if (microphoneContext?.state === 'suspended' && microphoneActive.value) void resumeModuleMicrophoneAudio()
-    }
-    await resumeModuleMicrophoneAudio()
-    await updateLive2DSettings({ ...config, microphone_enabled: true })
-    ElMessage.success('麦克风已启动')
-  } catch (error) {
-    stopModuleMicrophone()
-    microphoneError.value = String(error)
-    ElMessage.error('启动麦克风失败：' + microphoneError.value)
-  } finally {
-    microphoneLoading.value = false
+  } else if (microphoneState.error) {
+    ElMessage.error('启动麦克风失败：' + microphoneState.error)
   }
 }
 const info: Record<string, { title: string; description: string; controllable: boolean }> = {
@@ -141,11 +53,17 @@ const info: Record<string, { title: string; description: string; controllable: b
   music: { title: '音乐播放', description: '控制弹幕点歌监听与播放服务。停止时会结束当前播放并清空待播队列。', controllable: true },
   video: { title: '视频点播', description: '控制视频点播事件监听与待播队列。停止时清空待播队列，重新启动后可继续点播。', controllable: true },
   live2d: { title: 'Live2D', description: '控制 Live2D 模型资源服务及场景展示。', controllable: true },
-  'lol-hex-display': { title: 'LOL Hex Display', description: '控制 LOL Hex 独立扩展服务；应用启动时不会自动启动。', controllable: true },
+  'lol-hex-display': { title: 'LOL Hex', description: '控制内置 LOL Hex 服务。启动后提供海克斯识别、战绩条和综合展示图层；应用启动时不会自动启动。', controllable: true },
 }
 const modules = computed(() => coreModules.value.filter(item => info[item.name]?.controllable).map(item => ({ ...item, ...info[item.name] })))
 const statusText = (s: string) => ({ registered: '待启动', starting: '启动中', running: '运行中', stopping: '停止中', stopped: '已停止', failed: '启动失败' } as Record<string,string>)[s] ?? s
 const statusType = (s: string) => s === 'running' ? 'success' : s === 'failed' ? 'danger' : ['starting','stopping'].includes(s) ? 'warning' : 'info'
+function moduleErrorMessage(name: string, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  return name === 'lol-hex-display'
+    ? message.replace(/^stop module \"lol-hex-display\": /, '停止 LOL Hex 模块失败：')
+    : message
+}
 async function refresh() {
   try { coreModules.value = await CoreService.GetModules() }
   catch (e) { ElMessage.error(e instanceof Error ? e.message : String(e)) }
@@ -158,29 +76,25 @@ async function toggle(name: string, status: string) {
   }
   loading.value = { ...loading.value, [name]: true }
   try {
-    if (status === 'running') await CoreService.StopModule(name)
+    if (status === 'running') {
+      if (name === 'live2d') stopLive2DMicrophone()
+      await CoreService.StopModule(name)
+    }
     else await CoreService.StartModule(name)
     await refresh()
     ElMessage.success(status === 'running' ? '模块已停止' : '模块已启动')
   } catch (e) {
     await refresh()
-    ElMessage.error(e instanceof Error ? e.message : String(e))
+    ElMessage.error(moduleErrorMessage(name, e))
   } finally { loading.value = { ...loading.value, [name]: false } }
 }
 let timer: ReturnType<typeof setInterval> | undefined
 onMounted(() => {
   void refresh()
   timer = setInterval(() => void refresh(), 3000)
-  document.addEventListener('visibilitychange', handleModuleMicrophoneVisibilityChange)
-  window.addEventListener('focus', handleModuleMicrophoneVisibilityChange)
-  window.addEventListener('pageshow', handleModuleMicrophoneVisibilityChange)
 })
 onUnmounted(() => {
   if (timer) clearInterval(timer)
-  document.removeEventListener('visibilitychange', handleModuleMicrophoneVisibilityChange)
-  window.removeEventListener('focus', handleModuleMicrophoneVisibilityChange)
-  window.removeEventListener('pageshow', handleModuleMicrophoneVisibilityChange)
-  stopModuleMicrophone()
 })
 </script>
 <template>
@@ -190,14 +104,13 @@ onUnmounted(() => {
       <el-card v-for="item in modules" :key="item.name" shadow="never" class="module-card">
         <div class="module-heading"><div><h3>{{ item.title }}</h3><small>{{ item.name }}</small></div><el-tag :type="statusType(item.status)">{{ statusText(item.status) }}</el-tag></div>
         <p>{{ item.description }}</p>
-        <el-alert v-if="item.error" :title="item.error" type="error" :closable="false" show-icon />
+        <el-alert v-if="item.error" :title="moduleErrorMessage(item.name, item.error)" type="error" :closable="false" show-icon />
         <div class="module-actions">
-          <el-button v-if="item.controllable" :type="item.status === 'running' ? 'danger' : 'primary'" :loading="loading[item.name]" :disabled="loading[item.name] || ['starting','stopping'].includes(item.status)" @click="toggle(item.name, item.status)">{{ item.status === 'running' ? '停止模块' : '启动模块' }}</el-button>
+          <el-button v-if="item.controllable" :type="item.status === 'running' ? 'danger' : 'primary'" :loading="loading[item.name]" :disabled="loading[item.name] || ['starting','stopping'].includes(item.status)" @click="toggle(item.name, item.status)">{{ item.status === 'stopping' ? '停止中' : item.status === 'starting' ? '启动中' : item.status === 'running' ? '停止模块' : '启动模块' }}</el-button>
           <div v-if="item.name === 'live2d'" class="mic-control">
             <el-button :type="microphoneActive ? 'danger' : 'success'" plain :loading="microphoneLoading" :disabled="microphoneLoading || (item.status !== 'running' && !microphoneActive)" @click="toggleModuleMicrophone">{{ microphoneActive ? '关闭麦克风' : '启动麦克风' }}</el-button>
             <el-tag :type="microphoneActive ? 'success' : 'info'" size="small" class="mic-state">{{ microphoneActive ? '麦克风采集中' : '麦克风未启动' }}</el-tag>
           </div>
-          <el-tag v-if="!item.controllable" type="info" effect="plain">{{ item.name === 'lol-hex-display' ? '前往扩展管理' : '暂不支持单独启停' }}</el-tag>
         </div>
         <el-alert v-if="item.name === 'live2d' && microphoneError" :title="microphoneError" type="error" :closable="false" show-icon class="mic-error" />
       </el-card>

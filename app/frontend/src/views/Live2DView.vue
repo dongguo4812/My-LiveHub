@@ -4,6 +4,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getLive2DSettings, updateLive2DSettings, listLive2DModels, type Live2DConfig, type Live2DModel } from '../services/live2d'
 import { getScenes, getBrowserSourceURL } from '../services/layouts'
+import { getLive2DMicrophoneState, isLive2DMicrophonePreferred, setLive2DMicrophonePreference, setLive2DMouthDriver, startLive2DMicrophone, stopLive2DMicrophone, updateLive2DMicrophoneConfig } from '../services/live2dMicrophone'
 
 type LegacyModel = {
   initialized?: boolean
@@ -36,6 +37,11 @@ type Live2DWindow = Window & {
 const settings = ref<Live2DConfig | null>(null)
 const models = ref<Live2DModel[]>([])
 const devices = ref<MediaDeviceInfo[]>([])
+const microphoneState = getLive2DMicrophoneState()
+const micError = computed(() => microphoneState.error)
+const micActive = computed(() => microphoneState.active)
+const level = computed(() => microphoneState.level)
+const mouthOpen = computed(() => microphoneState.mouthOpen)
 const selectedModel = ref('')
 const selectedExpression = ref('')
 const selectedMotionGroup = ref('')
@@ -72,10 +78,6 @@ function saveModelTransform(patch: Partial<ModelTransform>) {
 }
 
 const loading = ref(false)
-const micError = ref('')
-const micActive = ref(false)
-const level = ref(0)
-const mouthOpen = ref(0)
 const runtimeStatus = ref('尚未加载模型')
 const runtimeError = ref('')
 const mouthCapability = ref('尚未检测')
@@ -84,10 +86,6 @@ const runtimeFrame = ref<HTMLIFrameElement | null>(null)
 const modelOptions = computed(() => models.value.filter(model => model.format === settings.value?.runtime_version))
 const levelPercent = computed(() => Math.round(level.value * 100))
 const mouthPercent = computed(() => Math.round(mouthOpen.value * 100))
-let stream: MediaStream | null = null
-let audioContext: AudioContext | null = null
-let micWorkletNode: AudioWorkletNode | null = null
-let micMuteGain: GainNode | null = null
 let activeModelURL = ''
 let activeMoc2MouthParameter = ''
 let activeMoc2TransformBase: { model: LegacyModel; scaleX: number; scaleY: number; centerX: number; centerY: number } | null = null
@@ -99,9 +97,6 @@ let mouthSyncEndpoint = ''
 let live2DStatusEndpoint = ''
 let live2DModuleStatusTimer: ReturnType<typeof setInterval> | undefined
 const live2DModuleEnabled = ref(false)
-let microphoneStarting = false
-let microphoneResumePromise: Promise<void> | null = null
-let microphoneAudioStateHandler: (() => void) | null = null
 let resolvingLive2DEndpoint = false
 let lastKnownLive2DModuleEnabled: boolean | null = null
 
@@ -150,11 +145,11 @@ async function refreshLive2DModuleStatus() {
     // A temporary status request failure must not disable manual microphone control.
     return
   }
-  if (lastKnownLive2DModuleEnabled === true && !live2DModuleEnabled.value && micActive.value) stopMicrophone()
+  if (lastKnownLive2DModuleEnabled === true && !live2DModuleEnabled.value && micActive.value) stopLive2DMicrophone()
   lastKnownLive2DModuleEnabled = live2DModuleEnabled.value
   // Preserve the user's microphone preference across Live2D module restarts.
-  if (live2DModuleEnabled.value && settings.value?.microphone_enabled && !micActive.value && !microphoneStarting) {
-    await startMicrophone()
+  if (live2DModuleEnabled.value && isLive2DMicrophonePreferred() && !micActive.value && !microphoneState.starting) {
+    await startLive2DMicrophone()
   }
 }
 
@@ -367,6 +362,7 @@ async function refresh() {
   try {
     const [config, found] = await Promise.all([getLive2DSettings(), listLive2DModels()])
     settings.value = config
+    updateLive2DMicrophoneConfig(config)
     models.value = found
     selectedModel.value = config.runtime_version === 'moc2' ? config.default_model_moc2 : config.default_model_moc3
     await enumerateDevices()
@@ -411,6 +407,7 @@ async function save(patch: Partial<Live2DConfig>) {
     }
 
     settings.value = persisted
+    updateLive2DMicrophoneConfig(persisted)
     applyModelTransform()
     ElMessage.success('Live2D 设置已保存并验证')
   })
@@ -464,113 +461,16 @@ function driveModelMouth(value: number) {
 }
 
 
-async function resumeMicrophoneAudio() {
-  const context = audioContext
-  if (!context || context.state === 'running' || context.state === 'closed' || !micActive.value) return
-  if (microphoneResumePromise) return microphoneResumePromise
-  microphoneResumePromise = context.resume().then(() => {
-    if (context.state !== 'running' && micActive.value) {
-      micError.value = '麦克风音频上下文未能恢复运行，请重新启动麦克风'
-    }
-  }).catch(error => {
-    if (micActive.value) micError.value = '恢复麦克风音频失败：' + String(error)
-  }).finally(() => {
-    microphoneResumePromise = null
-  })
-  return microphoneResumePromise
-}
-
-function handleMicrophoneVisibilityChange() {
-  if (document.visibilityState === 'visible') void resumeMicrophoneAudio()
-}
-
-function stopMicrophone() {
-  if (micWorkletNode) {
-    micWorkletNode.port.onmessage = null
-    micWorkletNode.disconnect()
-    micWorkletNode = null
-  }
-  micMuteGain?.disconnect()
-  micMuteGain = null
-  stream?.getTracks().forEach(track => track.stop())
-  stream = null
-  if (audioContext) {
-    audioContext.onstatechange = null
-    void audioContext.close()
-  }
-  audioContext = null
-  microphoneAudioStateHandler = null
-  microphoneResumePromise = null
-  micActive.value = false
-  level.value = 0
-  mouthOpen.value = 0
-  driveModelMouth(0)
-}
-
-
-async function startMicrophone() {
-  if (micActive.value || microphoneStarting) return
-  microphoneStarting = true
-  micError.value = ''
-  if (!navigator.mediaDevices?.getUserMedia) {
-    micError.value = '当前 WebView 不支持麦克风采集'
-    microphoneStarting = false
-    return
-  }
-  try {
-    stopMicrophone()
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        deviceId: settings.value?.microphone_device_id ? { exact: settings.value.microphone_device_id } : undefined,
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-      },
-    })
-    audioContext = new AudioContext()
-    await audioContext.audioWorklet.addModule('/live2d-runtime/mic-processor.js')
-    await audioContext.resume()
-    const source = audioContext.createMediaStreamSource(stream)
-    micWorkletNode = new AudioWorkletNode(audioContext, 'livehub-mic-analyser')
-    micMuteGain = audioContext.createGain()
-    // Keep the audio graph actively rendered while the main window is hidden.
-    // The zero-gain output is silent but prevents the capture graph from idling.
-    micMuteGain.gain.value = 0
-    micWorkletNode.port.onmessage = (event: MessageEvent<{ rms?: number }>) => {
-      if (!settings.value || !micActive.value) return
-      const rms = Math.max(0, Number(event.data?.rms) || 0)
-      const raw = Math.max(0, Math.min(1, (rms * settings.value.microphone_sensitivity - 0.012) * 8))
-      const smoothing = settings.value.microphone_smoothing
-      level.value = level.value * smoothing + Math.min(1, rms * 8) * (1 - smoothing)
-      mouthOpen.value = mouthOpen.value * smoothing + raw * (1 - smoothing)
-      driveModelMouth(mouthOpen.value)
-    }
-    source.connect(micWorkletNode)
-    micWorkletNode.connect(micMuteGain)
-    micMuteGain.connect(audioContext.destination)
-    micActive.value = true
-    microphoneAudioStateHandler = () => {
-      // WebView2 may suspend an AudioContext when its window is hidden.
-      // Re-arm capture whenever Chromium suspends the live microphone graph.
-      if (audioContext?.state === 'suspended' && micActive.value) void resumeMicrophoneAudio()
-    }
-    audioContext.onstatechange = microphoneAudioStateHandler
-    await resumeMicrophoneAudio()
-    await enumerateDevices()
-  } catch (error) {
-    stopMicrophone()
-    micError.value = String(error)
-  } finally {
-    microphoneStarting = false
-  }
-}
-
 async function toggleMicrophone(enabled: boolean) {
   if (enabled) {
-    await startMicrophone()
-    if (micActive.value) await save({ microphone_enabled: true })
+    await startLive2DMicrophone()
+    if (micActive.value) {
+      setLive2DMicrophonePreference(true)
+      await save({ microphone_enabled: true })
+    }
   } else {
-    stopMicrophone()
+    setLive2DMicrophonePreference(false)
+    stopLive2DMicrophone()
     await save({ microphone_enabled: false })
   }
 }
@@ -582,18 +482,16 @@ function previewMicrophoneTuning(patch: Partial<Pick<Live2DConfig, 'microphone_s
 
 async function changeDevice(deviceID: string) {
   const wasActive = micActive.value
-  if (wasActive) stopMicrophone()
+  if (wasActive) stopLive2DMicrophone()
   await save({ microphone_device_id: deviceID })
-  if (wasActive) await startMicrophone()
+  if (wasActive) await startLive2DMicrophone()
 }
 
 onMounted(() => {
   mouthSyncChannel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('my-livehub-live2d-mouth') : null
   runtimeMessageHandler = onRuntimeMessage
   window.addEventListener('message', runtimeMessageHandler)
-  document.addEventListener('visibilitychange', handleMicrophoneVisibilityChange)
-  window.addEventListener('focus', handleMicrophoneVisibilityChange)
-  window.addEventListener('pageshow', handleMicrophoneVisibilityChange)
+  setLive2DMouthDriver(driveModelMouth)
   void refresh()
   live2DModuleStatusTimer = setInterval(() => {
     if (!live2DStatusEndpoint) void resolveMouthSyncEndpoint()
@@ -603,10 +501,7 @@ onMounted(() => {
 onUnmounted(() => {
   if (live2DModuleStatusTimer) clearInterval(live2DModuleStatusTimer)
   live2DModuleStatusTimer = undefined
-  stopMicrophone()
-  document.removeEventListener('visibilitychange', handleMicrophoneVisibilityChange)
-  window.removeEventListener('focus', handleMicrophoneVisibilityChange)
-  window.removeEventListener('pageshow', handleMicrophoneVisibilityChange)
+  setLive2DMouthDriver(null)
   mouthSyncChannel?.close()
   mouthSyncChannel = null
   if (runtimeMessageHandler) window.removeEventListener('message', runtimeMessageHandler)

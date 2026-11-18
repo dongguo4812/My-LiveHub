@@ -17,7 +17,7 @@ func (m *LOLHexModule) StartOnApplicationLaunch() bool { return false }
 
 func (m *LOLHexModule) Start(context.Context) error {
 	if m == nil || m.service == nil {
-		return nil
+		return errors.New("LOL Hex 内置服务不可用，请检查程序资源文件是否完整")
 	}
 	status, err := m.service.Start()
 	if err != nil {
