@@ -2,7 +2,6 @@ package main
 
 import (
 	"embed"
-	"errors"
 	"fmt"
 	"io/fs"
 	"log"
@@ -232,28 +231,46 @@ func main() {
 	if err != nil {
 		log.Fatalf("resolve application executable: %v", err)
 	}
-	extensionRoot := filepath.Join(filepath.Dir(applicationPath), "extensions", "lol_hex_display")
+	applicationRoot := filepath.Dir(applicationPath)
+	if filepath.Base(applicationRoot) == "bin" {
+		// Wails development/release builds place the executable in app/bin.
+		applicationRoot = filepath.Dir(applicationRoot)
+	}
+	runtimeRoot := filepath.Join(applicationRoot, "modules", "lol_hex_display")
+	legacyRuntimeRoot := filepath.Join(applicationRoot, "extensions", "lol_hex_display")
 	if environment == config.EnvironmentDevelopment {
 		if workingDir, getwdErr := os.Getwd(); getwdErr == nil {
-			extensionRoot = filepath.Join(workingDir, "extensions", "lol_hex_display")
+			runtimeRoot = filepath.Join(workingDir, "internal", "desktop", "lolhex", "runtime")
+			legacyRuntimeRoot = filepath.Join(workingDir, "extensions", "lol_hex_display")
 		}
-	} else if _, statErr := os.Stat(extensionRoot); errors.Is(statErr, os.ErrNotExist) {
-		// Wails places the executable in app/bin; allow extensions to be shipped
-		// beside that bin directory in the application root.
-		extensionRoot = filepath.Join(filepath.Dir(filepath.Dir(applicationPath)), "extensions", "lol_hex_display")
 	}
-	// Read the active LOL Hex process's daily files as part of diagnostics.
-	// The packaged executable writes beside itself; source mode writes in the extension root.
-	extensionLogDir := filepath.Join(extensionRoot, "logs")
-	packagedHexExecutable := filepath.Join(extensionRoot, "dist", "lol_hex_display", "lol_hex_display.exe")
+	// Migrate legacy user data only once. The marker lives in config/local so
+	// routine updates preserve it and intentionally deleted files are not restored.
+	migrationMarker := filepath.Join(paths.LocalDir, ".lol_hex_runtime_data_migrated")
+	if _, statErr := os.Stat(migrationMarker); os.IsNotExist(statErr) {
+		if err := desktop.MigrateLOLHexRuntimeData(legacyRuntimeRoot, runtimeRoot); err != nil {
+			log.Printf("migrate legacy LOL Hex runtime data: %v", err)
+		} else if err := os.WriteFile(migrationMarker, []byte("1"), 0o600); err != nil {
+			log.Printf("record LOL Hex data migration: %v", err)
+		}
+	} else if statErr != nil {
+		log.Printf("check LOL Hex data migration marker: %v", statErr)
+	}
+	// Read the built-in LOL Hex worker's daily files as part of diagnostics.
+	lolHexLogDir := filepath.Join(runtimeRoot, "logs")
+	packagedHexExecutable := filepath.Join(runtimeRoot, "dist", "lol_hex_display", "lol_hex_display.exe")
 	if _, statErr := os.Stat(packagedHexExecutable); statErr == nil {
-		extensionLogDir = filepath.Join(extensionRoot, "dist", "lol_hex_display", "logs")
+		lolHexLogDir = filepath.Join(runtimeRoot, "dist", "lol_hex_display", "logs")
 	}
-	monitorService := desktop.NewMonitorService(logDirectory, extensionLogDir)
-	lolHexService, err := desktop.NewLOLHexService(extensionRoot, filepath.Join(paths.LocalDir, "lol_hex_display.json"))
+	monitorService := desktop.NewMonitorService(logDirectory, lolHexLogDir)
+	lolHexService, err := desktop.NewLOLHexService(runtimeRoot, filepath.Join(paths.LocalDir, "lol_hex_display.json"))
 	if err != nil {
-		log.Printf("LOL Hex extension unavailable: %v", err)
-	} else if err := coreApp.Modules().Register("lol-hex-display", desktop.NewLOLHexModule(lolHexService)); err != nil {
+		log.Printf("LOL Hex built-in module unavailable: %v", err)
+	}
+	// Hex is a built-in, manually started module. Register it even when its
+	// runtime resources are missing so the module manager can report a clear
+	// startup error instead of silently hiding it from the module list.
+	if err := coreApp.Modules().Register("lol-hex-display", desktop.NewLOLHexModule(lolHexService)); err != nil {
 		log.Fatalf("register LOL Hex module: %v", err)
 	}
 	bilibiliSettingsService := desktop.NewBilibiliSettingsService(configManager, bilibiliConfig, bilibiliAdapter, fanMedalChecker)
@@ -300,6 +317,7 @@ func main() {
 		},
 		Services: []application.Service{
 			application.NewService(desktop.NewCoreService(coreApp)),
+			application.NewService(lolHexService),
 			application.NewService(updateService),
 			application.NewService(monitorService),
 			application.NewService(platformService),
@@ -314,7 +332,6 @@ func main() {
 			application.NewService(musicLyricsWindowService),
 			application.NewService(videoQueueService),
 			application.NewService(live2dService),
-			application.NewService(lolHexService),
 			application.NewService(bilibiliWebViewService),
 		},
 	})

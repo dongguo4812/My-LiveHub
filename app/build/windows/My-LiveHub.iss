@@ -41,6 +41,12 @@ Name: "{app}\extensions\lol_hex_display\data"; Flags: uninsneveruninstall
 Name: "{app}\extensions\lol_hex_display\screenshots"; Flags: uninsneveruninstall
 Name: "{app}\extensions\lol_hex_display\logs"; Flags: uninsneveruninstall
 Name: "{app}\extensions\lol_hex_display\dist\lol_hex_display\logs"; Flags: uninsneveruninstall
+Name: "{app}\modules\lol_hex_display\data"; Flags: uninsneveruninstall
+Name: "{app}\modules\lol_hex_display\screenshots"; Flags: uninsneveruninstall
+Name: "{app}\modules\lol_hex_display\logs"; Flags: uninsneveruninstall
+Name: "{app}\modules\lol_hex_display\dist\lol_hex_display\data"; Flags: uninsneveruninstall
+Name: "{app}\modules\lol_hex_display\dist\lol_hex_display\screenshots"; Flags: uninsneveruninstall
+Name: "{app}\modules\lol_hex_display\dist\lol_hex_display\logs"; Flags: uninsneveruninstall
 
 [Files]
 Source: "{#PackageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

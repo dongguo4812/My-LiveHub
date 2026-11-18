@@ -264,8 +264,17 @@ DEFAULT_CONFIG = {
     'ocr_inter_op_num_threads': 1,
     'lol_client_path': r'D:\WeGameApps\英雄联盟（含经典模式）',
 }
+ADMIN_LAUNCH_RESULT = "not_requested"
+
+
 def check_admin_privileges():
-    """确保源码版和打包版均通过 UAC 以管理员权限运行。"""
+    """确保源码版和打包版均通过 UAC 以管理员权限运行。
+
+    ADMIN_LAUNCH_RESULT 区分正常提权交接、用户取消和真正的启动错误，
+    供 My-LiveHub 在启动阶段立即回报结果，而不是等待健康检查超时。
+    """
+    global ADMIN_LAUNCH_RESULT
+    ADMIN_LAUNCH_RESULT = "not_requested"
     if os.name != "nt":
         return True
 
@@ -285,18 +294,28 @@ def check_admin_privileges():
             parameters = subprocess.list2cmdline(sys.argv[1:])
         else:
             executable = sys.executable
-            parameters = subprocess.list2cmdline([str(Path(__file__).resolve()), *sys.argv[1:]])
+            parameters = subprocess.list2cmdline([str(Path(__file__).resolve().with_name("launcher.py")), *sys.argv[1:]])
 
-        shell_execute = ctypes.windll.shell32.ShellExecuteW
+        shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+        shell_execute = shell32.ShellExecuteW
         shell_execute.restype = ctypes.c_void_p
         # SW_HIDE keeps the elevated background extension from opening a console window.
+        ctypes.set_last_error(0)
         result = shell_execute(None, "runas", executable, parameters, str(ROOT), 0)
         if result and result > 32:
+            ADMIN_LAUNCH_RESULT = "handoff"
             log.info("[权限检查] 已请求 Windows 以管理员权限重新启动 LOL Hex")
             return False
 
         error_code = int(result or 0)
-        log.error("[权限检查] Windows 管理员启动失败，ShellExecuteW 返回：%s", error_code)
+        win_error = int(ctypes.get_last_error())
+        if win_error == 1223 or error_code == 5:
+            ADMIN_LAUNCH_RESULT = "cancelled"
+            log.info("[权限检查] 用户取消了 LOL Hex 管理员权限请求")
+            return False
+
+        ADMIN_LAUNCH_RESULT = "failed"
+        log.error("[权限检查] Windows 管理员启动失败，ShellExecuteW 返回：%s，LastError：%s", error_code, win_error)
         try:
             ctypes.windll.user32.MessageBoxW(
                 None,
@@ -308,6 +327,7 @@ def check_admin_privileges():
         except Exception:
             pass
     except Exception as exc:
+        ADMIN_LAUNCH_RESULT = "failed"
         log.exception("[权限检查] 请求管理员启动失败：%s", exc)
         try:
             ctypes.windll.user32.MessageBoxW(
@@ -487,18 +507,33 @@ assets_lock=threading.RLock(); assets={}
 state_lock=threading.RLock(); state={'cards':[],'updated_at':0}
 
 
-def _update_assets_impl(force=False):
+def _update_assets_impl(force=False, cancel_event=None):
     global assets
+    cancel_event = cancel_event or stop_event
+
+    def cancelled():
+        return cancel_event.is_set()
+
     try:
+        if cancelled():
+            return False
         r=requests.get(AUGMENTS_URL,timeout=20,headers={'User-Agent':'Mozilla/5.0'}); r.raise_for_status()
+        if cancelled():
+            return False
         new=normalize_assets(r.json())
         tencent_count=len(new)
         cdragon_added=0
         try:
+            if cancelled():
+                return False
             cr=requests.get(CDRAGON_AUGMENTS_URL,timeout=30,headers={'User-Agent':'Mozilla/5.0'})
             cr.raise_for_status()
+            if cancelled():
+                return False
             cdragon_added=merge_cdragon_assets(new,cr.json())
         except Exception as cdragon_error:
+            if cancelled():
+                return False
             # CommunityDragon 是补充源；其不可用不应阻止腾讯主数据正常更新。
             log.warning('CommunityDragon 海克斯补充失败，仅使用腾讯数据：%s',cdragon_error)
         log.info(
@@ -511,6 +546,8 @@ def _update_assets_impl(force=False):
         with assets_lock:
             current_assets = assets
         changed = digest(new) != digest(current_assets)
+        if cancelled():
+            return False
         if changed:
             # 先在锁外持久化；写入失败时保留旧内存索引，避免内存与缓存不一致。
             atomic_json(ASSET_CACHE, new)
@@ -546,6 +583,8 @@ def _update_assets_impl(force=False):
             new_icon_sources = {}
         icon_sources_changed = False
         for aid,item in new.items():
+            if cancelled():
+                return False
             url=item.get('icon_url',''); dest=ICON_DIR/f'{aid}.png'
             if not url: continue
             # 本地文件存在且来源 URL 未变化时直接复用，避免每轮更新重复读取并校验全部 PNG。
@@ -556,6 +595,12 @@ def _update_assets_impl(force=False):
             temp_dest = dest.with_name(f".{dest.name}.tmp")
             # 图片请求在独立资源线程中执行，10 秒超时；仅对临时网络错误有限重试。
             for attempt in range(3):
+                if cancelled():
+                    try:
+                        temp_dest.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                    return False
                 try:
                     ir=requests.get(url,timeout=10,headers={'User-Agent':'Mozilla/5.0'})
                     ir.raise_for_status()
@@ -580,7 +625,12 @@ def _update_assets_impl(force=False):
                             '图标下载暂时失败 id=%s，%d/2 次重试，%d 秒后重试：%s',
                             aid, attempt + 1, delay, e
                         )
-                        time.sleep(delay)
+                        if cancel_event.wait(delay):
+                            try:
+                                temp_dest.unlink(missing_ok=True)
+                            except OSError:
+                                pass
+                            return False
                         continue
                     log.warning('图标下载失败 id=%s，已重试 2 次：%s',aid,e)
                 except Exception as e:
@@ -591,6 +641,8 @@ def _update_assets_impl(force=False):
                         pass
                     log.warning('图标下载失败 id=%s：%s',aid,e)
                     break
+        if cancelled():
+            return False
         if icon_sources_changed:
             atomic_json(ICON_SOURCE_PATH,new_icon_sources)
         return True
@@ -600,8 +652,10 @@ def _update_assets_impl(force=False):
 _asset_update_mutex=threading.Lock()
 def update_assets(force=False):
     # 自动检查与管理页手动检查串行执行，避免同时写入缓存或重复下载同一图标。
+    if stop_event.is_set():
+        return False
     with _asset_update_mutex:
-        return _update_assets_impl(force)
+        return _update_assets_impl(force, cancel_event=stop_event)
 
 def find_game_version():
     """使用已缓存的 LCU 凭据读取游戏版本，并丢弃账号切换期间的旧响应。"""
@@ -1629,6 +1683,7 @@ def process_screenshot(path):
         return processed
 
 stop_event=threading.Event(); processed_files=OrderedDict(); PROCESSED_FILES_LIMIT=100; update_status_lock=threading.Lock(); update_status={'running':False,'message':'尚未手动检查','updated_at':0}; manual_update_lock=threading.Lock()
+manual_update_threads = set()
 def _mark_processed_file(name):
     with processed_files_lock:
         processed_files[name] = None
@@ -1891,6 +1946,18 @@ logging.getLogger('werkzeug').setLevel(logging.WARNING)
 def manager(): return render_template('manager.html')
 @app.get('/display')
 def display(): return render_template('display.html')
+@app.get('/api/health')
+def api_health():
+    """跨域健康检查，供 My-LiveHub 综合展示判断 Hex 图层是否可用。"""
+    response = jsonify({
+        'ready': HTTP_SERVER is not None,
+        'running': HTTP_SERVER is not None,
+    })
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
 @app.get('/api/client-status')
 def api_client_status():
     return jsonify(client_status())
@@ -1990,38 +2057,61 @@ def _api_action_impl(data):
 
 @app.post('/api/update-assets')
 def api_update_assets():
-    # 如果自动检查或其他手动检查正在运行，不再排队启动重复任务。
-    if not _asset_update_mutex.acquire(blocking=False):
-        return jsonify({'ok':True,'running':True,'message':'自动或手动更新任务正在执行，请稍候'}),202
-    with update_status_lock:
-        if update_status['running']:
-            _asset_update_mutex.release()
-            return jsonify({'ok':True,'running':True,'message':'更新任务已在执行，请稍候'}),202
-        update_status.update({'running':True,'message':'正在请求腾讯与 CommunityDragon 海克斯数据源…','updated_at':time.time()})
-    def worker():
+    # 与停止流程共享门闩：停止开始后不再允许创建新的手动更新线程。
+    with manual_update_lock:
+        if stop_event.is_set():
+            return jsonify({'ok':False,'running':False,'message':'LOL Hex 正在停止，不能启动新的更新任务'}),503
+        # 如果自动检查或其他手动检查正在运行，不再排队启动重复任务。
+        if not _asset_update_mutex.acquire(blocking=False):
+            return jsonify({'ok':True,'running':True,'message':'自动或手动更新任务正在执行，请稍候'}),202
+        with update_status_lock:
+            if update_status['running']:
+                _asset_update_mutex.release()
+                return jsonify({'ok':True,'running':True,'message':'更新任务已在执行，请稍候'}),202
+            update_status.update({'running':True,'message':'正在请求腾讯与 CommunityDragon 海克斯数据源…','updated_at':time.time()})
+
+        def worker():
+            ok = False
+            try:
+                ok = _update_assets_impl(False, cancel_event=stop_event)
+                if stop_event.is_set():
+                    message = 'LOL Hex 正在停止，手动更新任务已取消。'
+                else:
+                    message = '检查完成；请查看日志了解数据是否变化及图标下载情况。' if ok else '请求或数据校验失败，已保留上一份有效缓存。'
+            except Exception as e:
+                log.exception('手动更新海克斯数据失败')
+                message = f'更新失败：{type(e).__name__}: {e}'
+            finally:
+                _asset_update_mutex.release()
+                with update_status_lock:
+                    update_status.update({'running':False,'message':message,'updated_at':time.time(),'ok':ok})
+                with manual_update_lock:
+                    manual_update_threads.discard(threading.current_thread())
+
+        worker_thread = threading.Thread(target=worker, daemon=True, name='ManualAssetUpdater')
+        manual_update_threads.add(worker_thread)
         try:
-            ok=_update_assets_impl(False)
-            message='检查完成；请查看日志了解数据是否变化及图标下载情况。' if ok else '请求或数据校验失败，已保留上一份有效缓存。'
-        except Exception as e:
-            log.exception('手动更新海克斯数据失败')
-            ok=False; message=f'更新失败：{type(e).__name__}: {e}'
-        finally:
+            worker_thread.start()
+        except Exception as exc:
+            manual_update_threads.discard(worker_thread)
             _asset_update_mutex.release()
-        with update_status_lock:
-            update_status.update({'running':False,'message':message,'updated_at':time.time(),'ok':ok})
-    try:
-        threading.Thread(target=worker, daemon=True, name='ManualAssetUpdater').start()
-    except Exception as exc:
-        _asset_update_mutex.release()
-        message = f'无法启动海克斯数据更新线程：{type(exc).__name__}: {exc}'
-        log.exception('启动手动海克斯数据更新线程失败')
-        with update_status_lock:
-            update_status.update({'running': False, 'message': message, 'updated_at': time.time(), 'ok': False})
-        return jsonify({'ok': False, 'running': False, 'message': message}), 500
+            message = f'无法启动海克斯数据更新线程：{type(exc).__name__}: {exc}'
+            log.exception('启动手动海克斯数据更新线程失败')
+            with update_status_lock:
+                update_status.update({'running': False, 'message': message, 'updated_at': time.time(), 'ok': False})
+            return jsonify({'ok': False, 'running': False, 'message': message}), 500
     return jsonify({'ok':True,'running':True,'message':'已开始检查海克斯数据接口'})
 
 @app.post('/api/reset-update-assets')
 def api_reset_update_assets():
+    # 停止流程开始后不再创建新的索引重建任务。
+    if stop_event.is_set():
+        return jsonify({
+            'ok': False,
+            'running': False,
+            'message': 'LOL Hex 正在停止，不能启动新的索引重建任务'
+        }), 503
+
     # 与自动更新、普通手动更新共用同一把锁，避免清空与更新并发。
     if not _asset_update_mutex.acquire(blocking=False):
         return jsonify({
@@ -2061,7 +2151,7 @@ def api_reset_update_assets():
                     'updated_at': time.time()
                 })
 
-            ok = _update_assets_impl(False)
+            ok = _update_assets_impl(False, cancel_event=stop_event)
             if ok:
                 with assets_lock:
                     count = len(assets)
@@ -2153,6 +2243,10 @@ class ScreenshotSelector:
         """F1：未截图则开始；截图中则取消。"""
 
         with self._lock:
+            # F1 回调可能与注销热键同时发生；停止标记在同一把锁的保护下
+            # 阻止任何新的截图线程进入，已进入的任务由 cancel() 收尾。
+            if stop_event.is_set():
+                return
             # 只有确认旧线程已经退出，才允许释放线程引用并启动新任务。
             if self.thread is not None and not self.thread.is_alive():
                 if self.active:
@@ -2540,6 +2634,9 @@ def start_hotkey():
 
     if os.name != 'nt':
         return True
+    if stop_event.is_set():
+        F1_HOTKEY_ERROR = 'LOL Hex 正在停止，拒绝注册 F1 热键'
+        return False
 
     try:
         if not ctypes.windll.shell32.IsUserAnAdmin():
@@ -2564,6 +2661,13 @@ def start_hotkey():
         F1_HOTKEY_ERROR = f'{type(e).__name__}: {e}'
         log.exception('F1 全局热键注册失败：%s', e)
         return False
+
+
+def _shutdown_threads_to_join(background_threads, selector_thread=None):
+    """Hex 后台工作线程均为 daemon；关闭时通知退出，但不等待它们完成。"""
+    # 保留此 helper 作为生命周期策略的集中定义，便于测试确保任何工作线程
+    # （包括 LCU、游戏状态和截图线程）都不会阻塞主进程退出。
+    return []
 
 
 def main():
@@ -2624,35 +2728,8 @@ def main():
         HTTP_SERVER.serve_forever()
     finally:
         # 无论初始化、热键注册、端口绑定还是服务运行阶段发生异常，都统一回收已启动资源。
-        # 先停止 Hex 自身的后台任务，再通知战绩条线程退出，避免关闭等待期间继续产生新状态。
+        # 先关闭任务入口，再通知现有任务退出，避免收尾期间又创建新的截图线程。
         stop_event.set()
-
-        try:
-            selector.cancel()
-        except Exception:
-            log.exception('取消截图选择器失败')
-
-        # 后台任务均为守护线程；只给一个共享的极短收尾窗口，不逐线程累加等待。
-        shutdown_deadline = time.monotonic() + 0.25
-        threads_to_join = list(
-            background_threads if 'background_threads' in locals() else ()
-        )
-        selector_thread = getattr(selector, 'thread', None)
-        if selector_thread is not None:
-            threads_to_join.append(selector_thread)
-
-        for thread in threads_to_join:
-            if thread is threading.current_thread() or not thread.is_alive():
-                continue
-            remaining = shutdown_deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            thread.join(timeout=remaining)
-
-        try:
-            stop_bar_worker()
-        except Exception:
-            log.exception('停止战绩条后台线程失败')
 
         if os.name == 'nt' and F1_HOTKEY_HANDLE is not None:
             try:
@@ -2666,21 +2743,54 @@ def main():
                 F1_HOTKEY_REGISTERED = False
 
         try:
+            selector.cancel()
+        except Exception:
+            log.exception('取消截图选择器失败')
+
+        # 所有 Hex 后台工作线程均为 daemon。stop_event 已通知它们停止，
+        # 不再 join LCU、游戏状态、截图选择器或资源更新线程，避免网络请求、
+        # WMI/LCU 查询和截图收尾把模块关闭拖到数秒甚至超时。
+        with manual_update_lock:
+            pending_asset_updates = sum(
+                1 for thread in manual_update_threads if thread.is_alive()
+            )
+        selector_thread = getattr(selector, 'thread', None)
+        background = background_threads if 'background_threads' in locals() else ()
+        pending_workers = sum(
+            1 for thread in _shutdown_threads_to_join(background, selector_thread)
+            if thread.is_alive()
+        )
+        if pending_asset_updates or pending_workers:
+            log.info(
+                "关闭时不等待后台任务：资源更新=%d，其他工作线程=%d",
+                pending_asset_updates,
+                pending_workers,
+            )
+
+        try:
+            stop_bar_worker()
+        except Exception:
+            log.exception('停止战绩条后台线程失败')
+
+        try:
             if HTTP_SERVER is not None:
                 HTTP_SERVER.server_close()
         except Exception:
             log.exception('关闭 Hex HTTP 服务失败')
         HTTP_SERVER = None
 
-        remove_pid_file()
         log.info('Hex 管理员进程退出清理完成')
 
-        # 日志监听线程只等待有限时间，避免磁盘写入异常拖延退出。
+        # 先完成日志线程收尾，再释放单实例互斥锁；PID 文件必须最后删除。
+        # Go 管理器以 PID 文件消失作为“进程已完成清理”的确认信号，
+        # 从而避免 HTTP 已关闭、旧进程仍持锁时立即启动新实例。
         stop_async_logging(timeout=0.2)
+        release_single_instance_mutex()
+        remove_pid_file()
 
 if __name__ == "__main__":
     if check_admin_privileges():
         sys.exit(main())
     else:
-        # 提权成功时由新的管理员进程接管；失败或用户拒绝时不继续运行。
-        sys.exit(0)
+        # 提权成功时由新的管理员进程接管；用户取消必须向主程序返回非零状态。
+        sys.exit(0 if ADMIN_LAUNCH_RESULT == "handoff" else (1223 if ADMIN_LAUNCH_RESULT == "cancelled" else 1))

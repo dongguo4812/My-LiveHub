@@ -17,6 +17,7 @@ import UsersView from './views/UsersView.vue'
 import RulesView from './views/RulesView.vue'
 import ExtensionsView from './views/ExtensionsView.vue'
 import ModulesView from './views/ModulesView.vue'
+import LOLHexManagerView from './views/LOLHexManagerView.vue'
 import LayoutsView from './views/LayoutsView.vue'
 import LogsView from './views/LogsView.vue'
 import SceneRendererView from './views/SceneRendererView.vue'
@@ -29,6 +30,7 @@ const routes=[
 {path:'/users',component:UsersView,meta:{title:'用户管理',section:'互动中心',description:'查看各平台用户档案和近期互动记录。'}},
 {path:'/rules',component:RulesView,meta:{title:'互动规则',section:'互动中心',description:'配置事件触发条件、动作和自动化流程。'}},
 {path:'/modules',component:ModulesView,meta:{title:'功能模块',section:'功能模块',description:'查看和控制内置模块运行状态。'}},
+{path:'/lol-hex',component:LOLHexManagerView,meta:{title:'LOL Hex 管理',section:'功能模块',description:'管理 LOL Hex 的海克斯识别、截图、OCR、LCU 和战绩条。'}},
 {path:'/layouts',component:LayoutsView,meta:{title:'综合展示',section:'展示管理',description:'编辑多个独立展示布局，并管理对应 OBS 浏览器地址。'}},
 {path:'/scene/:sceneID',component:SceneRendererView,meta:{title:'场景输出',standalone:true}},
 {path:'/extensions',component:ExtensionsView,meta:{title:'扩展管理',section:'扩展中心',description:'管理官方与第三方扩展、权限和独立进程状态。'}},
