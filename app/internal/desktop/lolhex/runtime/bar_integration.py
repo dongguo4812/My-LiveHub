@@ -191,32 +191,10 @@ def register_bar_routes(
                 except queue.Full:
                     log.debug("[战绩条] SSE 结束通知队列已满")
 
-        # 尝试等待已开始的本地缓存提交完成，但绝不让锁等待拖住主程序关闭。
-        # 若超时，当前提交可能仍在执行；它结束后，后续提交会被停止检查拦截。
-        cache_lock_acquired = cache_lock.acquire(timeout=0.1)
-        if cache_lock_acquired:
-            cache_lock.release()
-        else:
-            log.debug(
-                "[战绩条] 缓存提交仍在执行；不等待其完成，主程序继续关闭"
-            )
-
+        # 缓存提交和网络刷新均运行在 daemon 线程中。关闭时不等待锁或线程，
+        # 避免一次正在进行的磁盘/网络操作额外增加关闭耗时。
         game_end_event.set()
         refresh_wakeup_event.set()
-
-        # 所有消费者和自动刷新线程共享一个收尾期限，避免逐线程累加等待。
-        # LCU 请求有网络超时，给在途请求足够的机会完成并释放响应资源。
-        shutdown_deadline = time.monotonic() + 3.5
-        for current_worker in list(worker_threads):
-            if (
-                current_worker is threading.current_thread()
-                or not current_worker.is_alive()
-            ):
-                continue
-            remaining = shutdown_deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            current_worker.join(timeout=remaining)
 
         still_running = [
             thread.name for thread in worker_threads if thread.is_alive()

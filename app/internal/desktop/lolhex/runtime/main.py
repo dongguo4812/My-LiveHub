@@ -2664,14 +2664,10 @@ def start_hotkey():
 
 
 def _shutdown_threads_to_join(background_threads, selector_thread=None):
-    """返回关闭时需要等待的关键线程；索引更新线程不阻塞进程退出。"""
-    threads = [
-        thread for thread in background_threads
-        if thread.name != 'AssetUpdater'
-    ]
-    if selector_thread is not None:
-        threads.append(selector_thread)
-    return threads
+    """Hex 后台工作线程均为 daemon；关闭时通知退出，但不等待它们完成。"""
+    # 保留此 helper 作为生命周期策略的集中定义，便于测试确保任何工作线程
+    # （包括 LCU、游戏状态和截图线程）都不会阻塞主进程退出。
+    return []
 
 
 def main():
@@ -2751,35 +2747,25 @@ def main():
         except Exception:
             log.exception('取消截图选择器失败')
 
-        # 海克斯数据索引及图标更新属于非关键后台任务：收到 stop_event 后
-        # 不再启动新请求，正在进行的网络请求不阻塞模块关闭。线程均为 daemon，
-        # 主进程完成资源释放并退出时由操作系统一并回收。
+        # 所有 Hex 后台工作线程均为 daemon。stop_event 已通知它们停止，
+        # 不再 join LCU、游戏状态、截图选择器或资源更新线程，避免网络请求、
+        # WMI/LCU 查询和截图收尾把模块关闭拖到数秒甚至超时。
         with manual_update_lock:
             pending_asset_updates = sum(
                 1 for thread in manual_update_threads if thread.is_alive()
             )
-        if pending_asset_updates:
-            log.info(
-                "关闭时跳过等待 %d 个海克斯手动索引更新任务",
-                pending_asset_updates,
-            )
-
-        # LCU、游戏状态、截图选择器仍需有限收尾；AssetUpdater 只负责
-        # 版本检查和海克斯索引/图标下载，不应拖慢退出。
-        shutdown_deadline = time.monotonic() + 8.0
         selector_thread = getattr(selector, 'thread', None)
-        threads_to_join = _shutdown_threads_to_join(
-            background_threads if 'background_threads' in locals() else (),
-            selector_thread,
+        background = background_threads if 'background_threads' in locals() else ()
+        pending_workers = sum(
+            1 for thread in _shutdown_threads_to_join(background, selector_thread)
+            if thread.is_alive()
         )
-
-        for thread in threads_to_join:
-            if thread is threading.current_thread() or not thread.is_alive():
-                continue
-            remaining = shutdown_deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            thread.join(timeout=remaining)
+        if pending_asset_updates or pending_workers:
+            log.info(
+                "关闭时不等待后台任务：资源更新=%d，其他工作线程=%d",
+                pending_asset_updates,
+                pending_workers,
+            )
 
         try:
             stop_bar_worker()
