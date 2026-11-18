@@ -44,9 +44,9 @@ jobs:
       - name: Validate Hex Python syntax and lifecycle
         shell: pwsh
         run: |
-          python -m compileall -q extensions/lol_hex_display
+          python -m compileall -q internal/desktop/lolhex/runtime
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -m unittest discover -s extensions/lol_hex_display/tests -v
+          python -m unittest discover -s internal/desktop/lolhex/runtime/tests -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Set up Go
