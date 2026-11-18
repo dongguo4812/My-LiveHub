@@ -32,6 +32,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Hex lifecycle test dependencies
+        shell: pwsh
+        run: python -m pip install Flask requests Pillow
+
+      - name: Validate Hex Python syntax and lifecycle
+        shell: pwsh
+        run: |
+          python -m compileall -q extensions/lol_hex_display
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s extensions/lol_hex_display/tests -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
