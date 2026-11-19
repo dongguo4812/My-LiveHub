@@ -155,6 +155,7 @@ void lxqjs_string_free(char *value) {
  * owner thread; the exported Go function performs only bounded pure work. */
 extern char *lxqjsGoMD5(const char *data, size_t length);
 extern void *lxqjsGoRandomBytes(size_t length);
+extern void *lxqjsGoAESEncrypt(const char *data, size_t data_len, const char *mode, const char *key, size_t key_len, const char *iv, size_t iv_len, size_t *out_len);
 
 static JSValue lxqjs_md5_callback(JSContext *context, JSValueConst this_val,
                                   int argc, JSValueConst *argv) {
@@ -184,6 +185,71 @@ static JSValue lxqjs_random_bytes_callback(JSContext *context, JSValueConst this
     if (bytes == NULL) return JS_ThrowInternalError(context, "randomBytes failed");
     JSValue result = JS_NewUint8ArrayCopy(context, (const uint8_t *)bytes, (size_t)length);
     free(bytes);
+    return result;
+}
+
+
+static int lxqjs_copy_bytes(JSContext *context, JSValueConst value, uint8_t **out, size_t *out_len, int allow_undefined) {
+    *out = NULL; *out_len = 0;
+    if (allow_undefined && JS_IsUndefined(value)) return 0;
+    if (JS_IsString(value)) {
+        size_t length = 0;
+        const char *text = JS_ToCStringLen(context, &length, value);
+        if (text == NULL) return -1;
+        uint8_t *copy = (uint8_t *)malloc(length ? length : 1);
+        if (copy == NULL) { JS_FreeCString(context, text); return -1; }
+        if (length) memcpy(copy, text, length);
+        JS_FreeCString(context, text);
+        *out = copy; *out_len = length;
+        return 0;
+    }
+    if (JS_IsArrayBuffer(value)) {
+        size_t length = 0;
+        uint8_t *data = JS_GetArrayBuffer(context, &length, value);
+        if (data == NULL && length) return -1;
+        uint8_t *copy = (uint8_t *)malloc(length ? length : 1);
+        if (copy == NULL) return -1;
+        if (length) memcpy(copy, data, length);
+        *out = copy; *out_len = length;
+        return 0;
+    }
+    if (JS_GetTypedArrayType(value) >= 0) {
+        size_t length = 0;
+        uint8_t *data = JS_GetUint8Array(context, &length, value);
+        if (data == NULL && length) return -1;
+        uint8_t *copy = (uint8_t *)malloc(length ? length : 1);
+        if (copy == NULL) return -1;
+        if (length) memcpy(copy, data, length);
+        *out = copy; *out_len = length;
+        return 0;
+    }
+    JS_ThrowTypeError(context, "expected a string, ArrayBuffer, or Uint8Array");
+    return -1;
+}
+
+static JSValue lxqjs_aes_encrypt_callback(JSContext *context, JSValueConst this_val,
+                                          int argc, JSValueConst *argv) {
+    (void)this_val;
+    if (argc < 4) return JS_ThrowTypeError(context, "aesEncrypt requires buffer, mode, key, and iv");
+    const char *mode = JS_ToCString(context, argv[1]);
+    if (mode == NULL) return JS_EXCEPTION;
+    uint8_t *data = NULL, *key = NULL, *iv = NULL;
+    size_t data_len = 0, key_len = 0, iv_len = 0;
+    int failed = lxqjs_copy_bytes(context, argv[0], &data, &data_len, 0) ||
+                 lxqjs_copy_bytes(context, argv[2], &key, &key_len, 0) ||
+                 lxqjs_copy_bytes(context, argv[3], &iv, &iv_len, 1);
+    if (failed || data_len > (1u << 20) || key_len > 64 || iv_len > 32) {
+        free(data); free(key); free(iv); JS_FreeCString(context, mode);
+        if (!JS_IsException(JS_GetException(context))) { /* exception state is consumed below only on error paths */ }
+        return JS_ThrowTypeError(context, "invalid AES input or input exceeds limit");
+    }
+    size_t output_len = 0;
+    void *output = lxqjsGoAESEncrypt((const char *)data, data_len, mode, (const char *)key, key_len,
+                                     (const char *)iv, iv_len, &output_len);
+    free(data); free(key); free(iv); JS_FreeCString(context, mode);
+    if (output == NULL) return JS_ThrowTypeError(context, "AES encryption failed or mode is unsupported");
+    JSValue result = JS_NewUint8ArrayCopy(context, (const uint8_t *)output, output_len);
+    free(output);
     return result;
 }
 

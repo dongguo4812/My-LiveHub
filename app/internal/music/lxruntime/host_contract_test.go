@@ -144,3 +144,19 @@ func TestLXHostCryptoRandomBytesUsesNativeImplementation(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	if value != "RangeError" { t.Fatalf("randomBytes limit error = %q", value) }
 }
+
+
+func TestLXHostCryptoAESEncryptUsesNativeImplementation(t *testing.T) {
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{}); err != nil { t.Fatal(err) }
+	value, err := rt.Eval(context.Background(), `(() => {
+		const encrypted = lx.utils.crypto.aesEncrypt('hello', 'aes-128-cbc',
+			'0123456789abcdef', 'abcdef0123456789');
+		return JSON.stringify({ isUint8Array: encrypted instanceof Uint8Array, length: encrypted.length,
+			hex: Array.from(encrypted, value => value.toString(16).padStart(2, '0')).join('') });
+	})()`, "lx-native-aes.js")
+	if err != nil { t.Fatal(err) }
+	if value != `{"isUint8Array":true,"length":16,"hex":"c6a13b37878f5b826f4f8162a1c8d879"}` {
+		t.Fatalf("native AES result = %q", value)
+	}
+}

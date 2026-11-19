@@ -10,6 +10,7 @@ import "C"
 import (
 	"crypto/md5"
 	"crypto/rand"
+	"fmt"
 	"encoding/hex"
 	"unsafe"
 )
@@ -28,4 +29,18 @@ func lxqjsGoRandomBytes(length C.size_t) unsafe.Pointer {
 	buffer := make([]byte, int(length))
 	if _, err := rand.Read(buffer); err != nil { return nil }
 	return C.CBytes(buffer)
+}
+
+
+//export lxqjsGoAESEncrypt
+func lxqjsGoAESEncrypt(data *C.char, dataLen C.size_t, mode *C.char, key *C.char, keyLen C.size_t, iv *C.char, ivLen C.size_t, outLen *C.size_t) unsafe.Pointer {
+	if dataLen > 1<<20 || keyLen > 64 || ivLen > 32 || mode == nil || key == nil || outLen == nil { return nil }
+	plaintext := C.GoBytes(unsafe.Pointer(data), C.int(dataLen))
+	keyBytes := C.GoBytes(unsafe.Pointer(key), C.int(keyLen))
+	var ivBytes []byte
+	if iv != nil && ivLen > 0 { ivBytes = C.GoBytes(unsafe.Pointer(iv), C.int(ivLen)) }
+	result, err := lxCryptoAESEncrypt(plaintext, C.GoString(mode), keyBytes, ivBytes)
+	if err != nil { _ = fmt.Sprint(err); return nil }
+	*outLen = C.size_t(len(result))
+	return C.CBytes(result)
 }
