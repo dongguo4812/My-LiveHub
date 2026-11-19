@@ -207,6 +207,6 @@ func TestLXHostBufferGlobalNodeCompatibilitySubset(t *testing.T) {
 		});
 	})()`, "lx-buffer-global.js")
 	if err != nil { t.Fatal(err) }
-	want := `{"isBuffer":true,"isUint8Array":true,"text":"{\\"ok\\":true}","hex":"7b226f6b223a747275657d","joined":"A{\\"ok\\":true}","allocated":"2a2a","byteLength":11}`
+	want := \`{"isBuffer":true,"isUint8Array":true,"text":"{\"ok\":true}","hex":"7b226f6b223a747275657d","joined":"A{\"ok\":true}","allocated":"2a2a","byteLength":11}\`
 	if value != want { t.Fatalf("global Buffer compatibility = %q, want %q", value, want) }
 }
