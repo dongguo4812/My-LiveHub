@@ -307,32 +307,49 @@ int lxqjs_install_crypto(LXQJSState *state, char **error_out) {
     JSContext *context = state->context;
     JSValue lx = JS_GetGlobalObject(context);
     JSValue utils = JS_GetPropertyStr(context, lx, "lx");
-    JSValue crypto = JS_GetPropertyStr(context, utils, "utils");
-    JSValue crypto_object = JS_GetPropertyStr(context, crypto, "crypto");
+    JSValue lx_utils = JS_GetPropertyStr(context, utils, "utils");
+    JSValue crypto_object = JS_GetPropertyStr(context, lx_utils, "crypto");
     if (JS_IsException(crypto_object) || JS_IsUndefined(crypto_object)) {
         lxqjs_set_error(error_out, "LX crypto host object is unavailable");
-        if (result >= 0) {\n        JSValue buffer_from = JS_NewCFunction(context, lxqjs_buffer_from_callback, "from", 2);\n        JSValue buffer_to_string = JS_NewCFunction(context, lxqjs_buffer_to_string_callback, "bufToString", 2);\n        JSValue buffer_object = JS_GetPropertyStr(context, utils, "buffer");\n        result = JS_SetPropertyStr(context, buffer_object, "from", buffer_from);\n        if (result >= 0) result = JS_SetPropertyStr(context, buffer_object, "bufToString", buffer_to_string);\n        JS_FreeValue(context, buffer_object);\n    }\n    JS_FreeValue(context, crypto_object);
-        JS_FreeValue(context, crypto);
+        JS_FreeValue(context, crypto_object);
+        JS_FreeValue(context, lx_utils);
         JS_FreeValue(context, utils);
         JS_FreeValue(context, lx);
         return -1;
     }
-    JSValue md5 = JS_NewCFunction(context, lxqjs_md5_callback, "md5", 1);
-    int result = JS_SetPropertyStr(context, crypto_object, "md5", md5);
-    if (result >= 0) {
-        JSValue aes_encrypt = JS_NewCFunction(context, lxqjs_aes_encrypt_callback, "aesEncrypt", 4);
-        result = JS_SetPropertyStr(context, crypto_object, "aesEncrypt", aes_encrypt);
+    int result = JS_SetPropertyStr(context, crypto_object, "md5",
+        JS_NewCFunction(context, lxqjs_md5_callback, "md5", 1));
+    if (result >= 0) result = JS_SetPropertyStr(context, crypto_object, "aesEncrypt",
+        JS_NewCFunction(context, lxqjs_aes_encrypt_callback, "aesEncrypt", 4));
+    if (result >= 0) result = JS_SetPropertyStr(context, crypto_object, "randomBytes",
+        JS_NewCFunction(context, lxqjs_random_bytes_callback, "randomBytes", 1));
+
+    JSValue buffer_object = JS_GetPropertyStr(context, lx_utils, "buffer");
+    if (result >= 0 && !JS_IsException(buffer_object) && !JS_IsUndefined(buffer_object)) {
+        result = JS_SetPropertyStr(context, buffer_object, "from",
+            JS_NewCFunction(context, lxqjs_buffer_from_callback, "from", 2));
+        if (result >= 0) result = JS_SetPropertyStr(context, buffer_object, "bufToString",
+            JS_NewCFunction(context, lxqjs_buffer_to_string_callback, "bufToString", 2));
+    } else if (result >= 0) {
+        result = -1;
     }
+    JS_FreeValue(context, buffer_object);
+
     if (result >= 0) {
-        JSValue random_bytes = JS_NewCFunction(context, lxqjs_random_bytes_callback, "randomBytes", 1);
-        result = JS_SetPropertyStr(context, crypto_object, "randomBytes", random_bytes);
+        JSValue global = JS_GetGlobalObject(context);
+        JSValue node_buffer = JS_NewObject(context);
+        result = JS_SetPropertyStr(context, node_buffer, "from",
+            JS_NewCFunction(context, lxqjs_buffer_from_callback, "from", 2));
+        if (result >= 0) result = JS_SetPropertyStr(context, global, "Buffer", node_buffer);
+        else JS_FreeValue(context, node_buffer);
+        JS_FreeValue(context, global);
     }
     JS_FreeValue(context, crypto_object);
-    JS_FreeValue(context, crypto);
+    JS_FreeValue(context, lx_utils);
     JS_FreeValue(context, utils);
     JS_FreeValue(context, lx);
     if (result < 0) {
-        lxqjs_set_error(error_out, "unable to install LX crypto.md5");
+        lxqjs_set_error(error_out, "unable to install LX crypto and buffer host APIs");
         return -1;
     }
     return 0;
