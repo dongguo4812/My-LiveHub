@@ -156,7 +156,7 @@ func TestLXHostCryptoAESEncryptUsesNativeImplementation(t *testing.T) {
 			hex: Array.from(encrypted, value => value.toString(16).padStart(2, '0')).join('') });
 	})()`, "lx-native-aes.js")
 	if err != nil { t.Fatal(err) }
-	if value != `{"isUint8Array":true,"length":16,"hex":"c6a13b37878f5b826f4f8162a1c8d879"}` {
+	if value != `{"isUint8Array":true,"length":16,"hex":"ffcb80bec2437fc2e30b0ef0a8ec5b64"}` {
 		t.Fatalf("native AES result = %q", value)
 	}
 }

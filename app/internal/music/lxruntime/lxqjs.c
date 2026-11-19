@@ -240,7 +240,6 @@ static JSValue lxqjs_aes_encrypt_callback(JSContext *context, JSValueConst this_
                  lxqjs_copy_bytes(context, argv[3], &iv, &iv_len, 1);
     if (failed || data_len > (1u << 20) || key_len > 64 || iv_len > 32) {
         free(data); free(key); free(iv); JS_FreeCString(context, mode);
-        if (!JS_IsException(JS_GetException(context))) { /* exception state is consumed below only on error paths */ }
         return JS_ThrowTypeError(context, "invalid AES input or input exceeds limit");
     }
     size_t output_len = 0;
