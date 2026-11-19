@@ -93,3 +93,25 @@ try { lx.utils.crypto.md5('abc'); } catch (error) { error.message; }
 		t.Fatalf("unimplemented capability response = %q", value)
 	}
 }
+
+
+func TestLXHostRequestAbortRemovesQueuedRequest(t *testing.T) {
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{}); err != nil {
+		t.Fatal(err)
+	}
+	value, err := rt.Eval(context.Background(), `
+globalThis.__abortError = '';
+const abort = lx.request('https://example.com/test', {}, error => {
+  __abortError = error ? error.message : 'missing error';
+});
+abort();
+JSON.stringify({ queued: __lxTakeRequests().length, error: __abortError });
+`, "lx-request-abort.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != `{"queued":0,"error":"Cancel request"}` {
+		t.Fatalf("abort result = %s", value)
+	}
+}
