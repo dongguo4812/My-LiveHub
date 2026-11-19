@@ -160,3 +160,25 @@ func TestLXHostCryptoAESEncryptUsesNativeImplementation(t *testing.T) {
 		t.Fatalf("native AES result = %q", value)
 	}
 }
+
+
+func TestLXHostBufferFromAndBufToStringUseNativeImplementation(t *testing.T) {
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{}); err != nil { t.Fatal(err) }
+	value, err := rt.Eval(context.Background(), `(() => {
+		const bytes = lx.utils.buffer.from('{"ok":true}', 'utf-8');
+		const base64 = lx.utils.buffer.bufToString(bytes, 'base64');
+		const hex = lx.utils.buffer.bufToString(bytes, 'hex');
+		const decoded = Buffer.from(base64, 'base64');
+		return JSON.stringify({
+			isUint8Array: bytes instanceof Uint8Array,
+			base64,
+			hex,
+			roundTrip: lx.utils.buffer.bufToString(decoded, 'utf8'),
+			globalBuffer: typeof Buffer.from === 'function'
+		});
+	})()`, "lx-native-buffer.js")
+	if err != nil { t.Fatal(err) }
+	want := `{"isUint8Array":true,"base64":"eyJvayI6dHJ1ZX0=","hex":"7b226f6b223a747275657d","roundTrip":"{\\"ok\\":true}","globalBuffer":true}`
+	if value != want { t.Fatalf("native buffer result = %q, want %q", value, want) }
+}

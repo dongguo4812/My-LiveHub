@@ -10,9 +10,11 @@ import "C"
 import (
 	"crypto/md5"
 	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"encoding/hex"
 	"unsafe"
+	"strings"
 )
 
 //export lxqjsGoMD5
@@ -43,4 +45,70 @@ func lxqjsGoAESEncrypt(data *C.char, dataLen C.size_t, mode *C.char, key *C.char
 	if err != nil { _ = fmt.Sprint(err); return nil }
 	*outLen = C.size_t(len(result))
 	return C.CBytes(result)
+}
+
+
+//export lxqjsGoBufferFrom
+func lxqjsGoBufferFrom(data *C.char, dataLen C.size_t, encoding *C.char, outLen *C.size_t) unsafe.Pointer {
+	if dataLen > 1<<20 || encoding == nil || outLen == nil { return nil }
+	input := C.GoBytes(unsafe.Pointer(data), C.int(dataLen))
+	enc := strings.ToLower(C.GoString(encoding))
+	var output []byte
+	var err error
+	switch enc {
+	case "", "utf8", "utf-8":
+		output = input
+	case "hex":
+		output, err = hex.DecodeString(string(input))
+	case "base64":
+		output, err = base64.StdEncoding.DecodeString(string(input))
+	case "base64url":
+		output, err = base64.RawURLEncoding.DecodeString(strings.TrimRight(string(input), "="))
+	case "latin1", "binary":
+		runes := []rune(string(input))
+		output = make([]byte, len(runes))
+		for i, r := range runes { output[i] = byte(r) }
+	case "ascii":
+		runes := []rune(string(input))
+		output = make([]byte, len(runes))
+		for i, r := range runes { output[i] = byte(r) & 0x7f }
+	default:
+		return nil
+	}
+	if err != nil { return nil }
+	*outLen = C.size_t(len(output))
+	if len(output) == 0 { return C.malloc(1) }
+	return C.CBytes(output)
+}
+
+//export lxqjsGoBufferToString
+func lxqjsGoBufferToString(data *C.char, dataLen C.size_t, encoding *C.char, outLen *C.size_t) unsafe.Pointer {
+	if dataLen > 1<<20 || encoding == nil || outLen == nil { return nil }
+	input := C.GoBytes(unsafe.Pointer(data), C.int(dataLen))
+	enc := strings.ToLower(C.GoString(encoding))
+	var output string
+	switch enc {
+	case "", "utf8", "utf-8":
+		output = string(input)
+	case "hex":
+		output = hex.EncodeToString(input)
+	case "base64":
+		output = base64.StdEncoding.EncodeToString(input)
+	case "base64url":
+		output = base64.RawURLEncoding.EncodeToString(input)
+	case "latin1", "binary":
+		runes := make([]rune, len(input))
+		for i, b := range input { runes[i] = rune(b) }
+		output = string(runes)
+	case "ascii":
+		runes := make([]rune, len(input))
+		for i, b := range input { runes[i] = rune(b & 0x7f) }
+		output = string(runes)
+	default:
+		return nil
+	}
+	bytes := []byte(output)
+	*outLen = C.size_t(len(bytes))
+	if len(bytes) == 0 { return C.malloc(1) }
+	return C.CBytes(bytes)
 }

@@ -155,7 +155,7 @@ void lxqjs_string_free(char *value) {
  * owner thread; the exported Go function performs only bounded pure work. */
 extern char *lxqjsGoMD5(const char *data, size_t length);
 extern void *lxqjsGoRandomBytes(size_t length);
-extern void *lxqjsGoAESEncrypt(const char *data, size_t data_len, const char *mode, const char *key, size_t key_len, const char *iv, size_t iv_len, size_t *out_len);
+extern void *lxqjsGoBufferFrom(const char *data, size_t data_len, const char *encoding, size_t *out_len);\nextern void *lxqjsGoBufferToString(const char *data, size_t data_len, const char *encoding, size_t *out_len);\nextern void *lxqjsGoAESEncrypt(const char *data, size_t data_len, const char *mode, const char *key, size_t key_len, const char *iv, size_t iv_len, size_t *out_len);
 
 static JSValue lxqjs_md5_callback(JSContext *context, JSValueConst this_val,
                                   int argc, JSValueConst *argv) {
@@ -252,6 +252,52 @@ static JSValue lxqjs_aes_encrypt_callback(JSContext *context, JSValueConst this_
     return result;
 }
 
+
+static JSValue lxqjs_buffer_from_callback(JSContext *context, JSValueConst this_val,
+                                           int argc, JSValueConst *argv) {
+    (void)this_val;
+    if (argc < 1 || !JS_IsString(argv[0]))
+        return JS_ThrowTypeError(context, "buffer.from expects a string");
+    size_t input_len = 0;
+    const char *input = JS_ToCStringLen(context, &input_len, argv[0]);
+    if (input == NULL) return JS_EXCEPTION;
+    const char *encoding = "utf8";
+    if (argc > 1 && !JS_IsUndefined(argv[1])) {
+        encoding = JS_ToCString(context, argv[1]);
+        if (encoding == NULL) { JS_FreeCString(context, input); return JS_EXCEPTION; }
+    }
+    size_t output_len = 0;
+    void *output = lxqjsGoBufferFrom(input, input_len, encoding, &output_len);
+    if (argc > 1 && !JS_IsUndefined(argv[1])) JS_FreeCString(context, encoding);
+    JS_FreeCString(context, input);
+    if (output == NULL) return JS_ThrowTypeError(context, "unsupported buffer encoding or invalid input");
+    JSValue result = JS_NewUint8ArrayCopy(context, (const uint8_t *)output, output_len);
+    free(output);
+    return result;
+}
+
+static JSValue lxqjs_buffer_to_string_callback(JSContext *context, JSValueConst this_val,
+                                                int argc, JSValueConst *argv) {
+    (void)this_val;
+    if (argc < 1) return JS_ThrowTypeError(context, "bufToString expects a byte buffer");
+    uint8_t *input = NULL;
+    size_t input_len = 0;
+    if (lxqjs_copy_bytes(context, argv[0], &input, &input_len, 0) < 0) return JS_EXCEPTION;
+    const char *encoding = "utf8";
+    if (argc > 1 && !JS_IsUndefined(argv[1])) {
+        encoding = JS_ToCString(context, argv[1]);
+        if (encoding == NULL) { free(input); return JS_EXCEPTION; }
+    }
+    size_t output_len = 0;
+    void *output = lxqjsGoBufferToString((const char *)input, input_len, encoding, &output_len);
+    if (argc > 1 && !JS_IsUndefined(argv[1])) JS_FreeCString(context, encoding);
+    free(input);
+    if (output == NULL) return JS_ThrowTypeError(context, "unsupported buffer encoding");
+    JSValue result = JS_NewStringLen(context, (const char *)output, output_len);
+    free(output);
+    return result;
+}
+
 int lxqjs_install_crypto(LXQJSState *state, char **error_out) {
     if (error_out != NULL) *error_out = NULL;
     if (state == NULL || state->context == NULL) {
@@ -265,7 +311,7 @@ int lxqjs_install_crypto(LXQJSState *state, char **error_out) {
     JSValue crypto_object = JS_GetPropertyStr(context, crypto, "crypto");
     if (JS_IsException(crypto_object) || JS_IsUndefined(crypto_object)) {
         lxqjs_set_error(error_out, "LX crypto host object is unavailable");
-        JS_FreeValue(context, crypto_object);
+        if (result >= 0) {\n        JSValue buffer_from = JS_NewCFunction(context, lxqjs_buffer_from_callback, "from", 2);\n        JSValue buffer_to_string = JS_NewCFunction(context, lxqjs_buffer_to_string_callback, "bufToString", 2);\n        JSValue buffer_object = JS_GetPropertyStr(context, utils, "buffer");\n        result = JS_SetPropertyStr(context, buffer_object, "from", buffer_from);\n        if (result >= 0) result = JS_SetPropertyStr(context, buffer_object, "bufToString", buffer_to_string);\n        JS_FreeValue(context, buffer_object);\n    }\n    JS_FreeValue(context, crypto_object);
         JS_FreeValue(context, crypto);
         JS_FreeValue(context, utils);
         JS_FreeValue(context, lx);
