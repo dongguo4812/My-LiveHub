@@ -45,7 +45,7 @@ func TestExecuteLXHTTPRequestFormAndMultipart(t *testing.T) {
 			_, _ = io.WriteString(w, "ok")
 		}))
 		defer server.Close()
-		_, err := executeLXHTTPRequest(context.Background(), lxRequestDescriptor{URL:server.URL, Form:map[string]any{"keyword":"hello world"}}, server.Client())
+		_, err := executeLXHTTPRequest(context.Background(), lxRequestDescriptor{URL:server.URL, Method:http.MethodPost, Form:map[string]any{"keyword":"hello world"}}, server.Client())
 		if err != nil { t.Fatal(err) }
 	})
 	t.Run("multipart", func(t *testing.T) {
@@ -57,7 +57,7 @@ func TestExecuteLXHTTPRequestFormAndMultipart(t *testing.T) {
 			_, _ = io.WriteString(w, "ok")
 		}))
 		defer server.Close()
-		_, err := executeLXHTTPRequest(context.Background(), lxRequestDescriptor{URL:server.URL, FormData:map[string]any{"token":"abc"}}, server.Client())
+		_, err := executeLXHTTPRequest(context.Background(), lxRequestDescriptor{URL:server.URL, Method:http.MethodPost, FormData:map[string]any{"token":"abc"}}, server.Client())
 		if err != nil { t.Fatal(err) }
 	})
 }
