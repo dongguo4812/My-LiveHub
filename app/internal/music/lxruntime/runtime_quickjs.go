@@ -23,7 +23,7 @@ import (
 
 const (
 	defaultMemoryLimit = 32 << 20
-	defaultStackLimit  = 1 << 20
+	defaultStackLimit  = 512 << 10
 	defaultEvalTimeout = 3 * time.Second
 )
 
