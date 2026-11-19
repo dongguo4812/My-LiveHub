@@ -121,15 +121,39 @@ globalThis.TextDecoder = class TextDecoder {
   decode(value) { return decodeURIComponent(escape(Array.from(value || []).map(v => String.fromCharCode(v)).join(''))); }
 };
 globalThis.crypto = { getRandomValues(value) { return value; } };
-globalThis.btoa = value => value;
-globalThis.atob = value => value;
+const __b64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+globalThis.btoa = value => {
+  let out = '';
+  for (let i = 0; i < value.length; i += 3) {
+    const a = value.charCodeAt(i), hasB = i + 1 < value.length, hasC = i + 2 < value.length;
+    const b = hasB ? value.charCodeAt(i + 1) : 0, c = hasC ? value.charCodeAt(i + 2) : 0;
+    out += __b64[a >> 2] + __b64[((a & 3) << 4) | (b >> 4)] + (hasB ? __b64[((b & 15) << 2) | (c >> 6)] : '=') + (hasC ? __b64[c & 63] : '=');
+  }
+  return out;
+};
+globalThis.atob = value => {
+  const input = String(value).replace(/[^A-Za-z0-9+/=]/g, '');
+  let out = '';
+  for (let i = 0; i < input.length; i += 4) {
+    const a = __b64.indexOf(input[i]), b = __b64.indexOf(input[i + 1]);
+    const c = __b64.indexOf(input[i + 2]), d = __b64.indexOf(input[i + 3]);
+    if (a < 0 || b < 0) break;
+    out += String.fromCharCode((a << 2) | (b >> 4));
+    if (c >= 0) out += String.fromCharCode(((b & 15) << 4) | (c >> 2));
+    if (d >= 0) out += String.fromCharCode(((c & 3) << 6) | d);
+  }
+  return out;
+};
+globalThis.performance = { now: () => Date.now() };
+globalThis.navigator = { userAgent: 'Mozilla/5.0 My-LiveHub QuickJS test' };
+globalThis.location = { href: 'https://localhost/' };
 const __lxHandlers = Object.create(null);
 globalThis.__lxSent = [];
 globalThis.lx = {
   EVENT_NAMES: { request: 'request', inited: 'inited', updateAlert: 'updateAlert' },
   version: '2.0.0',
   env: 'desktop',
-  currentScriptInfo: { rawScript: '' },
+  currentScriptInfo: { rawScript: '', name: 'Fixture Source', version: '1.0.0', author: 'My-LiveHub test' },
   request(url, options, callback) {
     if (typeof options === 'function') callback = options;
     if (typeof callback === 'function') callback(null, {
@@ -146,10 +170,25 @@ globalThis.lx = {
   },
   utils: {
     buffer: {
-      from(value) { return value instanceof Uint8Array ? value : new Uint8Array(value); },
-      bufToString(value) {
+      from(value, encoding = 'utf-8') {
+        if (value instanceof Uint8Array) return value;
+        if (typeof value === 'string') {
+          if (encoding === 'hex') {
+            const bytes = [];
+            for (let i = 0; i + 1 < value.length; i += 2) bytes.push(parseInt(value.slice(i, i + 2), 16));
+            return new Uint8Array(bytes);
+          }
+          if (encoding === 'base64') return new Uint8Array(Array.from(atob(value)).map(c => c.charCodeAt(0)));
+          return new TextEncoder().encode(value);
+        }
+        return new Uint8Array(value);
+      },
+      bufToString(value, encoding = 'utf-8') {
         if (typeof value === 'string') return value;
-        return Array.from(value || []).map(v => String.fromCharCode(v)).join('');
+        const bytes = value instanceof Uint8Array ? value : new Uint8Array(value || []);
+        if (encoding === 'hex') return Array.from(bytes).map(v => v.toString(16).padStart(2, '0')).join('');
+        if (encoding === 'base64') return btoa(Array.from(bytes).map(v => String.fromCharCode(v)).join(''));
+        return new TextDecoder().decode(bytes);
       }
     },
     crypto: {
@@ -277,5 +316,24 @@ Promise.resolve(globalThis.__lxGetHandler('request')({
 	if value != "https://cdn.example.invalid/fixture.mp3" {
 		errText, _ := rt.Eval(context.Background(), "globalThis.__lxResolveError", "read-xinglan-error.js")
 		t.Fatalf("music URL result = %q, error = %q", value, errText)
+	}
+}
+
+func TestQuickJSRuntimeRepeatedLifecycleAndClose(t *testing.T) {
+	for i := 0; i < 10; i++ {
+		rt, err := New(Options{MemoryLimitBytes: 16 << 20, StackLimitBytes: 512 << 10, EvalTimeout: time.Second})
+		if err != nil {
+			t.Fatalf("runtime %d: %v", i, err)
+		}
+		value, err := rt.Eval(context.Background(), "6 * 7", "lifecycle.js")
+		if err != nil || value != "42" {
+			t.Fatalf("runtime %d eval = %q, err = %v", i, value, err)
+		}
+		if err := rt.Close(); err != nil {
+			t.Fatalf("runtime %d close: %v", i, err)
+		}
+		if err := rt.Close(); err != nil {
+			t.Fatalf("runtime %d second close: %v", i, err)
+		}
 	}
 }
