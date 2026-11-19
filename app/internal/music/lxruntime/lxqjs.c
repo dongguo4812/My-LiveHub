@@ -154,6 +154,7 @@ void lxqjs_string_free(char *value) {
 /* Synchronous Go-backed primitives. The callback executes on the QuickJS
  * owner thread; the exported Go function performs only bounded pure work. */
 extern char *lxqjsGoMD5(const char *data, size_t length);
+extern void *lxqjsGoRandomBytes(size_t length);
 
 static JSValue lxqjs_md5_callback(JSContext *context, JSValueConst this_val,
                                   int argc, JSValueConst *argv) {
@@ -167,6 +168,22 @@ static JSValue lxqjs_md5_callback(JSContext *context, JSValueConst this_val,
     if (digest == NULL) return JS_ThrowInternalError(context, "md5 failed");
     JSValue result = JS_NewString(context, digest);
     free(digest);
+    return result;
+}
+
+static JSValue lxqjs_random_bytes_callback(JSContext *context, JSValueConst this_val,
+                                           int argc, JSValueConst *argv) {
+    (void)this_val;
+    uint64_t length = 0;
+    if (argc < 1 || JS_ToIndex(context, &length, argv[0]) < 0)
+        return JS_ThrowTypeError(context, "randomBytes requires a valid size");
+    if (length > (1u << 20))
+        return JS_ThrowRangeError(context, "randomBytes size exceeds 1 MiB");
+    if (length == 0) return JS_NewUint8ArrayCopy(context, NULL, 0);
+    void *bytes = lxqjsGoRandomBytes((size_t)length);
+    if (bytes == NULL) return JS_ThrowInternalError(context, "randomBytes failed");
+    JSValue result = JS_NewUint8ArrayCopy(context, (const uint8_t *)bytes, (size_t)length);
+    free(bytes);
     return result;
 }
 
@@ -191,6 +208,10 @@ int lxqjs_install_crypto(LXQJSState *state, char **error_out) {
     }
     JSValue md5 = JS_NewCFunction(context, lxqjs_md5_callback, "md5", 1);
     int result = JS_SetPropertyStr(context, crypto_object, "md5", md5);
+    if (result >= 0) {
+        JSValue random_bytes = JS_NewCFunction(context, lxqjs_random_bytes_callback, "randomBytes", 1);
+        result = JS_SetPropertyStr(context, crypto_object, "randomBytes", random_bytes);
+    }
     JS_FreeValue(context, crypto_object);
     JS_FreeValue(context, crypto);
     JS_FreeValue(context, utils);

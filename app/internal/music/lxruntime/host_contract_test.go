@@ -126,3 +126,21 @@ func TestLXHostCryptoMD5UsesNativeImplementation(t *testing.T) {
 		t.Fatalf("native md5 = %q", value)
 	}
 }
+
+
+func TestLXHostCryptoRandomBytesUsesNativeImplementation(t *testing.T) {
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{}); err != nil { t.Fatal(err) }
+	value, err := rt.Eval(context.Background(), `(() => {
+		const bytes = lx.utils.crypto.randomBytes(32);
+		return JSON.stringify({ isUint8Array: bytes instanceof Uint8Array, length: bytes.length,
+			hasNonZero: Array.from(bytes).some(value => value !== 0) });
+	})()`, "lx-native-random.js")
+	if err != nil { t.Fatal(err) }
+	if value != `{"isUint8Array":true,"length":32,"hasNonZero":true}` {
+		t.Fatalf("native randomBytes = %q", value)
+	}
+	value, err = rt.Eval(context.Background(), `try { lx.utils.crypto.randomBytes(1048577); } catch (error) { error.name; }`, "lx-random-limit.js")
+	if err != nil { t.Fatal(err) }
+	if value != "RangeError" { t.Fatalf("randomBytes limit error = %q", value) }
+}
