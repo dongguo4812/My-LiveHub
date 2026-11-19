@@ -51,7 +51,7 @@ jobs:
       - name: Run JavaScript smoke test
         shell: msys2 {0}
         run: |
-          qjs="$RUNNER_TEMP/quickjs-ng/build/qjs.exe"
-          test -f "$qjs"
-          "$qjs" -e "const xs = [1, 2, 3].map(x => x * 2); if (xs.join(',') !== '2,4,6') throw new Error('QuickJS smoke test failed'); print('QuickJS-NG smoke test passed')"
+          qjs="$(find "$RUNNER_TEMP/quickjs-ng/build" -type f -iname 'qjs.exe' -print -quit)"
+          test -n "$qjs"
+          "$qjs" "$GITHUB_WORKSPACE/app/internal/music/lxruntime/testdata/quickjs_engine_smoke.js"
           ls -lh "$qjs"
