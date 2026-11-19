@@ -31,7 +31,7 @@ func (r *Runtime) InstallLXHost(ctx context.Context, info ScriptInfo) error {
 	if err != nil {
 		return fmt.Errorf("encode LX script metadata: %w", err)
 	}
-	bootstrap := lxHostBootstrap + "\n;globalThis.lx.currentScriptInfo = " + string(metadata) + lxBrowserBootstrap
+	bootstrap := lxHostBootstrap + "\n;globalThis.lx.currentScriptInfo = " + string(metadata) + ";\n" + lxBrowserBootstrap
 	if _, err := r.Eval(ctx, bootstrap, "lx-host-bootstrap.js"); err != nil {
 		return fmt.Errorf("install LX host contract: %w", err)
 	}
