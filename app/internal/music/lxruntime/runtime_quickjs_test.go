@@ -157,6 +157,10 @@ globalThis.lx = {
       aesEncrypt() { return new Uint8Array(16); },
       rsaEncrypt() { return new Uint8Array(128); },
       randomBytes(size) { return new Uint8Array(size); }
+    },
+    zlib: {
+      inflate(value) { return Promise.resolve(value); },
+      deflate(value) { return Promise.resolve(value); }
     }
   }
 };
