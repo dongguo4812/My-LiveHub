@@ -5,6 +5,8 @@ package lxruntime
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -385,17 +387,24 @@ JSON.stringify({
 	if value != want { t.Fatalf("real Xinglan host initialization = %q, want %q", value, want) }
 }
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
+
 func TestPinnedSourcesInitializeAgainstRealLXHost(t *testing.T) {
 	for _, name := range []string{"lx.js", "xinglan.js", "helloworld.js"} {
 		t.Run(name, func(t *testing.T) {
 			source, err := os.ReadFile(filepath.Join("testdata", "sources", name))
 			if err != nil { t.Fatal(err) }
 			rt := newTestRuntime(t, 10*time.Second)
-			if err := rt.InstallLXHost(context.Background(), ScriptInfo{Name: name, Version: "fixture", RawScript: string(source)}); err != nil {
-				t.Fatalf("install real LX host: %v", err)
-			}
-			if _, err := rt.Eval(context.Background(), `globalThis.__lxDebugOn = []; const __originalLXOn = lx.on.bind(lx); lx.on = (eventName, handler) => { globalThis.__lxDebugOn.push(String(eventName)); return __originalLXOn(eventName, handler); }; const __originalLXSend = lx.send.bind(lx); lx.send = (eventName, data) => { globalThis.__lxDebugSend = { eventName, sourceKeys: Object.keys((data && data.sources) || {}) }; return __originalLXSend(eventName, data).catch(error => { globalThis.__lxDebugSend.error = String(error); throw error; }); };`, "instrument-real-host-send.js"); err != nil { t.Fatalf("instrument real LX host: %v", err) }
-			if _, err := rt.Eval(context.Background(), string(source), name+"-real-host.js"); err != nil {
+			client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`)), Request: request}, nil
+			})}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := rt.InitializeLXSource(ctx, ScriptInfo{Name: name, Version: "fixture", RawScript: string(source)}, string(source), client); err != nil {
 				t.Fatalf("initialize source against real LX host: %v", err)
 			}
 			value, err := rt.Eval(context.Background(), `JSON.stringify({ initialized: __lxHostState.initialized, sourceNames: Object.keys((__lxHostState.initInfo && __lxHostState.initInfo.sources) || {}).sort(), debugSend: globalThis.__lxDebugSend || null, onEvents: globalThis.__lxDebugOn || [], queuedRequests: __lxTakeRequests(), missingCapabilities: globalThis.__lxMissingCapabilities || [], requestHandler: typeof __lxHostHandlers.request, rawScriptAvailable: lx.currentScriptInfo.rawScript.length > 0 })`, "pinned-source-real-host-result.js")

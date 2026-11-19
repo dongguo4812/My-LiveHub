@@ -42,7 +42,7 @@ lx.request(`+string(mustJSONQuote(server.URL+"/rconfig"))+`, {}, (error, respons
 	if err != nil {
 		t.Fatal(err)
 	}
-	if value != `"fixture-config"` {
+	if value != "fixture-config" {
 		t.Fatalf("pre-initialization request result = %q", value)
 	}
 }
