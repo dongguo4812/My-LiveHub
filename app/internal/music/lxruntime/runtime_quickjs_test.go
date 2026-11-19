@@ -394,14 +394,15 @@ func TestPinnedSourcesInitializeAgainstRealLXHost(t *testing.T) {
 			if err := rt.InstallLXHost(context.Background(), ScriptInfo{Name: name, Version: "fixture", RawScript: string(source)}); err != nil {
 				t.Fatalf("install real LX host: %v", err)
 			}
+			if _, err := rt.Eval(context.Background(), `const __originalLXSend = lx.send.bind(lx); lx.send = (eventName, data) => { globalThis.__lxDebugSend = { eventName, sourceKeys: Object.keys((data && data.sources) || {}) }; return __originalLXSend(eventName, data).catch(error => { globalThis.__lxDebugSend.error = String(error); throw error; }); };`, "instrument-real-host-send.js"); err != nil { t.Fatalf("instrument real LX host: %v", err) }
 			if _, err := rt.Eval(context.Background(), string(source), name+"-real-host.js"); err != nil {
 				t.Fatalf("initialize source against real LX host: %v", err)
 			}
-			value, err := rt.Eval(context.Background(), `JSON.stringify({ initialized: __lxHostState.initialized, sourceNames: Object.keys(__lxHostState.initInfo.sources || {}).sort(), requestHandler: typeof __lxHostHandlers.request, rawScriptAvailable: lx.currentScriptInfo.rawScript.length > 0 })`, "pinned-source-real-host-result.js")
+			value, err := rt.Eval(context.Background(), `JSON.stringify({ initialized: __lxHostState.initialized, sourceNames: Object.keys((__lxHostState.initInfo && __lxHostState.initInfo.sources) || {}).sort(), debugSend: globalThis.__lxDebugSend || null, requestHandler: typeof __lxHostHandlers.request, rawScriptAvailable: lx.currentScriptInfo.rawScript.length > 0 })`, "pinned-source-real-host-result.js")
 			if err != nil { t.Fatal(err) }
 			var result struct { Initialized bool `json:"initialized"`; SourceNames []string `json:"sourceNames"`; RequestHandler string `json:"requestHandler"`; RawScriptAvailable bool `json:"rawScriptAvailable"` }
 			if err := json.Unmarshal([]byte(value), &result); err != nil { t.Fatalf("decode initialization result %q: %v", value, err) }
-			if !result.Initialized { t.Fatal("source did not initialize") }
+			if !result.Initialized { t.Fatalf("source did not initialize; host send diagnostics: %s", value) }
 			if len(result.SourceNames) == 0 { t.Fatal("source initialized without supported music platforms") }
 			if result.RequestHandler != "function" { t.Fatalf("request handler type = %q", result.RequestHandler) }
 			if !result.RawScriptAvailable { t.Fatal("real LX host did not expose rawScript metadata") }
