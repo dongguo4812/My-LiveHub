@@ -117,7 +117,7 @@ func (r *Runtime) completeLXRequest(ctx context.Context, id uint64, response *lx
 	}
 	script := `
 (() => {
-  const response = JSON.parse(` + string(data) + `);
+  const response = JSON.parse(` + string(mustJSONQuote(string(data))) + `);
   if (response) response.raw = new Uint8Array(response.raw);
   globalThis.__lxCompleteRequest(` + fmt.Sprint(id) + `, ` + string(mustJSONQuote(errorText)) + `, response);
   'completed';
