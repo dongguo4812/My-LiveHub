@@ -52,7 +52,6 @@ func lxBufferFromString(value []byte, encoding string) ([]byte, error) {
 			if r == utf8.RuneError && size == 1 { out = append(out, '?') } else { out = append(out, byte(r)) }
 			value = value[size:]
 		}
-		if strings.EqualFold(encoding, "ascii") { for i := range out { out[i] &= 0x7f } }
 		return out, nil
 	case "ucs2", "ucs-2", "utf16le", "utf-16le":
 		units := utf16.Encode([]rune(string(value)))
@@ -67,7 +66,7 @@ func lxBufferFromString(value []byte, encoding string) ([]byte, error) {
 func lxBufferToString(value []byte, encoding string) (string, error) {
 	switch strings.ToLower(encoding) {
 	case "", "utf8", "utf-8":
-		return strings.ToValidUTF8(string(value), "\\uFFFD"), nil
+		return strings.ToValidUTF8(string(value), "\uFFFD"), nil
 	case "hex":
 		return hex.EncodeToString(value), nil
 	case "base64":

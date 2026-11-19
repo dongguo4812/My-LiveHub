@@ -14,7 +14,7 @@ func TestLXBufferFromNodeStringEncodings(t *testing.T) {
 		{"base64", "SGVsbG8=", "base64", []byte("Hello")},
 		{"base64url", "SGVsbG8_", "base64url", []byte("Hello?")},
 		{"latin1", "café", "latin1", []byte{0x63,0x61,0x66,0xe9}},
-		{"ascii", "é", "ascii", []byte{0x69}},
+		{"ascii", "é", "ascii", []byte{0xe9}},
 		{"utf16le", "A音乐", "utf16le", []byte{0x41,0x00,0xf3,0x97,0x50,0x4e}},
 	}
 	for _, tt := range tests { t.Run(tt.name, func(t *testing.T) {
