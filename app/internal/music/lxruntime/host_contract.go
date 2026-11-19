@@ -31,14 +31,7 @@ func (r *Runtime) InstallLXHost(ctx context.Context, info ScriptInfo) error {
 	if err != nil {
 		return fmt.Errorf("encode LX script metadata: %w", err)
 	}
-	bootstrap := lxHostBootstrap + "\n;globalThis.lx.currentScriptInfo = " + string(metadata) + `;
-if (!globalThis.window) globalThis.window = globalThis;
-if (!globalThis.self) globalThis.self = globalThis;
-if (!globalThis.document) globalThis.document = { currentScript: { textContent: globalThis.lx.currentScriptInfo.rawScript || "" } };
-if (!globalThis.navigator) globalThis.navigator = { userAgent: "Mozilla/5.0 My-LiveHub QuickJS desktop renderer" };
-if (!globalThis.location) globalThis.location = { href: "file:///" };
-if (!globalThis.performance) globalThis.performance = { now: () => Date.now() };
-`
+	bootstrap := lxHostBootstrap + "\n;globalThis.lx.currentScriptInfo = " + string(metadata) + lxBrowserBootstrap
 	if _, err := r.Eval(ctx, bootstrap, "lx-host-bootstrap.js"); err != nil {
 		return fmt.Errorf("install LX host contract: %w", err)
 	}
@@ -251,3 +244,35 @@ const lxHostBootstrap = `
   globalThis.lx = lx;
 })();
 `
+
+const lxBrowserBootstrap = `(() => {
+  if (!globalThis.window) globalThis.window = globalThis;
+  if (!globalThis.self) globalThis.self = globalThis;
+  if (!globalThis.document) globalThis.document = { currentScript: { textContent: globalThis.lx.currentScriptInfo.rawScript || "" } };
+  if (!globalThis.navigator) globalThis.navigator = { userAgent: "Mozilla/5.0 My-LiveHub QuickJS desktop renderer" };
+  if (!globalThis.location) globalThis.location = { href: "file:///" };
+  if (!globalThis.performance) globalThis.performance = { now: () => Date.now() };
+  if (!globalThis.URLSearchParams) globalThis.URLSearchParams = class URLSearchParams {
+    constructor(input = "") { this.entriesList = []; if (typeof input === "string") { const text = input.replace(/^\?/, ""); for (const part of text.split("&")) { if (!part) continue; const i = part.indexOf("="); const key = i < 0 ? part : part.slice(0, i); const value = i < 0 ? "" : part.slice(i + 1); this.append(decodeURIComponent(key.replace(/\+/g, " ")), decodeURIComponent(value.replace(/\+/g, " "))); } } else if (input && typeof input === "object") { for (const key of Object.keys(input)) this.append(key, input[key]); } }
+    append(key, value) { this.entriesList.push([String(key), String(value)]); }
+    delete(key) { this.entriesList = this.entriesList.filter(entry => entry[0] !== String(key)); }
+    get(key) { const entry = this.entriesList.find(item => item[0] === String(key)); return entry ? entry[1] : null; }
+    getAll(key) { return this.entriesList.filter(item => item[0] === String(key)).map(item => item[1]); }
+    has(key) { return this.entriesList.some(item => item[0] === String(key)); }
+    set(key, value) { this.delete(key); this.append(key, value); }
+    toString() { return this.entriesList.map(([k, v]) => encodeURIComponent(k).replace(/%20/g, "+") + "=" + encodeURIComponent(v).replace(/%20/g, "+")).join("&"); }
+    *entries() { yield* this.entriesList; } *keys() { for (const entry of this.entriesList) yield entry[0]; } *values() { for (const entry of this.entriesList) yield entry[1]; }
+    forEach(callback, thisArg) { for (const [key, value] of this.entriesList) callback.call(thisArg, value, key, this); }
+    [Symbol.iterator]() { return this.entries(); }
+  };
+  if (!globalThis.URL) globalThis.URL = class URL {
+    constructor(input, base) { let value = String(input); if (base && !/^[a-z][a-z0-9+.-]*:/i.test(value)) { const b = new URL(String(base)); if (value.startsWith("//")) value = b.protocol + value; else if (value.startsWith("/")) value = b.origin + value; else value = b.origin + b.pathname.replace(/[^/]*$/, "") + value; } const match = /^([a-z][a-z0-9+.-]*:)\/\/([^/?#]*)([^?#]*)(\?[^#]*)?(#.*)?$/i.exec(value); if (!match) throw new TypeError("Invalid URL"); this.protocol = match[1].toLowerCase(); this.host = match[2]; this.hostname = this.host.replace(/:\d+$/, ""); this.port = /:(\d+)$/.exec(this.host)?.[1] || ""; this.pathname = match[3] || "/"; this.search = match[4] || ""; this.hash = match[5] || ""; this.origin = this.protocol + "//" + this.host; this.searchParams = new URLSearchParams(this.search); this.href = this.origin + this.pathname + this.search + this.hash; }
+    toString() { return this.href; } toJSON() { return this.href; }
+  };
+  if (!globalThis.TextEncoder) globalThis.TextEncoder = class TextEncoder { encode(value = "") { const binary = unescape(encodeURIComponent(String(value))); return Uint8Array.from(binary, c => c.charCodeAt(0)); } };
+  if (!globalThis.TextDecoder) globalThis.TextDecoder = class TextDecoder { decode(value = new Uint8Array()) { const bytes = value instanceof Uint8Array ? value : new Uint8Array(value); let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte); try { return decodeURIComponent(escape(binary)); } catch (_) { return binary; } } };
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  if (!globalThis.btoa) globalThis.btoa = value => { let out = ""; for (let i = 0; i < value.length; i += 3) { const a = value.charCodeAt(i), hasB = i + 1 < value.length, hasC = i + 2 < value.length; const b = hasB ? value.charCodeAt(i + 1) : 0, c = hasC ? value.charCodeAt(i + 2) : 0; if (a > 255 || b > 255 || c > 255) throw new TypeError("Invalid character"); out += alphabet[a >> 2] + alphabet[((a & 3) << 4) | (b >> 4)] + (hasB ? alphabet[((b & 15) << 2) | (c >> 6)] : "=") + (hasC ? alphabet[c & 63] : "="); } return out; };
+  if (!globalThis.atob) globalThis.atob = value => { const input = String(value).replace(/[\t\n\f\r ]/g, ""); if (input.length % 4 === 1 || /[^A-Za-z0-9+/=]/.test(input) || /=/.test(input.slice(0, -2))) throw new TypeError("Invalid base64"); const clean = input.replace(/=+$/, ""); let out = ""; let bits = 0, buffer = 0; for (const ch of clean) { buffer = (buffer << 6) | alphabet.indexOf(ch); bits += 6; if (bits >= 8) { bits -= 8; out += String.fromCharCode((buffer >> bits) & 255); } } return out; };
+  if (!globalThis.crypto) globalThis.crypto = { getRandomValues(value) { if (!ArrayBuffer.isView(value) || value instanceof DataView) throw new TypeError("Expected an integer TypedArray"); if (value.byteLength > 65536) throw new QuotaExceededError("Array too large"); value.set(globalThis.lx.utils.crypto.randomBytes(value.length)); return value; } };
+})();`;
