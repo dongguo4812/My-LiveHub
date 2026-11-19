@@ -4,6 +4,7 @@ package lxruntime
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -282,4 +283,50 @@ __timerProbe;
 `, "lx-timer-contract.js")
 	if err != nil { t.Fatal(err) }
 	if value != "7" { t.Fatalf("timer contract result = %q, want 7", value) }
+}
+
+
+func TestLXHostZlibAPIsReturnPromisesAndRoundTripBinaryData(t *testing.T) {
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{}); err != nil { t.Fatal(err) }
+	_, err := rt.Eval(context.Background(), `
+globalThis.__zlibRoundTrip = null;
+const source = Buffer.from('洛雪音源🎵\\n'.repeat(64), 'utf8');
+const deflatePromise = lx.utils.zlib.deflate(source);
+if (!(deflatePromise instanceof Promise)) throw new Error('deflate must return a Promise');
+deflatePromise.then(compressed => {
+  if (!(compressed instanceof Uint8Array)) throw new Error('deflate result must be Uint8Array');
+  return lx.utils.zlib.inflate(compressed);
+}).then(restored => {
+  __zlibRoundTrip = JSON.stringify({
+    isPromise: deflatePromise instanceof Promise,
+    isUint8Array: restored instanceof Uint8Array,
+    text: Buffer.from(restored).toString('utf8')
+  });
+});
+'queued';
+`, "lx-zlib-roundtrip.js")
+	if err != nil { t.Fatal(err) }
+	value, err := rt.Eval(context.Background(), `__zlibRoundTrip`, "lx-zlib-roundtrip-result.js")
+	if err != nil { t.Fatal(err) }
+	expected, _ := json.Marshal(map[string]any{
+		"isPromise": true, "isUint8Array": true, "text": strings.Repeat("洛雪音源🎵\\n", 64),
+	})
+	if value != string(expected) { t.Fatalf("zlib round-trip = %s, want %s", value, expected) }
+}
+
+func TestLXHostZlibInflateRejectsInvalidStreamAsPromise(t *testing.T) {
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{}); err != nil { t.Fatal(err) }
+	_, err := rt.Eval(context.Background(), `
+globalThis.__zlibError = '';
+const promise = lx.utils.zlib.inflate(Buffer.from('not a zlib stream'));
+if (!(promise instanceof Promise)) throw new Error('inflate must return a Promise');
+promise.catch(error => { __zlibError = error.message; });
+'queued';
+`, "lx-zlib-invalid.js")
+	if err != nil { t.Fatal(err) }
+	value, err := rt.Eval(context.Background(), `__zlibError`, "lx-zlib-invalid-result.js")
+	if err != nil { t.Fatal(err) }
+	if !strings.Contains(value, "zlib inflate") { t.Fatalf("invalid stream rejection = %q", value) }
 }

@@ -158,6 +158,7 @@ extern void *lxqjsGoRandomBytes(size_t length);
 extern void *lxqjsGoBufferFrom(const char *data, size_t data_len, const char *encoding, size_t *out_len);
 extern void *lxqjsGoBufferToString(const char *data, size_t data_len, const char *encoding, size_t *out_len);
 extern void *lxqjsGoAESEncrypt(const char *data, size_t data_len, const char *mode, const char *key, size_t key_len, const char *iv, size_t iv_len, size_t *out_len);
+extern void *lxqjsGoZlib(const char *data, size_t data_len, int inflate, size_t *out_len, char **error_out);
 
 static JSValue lxqjs_md5_callback(JSContext *context, JSValueConst this_val,
                                   int argc, JSValueConst *argv) {
@@ -326,6 +327,59 @@ int lxqjs_install_crypto(LXQJSState *state, char **error_out) {
     if (result >= 0) result = JS_SetPropertyStr(context, crypto_object, "randomBytes",
         JS_NewCFunction(context, lxqjs_random_bytes_callback, "randomBytes", 1));
 
+
+static JSValue lxqjs_zlib_callback(JSContext *context, JSValueConst this_val,
+                                   int argc, JSValueConst *argv, int inflate) {
+    (void)this_val;
+    JSValue resolving[2];
+    JSValue promise = JS_NewPromiseCapability(context, resolving);
+    if (JS_IsException(promise)) return promise;
+    uint8_t *input = NULL;
+    size_t input_len = 0, output_len = 0;
+    char *host_error = NULL;
+    void *output = NULL;
+    if (argc < 1) {
+        JS_ThrowTypeError(context, "zlib operation requires a byte buffer");
+        JSValue reason = JS_GetException(context);
+        JS_Call(context, resolving[1], JS_UNDEFINED, 1, &reason);
+        JS_FreeValue(context, reason);
+    } else if (lxqjs_copy_bytes(context, argv[0], &input, &input_len, 0) < 0) {
+        JSValue reason = JS_GetException(context);
+        JS_Call(context, resolving[1], JS_UNDEFINED, 1, &reason);
+        JS_FreeValue(context, reason);
+    } else if (input_len > (8u << 20)) {
+        JSValue reason = JS_NewError(context);
+        JS_SetPropertyStr(context, reason, "message", JS_NewString(context, "zlib input exceeds 8388608 bytes"));
+        JS_Call(context, resolving[1], JS_UNDEFINED, 1, &reason);
+        JS_FreeValue(context, reason);
+    } else {
+        output = lxqjsGoZlib((const char *)input, input_len, inflate, &output_len, &host_error);
+        if (output == NULL) {
+            JSValue reason = JS_NewError(context);
+            JS_SetPropertyStr(context, reason, "message",
+                JS_NewString(context, host_error != NULL ? host_error : "zlib operation failed"));
+            JS_Call(context, resolving[1], JS_UNDEFINED, 1, &reason);
+            JS_FreeValue(context, reason);
+        } else {
+            JSValue result = JS_NewUint8ArrayCopy(context, (const uint8_t *)output, output_len);
+            JS_Call(context, resolving[0], JS_UNDEFINED, 1, &result);
+            JS_FreeValue(context, result);
+        }
+    }
+    free(input);
+    free(output);
+    free(host_error);
+    JS_FreeValue(context, resolving[0]);
+    JS_FreeValue(context, resolving[1]);
+    return promise;
+}
+static JSValue lxqjs_zlib_inflate_callback(JSContext *context, JSValueConst this_val, int argc, JSValueConst *argv) {
+    return lxqjs_zlib_callback(context, this_val, argc, argv, 1);
+}
+static JSValue lxqjs_zlib_deflate_callback(JSContext *context, JSValueConst this_val, int argc, JSValueConst *argv) {
+    return lxqjs_zlib_callback(context, this_val, argc, argv, 0);
+}
+
     JSValue buffer_object = JS_GetPropertyStr(context, lx_utils, "buffer");
     if (result >= 0 && !JS_IsException(buffer_object) && !JS_IsUndefined(buffer_object)) {
         result = JS_SetPropertyStr(context, buffer_object, "from",
@@ -336,6 +390,17 @@ int lxqjs_install_crypto(LXQJSState *state, char **error_out) {
         result = -1;
     }
     JS_FreeValue(context, buffer_object);
+
+    JSValue zlib_object = JS_GetPropertyStr(context, lx_utils, "zlib");
+    if (result >= 0 && !JS_IsException(zlib_object) && !JS_IsUndefined(zlib_object)) {
+        result = JS_SetPropertyStr(context, zlib_object, "inflate",
+            JS_NewCFunction(context, lxqjs_zlib_inflate_callback, "inflate", 1));
+        if (result >= 0) result = JS_SetPropertyStr(context, zlib_object, "deflate",
+            JS_NewCFunction(context, lxqjs_zlib_deflate_callback, "deflate", 1));
+    } else if (result >= 0) {
+        result = -1;
+    }
+    JS_FreeValue(context, zlib_object);
 
     if (result >= 0) {
         static const char buffer_shim[] =
