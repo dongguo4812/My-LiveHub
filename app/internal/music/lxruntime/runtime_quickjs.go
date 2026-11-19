@@ -43,6 +43,7 @@ type command struct {
 	filename string
 	result   chan evalResult
 	close    bool
+	installCrypto bool
 }
 
 type Runtime struct {
@@ -91,6 +92,15 @@ func (r *Runtime) loop(opts Options, ready chan<- error) {
 	for cmd := range r.commands {
 		if cmd.close {
 			return
+		}
+		if cmd.installCrypto {
+			var installError *C.char
+			if C.lxqjs_install_crypto(state, &installError) != 0 {
+				cmd.result <- evalResult{err: takeError(installError, "QuickJS crypto installation failed")}
+			} else {
+				cmd.result <- evalResult{}
+			}
+			continue
 		}
 		if err := cmd.ctx.Err(); err != nil {
 			cmd.result <- evalResult{err: err}
@@ -200,4 +210,23 @@ func (r *Runtime) Close() error {
 		}
 	})
 	return nil
+}
+
+
+// installLXCryptoNative installs synchronous native functions while executing
+// on the QuickJS owner goroutine. It must not be called from a C callback.
+func (r *Runtime) installLXCryptoNative(ctx context.Context) error {
+	if ctx == nil { ctx = context.Background() }
+	result := make(chan evalResult, 1)
+	cmd := command{ctx: ctx, installCrypto: true, result: result}
+	select {
+	case <-r.done: return errors.New("QuickJS runtime is closed")
+	case <-ctx.Done(): return ctx.Err()
+	case r.commands <- cmd:
+	}
+	select {
+	case <-ctx.Done(): return ctx.Err()
+	case <-r.done: return errors.New("QuickJS runtime is closed")
+	case value := <-result: return value.err
+	}
 }
