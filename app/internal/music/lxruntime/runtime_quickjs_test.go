@@ -13,7 +13,7 @@ import (
 
 func newTestRuntime(t *testing.T, timeout time.Duration) *Runtime {
 	t.Helper()
-	rt, err := New(Options{MemoryLimitBytes: 48 << 20, StackLimitBytes: 1 << 20, EvalTimeout: timeout})
+	rt, err := New(Options{MemoryLimitBytes: 48 << 20, StackLimitBytes: 512 << 10, EvalTimeout: timeout})
 	if err != nil {
 		t.Fatal(err)
 	}
