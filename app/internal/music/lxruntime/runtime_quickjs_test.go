@@ -2,7 +2,7 @@
 
 package lxruntime
 
-import (
+import (\n\t"fmt"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -509,5 +509,43 @@ func TestLXSourceRequestsServerConfigurationAgainstRealLXHost(t *testing.T) {
 	}
 	if requests[0].bodyLength != 0 {
 		t.Fatalf("configuration request body length = %d, want 0", requests[0].bodyLength)
+	}
+}
+
+
+// Huanyin is a non-handshake LX source: initialization is local, and its QQ
+// musicUrl action resolves a URL without issuing an HTTP request. This checks
+// real LX host registration, Promise dispatch, and source return-value handling.
+func TestHuanyinSourceInitializesAndDispatchesMusicURL(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "huanyin.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntime(t, 10*time.Second)
+	defer rt.Close()
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("unexpected network request during local QQ URL resolution: %s", request.URL.Redacted())
+	})}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{
+		Name: "幻音音源", Version: "v3", Author: "竹佀", RawScript: string(source),
+	}, string(source), client); err != nil {
+		t.Fatalf("initialize Huanyin source against real LX host: %v", err)
+	}
+	result, err := rt.dispatchLXRequest(ctx, "tx", "musicUrl", map[string]any{
+		"type": "320k",
+		"musicInfo": map[string]any{"songmid": "test-song-mid"},
+	}, client)
+	if err != nil {
+		t.Fatalf("dispatch Huanyin QQ musicUrl: %v", err)
+	}
+	got, ok := result.(string)
+	if !ok {
+		t.Fatalf("musicUrl result type = %T, want string (value: %#v)", result, result)
+	}
+	want := "https://music-dl.sayqz.com/api/?source=qq&id=test-song-mid&type=url&br=320k"
+	if got != want {
+		t.Fatalf("musicUrl = %q, want %q", got, want)
 	}
 }
