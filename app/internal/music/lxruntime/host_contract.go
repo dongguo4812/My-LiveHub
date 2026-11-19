@@ -31,8 +31,14 @@ func (r *Runtime) InstallLXHost(ctx context.Context, info ScriptInfo) error {
 	if err != nil {
 		return fmt.Errorf("encode LX script metadata: %w", err)
 	}
-	bootstrap := lxHostBootstrap + "\n;globalThis.lx.currentScriptInfo = " + string(metadata) + `;\n
-if (!globalThis.window) globalThis.window = globalThis;\nif (!globalThis.self) globalThis.self = globalThis;\nif (!globalThis.document) globalThis.document = { currentScript: { textContent: globalThis.lx.currentScriptInfo.rawScript || "" } };\nif (!globalThis.navigator) globalThis.navigator = { userAgent: "Mozilla/5.0 My-LiveHub QuickJS desktop renderer" };\nif (!globalThis.location) globalThis.location = { href: "file:///" };\nif (!globalThis.performance) globalThis.performance = { now: () => Date.now() };\n`
+	bootstrap := lxHostBootstrap + "\n;globalThis.lx.currentScriptInfo = " + string(metadata) + `;
+if (!globalThis.window) globalThis.window = globalThis;
+if (!globalThis.self) globalThis.self = globalThis;
+if (!globalThis.document) globalThis.document = { currentScript: { textContent: globalThis.lx.currentScriptInfo.rawScript || "" } };
+if (!globalThis.navigator) globalThis.navigator = { userAgent: "Mozilla/5.0 My-LiveHub QuickJS desktop renderer" };
+if (!globalThis.location) globalThis.location = { href: "file:///" };
+if (!globalThis.performance) globalThis.performance = { now: () => Date.now() };
+`
 	if _, err := r.Eval(ctx, bootstrap, "lx-host-bootstrap.js"); err != nil {
 		return fmt.Errorf("install LX host contract: %w", err)
 	}
