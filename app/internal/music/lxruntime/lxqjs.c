@@ -155,7 +155,9 @@ void lxqjs_string_free(char *value) {
  * owner thread; the exported Go function performs only bounded pure work. */
 extern char *lxqjsGoMD5(const char *data, size_t length);
 extern void *lxqjsGoRandomBytes(size_t length);
-extern void *lxqjsGoBufferFrom(const char *data, size_t data_len, const char *encoding, size_t *out_len);\nextern void *lxqjsGoBufferToString(const char *data, size_t data_len, const char *encoding, size_t *out_len);\nextern void *lxqjsGoAESEncrypt(const char *data, size_t data_len, const char *mode, const char *key, size_t key_len, const char *iv, size_t iv_len, size_t *out_len);
+extern void *lxqjsGoBufferFrom(const char *data, size_t data_len, const char *encoding, size_t *out_len);
+extern void *lxqjsGoBufferToString(const char *data, size_t data_len, const char *encoding, size_t *out_len);
+extern void *lxqjsGoAESEncrypt(const char *data, size_t data_len, const char *mode, const char *key, size_t key_len, const char *iv, size_t iv_len, size_t *out_len);
 
 static JSValue lxqjs_md5_callback(JSContext *context, JSValueConst this_val,
                                   int argc, JSValueConst *argv) {
