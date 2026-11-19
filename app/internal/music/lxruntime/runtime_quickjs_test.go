@@ -548,4 +548,37 @@ func TestHuanyinSourceInitializesAndDispatchesMusicURL(t *testing.T) {
 	if got != want {
 		t.Fatalf("musicUrl = %q, want %q", got, want)
 	}
+
+	var searchRequests int
+	searchClient := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		searchRequests++
+		if request.Method != http.MethodGet || request.URL.Host != "api.xcvts.cn" || request.URL.Path != "/api/music/migu" {
+			return nil, fmt.Errorf("unexpected Huanyin search request: %s %s", request.Method, request.URL.Redacted())
+		}
+		if request.URL.Query().Get("gm") != "周杰伦" || request.URL.Query().Get("n") != "1" {
+			return nil, fmt.Errorf("unexpected Huanyin search query: %s", request.URL.RawQuery)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header),
+			Body: io.NopCloser(strings.NewReader(`{"code":200,"title":"周杰伦","artist":"周杰伦","album":"范特西","duration":"04:00"}`)),
+			Request: request,
+		}, nil
+	})}
+	searchResult, err := rt.dispatchLXRequest(ctx, "mg", "search", map[string]any{
+		"keyword": "周杰伦", "limit": 1,
+	}, searchClient)
+	if err != nil {
+		t.Fatalf("dispatch Huanyin Migu search through Go HTTP host: %v", err)
+	}
+	items, ok := searchResult.([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("search result = %#v, want one-item array", searchResult)
+	}
+	item, ok := items[0].(map[string]any)
+	if !ok || item["name"] != "周杰伦" || item["singer"] != "周杰伦" || item["source"] != "mg" {
+		t.Fatalf("search item = %#v, want mapped Migu song metadata", items[0])
+	}
+	if searchRequests != 1 {
+		t.Fatalf("Huanyin search HTTP requests = %d, want 1", searchRequests)
+	}
 }
