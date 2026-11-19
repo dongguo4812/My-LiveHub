@@ -231,3 +231,23 @@ func TestLXHostCryptoAESEncryptSupportsXinglanECBBufferInput(t *testing.T) {
 		t.Fatalf("Xinglan AES-ECB result = %q, want %q", value, want)
 	}
 }
+
+func TestLXHostBufferUTF16LECompatibility(t *testing.T) {
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{}); err != nil { t.Fatal(err) }
+	value, err := rt.Eval(context.Background(), `(() => {
+		const source = '音乐🎵';
+		const viaLX = lx.utils.buffer.from(source, 'utf-16le');
+		const viaBuffer = Buffer.from(source, 'ucs2');
+		return JSON.stringify({
+			lxHex: Buffer.from(viaLX).toString('hex'),
+			lxRoundTrip: lx.utils.buffer.bufToString(viaLX, 'utf16le'),
+			bufferHex: viaBuffer.toString('hex'),
+			bufferRoundTrip: viaBuffer.toString('ucs-2'),
+			oddByteIgnored: Buffer.from([0x41, 0x00, 0xff]).toString('utf16le')
+		});
+	})()`, "lx-buffer-utf16le.js")
+	if err != nil { t.Fatal(err) }
+	want := `{"lxHex":"3f97504e3cd8b5df","lxRoundTrip":"音乐🎵","bufferHex":"3f97504e3cd8b5df","bufferRoundTrip":"音乐🎵","oddByteIgnored":"A"}`
+	if value != want { t.Fatalf("UTF-16LE compatibility = %q, want %q", value, want) }
+}

@@ -14,6 +14,8 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"strings"
+	"unicode/utf16"
+	"encoding/binary"
 	"unsafe"
 )
 
@@ -72,6 +74,10 @@ func lxqjsGoBufferFrom(data *C.char, dataLen C.size_t, encoding *C.char, outLen 
 		runes := []rune(string(input))
 		output = make([]byte, len(runes))
 		for i, r := range runes { output[i] = byte(r) & 0x7f }
+	case "utf16le", "utf-16le", "ucs2", "ucs-2":
+		units := utf16.Encode([]rune(string(input)))
+		output = make([]byte, len(units)*2)
+		for i, unit := range units { binary.LittleEndian.PutUint16(output[i*2:], unit) }
 	default:
 		return nil
 	}
@@ -104,6 +110,11 @@ func lxqjsGoBufferToString(data *C.char, dataLen C.size_t, encoding *C.char, out
 		runes := make([]rune, len(input))
 		for i, b := range input { runes[i] = rune(b & 0x7f) }
 		output = string(runes)
+	case "utf16le", "utf-16le", "ucs2", "ucs-2":
+		evenLength := len(input) &^ 1
+		units := make([]uint16, evenLength/2)
+		for i := range units { units[i] = binary.LittleEndian.Uint16(input[i*2:]) }
+		output = string(utf16.Decode(units))
 	default:
 		return nil
 	}
