@@ -210,3 +210,24 @@ func TestLXHostBufferGlobalNodeCompatibilitySubset(t *testing.T) {
 	want := `{"isBuffer":true,"isUint8Array":true,"text":"{\"ok\":true}","hex":"7b226f6b223a747275657d","joined":"A{\"ok\":true}","allocated":"2a2a","byteLength":11}`
 	if value != want { t.Fatalf("global Buffer compatibility = %q, want %q", value, want) }
 }
+
+func TestLXHostCryptoAESEncryptSupportsXinglanECBBufferInput(t *testing.T) {
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{}); err != nil {
+		t.Fatal(err)
+	}
+	value, err := rt.Eval(context.Background(), `(() => {
+		const plaintext = lx.utils.buffer.from('hello', 'utf8');
+		const encrypted = lx.utils.crypto.aesEncrypt(
+			plaintext, 'aes-128-ecb', '0123456789abcdef', ''
+		);
+		return Buffer.from(encrypted).toString('hex');
+	})()`, "lx-xinglan-aes-ecb.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = "674c7ef38e78cabd9cec9c125823a639"
+	if value != want {
+		t.Fatalf("Xinglan AES-ECB result = %q, want %q", value, want)
+	}
+}
