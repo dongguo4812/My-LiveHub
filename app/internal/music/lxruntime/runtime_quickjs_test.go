@@ -394,10 +394,12 @@ func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) 
 }
 
 func TestPinnedSourcesInitializeAgainstRealLXHost(t *testing.T) {
-	for _, name := range []string{"lx.js", "xinglan.js", "helloworld.js"} {
+	for _, name := range []string{"xinglan.js", "helloworld.js"} {
 		t.Run(name, func(t *testing.T) {
 			source, err := os.ReadFile(filepath.Join("testdata", "sources", name))
-			if err != nil { t.Fatal(err) }
+			if err != nil {
+				t.Fatal(err)
+			}
 			rt := newTestRuntime(t, 10*time.Second)
 			client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 				return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`)), Request: request}, nil
@@ -407,14 +409,63 @@ func TestPinnedSourcesInitializeAgainstRealLXHost(t *testing.T) {
 			if err := rt.InitializeLXSource(ctx, ScriptInfo{Name: name, Version: "fixture", RawScript: string(source)}, string(source), client); err != nil {
 				t.Fatalf("initialize source against real LX host: %v", err)
 			}
-			value, err := rt.Eval(context.Background(), `JSON.stringify({ initialized: __lxHostState.initialized, sourceNames: Object.keys((__lxHostState.initInfo && __lxHostState.initInfo.sources) || {}).sort(), debugSend: globalThis.__lxDebugSend || null, onEvents: globalThis.__lxDebugOn || [], queuedRequests: __lxTakeRequests(), missingCapabilities: globalThis.__lxMissingCapabilities || [], requestHandler: typeof __lxHostHandlers.request, rawScriptAvailable: lx.currentScriptInfo.rawScript.length > 0 })`, "pinned-source-real-host-result.js")
-			if err != nil { t.Fatal(err) }
-			var result struct { Initialized bool `json:"initialized"`; SourceNames []string `json:"sourceNames"`; RequestHandler string `json:"requestHandler"`; RawScriptAvailable bool `json:"rawScriptAvailable"` }
-			if err := json.Unmarshal([]byte(value), &result); err != nil { t.Fatalf("decode initialization result %q: %v", value, err) }
-			if !result.Initialized { t.Fatalf("source did not initialize; host send diagnostics: %s", value) }
-			if len(result.SourceNames) == 0 { t.Fatal("source initialized without supported music platforms") }
-			if result.RequestHandler != "function" { t.Fatalf("request handler type = %q", result.RequestHandler) }
-			if !result.RawScriptAvailable { t.Fatal("real LX host did not expose rawScript metadata") }
+			value, err := rt.Eval(context.Background(), `JSON.stringify({ initialized: __lxHostState.initialized, sourceNames: Object.keys((__lxHostState.initInfo && __lxHostState.initInfo.sources) || {}).sort(), requestHandler: typeof __lxHostHandlers.request, rawScriptAvailable: lx.currentScriptInfo.rawScript.length > 0 })`, "pinned-source-real-host-result.js")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var result struct {
+				Initialized bool `json:"initialized"`
+				SourceNames []string `json:"sourceNames"`
+				RequestHandler string `json:"requestHandler"`
+				RawScriptAvailable bool `json:"rawScriptAvailable"`
+			}
+			if err := json.Unmarshal([]byte(value), &result); err != nil {
+				t.Fatalf("decode initialization result %q: %v", value, err)
+			}
+			if !result.Initialized {
+				t.Fatalf("source did not initialize; host state: %s", value)
+			}
+			if len(result.SourceNames) == 0 {
+				t.Fatal("source initialized without supported music platforms")
+			}
+			if result.RequestHandler != "function" {
+				t.Fatalf("request handler type = %q", result.RequestHandler)
+			}
+			if !result.RawScriptAvailable {
+				t.Fatal("real LX host did not expose rawScript metadata")
+			}
 		})
+	}
+}
+
+// The pinned lx.js source fetches server-managed configuration before it sends
+// its inited event. An empty JSON object is not a valid server configuration,
+// so this test verifies the real host/request path without claiming that the
+// source initialized successfully against a fabricated response.
+func TestLXSourceRequestsServerConfigurationAgainstRealLXHost(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "lx.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntime(t, 10*time.Second)
+	var requests []*http.Request
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		requests = append(requests, request.Clone(request.Context()))
+		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`)), Request: request}, nil
+	})}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err = rt.InitializeLXSource(ctx, ScriptInfo{Name: "lx.js", Version: "fixture", RawScript: string(source)}, string(source), client)
+	if err == nil {
+		t.Fatal("expected initialization to remain incomplete with an empty server-configuration response")
+	}
+	if len(requests) != 1 {
+		t.Fatalf("server configuration requests = %d, want exactly 1 (initialization error: %v)", len(requests), err)
+	}
+	if requests[0].URL.Path != "/rconfig" {
+		t.Fatalf("configuration request path = %q, want /rconfig", requests[0].URL.Path)
+	}
+	if requests[0].URL.Host == "" || requests[0].URL.Scheme != "https" {
+		t.Fatalf("configuration request URL is not an absolute HTTPS URL: %s", requests[0].URL)
 	}
 }
