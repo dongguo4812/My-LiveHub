@@ -12,7 +12,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -157,6 +156,5 @@ func validHTTPToken(value string) bool {
 			return false
 		}
 	}
-	_, err := strconv.Atoi(value)
-	return err != nil
+	return true
 }
