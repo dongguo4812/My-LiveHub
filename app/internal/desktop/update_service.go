@@ -271,6 +271,7 @@ func (s *UpdateService) InstallUpdate() error {
 		_ = os.RemoveAll(tempDir)
 		return fmt.Errorf("启动独立更新进程失败：%w", err)
 	}
+	s.progressStage.Store("launching")
 	if s.quit != nil {
 		// The helper independently waits for this process to exit before replacing the executable.
 		go s.quit()
