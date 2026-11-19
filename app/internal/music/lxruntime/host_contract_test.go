@@ -248,6 +248,6 @@ func TestLXHostBufferUTF16LECompatibility(t *testing.T) {
 		});
 	})()`, "lx-buffer-utf16le.js")
 	if err != nil { t.Fatal(err) }
-	want := `{"lxHex":"3f97504e3cd8b5df","lxRoundTrip":"音乐🎵","bufferHex":"3f97504e3cd8b5df","bufferRoundTrip":"音乐🎵","oddByteIgnored":"A"}`
+	want := `{"lxHex":"f397504e3cd8b5df","lxRoundTrip":"音乐🎵","bufferHex":"f397504e3cd8b5df","bufferRoundTrip":"音乐🎵","oddByteIgnored":"A"}`
 	if value != want { t.Fatalf("UTF-16LE compatibility = %q, want %q", value, want) }
 }
