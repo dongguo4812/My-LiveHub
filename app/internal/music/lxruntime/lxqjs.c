@@ -285,20 +285,50 @@ static JSValue lxqjs_aes_encrypt_callback(JSContext *context, JSValueConst this_
 static JSValue lxqjs_buffer_from_callback(JSContext *context, JSValueConst this_val,
                                            int argc, JSValueConst *argv) {
     (void)this_val;
-    if (argc < 1 || !JS_IsString(argv[0]))
-        return JS_ThrowTypeError(context, "buffer.from expects a string");
+    if (argc < 1) return JS_ThrowTypeError(context, "buffer.from expects an input");
+    uint8_t *input = NULL;
     size_t input_len = 0;
-    const char *input = JS_ToCStringLen(context, &input_len, argv[0]);
-    if (input == NULL) return JS_EXCEPTION;
     const char *encoding = "utf8";
-    if (argc > 1 && !JS_IsUndefined(argv[1])) {
-        encoding = JS_ToCString(context, argv[1]);
-        if (encoding == NULL) { JS_FreeCString(context, input); return JS_EXCEPTION; }
+    int owns_encoding = 0;
+    if (JS_IsString(argv[0])) {
+        const char *text = JS_ToCStringLen(context, &input_len, argv[0]);
+        if (text == NULL) return JS_EXCEPTION;
+        input = (uint8_t *)malloc(input_len ? input_len : 1);
+        if (input == NULL) { JS_FreeCString(context, text); return JS_ThrowOutOfMemory(context); }
+        if (input_len) memcpy(input, text, input_len);
+        JS_FreeCString(context, text);
+        if (argc > 1 && !JS_IsUndefined(argv[1])) {
+            encoding = JS_ToCString(context, argv[1]);
+            if (encoding == NULL) { free(input); return JS_EXCEPTION; }
+            owns_encoding = 1;
+        }
+    } else if (JS_IsArray(argv[0])) {
+        JSValue length_value = JS_GetPropertyStr(context, argv[0], "length");
+        uint64_t length = 0;
+        if (JS_IsException(length_value) || JS_ToIndex(context, &length, length_value) < 0 || length > (8u << 20)) {
+            JS_FreeValue(context, length_value);
+            return JS_ThrowRangeError(context, "Buffer.from array length is invalid or exceeds 8 MiB");
+        }
+        JS_FreeValue(context, length_value);
+        input_len = (size_t)length;
+        input = (uint8_t *)malloc(input_len ? input_len : 1);
+        if (input == NULL) return JS_ThrowOutOfMemory(context);
+        for (uint32_t i = 0; i < (uint32_t)input_len; i++) {
+            JSValue item = JS_GetPropertyUint32(context, argv[0], i);
+            int32_t number = 0;
+            if (JS_IsException(item) || JS_ToInt32(context, &number, item) < 0) {
+                JS_FreeValue(context, item); free(input); return JS_EXCEPTION;
+            }
+            JS_FreeValue(context, item);
+            input[i] = (uint8_t)number;
+        }
+    } else if (lxqjs_copy_bytes(context, argv[0], &input, &input_len, 0) < 0) {
+        return JS_EXCEPTION;
     }
     size_t output_len = 0;
-    void *output = lxqjsGoBufferFrom(input, input_len, encoding, &output_len);
-    if (argc > 1 && !JS_IsUndefined(argv[1])) JS_FreeCString(context, encoding);
-    JS_FreeCString(context, input);
+    void *output = lxqjsGoBufferFrom((const char *)input, input_len, encoding, &output_len);
+    if (owns_encoding) JS_FreeCString(context, encoding);
+    free(input);
     if (output == NULL) return JS_ThrowTypeError(context, "unsupported buffer encoding or invalid input");
     JSValue result = JS_NewUint8ArrayCopy(context, (const uint8_t *)output, output_len);
     free(output);
