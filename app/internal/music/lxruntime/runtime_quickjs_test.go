@@ -230,6 +230,13 @@ func TestLXSourceInitializationFixtures(t *testing.T) {
 			if initType != "object" {
 				t.Fatalf("source did not send inited event; got %q", initType)
 			}
+			sourceCount, err := rt.Eval(context.Background(), "Object.keys(globalThis.__lxInit.sources || {}).length", "check-sources.js")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if sourceCount == "0" {
+				t.Fatal("source initialized without registering any music sources")
+			}
 			handlerType, err := rt.Eval(context.Background(), "typeof globalThis.__lxGetHandler('request')", "check-handler.js")
 			if err != nil {
 				t.Fatal(err)
