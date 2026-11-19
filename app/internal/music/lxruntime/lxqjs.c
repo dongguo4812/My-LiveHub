@@ -149,3 +149,55 @@ int lxqjs_compile(LXQJSState *state, const char *source, const char *filename, c
 void lxqjs_string_free(char *value) {
     free(value);
 }
+
+
+/* Synchronous Go-backed primitives. The callback executes on the QuickJS
+ * owner thread; the exported Go function performs only bounded pure work. */
+extern char *lxqjsGoMD5(const char *data, size_t length);
+
+static JSValue lxqjs_md5_callback(JSContext *context, JSValueConst this_val,
+                                  int argc, JSValueConst *argv) {
+    (void)this_val;
+    if (argc < 1) return JS_ThrowTypeError(context, "md5 requires a value");
+    size_t length = 0;
+    const char *input = JS_ToCStringLen(context, &length, argv[0]);
+    if (input == NULL) return JS_EXCEPTION;
+    char *digest = lxqjsGoMD5(input, length);
+    JS_FreeCString(context, input);
+    if (digest == NULL) return JS_ThrowInternalError(context, "md5 failed");
+    JSValue result = JS_NewString(context, digest);
+    free(digest);
+    return result;
+}
+
+int lxqjs_install_crypto(LXQJSState *state, char **error_out) {
+    if (error_out != NULL) *error_out = NULL;
+    if (state == NULL || state->context == NULL) {
+        lxqjs_set_error(error_out, "invalid QuickJS state for crypto installation");
+        return -1;
+    }
+    JSContext *context = state->context;
+    JSValue lx = JS_GetGlobalObject(context);
+    JSValue utils = JS_GetPropertyStr(context, lx, "lx");
+    JSValue crypto = JS_GetPropertyStr(context, utils, "utils");
+    JSValue crypto_object = JS_GetPropertyStr(context, crypto, "crypto");
+    if (JS_IsException(crypto_object) || JS_IsUndefined(crypto_object)) {
+        lxqjs_set_error(error_out, "LX crypto host object is unavailable");
+        JS_FreeValue(context, crypto_object);
+        JS_FreeValue(context, crypto);
+        JS_FreeValue(context, utils);
+        JS_FreeValue(context, lx);
+        return -1;
+    }
+    JSValue md5 = JS_NewCFunction(context, lxqjs_md5_callback, "md5", 1);
+    int result = JS_SetPropertyStr(context, crypto_object, "md5", md5);
+    JS_FreeValue(context, crypto_object);
+    JS_FreeValue(context, crypto);
+    JS_FreeValue(context, utils);
+    JS_FreeValue(context, lx);
+    if (result < 0) {
+        lxqjs_set_error(error_out, "unable to install LX crypto.md5");
+        return -1;
+    }
+    return 0;
+}
