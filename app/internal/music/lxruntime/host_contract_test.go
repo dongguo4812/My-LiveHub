@@ -123,3 +123,21 @@ JSON.stringify({
 	want := `{"hex":"Hi","utf16":"A音乐"}`
 	if value != want { t.Fatalf("Buffer encodings = %s, want %s", value, want) }
 }
+
+func TestLXHostCryptoNativeCallbacksAreLinkedAndCallable(t *testing.T) {
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{}); err != nil { t.Fatal(err) }
+	value, err := rt.Eval(context.Background(), `
+const digest = lx.utils.crypto.md5('abc');
+const random = lx.utils.crypto.randomBytes(24);
+const encrypted = lx.utils.crypto.aesEncrypt(
+  Buffer.from('abc'), 'aes-128-cbc',
+  Buffer.from('2b7e151628aed2a6abf7158809cf4f3c', 'hex'),
+  Buffer.from('000102030405060708090a0b0c0d0e0f', 'hex')
+);
+JSON.stringify({digest, randomLength: random.length, encryptedLength: encrypted.length})
+`, "lx-crypto-native-contract.js")
+	if err != nil { t.Fatal(err) }
+	want := `{"digest":"900150983cd24fb0d6963f7d28e17f72","randomLength":24,"encryptedLength":16}`
+	if value != want { t.Fatalf("native crypto callbacks = %s, want %s", value, want) }
+}
