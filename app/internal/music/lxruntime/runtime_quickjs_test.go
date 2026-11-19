@@ -256,7 +256,7 @@ func TestXinglanMusicURLResolutionWithMockHost(t *testing.T) {
 	if _, err := rt.Eval(context.Background(), string(source), "xinglan.js"); err != nil {
 		t.Fatal(err)
 	}
-	_, err = rt.Eval(context.Background(), \`
+	_, err = rt.Eval(context.Background(), `
 globalThis.__lxResolveError = '';
 globalThis.__lxResolveValue = '';
 Promise.resolve(globalThis.__lxGetHandler('request')({
@@ -266,7 +266,7 @@ Promise.resolve(globalThis.__lxGetHandler('request')({
 })).then(value => { globalThis.__lxResolveValue = value; })
   .catch(error => { globalThis.__lxResolveError = String(error); });
 'started';
-\`, "resolve-xinglan-fixture.js")
+`, "resolve-xinglan-fixture.js")
 	if err != nil {
 		t.Fatal(err)
 	}
