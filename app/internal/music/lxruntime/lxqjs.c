@@ -301,33 +301,6 @@ static JSValue lxqjs_buffer_to_string_callback(JSContext *context, JSValueConst 
     return result;
 }
 
-int lxqjs_install_crypto(LXQJSState *state, char **error_out) {
-    if (error_out != NULL) *error_out = NULL;
-    if (state == NULL || state->context == NULL) {
-        lxqjs_set_error(error_out, "invalid QuickJS state for crypto installation");
-        return -1;
-    }
-    JSContext *context = state->context;
-    JSValue lx = JS_GetGlobalObject(context);
-    JSValue utils = JS_GetPropertyStr(context, lx, "lx");
-    JSValue lx_utils = JS_GetPropertyStr(context, utils, "utils");
-    JSValue crypto_object = JS_GetPropertyStr(context, lx_utils, "crypto");
-    if (JS_IsException(crypto_object) || JS_IsUndefined(crypto_object)) {
-        lxqjs_set_error(error_out, "LX crypto host object is unavailable");
-        JS_FreeValue(context, crypto_object);
-        JS_FreeValue(context, lx_utils);
-        JS_FreeValue(context, utils);
-        JS_FreeValue(context, lx);
-        return -1;
-    }
-    int result = JS_SetPropertyStr(context, crypto_object, "md5",
-        JS_NewCFunction(context, lxqjs_md5_callback, "md5", 1));
-    if (result >= 0) result = JS_SetPropertyStr(context, crypto_object, "aesEncrypt",
-        JS_NewCFunction(context, lxqjs_aes_encrypt_callback, "aesEncrypt", 4));
-    if (result >= 0) result = JS_SetPropertyStr(context, crypto_object, "randomBytes",
-        JS_NewCFunction(context, lxqjs_random_bytes_callback, "randomBytes", 1));
-
-
 static JSValue lxqjs_zlib_callback(JSContext *context, JSValueConst this_val,
                                    int argc, JSValueConst *argv, int inflate) {
     (void)this_val;
@@ -379,6 +352,34 @@ static JSValue lxqjs_zlib_inflate_callback(JSContext *context, JSValueConst this
 static JSValue lxqjs_zlib_deflate_callback(JSContext *context, JSValueConst this_val, int argc, JSValueConst *argv) {
     return lxqjs_zlib_callback(context, this_val, argc, argv, 0);
 }
+
+
+int lxqjs_install_crypto(LXQJSState *state, char **error_out) {
+    if (error_out != NULL) *error_out = NULL;
+    if (state == NULL || state->context == NULL) {
+        lxqjs_set_error(error_out, "invalid QuickJS state for crypto installation");
+        return -1;
+    }
+    JSContext *context = state->context;
+    JSValue lx = JS_GetGlobalObject(context);
+    JSValue utils = JS_GetPropertyStr(context, lx, "lx");
+    JSValue lx_utils = JS_GetPropertyStr(context, utils, "utils");
+    JSValue crypto_object = JS_GetPropertyStr(context, lx_utils, "crypto");
+    if (JS_IsException(crypto_object) || JS_IsUndefined(crypto_object)) {
+        lxqjs_set_error(error_out, "LX crypto host object is unavailable");
+        JS_FreeValue(context, crypto_object);
+        JS_FreeValue(context, lx_utils);
+        JS_FreeValue(context, utils);
+        JS_FreeValue(context, lx);
+        return -1;
+    }
+    int result = JS_SetPropertyStr(context, crypto_object, "md5",
+        JS_NewCFunction(context, lxqjs_md5_callback, "md5", 1));
+    if (result >= 0) result = JS_SetPropertyStr(context, crypto_object, "aesEncrypt",
+        JS_NewCFunction(context, lxqjs_aes_encrypt_callback, "aesEncrypt", 4));
+    if (result >= 0) result = JS_SetPropertyStr(context, crypto_object, "randomBytes",
+        JS_NewCFunction(context, lxqjs_random_bytes_callback, "randomBytes", 1));
+
 
     JSValue buffer_object = JS_GetPropertyStr(context, lx_utils, "buffer");
     if (result >= 0 && !JS_IsException(buffer_object) && !JS_IsUndefined(buffer_object)) {
