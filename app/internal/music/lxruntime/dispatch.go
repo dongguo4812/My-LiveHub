@@ -16,6 +16,11 @@ import (
 // operation queued by the source. All JavaScript execution remains on the
 // QuickJS runtime thread; Go performs network I/O between Eval calls.
 func (r *Runtime) DispatchLXRequest(ctx context.Context, source, action string, info any) (any, error) {
+	return r.dispatchLXRequest(ctx, source, action, info, http.DefaultClient)
+}
+
+// dispatchLXRequest accepts an HTTP client for deterministic source integration tests.
+func (r *Runtime) dispatchLXRequest(ctx context.Context, source, action string, info any, client *http.Client) (any, error) {
 	if r == nil {
 		return nil, errors.New("LX dispatch: runtime is nil")
 	}
@@ -102,7 +107,7 @@ JSON.stringify({
 			if processed > maxRequests {
 				return nil, fmt.Errorf("LX dispatch: request limit (%d) exceeded", maxRequests)
 			}
-			response, requestErr := executeLXHTTPRequest(ctx, request, http.DefaultClient)
+			response, requestErr := executeLXHTTPRequest(ctx, request, client)
 			if err := r.completeLXRequest(ctx, request.ID, response, requestErr); err != nil {
 				return nil, err
 			}
