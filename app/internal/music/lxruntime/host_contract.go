@@ -43,6 +43,10 @@ func (r *Runtime) InstallLXHost(ctx context.Context, info ScriptInfo) error {
 
 const lxHostBootstrap = `
 (() => {
+  if (!globalThis.console) {
+    const noop = () => {};
+    globalThis.console = { log: noop, info: noop, warn: noop, error: noop, debug: noop };
+  }
   const EVENT_NAMES = Object.freeze({
     request: 'request',
     inited: 'inited',

@@ -359,3 +359,27 @@ func TestQuickJSMemoryAndStackLimits(t *testing.T) {
 		t.Fatal("expected recursion to fail under the configured stack limit")
 	}
 }
+
+
+func TestXinglanInitializesAgainstRealLXHost(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
+	if err != nil { t.Fatal(err) }
+	rt := newTestRuntime(t, 10*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{
+		Name: "Xinglan fixture", Version: "4.0.2", RawScript: string(source),
+	}); err != nil { t.Fatalf("install real LX host: %v", err) }
+	if _, err := rt.Eval(context.Background(), string(source), "xinglan-real-host.js"); err != nil {
+		t.Fatalf("initialize Xinglan against real LX host: %v", err)
+	}
+	value, err := rt.Eval(context.Background(), `
+JSON.stringify({
+  initialized: __lxHostState.initialized,
+  sourceNames: Object.keys(__lxHostState.initInfo.sources).sort(),
+  requestHandler: typeof __lxHostHandlers.request,
+  rawScriptAvailable: lx.currentScriptInfo.rawScript.length > 60000
+})
+`, "xinglan-real-host-result.js")
+	if err != nil { t.Fatal(err) }
+	want := `{"initialized":true,"sourceNames":["kg","kw","mg","qs","tx","wy"],"requestHandler":"function","rawScriptAvailable":true}`
+	if value != want { t.Fatalf("real Xinglan host initialization = %q, want %q", value, want) }
+}
