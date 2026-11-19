@@ -57,13 +57,7 @@ func executeLXHTTPRequest(parent context.Context, descriptor lxRequestDescriptor
 	if !validHTTPToken(method) {
 		return nil, fmt.Errorf("lx.request: invalid HTTP method %q", method)
 	}
-	timeout := lxDefaultRequestTimeout
-	if descriptor.Timeout > 0 {
-		timeout = time.Duration(descriptor.Timeout) * time.Millisecond
-		if timeout > lxMaxRequestTimeout {
-			timeout = lxMaxRequestTimeout
-		}
-	}
+	timeout := lxRequestTimeout(descriptor.Timeout)
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
@@ -109,8 +103,42 @@ func executeLXHTTPRequest(parent context.Context, descriptor lxRequestDescriptor
 	}, nil
 }
 
+func lxRequestTimeout(milliseconds int64) time.Duration {
+	if milliseconds <= 0 {
+		return lxDefaultRequestTimeout
+	}
+	maxMilliseconds := int64(lxMaxRequestTimeout / time.Millisecond)
+	if milliseconds > maxMilliseconds {
+		return lxMaxRequestTimeout
+	}
+	return time.Duration(milliseconds) * time.Millisecond
+}
+
+func lxJSONTruthy(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return false
+	}
+	switch typed := value.(type) {
+	case nil:
+		return false
+	case bool:
+		return typed
+	case float64:
+		return typed != 0
+	case string:
+		return typed != ""
+	default:
+		// JavaScript arrays and objects are truthy, including empty ones.
+		return true
+	}
+}
+
 func buildLXRequestBody(descriptor lxRequestDescriptor) (io.Reader, string, error) {
-	if len(descriptor.Body) != 0 && string(descriptor.Body) != "null" && string(descriptor.Body) != "false" && string(descriptor.Body) != "\"\"" {
+	if lxJSONTruthy(descriptor.Body) {
 		var value any
 		if err := json.Unmarshal(descriptor.Body, &value); err != nil {
 			return nil, "", fmt.Errorf("lx.request: invalid body: %w", err)
