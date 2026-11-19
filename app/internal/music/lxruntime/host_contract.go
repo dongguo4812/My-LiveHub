@@ -35,6 +35,9 @@ func (r *Runtime) InstallLXHost(ctx context.Context, info ScriptInfo) error {
 	if _, err := r.Eval(ctx, bootstrap, "lx-host-bootstrap.js"); err != nil {
 		return fmt.Errorf("install LX host contract: %w", err)
 	}
+	if err := r.installLXCryptoNative(ctx); err != nil {
+		return fmt.Errorf("install LX native crypto: %w", err)
+	}
 	return nil
 }
 
