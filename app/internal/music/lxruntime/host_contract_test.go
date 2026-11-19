@@ -84,12 +84,12 @@ func TestLXHostContractFailsClosedForUnimplementedCapabilities(t *testing.T) {
 		t.Fatal(err)
 	}
 	value, err := rt.Eval(context.Background(), `
-try { lx.utils.crypto.aesEncrypt('abc'); } catch (error) { error.message; }
+try { lx.utils.crypto.rsaEncrypt('abc', 'invalid-key'); } catch (error) { error.message; }
 `, "lx-capability-gate.js")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if value != "LX host capability is not implemented: crypto.aesEncrypt" {
+	if value != "LX host capability is not implemented: crypto.rsaEncrypt" {
 		t.Fatalf("unimplemented capability response = %q", value)
 	}
 }
