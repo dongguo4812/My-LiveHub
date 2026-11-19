@@ -1,0 +1,57 @@
+name: QuickJS-NG PoC
+
+on:
+  push:
+    branches:
+      - 'feat/**'
+  pull_request:
+    branches:
+      - dev
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quickjs-poc-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quickjs-windows-x64:
+    name: QuickJS-NG Windows x64 engine build
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up MSYS2 UCRT64 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+
+      - name: Fetch pinned QuickJS-NG source
+        shell: msys2 {0}
+        run: |
+          git clone --depth 1 --branch v0.18.0 https://github.com/quickjs-ng/quickjs.git "$RUNNER_TEMP/quickjs-ng"
+          git -C "$RUNNER_TEMP/quickjs-ng" rev-parse HEAD
+
+      - name: Build QuickJS-NG
+        shell: msys2 {0}
+        run: |
+          cmake -S "$RUNNER_TEMP/quickjs-ng" -B "$RUNNER_TEMP/quickjs-ng/build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DQJS_BUILD_EXAMPLES=ON
+          cmake --build "$RUNNER_TEMP/quickjs-ng/build" --config Release
+
+      - name: Run JavaScript smoke test
+        shell: msys2 {0}
+        run: |
+          qjs="$RUNNER_TEMP/quickjs-ng/build/qjs.exe"
+          test -f "$qjs"
+          "$qjs" -e "const xs = [1, 2, 3].map(x => x * 2); if (xs.join(',') !== '2,4,6') throw new Error('QuickJS smoke test failed'); print('QuickJS-NG smoke test passed')"
+          ls -lh "$qjs"
