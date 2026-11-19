@@ -338,13 +338,43 @@ int lxqjs_install_crypto(LXQJSState *state, char **error_out) {
     JS_FreeValue(context, buffer_object);
 
     if (result >= 0) {
-        JSValue global = JS_GetGlobalObject(context);
-        JSValue node_buffer = JS_NewObject(context);
-        result = JS_SetPropertyStr(context, node_buffer, "from",
-            JS_NewCFunction(context, lxqjs_buffer_from_callback, "from", 2));
-        if (result >= 0) result = JS_SetPropertyStr(context, global, "Buffer", node_buffer);
-        else JS_FreeValue(context, node_buffer);
-        JS_FreeValue(context, global);
+        static const char buffer_shim[] =
+            "(function(){"
+            "class Buffer extends Uint8Array {"
+            "  toString(encoding='utf8', start=0, end=this.length) {"
+            "    return lx.utils.buffer.bufToString(this.subarray(start, end), encoding);"
+            "  }"
+            "  static from(value, encoding='utf8') {"
+            "    if (typeof value === 'string') return new Buffer(lx.utils.buffer.from(value, encoding));"
+            "    if (value instanceof ArrayBuffer) return new Buffer(new Uint8Array(value));"
+            "    if (ArrayBuffer.isView(value)) return new Buffer(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));"
+            "    if (value && typeof value.length === 'number') return new Buffer(value);"
+            "    throw new TypeError('Buffer.from input must be a string, buffer, ArrayBuffer, or array-like value');"
+            "  }"
+            "  static alloc(size, fill=0) {"
+            "    if (!Number.isInteger(size) || size < 0 || size > 1048576) throw new RangeError('Invalid buffer size');"
+            "    const out = new Buffer(size);"
+            "    if (typeof fill === 'number') out.fill(fill);"
+            "    else if (typeof fill === 'string') out.set(Buffer.from(fill).subarray(0, size));"
+            "    else if (fill && typeof fill.length === 'number') out.set(new Uint8Array(fill).subarray(0, size));"
+            "    return out;"
+            "  }"
+            "  static concat(list, totalLength) {"
+            "    if (!Array.isArray(list)) throw new TypeError('list must be an array');"
+            "    const length = totalLength === undefined ? list.reduce((n, item) => n + item.length, 0) : totalLength;"
+            "    const out = new Buffer(length); let offset = 0;"
+            "    for (const item of list) { const part = Buffer.from(item); const count = Math.min(part.length, length-offset); if (count <= 0) break; out.set(part.subarray(0,count), offset); offset += count; }"
+            "    return out;"
+            "  }"
+            "  static isBuffer(value) { return value instanceof Buffer; }"
+            "  static byteLength(value, encoding='utf8') { return typeof value === 'string' ? lx.utils.buffer.from(value, encoding).length : value.byteLength ?? value.length; }"
+            "}"
+            "globalThis.Buffer = Buffer;"
+            "})();";
+        JSValue shim = JS_Eval(context, buffer_shim, sizeof(buffer_shim) - 1,
+                               "lx-buffer-shim.js", JS_EVAL_TYPE_GLOBAL);
+        if (JS_IsException(shim)) result = -1;
+        JS_FreeValue(context, shim);
     }
     JS_FreeValue(context, crypto_object);
     JS_FreeValue(context, lx_utils);

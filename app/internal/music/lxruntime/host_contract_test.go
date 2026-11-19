@@ -184,3 +184,29 @@ func TestLXHostBufferFromAndBufToStringUseNativeImplementation(t *testing.T) {
 	want := `{"isUint8Array":true,"base64":"eyJvayI6dHJ1ZX0=","hex":"7b226f6b223a747275657d","roundTripOK":true,"globalBuffer":true}`
 	if value != want { t.Fatalf("native buffer result = %q, want %q", value, want) }
 }
+
+
+
+func TestLXHostBufferGlobalNodeCompatibilitySubset(t *testing.T) {
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{}); err != nil { t.Fatal(err) }
+	value, err := rt.Eval(context.Background(), `(() => {
+		const original = '{"ok":true}';
+		const a = Buffer.from(original, 'utf8');
+		const b = Buffer.from(a);
+		const joined = Buffer.concat([Buffer.from('A'), b]);
+		const allocated = Buffer.alloc(2, 0x2a);
+		return JSON.stringify({
+			isBuffer: Buffer.isBuffer(a),
+			isUint8Array: a instanceof Uint8Array,
+			text: b.toString('utf8'),
+			hex: a.toString('hex'),
+			joined: joined.toString('utf8'),
+			allocated: allocated.toString('hex'),
+			byteLength: Buffer.byteLength(original, 'utf8')
+		});
+	})()`, "lx-buffer-global.js")
+	if err != nil { t.Fatal(err) }
+	want := `{"isBuffer":true,"isUint8Array":true,"text":"{\\"ok\\":true}","hex":"7b226f6b223a747275657d","joined":"A{\\"ok\\":true}","allocated":"2a2a","byteLength":11}`
+	if value != want { t.Fatalf("global Buffer compatibility = %q, want %q", value, want) }
+}
