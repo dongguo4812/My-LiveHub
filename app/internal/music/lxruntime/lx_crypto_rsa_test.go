@@ -8,6 +8,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"math/big"
 	"testing"
 )
 
