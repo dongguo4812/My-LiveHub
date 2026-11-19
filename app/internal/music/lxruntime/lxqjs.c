@@ -157,7 +157,7 @@ extern char *lxqjsGoMD5(const char *data, size_t length);
 extern void *lxqjsGoRandomBytes(size_t length);
 extern void *lxqjsGoBufferFrom(const char *data, size_t data_len, const char *encoding, size_t *out_len);
 extern void *lxqjsGoBufferToString(const char *data, size_t data_len, const char *encoding, size_t *out_len);
-extern void *lxqjsGoAESEncrypt(const char *data, size_t data_len, const char *mode, const char *key, size_t key_len, const char *iv, size_t iv_len, size_t *out_len);
+extern void *lxqjsGoRSAEncrypt(const char *data, size_t data_len, const char *key, size_t key_len, size_t *out_len);\nextern void *lxqjsGoAESEncrypt(const char *data, size_t data_len, const char *mode, const char *key, size_t key_len, const char *iv, size_t iv_len, size_t *out_len);
 extern void *lxqjsGoZlib(const char *data, size_t data_len, int inflate, size_t *out_len, char **error_out);
 
 static JSValue lxqjs_md5_callback(JSContext *context, JSValueConst this_val,
@@ -228,6 +228,31 @@ static int lxqjs_copy_bytes(JSContext *context, JSValueConst value, uint8_t **ou
     }
     JS_ThrowTypeError(context, "expected a string, ArrayBuffer, or Uint8Array");
     return -1;
+}
+
+static JSValue lxqjs_rsa_encrypt_callback(JSContext *context, JSValueConst this_val,
+                                          int argc, JSValueConst *argv) {
+    (void)this_val;
+    if (argc < 2) return JS_ThrowTypeError(context, "rsaEncrypt requires buffer and public key");
+    uint8_t *data = NULL, *key = NULL;
+    size_t data_len = 0, key_len = 0;
+    if (lxqjs_copy_bytes(context, argv[0], &data, &data_len, 0) < 0 ||
+        lxqjs_copy_bytes(context, argv[1], &key, &key_len, 0) < 0) {
+        free(data); free(key);
+        return JS_EXCEPTION;
+    }
+    if (data_len > 128 || key_len == 0 || key_len > (1u << 20)) {
+        free(data); free(key);
+        return JS_ThrowRangeError(context, "invalid RSA input or public key size");
+    }
+    size_t output_len = 0;
+    void *output = lxqjsGoRSAEncrypt((const char *)data, data_len,
+                                     (const char *)key, key_len, &output_len);
+    free(data); free(key);
+    if (output == NULL) return JS_ThrowTypeError(context, "RSA encryption failed: invalid key or input");
+    JSValue result = JS_NewUint8ArrayCopy(context, (const uint8_t *)output, output_len);
+    free(output);
+    return result;
 }
 
 static JSValue lxqjs_aes_encrypt_callback(JSContext *context, JSValueConst this_val,
@@ -377,7 +402,7 @@ int lxqjs_install_crypto(LXQJSState *state, char **error_out) {
         JS_NewCFunction(context, lxqjs_md5_callback, "md5", 1));
     if (result >= 0) result = JS_SetPropertyStr(context, crypto_object, "aesEncrypt",
         JS_NewCFunction(context, lxqjs_aes_encrypt_callback, "aesEncrypt", 4));
-    if (result >= 0) result = JS_SetPropertyStr(context, crypto_object, "randomBytes",
+    if (result >= 0) result = JS_SetPropertyStr(context, crypto_object, "rsaEncrypt",\n        JS_NewCFunction(context, lxqjs_rsa_encrypt_callback, "rsaEncrypt", 2));\n    if (result >= 0) result = JS_SetPropertyStr(context, crypto_object, "randomBytes",
         JS_NewCFunction(context, lxqjs_random_bytes_callback, "randomBytes", 1));
 
 
