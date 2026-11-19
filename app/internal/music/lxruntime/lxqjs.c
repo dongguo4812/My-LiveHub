@@ -25,8 +25,8 @@ static void lxqjs_set_error(char **error_out, const char *message) {
     if (error_out != NULL) *error_out = lxqjs_copy_string(message);
 }
 
-static int lxqjs_interrupt_handler(JSRuntime *runtime, void *opaque) {
-    (void)runtime;
+static int lxqjs_interrupt_handler(JSContext *context, void *opaque) {
+    (void)context;
     LXQJSState *state = (LXQJSState *)opaque;
     return atomic_load_explicit(&state->interrupted, memory_order_relaxed) != 0;
 }
