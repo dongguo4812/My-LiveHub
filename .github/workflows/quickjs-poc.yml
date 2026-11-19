@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   quickjs-windows-x64:
-    name: QuickJS-NG Windows x64 engine build
+    name: QuickJS-NG Windows x64 C API embedding
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -42,16 +42,12 @@ jobs:
           git clone --depth 1 --branch v0.18.0 https://github.com/quickjs-ng/quickjs.git "$RUNNER_TEMP/quickjs-ng"
           git -C "$RUNNER_TEMP/quickjs-ng" rev-parse HEAD
 
-      - name: Build QuickJS-NG
+      - name: Build and run native C API host
         shell: msys2 {0}
         run: |
-          cmake -S "$RUNNER_TEMP/quickjs-ng" -B "$RUNNER_TEMP/quickjs-ng/build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DQJS_BUILD_EXAMPLES=ON
-          cmake --build "$RUNNER_TEMP/quickjs-ng/build" --config Release
-
-      - name: Run JavaScript smoke test
-        shell: msys2 {0}
-        run: |
-          qjs="$(find "$RUNNER_TEMP/quickjs-ng/build" -type f -iname 'qjs.exe' -print -quit)"
-          test -n "$qjs"
-          "$qjs" "$GITHUB_WORKSPACE/app/internal/music/lxruntime/testdata/quickjs_engine_smoke.js"
-          ls -lh "$qjs"
+          cmake -S "$GITHUB_WORKSPACE/app/internal/music/lxruntime/poc/native" -B "$RUNNER_TEMP/lx-quickjs-host-build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DQUICKJS_NG_SOURCE_DIR="$RUNNER_TEMP/quickjs-ng"
+          cmake --build "$RUNNER_TEMP/lx-quickjs-host-build" --config Release
+          host="$(find "$RUNNER_TEMP/lx-quickjs-host-build" -type f -iname 'lx_quickjs_host_smoke.exe' -print -quit)"
+          test -n "$host"
+          "$host"
+          ls -lh "$host"
