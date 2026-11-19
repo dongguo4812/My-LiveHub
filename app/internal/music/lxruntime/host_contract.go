@@ -195,6 +195,18 @@ const lxHostBootstrap = `
     return id;
   };
   globalThis.clearTimeout = id => { timers.delete(Number(id)); };
+  globalThis.setInterval = (callback, delay = 0, ...args) => {
+    if (typeof callback !== 'function') throw new TypeError('callback must be a function');
+    const id = nextTimerID++;
+    const milliseconds = Math.max(1, Math.min(Number(delay) || 0, 2147483647));
+    timers.set(id, { callback, args, due: Date.now() + milliseconds, interval: milliseconds });
+    return id;
+  };
+  globalThis.clearInterval = id => { timers.delete(Number(id)); };
+  if (!globalThis.queueMicrotask) globalThis.queueMicrotask = callback => {
+    if (typeof callback !== 'function') throw new TypeError('callback must be a function');
+    Promise.resolve().then(callback);
+  };
   Object.defineProperty(globalThis, '__lxRunDueTimers', {
     value: () => {
       let executed = 0;
@@ -209,7 +221,8 @@ const lxHostBootstrap = `
           }
         }
         if (!selected) break;
-        timers.delete(selectedID);
+        if (selected.interval > 0) selected.due = now + selected.interval;
+        else timers.delete(selectedID);
         try { selected.callback(...selected.args); }
         catch (error) { globalThis.__lxTimerErrors.push(String(error && error.message || error)); }
         executed++;
