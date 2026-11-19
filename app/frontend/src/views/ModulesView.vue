@@ -68,6 +68,20 @@ async function refresh() {
   try { coreModules.value = await CoreService.GetModules() }
   catch (e) { ElMessage.error(e instanceof Error ? e.message : String(e)) }
 }
+
+async function initializeMicrophoneState() {
+  try {
+    const config = await getLive2DSettings()
+    updateLive2DMicrophoneConfig(config)
+    const live2d = modules.value.find(item => item.name === 'live2d')
+    if (live2d?.status === 'running' && config.microphone_enabled && !microphoneState.active) {
+      await startLive2DMicrophone()
+    }
+  } catch {
+    // Live2D settings may not be available during early startup; the Live2D page retries initialization.
+  }
+}
+
 async function toggle(name: string, status: string) {
   if (loading.value[name]) return
   if (status === 'running') {
@@ -90,7 +104,10 @@ async function toggle(name: string, status: string) {
 }
 let timer: ReturnType<typeof setInterval> | undefined
 onMounted(() => {
-  void refresh()
+  void (async () => {
+    await refresh()
+    await initializeMicrophoneState()
+  })()
   timer = setInterval(() => void refresh(), 3000)
 })
 onUnmounted(() => {

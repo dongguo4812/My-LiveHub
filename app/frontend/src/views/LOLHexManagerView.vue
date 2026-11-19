@@ -48,9 +48,9 @@ onUnmounted(() => {
     <el-skeleton v-if="loading" :rows="4" animated />
     <template v-else-if="status?.running">
       <div class="service-state">
-        <el-tag type="success">Hex 服务运行中</el-tag>
         <span>本地管理服务：{{ status.base_url }}</span>
         <el-button size="small" @click="refresh">刷新状态</el-button>
+        <el-tag class="service-status-tag" type="success">Hex 服务运行中</el-tag>
       </div>
       <iframe
         :key="managerURL"
@@ -76,6 +76,7 @@ onUnmounted(() => {
 .page-heading h2{margin:0;font-size:24px}
 .page-heading p{margin:9px 0 0;color:var(--el-text-color-secondary)}
 .service-state{display:flex;align-items:center;gap:12px;flex-wrap:wrap;color:var(--el-text-color-secondary);font-size:13px}
+.service-status-tag{margin-left:auto}
 .manager-frame{display:block;flex:1 1 0;width:100%;height:0;min-height:0;border:1px solid var(--el-border-color);border-radius:8px;background:#fff}
 :global(.main-column){min-height:0}
 :global(.workspace){min-height:0;overflow:hidden}
