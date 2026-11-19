@@ -154,6 +154,8 @@ const lxHostBootstrap = `
         const fn = pendingRequests.get(id);
         if (!fn) return;
         pendingRequests.delete(id);
+        const queuedIndex = requestQueue.findIndex(request => request.id === id);
+        if (queuedIndex !== -1) requestQueue.splice(queuedIndex, 1);
         fn.call(lx, new Error('Cancel request'), null, null);
       };
     },
