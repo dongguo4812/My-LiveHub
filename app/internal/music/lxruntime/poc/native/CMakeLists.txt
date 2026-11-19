@@ -9,6 +9,7 @@ if(NOT DEFINED QUICKJS_NG_SOURCE_DIR)
 endif()
 
 add_subdirectory("${QUICKJS_NG_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/quickjs-ng")
+set_target_properties(qjs PROPERTIES ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 
 add_executable(lx_quickjs_host_smoke main.c)
 target_include_directories(lx_quickjs_host_smoke PRIVATE "${QUICKJS_NG_SOURCE_DIR}")
