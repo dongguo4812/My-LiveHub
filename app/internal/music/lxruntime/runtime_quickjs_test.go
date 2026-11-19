@@ -111,7 +111,7 @@ globalThis.URL = class URL {
     this.search = '';
     this.hash = '';
     this.searchParams = new URLSearchParams();
-    if (base && !/^[a-z]+:/i.test(this.href)) this.href = String(base).replace(/\\/$/, '') + '/' + this.href.replace(/^\\//, '');
+    if (base && !/^[a-z]+:/i.test(this.href)) this.href = String(base).replace(/\/$/, '') + '/' + this.href.replace(/^\//, '');
   }
 };
 globalThis.TextEncoder = class TextEncoder {
