@@ -4,7 +4,6 @@ package lxruntime
 
 /*
 #cgo CFLAGS: -I${SRCDIR}/poc/native/include
-#cgo LDFLAGS: -lqjs
 #include <stdlib.h>
 #include "lxqjs.h"
 */
