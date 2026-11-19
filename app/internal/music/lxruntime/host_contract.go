@@ -248,7 +248,8 @@ const lxHostBootstrap = `
 const lxBrowserBootstrap = `(() => {
   globalThis.window = globalThis;
   globalThis.self = globalThis;
-  if (!globalThis.document) globalThis.document = {};\n  if (!globalThis.document.currentScript) globalThis.document.currentScript = { textContent: globalThis.lx.currentScriptInfo.rawScript || "" };
+  if (!globalThis.document) globalThis.document = {};
+  if (!globalThis.document.currentScript) globalThis.document.currentScript = { textContent: globalThis.lx.currentScriptInfo.rawScript || "" };
   if (!globalThis.navigator) globalThis.navigator = { userAgent: "Mozilla/5.0 My-LiveHub QuickJS desktop renderer" };
   if (!globalThis.location) globalThis.location = { href: "file:///" };
   if (!globalThis.performance) globalThis.performance = { now: () => Date.now() };
@@ -274,5 +275,6 @@ const lxBrowserBootstrap = `(() => {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   if (typeof globalThis.btoa !== "function") globalThis.btoa = value => { let out = ""; for (let i = 0; i < value.length; i += 3) { const a = value.charCodeAt(i), hasB = i + 1 < value.length, hasC = i + 2 < value.length; const b = hasB ? value.charCodeAt(i + 1) : 0, c = hasC ? value.charCodeAt(i + 2) : 0; if (a > 255 || b > 255 || c > 255) throw new TypeError("Invalid character"); out += alphabet[a >> 2] + alphabet[((a & 3) << 4) | (b >> 4)] + (hasB ? alphabet[((b & 15) << 2) | (c >> 6)] : "=") + (hasC ? alphabet[c & 63] : "="); } return out; };
   if (typeof globalThis.atob !== "function") globalThis.atob = value => { const input = String(value).replace(/[\t\n\f\r ]/g, ""); if (input.length % 4 === 1 || /[^A-Za-z0-9+/=]/.test(input) || /=/.test(input.slice(0, -2))) throw new TypeError("Invalid base64"); const clean = input.replace(/=+$/, ""); let out = ""; let bits = 0, buffer = 0; for (const ch of clean) { buffer = (buffer << 6) | alphabet.indexOf(ch); bits += 6; if (bits >= 8) { bits -= 8; out += String.fromCharCode((buffer >> bits) & 255); } } return out; };
-  if (!globalThis.crypto) globalThis.crypto = {};\n  if (typeof globalThis.crypto.getRandomValues !== "function") globalThis.crypto.getRandomValues = value => { if (!ArrayBuffer.isView(value) || value instanceof DataView) throw new TypeError("Expected an integer TypedArray"); if (value.byteLength > 65536) throw new RangeError("Array too large"); value.set(globalThis.lx.utils.crypto.randomBytes(value.length)); return value; };
+  if (!globalThis.crypto) globalThis.crypto = {};
+  if (typeof globalThis.crypto.getRandomValues !== "function") globalThis.crypto.getRandomValues = value => { if (!ArrayBuffer.isView(value) || value instanceof DataView) throw new TypeError("Expected an integer TypedArray"); if (value.byteLength > 65536) throw new RangeError("Array too large"); value.set(globalThis.lx.utils.crypto.randomBytes(value.length)); return value; };
 })();`;
