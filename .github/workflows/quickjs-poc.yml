@@ -19,11 +19,18 @@ concurrency:
 
 jobs:
   quickjs-windows-x64:
-    name: QuickJS-NG Windows x64 C API embedding
+    name: QuickJS-NG Windows x64 CGo and LX runtime
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: app/go.mod
+          cache: true
+          cache-dependency-path: app/go.sum
 
       - name: Set up MSYS2 UCRT64 toolchain
         uses: msys2/setup-msys2@v2
@@ -42,7 +49,7 @@ jobs:
           git clone --depth 1 --branch v0.18.0 https://github.com/quickjs-ng/quickjs.git "$RUNNER_TEMP/quickjs-ng"
           git -C "$RUNNER_TEMP/quickjs-ng" rev-parse HEAD
 
-      - name: Build and run native C API host
+      - name: Build QuickJS-NG and native C API smoke test
         shell: msys2 {0}
         run: |
           cmake -S "$GITHUB_WORKSPACE/app/internal/music/lxruntime/poc/native" -B "$RUNNER_TEMP/lx-quickjs-host-build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DQUICKJS_NG_SOURCE_DIR="$RUNNER_TEMP/quickjs-ng"
@@ -50,4 +57,14 @@ jobs:
           host="$(find "$RUNNER_TEMP/lx-quickjs-host-build" -type f -iname 'lx_quickjs_host_smoke.exe' -print -quit)"
           test -n "$host"
           "$host"
-          ls -lh "$host"
+          ls -lh "$host" "$RUNNER_TEMP/lx-quickjs-host-build/lib/libqjs.a"
+
+      - name: Test Go CGo runtime
+        shell: msys2 {0}
+        working-directory: app
+        env:
+          CGO_ENABLED: "1"
+          CC: gcc
+        run: |
+          export CGO_LDFLAGS="-L$RUNNER_TEMP/lx-quickjs-host-build/lib -lqjs"
+          go test -tags lxquickjs -count=1 -v ./internal/music/lxruntime
