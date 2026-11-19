@@ -344,3 +344,18 @@ func TestQuickJSRuntimeRepeatedLifecycleAndClose(t *testing.T) {
 		}
 	}
 }
+
+func TestQuickJSMemoryAndStackLimits(t *testing.T) {
+	rt, err := New(Options{MemoryLimitBytes: 8 << 20, StackLimitBytes: 256 << 10, EvalTimeout: 2 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+
+	if _, err := rt.Eval(context.Background(), "new Uint8Array(64 * 1024 * 1024)", "memory-limit.js"); err == nil {
+		t.Fatal("expected oversized allocation to fail under the configured memory limit")
+	}
+	if _, err := rt.Eval(context.Background(), "(function recurse(){ return recurse(); })()", "stack-limit.js"); err == nil {
+		t.Fatal("expected recursion to fail under the configured stack limit")
+	}
+}
