@@ -86,3 +86,133 @@ func quoteJS(source string) string {
 	b.WriteByte('"')
 	return b.String()
 }
+
+const lxTestHostShim = `
+globalThis.console = { log() {}, info() {}, warn() {}, error() {} };
+let __lxTimerID = 0;
+globalThis.setTimeout = () => ++__lxTimerID;
+globalThis.clearTimeout = () => {};
+globalThis.setInterval = () => ++__lxTimerID;
+globalThis.clearInterval = () => {};
+globalThis.queueMicrotask = fn => Promise.resolve().then(fn);
+globalThis.window = globalThis;
+globalThis.document = { currentScript: { textContent: '' } };
+globalThis.URL = class URL {
+  constructor(value, base) {
+    this.href = String(value);
+    this.protocol = this.href.split(':')[0] + ':';
+    this.hostname = '';
+    this.pathname = '/';
+    this.searchParams = { get() { return null; } };
+    if (base && !/^[a-z]+:/i.test(this.href)) this.href = String(base).replace(/\\/$/, '') + '/' + this.href.replace(/^\\//, '');
+  }
+};
+globalThis.btoa = value => value;
+globalThis.atob = value => value;
+const __lxHandlers = Object.create(null);
+globalThis.__lxSent = [];
+globalThis.lx = {
+  EVENT_NAMES: { request: 'request', inited: 'inited', updateAlert: 'updateAlert' },
+  version: '2.0.0',
+  env: 'desktop',
+  currentScriptInfo: { rawScript: '' },
+  request(url, options, callback) {
+    if (typeof options === 'function') callback = options;
+    if (typeof callback === 'function') callback(null, {
+      statusCode: 200,
+      headers: { 'content-type': 'text/plain' },
+      body: 'https://cdn.example.invalid/fixture.mp3'
+    });
+    return () => {};
+  },
+  on(name, handler) { __lxHandlers[name] = handler; },
+  send(name, data) {
+    __lxSent.push({ name, data });
+    if (name === 'inited') globalThis.__lxInit = data;
+  },
+  utils: {
+    buffer: {
+      from(value) { return value instanceof Uint8Array ? value : new Uint8Array(value); },
+      bufToString(value) {
+        if (typeof value === 'string') return value;
+        return Array.from(value || []).map(v => String.fromCharCode(v)).join('');
+      }
+    },
+    crypto: {
+      md5() { return '00000000000000000000000000000000'; },
+      aesEncrypt() { return new Uint8Array(16); },
+      rsaEncrypt() { return new Uint8Array(128); },
+      randomBytes(size) { return new Uint8Array(size); }
+    }
+  }
+};
+globalThis.__lxGetHandler = name => __lxHandlers[name];
+`;
+
+func TestLXSourceInitializationFixtures(t *testing.T) {
+	for _, name := range []string{"lx.js", "xinglan.js", "helloworld.js"} {
+		t.Run(name, func(t *testing.T) {
+			source, err := os.ReadFile(filepath.Join("testdata", "sources", name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			rt := newTestRuntime(t, 5*time.Second)
+			if _, err := rt.Eval(context.Background(), lxTestHostShim, "lx-test-host.js"); err != nil {
+				t.Fatalf("install LX host shim: %v", err)
+			}
+			if _, err := rt.Eval(context.Background(), string(source), name); err != nil {
+				t.Fatalf("initialize source: %v", err)
+			}
+			initType, err := rt.Eval(context.Background(), "typeof globalThis.__lxInit", "check-init.js")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if initType != "object" {
+				t.Fatalf("source did not send inited event; got %q", initType)
+			}
+			handlerType, err := rt.Eval(context.Background(), "typeof globalThis.__lxGetHandler('request')", "check-handler.js")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if handlerType != "function" {
+				t.Fatalf("source did not register request handler; got %q", handlerType)
+			}
+		})
+	}
+}
+
+func TestHelloWorldMusicURLResolutionWithMockHost(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "helloworld.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntime(t, 5*time.Second)
+	if _, err := rt.Eval(context.Background(), lxTestHostShim, "lx-test-host.js"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.Eval(context.Background(), string(source), "helloworld.js"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = rt.Eval(context.Background(), `
+globalThis.__lxResolveError = '';
+globalThis.__lxResolveValue = '';
+Promise.resolve(globalThis.__lxGetHandler('request')({
+  source: 'kw',
+  action: 'musicUrl',
+  info: { musicInfo: { rid: 'fixture-song-001', name: 'Fixture Song' }, type: '320k' }
+})).then(value => { globalThis.__lxResolveValue = value; })
+  .catch(error => { globalThis.__lxResolveError = String(error); });
+'started';
+`, "resolve-fixture.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := rt.Eval(context.Background(), "globalThis.__lxResolveValue", "read-url.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != "https://cdn.example.invalid/fixture.mp3" {
+		errText, _ := rt.Eval(context.Background(), "globalThis.__lxResolveError", "read-error.js")
+		t.Fatalf("music URL result = %q, error = %q", value, errText)
+	}
+}
