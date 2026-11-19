@@ -4,6 +4,7 @@ package lxruntime
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -382,4 +383,28 @@ JSON.stringify({
 	if err != nil { t.Fatal(err) }
 	want := `{"initialized":true,"sourceNames":["kg","kw","mg","tx","wy"],"requestHandler":"function","rawScriptAvailable":true}`
 	if value != want { t.Fatalf("real Xinglan host initialization = %q, want %q", value, want) }
+}
+
+func TestPinnedSourcesInitializeAgainstRealLXHost(t *testing.T) {
+	for _, name := range []string{"lx.js", "xinglan.js", "helloworld.js"} {
+		t.Run(name, func(t *testing.T) {
+			source, err := os.ReadFile(filepath.Join("testdata", "sources", name))
+			if err != nil { t.Fatal(err) }
+			rt := newTestRuntime(t, 10*time.Second)
+			if err := rt.InstallLXHost(context.Background(), ScriptInfo{Name: name, Version: "fixture", RawScript: string(source)}); err != nil {
+				t.Fatalf("install real LX host: %v", err)
+			}
+			if _, err := rt.Eval(context.Background(), string(source), name+"-real-host.js"); err != nil {
+				t.Fatalf("initialize source against real LX host: %v", err)
+			}
+			value, err := rt.Eval(context.Background(), `JSON.stringify({ initialized: __lxHostState.initialized, sourceNames: Object.keys(__lxHostState.initInfo.sources || {}).sort(), requestHandler: typeof __lxHostHandlers.request, rawScriptAvailable: lx.currentScriptInfo.rawScript.length > 0 })`, "pinned-source-real-host-result.js")
+			if err != nil { t.Fatal(err) }
+			var result struct { Initialized bool `json:"initialized"`; SourceNames []string `json:"sourceNames"`; RequestHandler string `json:"requestHandler"`; RawScriptAvailable bool `json:"rawScriptAvailable"` }
+			if err := json.Unmarshal([]byte(value), &result); err != nil { t.Fatalf("decode initialization result %q: %v", value, err) }
+			if !result.Initialized { t.Fatal("source did not initialize") }
+			if len(result.SourceNames) == 0 { t.Fatal("source initialized without supported music platforms") }
+			if result.RequestHandler != "function" { t.Fatalf("request handler type = %q", result.RequestHandler) }
+			if !result.RawScriptAvailable { t.Fatal("real LX host did not expose rawScript metadata") }
+		})
+	}
 }
