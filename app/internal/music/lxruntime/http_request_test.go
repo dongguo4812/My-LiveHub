@@ -82,3 +82,41 @@ func TestExecuteLXHTTPRequestResponseSizeLimit(t *testing.T) {
 	_, err := executeLXHTTPRequest(context.Background(), lxRequestDescriptor{URL:server.URL}, server.Client())
 	if err == nil || !strings.Contains(err.Error(), "exceeds") { t.Fatalf("oversized response error = %v", err) }
 }
+
+
+func TestLXRequestTimeoutClampsWithoutOverflow(t *testing.T) {
+	if got := lxRequestTimeout(25); got != 25*time.Millisecond {
+		t.Fatalf("small timeout = %s", got)
+	}
+	if got := lxRequestTimeout(1<<62); got != lxMaxRequestTimeout {
+		t.Fatalf("large timeout = %s, want %s", got, lxMaxRequestTimeout)
+	}
+	if got := lxRequestTimeout(0); got != lxDefaultRequestTimeout {
+		t.Fatalf("default timeout = %s", got)
+	}
+}
+
+func TestBuildLXRequestBodyUsesJavaScriptTruthySemantics(t *testing.T) {
+	for _, raw := range []string{`null`, `false`, `0`, `""`} {
+		body, contentType, err := buildLXRequestBody(lxRequestDescriptor{
+			Body: json.RawMessage(raw),
+			Form: map[string]any{"keyword": "fallback"},
+		})
+		if err != nil {
+			t.Fatalf("body %s: %v", raw, err)
+		}
+		if body == nil || contentType != "application/x-www-form-urlencoded" {
+			t.Fatalf("body %s did not fall back to form: content type %q", raw, contentType)
+		}
+		data, _ := io.ReadAll(body)
+		if string(data) != "keyword=fallback" {
+			t.Fatalf("body %s produced %q", raw, data)
+		}
+	}
+	for _, raw := range []string{`{}`, `[]`, `"payload"`} {
+		body, _, err := buildLXRequestBody(lxRequestDescriptor{Body: json.RawMessage(raw)})
+		if err != nil || body == nil {
+			t.Fatalf("truthy body %s: body=%v err=%v", raw, body, err)
+		}
+	}
+}
