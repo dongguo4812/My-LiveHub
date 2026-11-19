@@ -56,8 +56,8 @@ func (e ecbEncrypter) CryptBlocks(dst, src []byte) {
 	if len(src)%e.BlockSize() != 0 || len(dst) < len(src) { panic("crypto: invalid buffer length") }
 	for len(src) > 0 {
 		e.Encrypt(dst[:e.BlockSize()], src[:e.BlockSize()])
-		src = src[e.BlockSize:]
-		dst = dst[e.BlockSize:]
+		src = src[e.BlockSize():]
+		dst = dst[e.BlockSize():]
 	}
 }
 
