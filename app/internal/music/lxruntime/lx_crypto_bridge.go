@@ -13,7 +13,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
-	"fmt"
 	"strings"
 	"unsafe"
 )
@@ -43,7 +42,7 @@ func lxqjsGoAESEncrypt(data *C.char, dataLen C.size_t, mode *C.char, key *C.char
 	var ivBytes []byte
 	if iv != nil && ivLen > 0 { ivBytes = C.GoBytes(unsafe.Pointer(iv), C.int(ivLen)) }
 	result, err := lxCryptoAESEncrypt(plaintext, C.GoString(mode), keyBytes, ivBytes)
-	if err != nil { _ = fmt.Sprint(err); return nil }
+	if err != nil { return nil }
 	*outLen = C.size_t(len(result))
 	return C.CBytes(result)
 }

@@ -37,7 +37,7 @@ JSON.stringify(__lxHostState.initInfo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"sources":{"kw":{"type":"music","actions":["musicUrl"],"qualitys":["128k","flac","flac24bit"]},"tx":{"type":"music","actions":["musicUrl"],"qualitys":["320k"]},"local":{"type":"music","actions":["musicUrl","lyric","pic"],"qualitys":[]}}}`
+	want := `{"isUint8Array":true,"base64":"eyJvayI6dHJ1ZX0=","hex":"7b226f6b223a747275657d","roundTrip":"{\\\"ok\\\":true}","globalBuffer":true}`
 	if value != want {
 		t.Fatalf("filtered source info = %s, want %s", value, want)
 	}
