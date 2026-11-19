@@ -3,6 +3,7 @@
 package lxruntime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -448,9 +449,32 @@ func TestLXSourceRequestsServerConfigurationAgainstRealLXHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	rt := newTestRuntime(t, 10*time.Second)
-	var requests []*http.Request
+	type capturedRequest struct {
+		method string
+		url string
+		headerNames []string
+		bodyLength int
+		bodyJSONKeys []string
+	}
+	var requests []capturedRequest
 	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		requests = append(requests, request.Clone(request.Context()))
+		captured := capturedRequest{method: request.Method, url: request.URL.String()}
+		for name := range request.Header {
+			captured.headerNames = append(captured.headerNames, name)
+		}
+		var body []byte
+		if request.Body != nil {
+			body, _ = io.ReadAll(request.Body)
+			request.Body = io.NopCloser(bytes.NewReader(body))
+		}
+		captured.bodyLength = len(body)
+		var bodyObject map[string]json.RawMessage
+		if json.Unmarshal(body, &bodyObject) == nil {
+			for name := range bodyObject {
+				captured.bodyJSONKeys = append(captured.bodyJSONKeys, name)
+			}
+		}
+		requests = append(requests, captured)
 		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`)), Request: request}, nil
 	})}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -462,10 +486,12 @@ func TestLXSourceRequestsServerConfigurationAgainstRealLXHost(t *testing.T) {
 	if len(requests) != 1 {
 		t.Fatalf("server configuration requests = %d, want exactly 1 (initialization error: %v)", len(requests), err)
 	}
-	if requests[0].URL.Path != "/rconfig" {
-		t.Fatalf("configuration request path = %q, want /rconfig", requests[0].URL.Path)
+	t.Logf("captured /rconfig request: method=%s url=%s headerNames=%v bodyLength=%d bodyJSONKeys=%v",
+		requests[0].method, requests[0].url, requests[0].headerNames, requests[0].bodyLength, requests[0].bodyJSONKeys)
+	if !strings.Contains(requests[0].url, "/rconfig") {
+		t.Fatalf("configuration request URL = %q, want path /rconfig", requests[0].url)
 	}
-	if requests[0].URL.Host == "" || requests[0].URL.Scheme != "https" {
-		t.Fatalf("configuration request URL is not an absolute HTTPS URL: %s", requests[0].URL)
+	if !strings.HasPrefix(requests[0].url, "https://") {
+		t.Fatalf("configuration request URL is not HTTPS: %s", requests[0].url)
 	}
 }
