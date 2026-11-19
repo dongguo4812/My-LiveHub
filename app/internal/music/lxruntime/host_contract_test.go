@@ -115,3 +115,14 @@ JSON.stringify({ queued: __lxTakeRequests().length, error: __abortError });
 		t.Fatalf("abort result = %s", value)
 	}
 }
+
+
+func TestLXHostCryptoMD5UsesNativeImplementation(t *testing.T) {
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{}); err != nil { t.Fatal(err) }
+	value, err := rt.Eval(context.Background(), `lx.utils.crypto.md5('abc')`, "lx-native-md5.js")
+	if err != nil { t.Fatal(err) }
+	if value != "900150983cd24fb0d6963f7d28e17f72" {
+		t.Fatalf("native md5 = %q", value)
+	}
+}
