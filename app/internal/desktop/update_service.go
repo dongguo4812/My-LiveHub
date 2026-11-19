@@ -43,6 +43,13 @@ type githubRelease struct {
 	} `json:"assets"`
 }
 
+type UpdateProgress struct {
+	Stage      string  `json:"stage"`
+	Percentage float64 `json:"percentage"`
+	Downloaded int64   `json:"downloaded"`
+	Total      int64   `json:"total"`
+}
+
 type UpdateService struct {
 	currentVersion string
 	executablePath string
@@ -56,12 +63,15 @@ type UpdateService struct {
 		BrowserDownloadURL string `json:"browser_download_url"`
 	}
 	quit func()
+	progressDownloaded atomic.Int64
+	progressTotal      atomic.Int64
+	progressStage      atomic.Value
 }
 
 func NewUpdateService(version, executablePath string, quit func()) *UpdateService {
 	absolute, _ := filepath.Abs(executablePath)
 	root := filepath.Dir(absolute)
-	return &UpdateService{
+	service := &UpdateService{
 		currentVersion: strings.TrimPrefix(strings.TrimSpace(version), "v"),
 		executablePath: absolute,
 		applicationDir: root,
@@ -69,6 +79,37 @@ func NewUpdateService(version, executablePath string, quit func()) *UpdateServic
 		quit:           quit,
 		httpClient:     &http.Client{Timeout: 30 * time.Second},
 	}
+	service.progressStage.Store("idle")
+	return service
+}
+
+// GetUpdateProgress returns the current download/verification progress for the UI.
+func (s *UpdateService) GetUpdateProgress() UpdateProgress {
+	if s == nil {
+		return UpdateProgress{Stage: "idle"}
+	}
+	stage, _ := s.progressStage.Load().(string)
+	downloaded := s.progressDownloaded.Load()
+	total := s.progressTotal.Load()
+	percentage := float64(0)
+	if total > 0 {
+		percentage = float64(downloaded) * 100 / float64(total)
+		if percentage > 100 {
+			percentage = 100
+		}
+	}
+	return UpdateProgress{Stage: stage, Percentage: percentage, Downloaded: downloaded, Total: total}
+}
+
+type updateProgressWriter struct {
+	service *UpdateService
+}
+
+func (w updateProgressWriter) Write(data []byte) (int, error) {
+	if w.service != nil {
+		w.service.progressDownloaded.Add(int64(len(data)))
+	}
+	return len(data), nil
 }
 
 func detectUpdatePackageType(root string) string {
@@ -181,6 +222,9 @@ func (s *UpdateService) InstallUpdate() error {
 	if s == nil || s.latest == nil || s.asset == nil {
 		return errors.New("请先检查更新")
 	}
+	s.progressDownloaded.Store(0)
+	s.progressTotal.Store(0)
+	s.progressStage.Store("preparing")
 	if compareVersions(strings.TrimPrefix(s.latest.TagName, "v"), s.currentVersion) <= 0 {
 		return errors.New("当前已经是最新版本")
 	}
@@ -331,12 +375,16 @@ func (s *UpdateService) downloadAndVerify(destination string) error {
 		return fmt.Errorf("下载服务器返回的文件大小不匹配：Release 标记 %d 字节，响应声明 %d 字节", s.asset.Size, response.ContentLength)
 	}
 
+	s.progressDownloaded.Store(0)
+	s.progressTotal.Store(s.asset.Size)
+	s.progressStage.Store("downloading")
+
 	file, err := os.OpenFile(partialPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 	if err != nil {
 		return fmt.Errorf("创建更新包临时文件失败：%w", err)
 	}
 	hash := sha256.New()
-	written, copyErr := io.Copy(io.MultiWriter(file, hash), io.LimitReader(&idleTimeoutReader{reader: response.Body, timer: idleTimer}, s.asset.Size+1))
+	written, copyErr := io.Copy(io.MultiWriter(file, hash, updateProgressWriter{service: s}), io.LimitReader(&idleTimeoutReader{reader: response.Body, timer: idleTimer}, s.asset.Size+1))
 	syncErr := file.Sync()
 	closeErr := file.Close()
 	if idleTimedOut.Load() {
@@ -354,6 +402,7 @@ func (s *UpdateService) downloadAndVerify(destination string) error {
 	if written == 0 {
 		return errors.New("下载服务器返回了空更新包（0 字节），已取消安装")
 	}
+	s.progressStage.Store("verifying")
 	if written != s.asset.Size {
 		return fmt.Errorf("更新包大小不匹配：期望 %d 字节，实际 %d 字节", s.asset.Size, written)
 	}
@@ -378,6 +427,7 @@ func (s *UpdateService) downloadAndVerify(destination string) error {
 	if err := os.Rename(partialPath, destination); err != nil {
 		return fmt.Errorf("发布已验证的更新包失败：%w", err)
 	}
+	s.progressStage.Store("ready")
 	return nil
 }
 
