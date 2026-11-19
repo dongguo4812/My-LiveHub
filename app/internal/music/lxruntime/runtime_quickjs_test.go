@@ -495,10 +495,19 @@ func TestLXSourceRequestsServerConfigurationAgainstRealLXHost(t *testing.T) {
 	}
 	t.Logf("captured /rconfig request: method=%s scheme=%s host=%s path=%s queryKeys=%v versionParam=%q headerNames=%v bodyLength=%d bodyJSONKeys=%v",
 		requests[0].method, requests[0].scheme, requests[0].host, requests[0].path, requests[0].queryKeys, requests[0].versionParam, requests[0].headerNames, requests[0].bodyLength, requests[0].bodyJSONKeys)
+	if requests[0].method != http.MethodGet {
+		t.Fatalf("configuration request method = %q, want GET", requests[0].method)
+	}
 	if requests[0].path != "/rconfig" {
 		t.Fatalf("configuration request path = %q, want /rconfig", requests[0].path)
 	}
 	if requests[0].host == "" || requests[0].scheme != "https" {
 		t.Fatalf("configuration request is not absolute HTTPS: scheme=%q host=%q", requests[0].scheme, requests[0].host)
+	}
+	if requests[0].versionParam != "7" {
+		t.Fatalf("configuration request version parameter = %q, want source version 7", requests[0].versionParam)
+	}
+	if requests[0].bodyLength != 0 {
+		t.Fatalf("configuration request body length = %d, want 0", requests[0].bodyLength)
 	}
 }
