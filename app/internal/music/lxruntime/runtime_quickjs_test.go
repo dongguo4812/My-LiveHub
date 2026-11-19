@@ -380,6 +380,6 @@ JSON.stringify({
 })
 `, "xinglan-real-host-result.js")
 	if err != nil { t.Fatal(err) }
-	want := `{"initialized":true,"sourceNames":["kg","kw","mg","qs","tx","wy"],"requestHandler":"function","rawScriptAvailable":true}`
+	want := `{"initialized":true,"sourceNames":["kg","kw","mg","tx","wy"],"requestHandler":"function","rawScriptAvailable":true}`
 	if value != want { t.Fatalf("real Xinglan host initialization = %q, want %q", value, want) }
 }
