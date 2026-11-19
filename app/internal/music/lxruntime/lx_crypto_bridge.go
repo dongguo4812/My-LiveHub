@@ -4,6 +4,7 @@ package lxruntime
 
 /*
 #include <stddef.h>
+#include <stdlib.h>
 */
 import "C"
 
@@ -11,10 +12,10 @@ import (
 	"crypto/md5"
 	"crypto/rand"
 	"encoding/base64"
-	"fmt"
 	"encoding/hex"
-	"unsafe"
+	"fmt"
 	"strings"
+	"unsafe"
 )
 
 //export lxqjsGoMD5
