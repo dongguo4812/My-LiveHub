@@ -274,6 +274,10 @@ int lxqjs_install_crypto(LXQJSState *state, char **error_out) {
     JSValue md5 = JS_NewCFunction(context, lxqjs_md5_callback, "md5", 1);
     int result = JS_SetPropertyStr(context, crypto_object, "md5", md5);
     if (result >= 0) {
+        JSValue aes_encrypt = JS_NewCFunction(context, lxqjs_aes_encrypt_callback, "aesEncrypt", 4);
+        result = JS_SetPropertyStr(context, crypto_object, "aesEncrypt", aes_encrypt);
+    }
+    if (result >= 0) {
         JSValue random_bytes = JS_NewCFunction(context, lxqjs_random_bytes_callback, "randomBytes", 1);
         result = JS_SetPropertyStr(context, crypto_object, "randomBytes", random_bytes);
     }
