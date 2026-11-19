@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {onMounted,ref,watch} from 'vue'
+import {onMounted,onUnmounted,ref,watch} from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import * as UpdateService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/updateservice.js'
 type UpdateInfo = Awaited<ReturnType<typeof UpdateService.CheckForUpdates>>
@@ -7,15 +7,36 @@ import {appearance,appearanceBusy,appearanceError,loadAppearance,saveAppearance,
 const route=useRoute(),router=useRouter()
 const theme=ref('dark'),accentColor=ref('indigo')
 const updateInfo=ref<UpdateInfo|null>(null),updateBusy=ref(false),installBusy=ref(false),updateError=ref('')
+const updateProgress=ref({stage:'idle',percentage:0,downloaded:0,total:0})
+let updateProgressTimer:number|undefined
+function startUpdateProgressPolling(){
+  if(updateProgressTimer!==undefined)window.clearInterval(updateProgressTimer)
+  updateProgressTimer=window.setInterval(()=>{
+    void UpdateService.GetUpdateProgress().then(progress=>{updateProgress.value=progress}).catch(()=>{})
+  },250)
+}
+function updateProgressLabel(){
+  switch(updateProgress.value.stage){
+    case 'preparing':return '正在准备更新...'
+    case 'downloading':return '正在下载更新包...'
+    case 'verifying':return '下载完成，正在校验文件...'
+    case 'ready':return '更新包校验完成，正在启动安装...'
+    case 'launching':return '正在启动更新程序...'
+    case 'failed':return '更新失败'
+    default:return '等待更新进度...'
+  }
+}
+function formatUpdateBytes(value:number){return (value/1024/1024).toFixed(1)+' MB'}
 const skippedVersion=ref(localStorage.getItem('my-livehub-skipped-update-version')||''),updateDeferred=ref(false)
 const showUpdateChoices=ref(false)
 async function checkUpdate(){updateBusy.value=true;updateError.value='';updateDeferred.value=false;showUpdateChoices.value=false;try{updateInfo.value=await UpdateService.CheckForUpdates();showUpdateChoices.value=!!updateInfo.value?.available&&skippedVersion.value!==updateInfo.value.latest_version}catch(error){updateError.value=error instanceof Error?error.message:String(error)}finally{updateBusy.value=false}}
 function deferUpdate(){updateDeferred.value=true;showUpdateChoices.value=false}
 function skipUpdate(){if(!updateInfo.value?.latest_version)return;skippedVersion.value=updateInfo.value.latest_version;localStorage.setItem('my-livehub-skipped-update-version',skippedVersion.value);showUpdateChoices.value=false;updateDeferred.value=false}
-async function installUpdate(){if(!updateInfo.value?.available)return;if(!window.confirm('确认下载并安装 My-LiveHub '+updateInfo.value.latest_version+'？安装时程序将自动退出并在完成后重新启动。'))return;installBusy.value=true;updateError.value='';try{await UpdateService.InstallUpdate()}catch(error){updateError.value=error instanceof Error?error.message:String(error);installBusy.value=false}}
+async function installUpdate(){if(!updateInfo.value?.available)return;if(!window.confirm('确认下载并安装 My-LiveHub '+updateInfo.value.latest_version+'？安装时程序将自动退出并在完成后重新启动。'))return;installBusy.value=true;updateError.value='';updateProgress.value={stage:'preparing',percentage:0,downloaded:0,total:updateInfo.value.asset_size};startUpdateProgressPolling();try{await UpdateService.InstallUpdate()}catch(error){updateError.value=error instanceof Error?error.message:String(error);updateProgress.value={...updateProgress.value,stage:'failed'};installBusy.value=false;if(updateProgressTimer!==undefined){window.clearInterval(updateProgressTimer);updateProgressTimer=undefined}}}
 const accents=[{value:'indigo',label:'蓝紫',color:'#7c8cff'},{value:'blue',label:'蓝色',color:'#5798e8'},{value:'violet',label:'紫色',color:'#a184e8'},{value:'teal',label:'青绿',color:'#43b9a6'},{value:'rose',label:'玫瑰',color:'#df829b'}]
 watch(appearance,v=>{theme.value=v.theme;accentColor.value=v.accent_color},{immediate:true})
 onMounted(()=>{void loadAppearance()})
+onUnmounted(()=>{if(updateProgressTimer!==undefined)window.clearInterval(updateProgressTimer)})
 watch(()=>route.query.checkUpdate, value=>{
   if(!value) return
   void checkUpdate()
@@ -33,6 +54,7 @@ async function saveCloseBehavior(){await saveWindowCloseBehavior(windowCloseBeha
 <div class="setting-row"><div><strong>当前版本：{{ updateInfo?.current_version || '尚未检查' }}</strong><p v-if="updateInfo">最新版本：{{ updateInfo.latest_version }} · {{ updateInfo.package_type==='installer'?'安装版':'免安装版' }}</p><p v-else>检查 GitHub Release，下载与当前安装形式对应的完整更新包，并在安装前校验 SHA256。</p></div><div class="retention-control"><el-button :loading="updateBusy" @click="checkUpdate">检查更新</el-button></div></div>
 <el-alert v-if="updateInfo&&!updateInfo.available" title="当前已是最新版本" type="success" :closable="false" show-icon/>
 <template v-if="updateInfo?.available"><el-alert v-if="showUpdateChoices" :title="'发现新版本 '+updateInfo.latest_version+'，更新包：'+updateInfo.asset_name+'（'+(updateInfo.asset_size/1024/1024).toFixed(1)+' MB）'" type="info" :closable="false" show-icon/><el-alert v-else-if="updateDeferred" title="已选择稍后更新，可再次点击“检查更新”查看。" type="info" :closable="false" show-icon/><el-alert v-else-if="skippedVersion===updateInfo.latest_version" :title="'已跳过版本 '+updateInfo.latest_version+'，有更高版本时会再次提示。'" type="info" :closable="false" show-icon/><div v-if="showUpdateChoices" class="retention-control update-actions"><el-button @click="deferUpdate">稍后更新</el-button><el-button type="primary" :loading="installBusy" @click="installUpdate">下载并安装更新</el-button><el-button type="danger" plain @click="skipUpdate">跳过此版本</el-button></div></template>
+<div v-if="installBusy" class="update-progress"><div class="update-progress-heading"><span>{{ updateProgressLabel() }}</span><strong>{{ Math.floor(updateProgress.percentage) }}%</strong></div><el-progress :percentage="Math.floor(updateProgress.percentage)" :show-text="false" :stroke-width="9"/><p v-if="updateProgress.total>0" class="hint">{{ formatUpdateBytes(updateProgress.downloaded) }} / {{ formatUpdateBytes(updateProgress.total) }}</p></div>
 <el-alert v-if="updateError" :title="updateError" type="error" :closable="false" show-icon/>
 <p v-if="updateInfo?.release_notes" class="hint update-notes">{{ updateInfo.release_notes }}</p><p class="hint">更新会保留程序目录中的配置、缓存、日志、Cookie 和扩展数据。安装版沿用原安装目录；免安装版只替换程序文件，失败时会回滚。</p></el-card>
 
@@ -51,5 +73,6 @@ async function saveCloseBehavior(){await saveWindowCloseBehavior(windowCloseBeha
 
 <el-card shadow="never"><template #header><strong>颜色语义</strong></template><div class="semantic-list"><div><i class="success"/>成功 / 正常</div><div><i class="warning"/>警告 / 等待</div><div><i class="danger"/>危险 / 失败</div><div><i class="info"/>普通 / 辅助</div></div><p class="hint">状态颜色保持固定语义；深浅主题会自动调整背景、文字、边框和控件对比度。</p></el-card></section></template>
 <style scoped>
+.update-progress{margin:16px 0;padding:14px 16px;border:1px solid var(--app-border);border-radius:10px;background:var(--app-bg-control)}.update-progress-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px;font-size:13px;color:var(--el-text-color-regular)}.update-progress-heading strong{font-variant-numeric:tabular-nums;color:var(--app-accent)}.update-progress .hint{margin:8px 0 0}
 .settings-page{display:flex;flex-direction:column;gap:20px}.settings-page h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.setting-row p,.hint{color:var(--el-text-color-secondary);font-size:13px}.setting-row{display:flex;align-items:center;justify-content:space-between;gap:24px}.setting-row p{margin:7px 0 0}.accent-options{display:flex;gap:12px}.accent-option{display:flex;align-items:center;gap:7px;padding:7px 9px;border:1px solid var(--app-border);border-radius:8px;background:var(--app-bg-control);color:var(--el-text-color-regular);cursor:pointer}.accent-option.selected{border-color:var(--app-accent);background:var(--app-bg-selected)}.accent-option span{width:15px;height:15px;border-radius:50%}.actions{display:flex;justify-content:flex-end;margin-top:22px}.retention-control{display:flex;align-items:center;gap:10px;flex-shrink:0}.retention-control>span{color:var(--el-text-color-secondary);font-size:13px}.semantic-list{display:flex;flex-wrap:wrap;gap:26px}.semantic-list div{display:flex;align-items:center;gap:8px;color:var(--el-text-color-regular);font-size:13px}.semantic-list i{width:10px;height:10px;border-radius:50%}.success{background:var(--app-success)}.warning{background:var(--app-warning)}.danger{background:var(--app-danger)}.info{background:var(--app-info)}.hint{margin:18px 0 0}.update-notes{white-space:pre-wrap;max-height:180px;overflow:auto}
 </style>

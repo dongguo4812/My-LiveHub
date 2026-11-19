@@ -196,3 +196,18 @@ func TestDownloadAndVerify(t *testing.T) {
 		})
 	}
 }
+
+
+func TestUpdateProgressReportsDownloadedPercentage(t *testing.T) {
+	service := NewUpdateService("1.0.0", filepath.Join(t.TempDir(), "My-LiveHub.exe"), nil)
+	service.progressTotal.Store(100)
+	service.progressStage.Store("downloading")
+	writer := updateProgressWriter{service: service}
+	if n, err := writer.Write([]byte(strings.Repeat("x", 42))); err != nil || n != 42 {
+		t.Fatalf("progress writer = (%d, %v), want (42, nil)", n, err)
+	}
+	progress := service.GetUpdateProgress()
+	if progress.Stage != "downloading" || progress.Downloaded != 42 || progress.Total != 100 || progress.Percentage != 42 {
+		t.Fatalf("unexpected update progress: %+v", progress)
+	}
+}
