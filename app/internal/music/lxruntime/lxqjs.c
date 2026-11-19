@@ -157,7 +157,8 @@ extern char *lxqjsGoMD5(const char *data, size_t length);
 extern void *lxqjsGoRandomBytes(size_t length);
 extern void *lxqjsGoBufferFrom(const char *data, size_t data_len, const char *encoding, size_t *out_len);
 extern void *lxqjsGoBufferToString(const char *data, size_t data_len, const char *encoding, size_t *out_len);
-extern void *lxqjsGoRSAEncrypt(const char *data, size_t data_len, const char *key, size_t key_len, size_t *out_len);\nextern void *lxqjsGoAESEncrypt(const char *data, size_t data_len, const char *mode, const char *key, size_t key_len, const char *iv, size_t iv_len, size_t *out_len);
+extern void *lxqjsGoRSAEncrypt(const char *data, size_t data_len, const char *key, size_t key_len, size_t *out_len);
+extern void *lxqjsGoAESEncrypt(const char *data, size_t data_len, const char *mode, const char *key, size_t key_len, const char *iv, size_t iv_len, size_t *out_len);
 extern void *lxqjsGoZlib(const char *data, size_t data_len, int inflate, size_t *out_len, char **error_out);
 
 static JSValue lxqjs_md5_callback(JSContext *context, JSValueConst this_val,
@@ -402,7 +403,9 @@ int lxqjs_install_crypto(LXQJSState *state, char **error_out) {
         JS_NewCFunction(context, lxqjs_md5_callback, "md5", 1));
     if (result >= 0) result = JS_SetPropertyStr(context, crypto_object, "aesEncrypt",
         JS_NewCFunction(context, lxqjs_aes_encrypt_callback, "aesEncrypt", 4));
-    if (result >= 0) result = JS_SetPropertyStr(context, crypto_object, "rsaEncrypt",\n        JS_NewCFunction(context, lxqjs_rsa_encrypt_callback, "rsaEncrypt", 2));\n    if (result >= 0) result = JS_SetPropertyStr(context, crypto_object, "randomBytes",
+    if (result >= 0) result = JS_SetPropertyStr(context, crypto_object, "rsaEncrypt",
+        JS_NewCFunction(context, lxqjs_rsa_encrypt_callback, "rsaEncrypt", 2));
+    if (result >= 0) result = JS_SetPropertyStr(context, crypto_object, "randomBytes",
         JS_NewCFunction(context, lxqjs_random_bytes_callback, "randomBytes", 1));
 
 
