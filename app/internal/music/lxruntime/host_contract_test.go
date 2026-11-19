@@ -57,7 +57,7 @@ lx.send('not-supported', {}).catch(error => __badEvent = error.message);
 		t.Fatal(err)
 	}
 	value, err := rt.Eval(context.Background(), `__badEvent`, "lx-invalid-event-result.js")
-	if err != nil || !strings.Contains(value, 'not supported') {
+	if err != nil || !strings.Contains(value, "not supported") {
 		t.Fatalf("unsupported event rejection = %q, err = %v", value, err)
 	}
 	_, err = rt.Eval(context.Background(), `
