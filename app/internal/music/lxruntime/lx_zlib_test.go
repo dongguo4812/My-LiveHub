@@ -4,6 +4,7 @@ package lxruntime
 
 import (
 	"bytes"
+	"compress/zlib"
 	"testing"
 )
 
@@ -27,9 +28,20 @@ func TestLXZlibEnforcesInputAndOutputLimits(t *testing.T) {
 	if _, err := lxZlibDeflate(bytes.Repeat([]byte("x"), lxMaxZlibInputBytes+1)); err == nil {
 		t.Fatal("expected oversized deflate input to fail")
 	}
-	compressed, err := lxZlibDeflate(bytes.Repeat([]byte("x"), lxMaxZlibOutputBytes+1))
-	if err != nil { t.Fatal(err) }
-	if _, err := lxZlibInflate(compressed); err == nil {
+	// Build the oversized stream directly: lxZlibDeflate correctly rejects
+	// inputs above its own 8 MiB limit, so it cannot create this fixture.
+	var encoded bytes.Buffer
+	writer := zlib.NewWriter(&encoded)
+	if _, err := writer.Write(bytes.Repeat([]byte("x"), lxMaxZlibOutputBytes+1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if encoded.Len() >= lxMaxZlibInputBytes {
+		t.Fatalf("test fixture unexpectedly exceeds compressed input limit: %d", encoded.Len())
+	}
+	if _, err := lxZlibInflate(encoded.Bytes()); err == nil {
 		t.Fatal("expected oversized inflate output to fail")
 	}
 }
