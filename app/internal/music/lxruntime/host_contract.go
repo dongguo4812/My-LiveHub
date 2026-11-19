@@ -64,6 +64,9 @@ const lxHostBootstrap = `
     local: ['musicUrl', 'lyric', 'pic']
   };
   const handlers = Object.create(null);
+  const pendingRequests = new Map();
+  const requestQueue = [];
+  let nextRequestID = 1;
   const state = { initialized: false, initInfo: null, updateAlertShown: false };
   const unavailable = name => function() {
     throw new Error('LX host capability is not implemented: ' + name);
@@ -142,7 +145,18 @@ const lxHostBootstrap = `
         reject(new Error('Unknown event name: ' + eventName));
       });
     },
-    request: unavailable('request'),
+    request(url, { method = 'get', timeout, headers, body, form, formData }, callback) {
+      if (typeof callback !== 'function') throw new TypeError('callback must be a function');
+      const id = nextRequestID++;
+      pendingRequests.set(id, callback);
+      requestQueue.push({ id, url: String(url), method, timeout, headers: headers || {}, body, form, formData });
+      return () => {
+        const fn = pendingRequests.get(id);
+        if (!fn) return;
+        pendingRequests.delete(id);
+        fn.call(lx, new Error('Cancel request'), null, null);
+      };
+    },
     utils: {
       crypto: {
         aesEncrypt: unavailable('crypto.aesEncrypt'),
@@ -160,6 +174,19 @@ const lxHostBootstrap = `
       }
     }
   };
+  Object.defineProperty(globalThis, '__lxTakeRequests', {
+    value: () => requestQueue.splice(0, requestQueue.length), configurable: true
+  });
+  Object.defineProperty(globalThis, '__lxCompleteRequest', {
+    value: (id, error, response) => {
+      const callback = pendingRequests.get(id);
+      if (!callback) return false;
+      pendingRequests.delete(id);
+      if (error) callback.call(lx, new Error(String(error)), null, null);
+      else callback.call(lx, null, response, response.body);
+      return true;
+    }, configurable: true
+  });
   Object.defineProperty(globalThis, '__lxHostState', { value: state, configurable: true });
   Object.defineProperty(globalThis, '__lxHostHandlers', { value: handlers, configurable: true });
   globalThis.lx = lx;
