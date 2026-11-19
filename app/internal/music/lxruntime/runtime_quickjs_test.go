@@ -451,14 +451,21 @@ func TestLXSourceRequestsServerConfigurationAgainstRealLXHost(t *testing.T) {
 	rt := newTestRuntime(t, 10*time.Second)
 	type capturedRequest struct {
 		method string
-		url string
+		scheme string
+		host string
+		path string
+		queryKeys []string
+		versionParam string
 		headerNames []string
 		bodyLength int
 		bodyJSONKeys []string
 	}
 	var requests []capturedRequest
 	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		captured := capturedRequest{method: request.Method, url: request.URL.String()}
+		captured := capturedRequest{method: request.Method, scheme: request.URL.Scheme, host: request.URL.Host, path: request.URL.Path, versionParam: request.URL.Query().Get("v")}
+		for name := range request.URL.Query() {
+			captured.queryKeys = append(captured.queryKeys, name)
+		}
 		for name := range request.Header {
 			captured.headerNames = append(captured.headerNames, name)
 		}
@@ -479,19 +486,19 @@ func TestLXSourceRequestsServerConfigurationAgainstRealLXHost(t *testing.T) {
 	})}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	err = rt.InitializeLXSource(ctx, ScriptInfo{Name: "lx.js", Version: "fixture", RawScript: string(source)}, string(source), client)
+	err = rt.InitializeLXSource(ctx, ScriptInfo{Name: "独家音源", Version: "7", Author: "w", Description: "后续更新，请关注微信公众号: 洛雪科技", RawScript: string(source)}, string(source), client)
 	if err == nil {
 		t.Fatal("expected initialization to remain incomplete with an empty server-configuration response")
 	}
 	if len(requests) != 1 {
 		t.Fatalf("server configuration requests = %d, want exactly 1 (initialization error: %v)", len(requests), err)
 	}
-	t.Logf("captured /rconfig request: method=%s url=%s headerNames=%v bodyLength=%d bodyJSONKeys=%v",
-		requests[0].method, requests[0].url, requests[0].headerNames, requests[0].bodyLength, requests[0].bodyJSONKeys)
-	if !strings.Contains(requests[0].url, "/rconfig") {
-		t.Fatalf("configuration request URL = %q, want path /rconfig", requests[0].url)
+	t.Logf("captured /rconfig request: method=%s scheme=%s host=%s path=%s queryKeys=%v versionParam=%q headerNames=%v bodyLength=%d bodyJSONKeys=%v",
+		requests[0].method, requests[0].scheme, requests[0].host, requests[0].path, requests[0].queryKeys, requests[0].versionParam, requests[0].headerNames, requests[0].bodyLength, requests[0].bodyJSONKeys)
+	if requests[0].path != "/rconfig" {
+		t.Fatalf("configuration request path = %q, want /rconfig", requests[0].path)
 	}
-	if !strings.HasPrefix(requests[0].url, "https://") {
-		t.Fatalf("configuration request URL is not HTTPS: %s", requests[0].url)
+	if requests[0].host == "" || requests[0].scheme != "https" {
+		t.Fatalf("configuration request is not absolute HTTPS: scheme=%q host=%q", requests[0].scheme, requests[0].host)
 	}
 }
