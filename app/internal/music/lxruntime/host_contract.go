@@ -75,7 +75,10 @@ const lxHostBootstrap = `
   const requestQueue = [];
   let nextRequestID = 1;
   const state = { initialized: false, initInfo: null, updateAlertShown: false };
+  const missingCapabilities = [];
+  Object.defineProperty(globalThis, '__lxMissingCapabilities', { value: missingCapabilities, configurable: true });
   const unavailable = name => function() {
+    missingCapabilities.push(name);
     throw new Error('LX host capability is not implemented: ' + name);
   };
   const lx = {

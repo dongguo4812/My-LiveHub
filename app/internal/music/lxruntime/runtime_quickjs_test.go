@@ -398,7 +398,7 @@ func TestPinnedSourcesInitializeAgainstRealLXHost(t *testing.T) {
 			if _, err := rt.Eval(context.Background(), string(source), name+"-real-host.js"); err != nil {
 				t.Fatalf("initialize source against real LX host: %v", err)
 			}
-			value, err := rt.Eval(context.Background(), `JSON.stringify({ initialized: __lxHostState.initialized, sourceNames: Object.keys((__lxHostState.initInfo && __lxHostState.initInfo.sources) || {}).sort(), debugSend: globalThis.__lxDebugSend || null, requestHandler: typeof __lxHostHandlers.request, rawScriptAvailable: lx.currentScriptInfo.rawScript.length > 0 })`, "pinned-source-real-host-result.js")
+			value, err := rt.Eval(context.Background(), `JSON.stringify({ initialized: __lxHostState.initialized, sourceNames: Object.keys((__lxHostState.initInfo && __lxHostState.initInfo.sources) || {}).sort(), debugSend: globalThis.__lxDebugSend || null, missingCapabilities: globalThis.__lxMissingCapabilities || [], requestHandler: typeof __lxHostHandlers.request, rawScriptAvailable: lx.currentScriptInfo.rawScript.length > 0 })`, "pinned-source-real-host-result.js")
 			if err != nil { t.Fatal(err) }
 			var result struct { Initialized bool `json:"initialized"`; SourceNames []string `json:"sourceNames"`; RequestHandler string `json:"requestHandler"`; RawScriptAvailable bool `json:"rawScriptAvailable"` }
 			if err := json.Unmarshal([]byte(value), &result); err != nil { t.Fatalf("decode initialization result %q: %v", value, err) }
