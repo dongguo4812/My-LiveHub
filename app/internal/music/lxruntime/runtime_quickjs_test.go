@@ -97,16 +97,30 @@ globalThis.clearInterval = () => {};
 globalThis.queueMicrotask = fn => Promise.resolve().then(fn);
 globalThis.window = globalThis;
 globalThis.document = { currentScript: { textContent: '' } };
+globalThis.URLSearchParams = class URLSearchParams {
+  constructor(value = '') { this.value = String(value); }
+  get() { return null; }
+  toString() { return this.value; }
+};
 globalThis.URL = class URL {
   constructor(value, base) {
     this.href = String(value);
     this.protocol = this.href.split(':')[0] + ':';
     this.hostname = '';
     this.pathname = '/';
-    this.searchParams = { get() { return null; } };
+    this.search = '';
+    this.hash = '';
+    this.searchParams = new URLSearchParams();
     if (base && !/^[a-z]+:/i.test(this.href)) this.href = String(base).replace(/\\/$/, '') + '/' + this.href.replace(/^\\//, '');
   }
 };
+globalThis.TextEncoder = class TextEncoder {
+  encode(value) { return new Uint8Array(Array.from(unescape(encodeURIComponent(String(value)))).map(c => c.charCodeAt(0))); }
+};
+globalThis.TextDecoder = class TextDecoder {
+  decode(value) { return decodeURIComponent(escape(Array.from(value || []).map(v => String.fromCharCode(v)).join(''))); }
+};
+globalThis.crypto = { getRandomValues(value) { return value; } };
 globalThis.btoa = value => value;
 globalThis.atob = value => value;
 const __lxHandlers = Object.create(null);
@@ -160,6 +174,9 @@ func TestLXSourceInitializationFixtures(t *testing.T) {
 			if _, err := rt.Eval(context.Background(), lxTestHostShim, "lx-test-host.js"); err != nil {
 				t.Fatalf("install LX host shim: %v", err)
 			}
+			if _, err := rt.Eval(context.Background(), "globalThis.lx.currentScriptInfo.rawScript = "+quoteJS(string(source)), "set-current-script.js"); err != nil {
+				t.Fatalf("set current script metadata: %v", err)
+			}
 			if _, err := rt.Eval(context.Background(), string(source), name); err != nil {
 				t.Fatalf("initialize source: %v", err)
 			}
@@ -188,6 +205,9 @@ func TestHelloWorldMusicURLResolutionWithMockHost(t *testing.T) {
 	}
 	rt := newTestRuntime(t, 5*time.Second)
 	if _, err := rt.Eval(context.Background(), lxTestHostShim, "lx-test-host.js"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.Eval(context.Background(), "globalThis.lx.currentScriptInfo.rawScript = "+quoteJS(string(source)), "set-current-script.js"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := rt.Eval(context.Background(), string(source), "helloworld.js"); err != nil {
