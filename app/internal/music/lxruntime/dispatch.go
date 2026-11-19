@@ -50,8 +50,12 @@ func (r *Runtime) DispatchLXRequest(ctx context.Context, source, action string, 
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		// Run due callbacks in a separate eval so QuickJS drains the
+		// Promise jobs they enqueue before the dispatch state is sampled.
+		if _, err := r.Eval(ctx, `globalThis.__lxRunDueTimers(); 'timers-pumped';`, "lx-dispatch-timers.js"); err != nil {
+			return nil, err
+		}
 		stateText, err := r.Eval(ctx, `
-globalThis.__lxRunDueTimers();
 JSON.stringify({
   done: !!globalThis.__lxDispatchResult.done,
   nextTimerDelay: globalThis.__lxNextTimerDelay(),
