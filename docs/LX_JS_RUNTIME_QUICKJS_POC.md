@@ -28,15 +28,15 @@ Validate whether My-LiveHub can embed QuickJS-NG in its existing Go/Wails Window
 - Record the compiler, build result, and generated binary sizes in CI.
 - Do not proceed if the upstream source cannot be built reproducibly on the project's Windows CI runner.
 
-### P1 — Go/CGo embedding proof
+### P1 — Go/CGo embedding proof (implementation added; CI evidence pending)
 
-- Add a narrow C wrapper around the QuickJS C API; do not adopt an unverified third-party Go binding.
-- Create and destroy one runtime/context on a dedicated locked OS thread.
-- Evaluate source, retrieve values/errors, and close idempotently.
-- Verify Promise job draining and callbacks across the Go/C boundary.
-- Verify memory, stack, and interrupt limits.
-- Measure the added executable size and baseline/idle/peak memory.
-- Keep this package opt-in until Windows CI and local Windows tests pass.
+- Added a narrow C wrapper around the QuickJS C API; no third-party Go binding is used.
+- Added a Go runtime host behind the `lxquickjs` build tag.
+- Runtime creation, evaluation, pending Promise jobs, interruption, and destruction are confined to one locked OS thread.
+- Memory and stack ceilings are configured at runtime creation; evaluation is interrupted on timeout or context cancellation.
+- Added tests for JS evaluation, Promise jobs, infinite-loop interruption, and source syntax.
+- Windows CI builds the static QuickJS library and runs the Go CGo tests. A passing CI result is still required before treating this phase as validated.
+- The runtime remains opt-in and is not wired into the production music service.
 
 ### P2 — LX host API compatibility
 
@@ -48,14 +48,14 @@ Implement only APIs supported by source inspection and executable fixtures:
 
 HTTP must be performed by Go. The JavaScript context must not receive unrestricted filesystem, process, module-loader, or native-library access.
 
-### P3 — Real source compatibility gate
+### P3 — Real source compatibility gate (test fixtures added; execution evidence pending)
 
-Use pinned copies of these three representative scripts as fixtures, with source URL, retrieval date, and SHA-256 recorded:
+Pinned snapshots of these scripts are stored under `app/internal/music/lxruntime/testdata/sources`:
 1. `lx/latest.js`
 2. `xinglan/latest.js`
 3. `helloworld/latest.js`
 
-For each fixture, test import/metadata parsing, initialization, source registration, search, music URL resolution, and error/timeout behavior where the script exposes those actions. A script that only parses or initializes is not counted as playback-compatible.
+The fixture manifest records the upstream blob SHA and retrieval date. Current tests cover syntax compilation, host-shim initialization, the `inited` event, request-handler registration, and one deterministic HelloWorld `kw/320k` URL-resolution path using a mocked HTTP response. These are deliberately narrow compatibility probes, not full API parity. Additional actions, real network behavior, and live playback still require separate tests.
 
 ### P4 — Production integration decision
 
