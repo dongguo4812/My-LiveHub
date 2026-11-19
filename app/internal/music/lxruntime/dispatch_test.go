@@ -48,6 +48,48 @@ lx.on('request', async ({ source, action, info }) => {
 	if value != "https://cdn.example/song.mp3" { t.Fatalf("dispatch result = %#v", value) }
 }
 
+
+func TestDispatchLXRequestPreservesHTTPErrorStatusInCallback(t *testing.T) {
+	const responseBody = "not found"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-LX-Trace", "fixture-418")
+		w.WriteHeader(http.StatusTeapot)
+		_, _ = w.Write([]byte(responseBody))
+	}))
+	defer server.Close()
+
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{Name: "http-status-dispatch"}); err != nil {
+		t.Fatal(err)
+	}
+	install := `
+lx.on('request', async () => await new Promise((resolve, reject) => {
+  lx.request(` + string(mustJSONQuote(server.URL)) + `, {}, (err, resp, body) => {
+    if (err) return reject(err);
+    if (resp.statusCode !== 418) return reject(new Error('statusCode was not preserved'));
+    if (resp.statusMessage !== "418 I'm a teapot") return reject(new Error('statusMessage was not preserved: ' + resp.statusMessage));
+    if (!resp.headers['X-Lx-Trace'] || resp.headers['X-Lx-Trace'][0] !== 'fixture-418') return reject(new Error('response headers were not preserved'));
+    if (resp.bytes !== 9 || body !== 'not found' || resp.body !== body) return reject(new Error('response body metadata was not preserved'));
+    if (!(resp.raw instanceof Uint8Array) || resp.raw.length !== 9) return reject(new Error('raw response bytes were not delivered as Uint8Array'));
+    resolve('http-status-and-callback-contract-ok');
+  });
+}));
+'registered';
+`
+	if _, err := rt.Eval(context.Background(), install, "register-http-status-dispatch.js"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	value, err := rt.DispatchLXRequest(ctx, "kw", "musicUrl", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != "http-status-and-callback-contract-ok" {
+		t.Fatalf("dispatch result = %#v", value)
+	}
+}
+
 func TestDispatchLXRequestPropagatesHTTPFailure(t *testing.T) {
 	rt := newTestRuntime(t, 5*time.Second)
 	if err := rt.InstallLXHost(context.Background(), ScriptInfo{}); err != nil { t.Fatal(err) }
