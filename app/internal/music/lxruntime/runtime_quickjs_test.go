@@ -135,7 +135,7 @@ globalThis.lx = {
     if (typeof callback === 'function') callback(null, {
       statusCode: 200,
       headers: { 'content-type': 'text/plain' },
-      body: 'https://cdn.example.invalid/fixture.mp3'
+      body: '{\"code\":200,\"url\":\"https://cdn.example.invalid/fixture.mp3\",\"data\":{\"url\":\"https://cdn.example.invalid/fixture.mp3\"}}'
     });
     return () => {};
   },
@@ -237,6 +237,45 @@ Promise.resolve(globalThis.__lxGetHandler('request')({
 	}
 	if value != "https://cdn.example.invalid/fixture.mp3" {
 		errText, _ := rt.Eval(context.Background(), "globalThis.__lxResolveError", "read-error.js")
+		t.Fatalf("music URL result = %q, error = %q", value, errText)
+	}
+}
+
+func TestXinglanMusicURLResolutionWithMockHost(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntime(t, 5*time.Second)
+	if _, err := rt.Eval(context.Background(), lxTestHostShim, "lx-test-host.js"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.Eval(context.Background(), "globalThis.lx.currentScriptInfo.rawScript = "+quoteJS(string(source)), "set-current-script.js"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.Eval(context.Background(), string(source), "xinglan.js"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = rt.Eval(context.Background(), \`
+globalThis.__lxResolveError = '';
+globalThis.__lxResolveValue = '';
+Promise.resolve(globalThis.__lxGetHandler('request')({
+  source: 'kw',
+  action: 'musicUrl',
+  info: { musicInfo: { songmid: 'fixture-song-001', name: 'Fixture Song' }, type: '320k' }
+})).then(value => { globalThis.__lxResolveValue = value; })
+  .catch(error => { globalThis.__lxResolveError = String(error); });
+'started';
+\`, "resolve-xinglan-fixture.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := rt.Eval(context.Background(), "globalThis.__lxResolveValue", "read-xinglan-url.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != "https://cdn.example.invalid/fixture.mp3" {
+		errText, _ := rt.Eval(context.Background(), "globalThis.__lxResolveError", "read-xinglan-error.js")
 		t.Fatalf("music URL result = %q, error = %q", value, errText)
 	}
 }
