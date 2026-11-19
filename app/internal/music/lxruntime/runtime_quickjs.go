@@ -152,8 +152,9 @@ func (r *Runtime) loop(opts Options, ready chan<- error) {
 			cmd.result <- evalResult{err: err}
 			continue
 		}
+		resultText := C.GoString(value)
 		C.lxqjs_string_free(value)
-		cmd.result <- evalResult{value: C.GoString(value)}
+		cmd.result <- evalResult{value: resultText}
 	}
 }
 
@@ -174,6 +175,8 @@ func (r *Runtime) Eval(ctx context.Context, source, filename string) (string, er
 	select {
 	case <-r.done:
 		return "", errors.New("QuickJS runtime is closed")
+	case <-ctx.Done():
+		return "", ctx.Err()
 	case r.commands <- cmd:
 	}
 	select {
