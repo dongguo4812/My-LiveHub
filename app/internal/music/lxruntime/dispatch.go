@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // DispatchLXRequest invokes one LX source action and services every lx.request
@@ -50,8 +51,10 @@ func (r *Runtime) DispatchLXRequest(ctx context.Context, source, action string, 
 			return nil, err
 		}
 		stateText, err := r.Eval(ctx, `
+globalThis.__lxRunDueTimers();
 JSON.stringify({
   done: !!globalThis.__lxDispatchResult.done,
+  nextTimerDelay: globalThis.__lxNextTimerDelay(),
   value: globalThis.__lxDispatchResult.value,
   error: globalThis.__lxDispatchResult.error || '',
   requests: globalThis.__lxTakeRequests()
@@ -64,6 +67,7 @@ JSON.stringify({
 			Done     bool                 `json:"done"`
 			Value    any                  `json:"value"`
 			Error    string               `json:"error"`
+			NextTimerDelay int64          `json:"nextTimerDelay"`
 			Requests []lxRequestDescriptor `json:"requests"`
 		}
 		if err := json.Unmarshal([]byte(stateText), &state); err != nil {
@@ -76,7 +80,18 @@ JSON.stringify({
 				}
 				return state.Value, nil
 			}
-			return nil, errors.New("LX dispatch: source action is waiting for an unsupported asynchronous host capability")
+			if state.NextTimerDelay < 0 {
+				return nil, errors.New("LX dispatch: source action is waiting for an unsupported asynchronous host capability")
+			}
+			wait := time.Duration(state.NextTimerDelay) * time.Millisecond
+			if wait > 10*time.Millisecond { wait = 10*time.Millisecond }
+			if wait < time.Millisecond { wait = time.Millisecond }
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(wait):
+			}
+			continue
 		}
 		for _, request := range state.Requests {
 			processed++

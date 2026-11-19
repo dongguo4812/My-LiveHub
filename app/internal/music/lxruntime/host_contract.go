@@ -179,6 +179,49 @@ const lxHostBootstrap = `
       }
     }
   };
+  // Minimal event-loop timers. DispatchLXRequest pumps due callbacks between
+  // host I/O operations; timers are never executed during a synchronous eval.
+  const timers = new Map();
+  let nextTimerID = 1;
+  globalThis.setTimeout = (callback, delay = 0, ...args) => {
+    if (typeof callback !== 'function') throw new TypeError('callback must be a function');
+    const id = nextTimerID++;
+    const milliseconds = Math.max(0, Math.min(Number(delay) || 0, 2147483647));
+    timers.set(id, { callback, args, due: Date.now() + milliseconds });
+    return id;
+  };
+  globalThis.clearTimeout = id => { timers.delete(Number(id)); };
+  Object.defineProperty(globalThis, '__lxRunDueTimers', {
+    value: () => {
+      let executed = 0;
+      while (executed < 1000) {
+        const now = Date.now();
+        let selectedID = 0;
+        let selected = null;
+        for (const [id, timer] of timers) {
+          if (timer.due <= now && (!selected || timer.due < selected.due)) {
+            selectedID = id;
+            selected = timer;
+          }
+        }
+        if (!selected) break;
+        timers.delete(selectedID);
+        try { selected.callback(...selected.args); }
+        catch (error) { globalThis.__lxTimerErrors.push(String(error && error.message || error)); }
+        executed++;
+      }
+      return executed;
+    }, configurable: true
+  });
+  Object.defineProperty(globalThis, '__lxNextTimerDelay', {
+    value: () => {
+      if (timers.size === 0) return -1;
+      let due = Infinity;
+      for (const timer of timers.values()) if (timer.due < due) due = timer.due;
+      return Math.max(0, due - Date.now());
+    }, configurable: true
+  });
+  Object.defineProperty(globalThis, '__lxTimerErrors', { value: [], configurable: true });
   Object.defineProperty(globalThis, '__lxTakeRequests', {
     value: () => requestQueue.splice(0, requestQueue.length), configurable: true
   });

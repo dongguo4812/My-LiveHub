@@ -251,3 +251,35 @@ func TestLXHostBufferUTF16LECompatibility(t *testing.T) {
 	want := `{"lxHex":"f397504e3cd8b5df","lxRoundTrip":"音乐🎵","bufferHex":"f397504e3cd8b5df","bufferRoundTrip":"音乐🎵","oddByteIgnored":"A"}`
 	if value != want { t.Fatalf("UTF-16LE compatibility = %q, want %q", value, want) }
 }
+
+
+func TestLXDispatchPumpsSetTimeoutCallbacks(t *testing.T) {
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{}); err != nil { t.Fatal(err) }
+	if _, err := rt.Eval(context.Background(), `
+lx.on('request', async () => new Promise(resolve => {
+  setTimeout(() => resolve('timer-fired'), 15);
+}));
+'registered';
+`, "lx-timer-handler.js"); err != nil { t.Fatal(err) }
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	value, err := rt.DispatchLXRequest(ctx, "kw", "musicUrl", map[string]any{"id":"timer-test"})
+	if err != nil { t.Fatal(err) }
+	if value != "timer-fired" { t.Fatalf("timer dispatch result = %#v", value) }
+}
+
+func TestLXHostSetTimeoutAndClearTimeout(t *testing.T) {
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{}); err != nil { t.Fatal(err) }
+	value, err := rt.Eval(context.Background(), `
+globalThis.__timerProbe = 0;
+const cancelled = setTimeout(() => { __timerProbe += 100; }, 0);
+clearTimeout(cancelled);
+setTimeout((increment) => { __timerProbe += increment; }, 0, 7);
+__lxRunDueTimers();
+__timerProbe;
+`, "lx-timer-contract.js")
+	if err != nil { t.Fatal(err) }
+	if value != "7" { t.Fatalf("timer contract result = %q, want 7", value) }
+}
