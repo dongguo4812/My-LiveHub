@@ -1,40 +1,30 @@
 # N5: deterministic LX source protocol matrix
 
-This matrix is an integration-test inventory for the four pinned JavaScript fixtures.
-Every test must execute the checked-in source file in QuickJS. Network traffic must
-be intercepted by a deterministic Go `http.RoundTripper`; tests must never contact
-the upstream service.
+Every protocol integration test executes the checked-in JavaScript fixture in QuickJS.
+Outbound HTTP is intercepted by a deterministic Go `http.RoundTripper`; tests must
+never contact upstream services.
 
 ## Fixture matrix
 
-| Fixture | Initialization protocol | Action protocol exercised | Existing deterministic coverage | Current boundary |
-|---|---|---|---|---|
-| `lx.js` | Server-managed `/rconfig` request before `inited` | Configuration request method, HTTPS URL, version parameter, headers/body shape | `TestLXSourceRequestsServerConfigurationAgainstRealLXHost` | The current fixture test intentionally returns an invalid empty config and asserts the exact request; successful config parsing and post-init action dispatch are not yet proven. |
-| `xinglan.js` | Local initialization and source registration | Migu music URL resolution, JSON POST payload, response URL parsing, 320k URL rewrite/probe | `TestPinnedSourcesInitializeAgainstRealLXHost`, `TestXinglanRealSourceResolvesMiguURLThroughNativeLXRequest` | One deterministic Migu route is covered; other platform backends and failure/fallback combinations remain open. |
-| `helloworld.js` | Local initialization and source registration | QQ music URL fallback, native Buffer token construction, HTTP response URL parsing | `TestPinnedSourcesInitializeAgainstRealLXHost`, `TestHelloWorldSourceBuildsRequestTokenThroughNativeLXBuffer` | The token-bearing Migu route is exercised; remaining API templates, quality fallback ordering, and Buffer edge cases need additional source-level cases. |
-| `huanyin.js` | Local initialization and source registration | Migu search, search-result-to-playback flow, metadata mismatch retry, cache, platform URL mapping | `TestHuanyinSourceInitializesAndDispatchesMusicURL`, `TestHuanyinMiguMusicURLRetriesMetadataMismatchAndCachesResult`, `TestHuanyinMiguSearchStopsWhenRequestedLimitIsReached`, `TestHuanyinSearchResultFlowsIntoMusicURLResolution`, `TestHuanyinPlatformURLMappingCoversAllNativePlatforms` | QQ/Kuwo/Netease URL construction is local; Migu HTTP is mocked. More negative response and timeout cases remain open. |
+| Fixture | Initialization | Source-level protocol paths covered | Remaining gap / boundary |
+|---|---|---|---|
+| `lx.js` | Real LX Host issues its server-managed `/rconfig` request, but initialization is deliberately expected to remain incomplete when the mock returns an invalid empty object. | `TestLXSourceRequestsServerConfigurationAgainstRealLXHost` asserts GET, HTTPS, `/rconfig`, version parameter, and empty request body. Separate syntax and shim-based registration tests exist, but do not prove a valid server handshake. | Successful `/rconfig` response parsing and post-handshake actions remain unverified. The response schema must be derived from the pinned source/server contract before adding a success fixture; do not invent a config response. |
+| `xinglan.js` | Real LX Host initialization and source registration. | Migu music URL resolution, JSON POST payload, response parsing, 320k URL rewrite/probe; QQ v2→v3 fallback; 13-provider all-fail aggregation; concurrent head-provider success and sequential-tail suppression. | These are deterministic mocks. Additional platform-specific live service behavior is not established. |
+| `helloworld.js` | Real LX Host initialization and source registration. | QQ music URL resolution; pinned source's native Buffer token construction with captured token decoding; five-API FLAC failure followed by 320k quality retry. | Remaining API templates and real upstream behavior are not proven. |
+| `huanyin.js` | Real LX Host initialization and source registration. | Local platform URL mapping; Migu search; search-result-to-playback flow; metadata mismatch retry/cache; album→singer→title negative-response fallback; transport-error fallback; three sequential source-level timeout/cancellation attempts. | QQ/Kuwo/Netease coverage currently checks local URL construction, not remote playback. Migu HTTP behavior is deterministic mock-only. |
 
-## Protocol assertions required for N5
+## Cross-cutting Host/runtime coverage
 
-1. **Initialization**: execute the real pinned source, assert whether it sends `inited`,
-   verify advertised source/action/quality metadata, and verify request-handler registration.
-2. **Request contract**: assert method, URL scheme/host/path/query, relevant headers,
-   body encoding, and request count. Do not accept a request merely because it returned 200.
-3. **Response contract**: provide deterministic success, malformed, empty, and non-2xx
-   responses where the source has corresponding branches; assert the actual source result
-   or rejection.
-4. **Async lifecycle**: exercise callbacks/promises and timers through the real QuickJS
-   dispatch loop, not a JavaScript-only mock of the source handler.
-5. **Buffer/crypto contract**: assert the real source invokes native host methods and
-   validate resulting bytes/payloads at the Go HTTP boundary.
-6. **Isolation**: fail the test on any unrecognized outbound request; never use live
-   credentials, service responses, or third-party network access.
+- Promise microtask draining, timer lifecycle/order, in-flight HTTP cancellation, and interruption of an infinite loop.
+- Node Buffer identity and byte/encoding behavior, including latin1/binary/ascii and base64/base64url cases.
+- Tests that use the lightweight JavaScript shim are explicitly shim tests; they do not substitute for real LX Host integration tests.
 
-## Completion criteria
+## Completion boundary
 
-N5 is not complete merely because all four scripts parse or initialize. Each fixture
-must have a deterministic, source-level protocol path with explicit request and response
-assertions. The `lx.js` successful server-config handshake is a known gap and must be
-resolved from the pinned source's actual config schema, not by inventing a response.
-A passing matrix proves only the listed deterministic contracts; it does not prove
-live service availability, entitlement bypass, or guaranteed playback.
+N5 does not mean all four fixtures have equal coverage. In particular, the pinned
+`lx.js` fixture's valid server-configuration handshake remains an explicit blocker.
+The real-host request-shape test is not an initialization-success test.
+
+A passing test proves only the deterministic source/Host contract asserted by that test.
+It does not prove live endpoint availability, account entitlements, VIP bypass, or
+guaranteed playback. No test in this matrix should access live third-party services.
