@@ -4,11 +4,15 @@ package lxruntime
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -175,5 +179,46 @@ lx.on('request', async () => await new Promise((resolve, reject) => {
 	}
 	if value != "binary-raw-response-ok" {
 		t.Fatalf("dispatch result = %#v", value)
+	}
+}
+
+
+// TestXinglanEAPIUsesNativeCryptoAndBufferHost exercises the real source's
+// MD5 -> AES-128-ECB -> lx.utils.buffer.bufToString('hex') call chain.
+func TestXinglanEAPIUsesNativeCryptoAndBufferHost(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
+	if err != nil { t.Fatal(err) }
+
+	rt := newTestRuntime(t, 10*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{
+		Name: "Xinglan EAPI integration", Version: "4.0.2", RawScript: string(source),
+	}); err != nil { t.Fatalf("install LX host: %v", err) }
+	if _, err := rt.Eval(context.Background(), string(source), "xinglan-eapi-crypto.js"); err != nil {
+		t.Fatalf("initialize real Xinglan source: %v", err)
+	}
+
+	const endpoint = "/api/song/enhance/player/url/v1"
+	const payloadJSON = `{"ids":"[\"fixture-song\"]","level":"standard","encodeType":"flac"}`
+	value, err := rt.Eval(context.Background(), `
+		const payload = { ids: '["fixture-song"]', level: 'standard', encodeType: 'flac' };
+		JSON.stringify(wyEapi('/api/song/enhance/player/url/v1', payload))
+	`, "xinglan-eapi-crypto-result.js")
+	if err != nil { t.Fatalf("execute Xinglan EAPI helper: %v", err) }
+
+	digestInput := "nobody" + endpoint + "use" + payloadJSON + "md5forencrypt"
+	digest := md5.Sum([]byte(digestInput))
+	plain := []byte(endpoint + "-36cd479b6b5-" + payloadJSON + "-36cd479b6b5-" + hex.EncodeToString(digest[:]))
+	padding := aes.BlockSize - len(plain)%aes.BlockSize
+	for i := 0; i < padding; i++ { plain = append(plain, byte(padding)) }
+	key := []byte("e82ckenh8dichen8")
+	block, err := aes.NewCipher(key)
+	if err != nil { t.Fatal(err) }
+	encrypted := make([]byte, len(plain))
+	for offset := 0; offset < len(plain); offset += aes.BlockSize {
+		block.Encrypt(encrypted[offset:offset+aes.BlockSize], plain[offset:offset+aes.BlockSize])
+	}
+	want := `{"params":"` + strings.ToUpper(hex.EncodeToString(encrypted)) + `"}`
+	if value != want {
+		t.Fatalf("Xinglan EAPI host result mismatch:\n got: %s\nwant: %s", value, want)
 	}
 }
