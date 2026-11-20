@@ -141,3 +141,35 @@ JSON.stringify({digest, randomLength: random.length, encryptedLength: encrypted.
 	want := `{"digest":"900150983cd24fb0d6963f7d28e17f72","randomLength":24,"encryptedLength":16}`
 	if value != want { t.Fatalf("native crypto callbacks = %s, want %s", value, want) }
 }
+
+
+
+func TestLXHostZlibNativeCallbacksAreLinkedAndPromiseBased(t *testing.T) {
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{Name: "zlib-host-contract"}); err != nil {
+		t.Fatal(err)
+	}
+	value, err := rt.Eval(context.Background(), `
+(async () => {
+  const original = Buffer.from('洛雪音源 QuickJS zlib host contract');
+  const compressed = await lx.utils.zlib.deflate(original);
+  if (!(compressed instanceof Uint8Array)) throw new Error('deflate did not return Uint8Array');
+  if (compressed.length === 0) throw new Error('deflate returned empty output');
+  const restored = await lx.utils.zlib.inflate(compressed);
+  if (!(restored instanceof Uint8Array)) throw new Error('inflate did not return Uint8Array');
+  const text = Buffer.from(restored).toString('utf8');
+  if (text !== '洛雪音源 QuickJS zlib host contract') throw new Error('inflate round-trip mismatch: ' + text);
+  let rejected = false;
+  try { await lx.utils.zlib.inflate(Buffer.from('not a zlib stream')); }
+  catch (error) { rejected = /zlib inflate/.test(error.message); }
+  if (!rejected) throw new Error('invalid zlib input did not reject with host error');
+  return 'zlib-native-host-ok';
+})()
+`, "lx-zlib-host-contract.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != "zlib-native-host-ok" {
+		t.Fatalf("zlib host contract = %q", value)
+	}
+}
