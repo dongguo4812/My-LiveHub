@@ -166,3 +166,53 @@ func TestHuanyinMiguPlaybackDoesNotAcceptServerErrorBodies(t *testing.T) {
 		if keywords[i] != want[i] { t.Fatalf("HTTP 503 attempt %d keyword = %q, want %q (all: %v)", i+1, keywords[i], want[i], keywords) }
 	}
 }
+
+
+// TestHuanyinMiguSearchDoesNotAcceptServerErrorBodies verifies that the
+// search handler also rejects HTTP error bodies that contain a success-shaped
+// JSON payload, and continues through its bounded page sequence.
+func TestHuanyinMiguSearchDoesNotAcceptServerErrorBodies(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "huanyin.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntime(t, 12*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var pages []string
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet || request.URL.Host != "api.xcvts.cn" || request.URL.Path != "/api/music/migu" {
+			return nil, fmt.Errorf("unexpected Huanyin search-status request: %s %s", request.Method, request.URL.Redacted())
+		}
+		pages = append(pages, request.URL.Query().Get("n"))
+		body := `{"code":200,"title":"错误状态歌曲","artist":"错误状态歌手","album":"错误状态专辑","music_url":"https://cdn.example.invalid/should-not-play.mp3"}`
+		return &http.Response{
+			StatusCode: http.StatusServiceUnavailable, Status: "503 Service Unavailable",
+			Header: http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(body)), Request: request,
+		}, nil
+	})}
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{
+		Name: "幻音音源", Version: "v3", Author: "竹佀", RawScript: string(source),
+	}, string(source), client); err != nil {
+		t.Fatalf("initialize pinned Huanyin source: %v", err)
+	}
+
+	_, err = rt.dispatchLXRequest(ctx, "mg", "search", map[string]any{
+		"keyword": "错误状态歌曲", "limit": 10,
+	}, client)
+	if err == nil || !strings.Contains(err.Error(), "没找到") {
+		t.Fatalf("HTTP 503 search result = %v, want source-level not-found error", err)
+	}
+	want := []string{"1", "2", "3"}
+	if len(pages) != len(want) {
+		t.Fatalf("HTTP 503 search pages = %v, want %v", pages, want)
+	}
+	for i := range want {
+		if pages[i] != want[i] {
+			t.Fatalf("HTTP 503 search page[%d] = %q, want %q (all: %v)", i, pages[i], want[i], pages)
+		}
+	}
+}
