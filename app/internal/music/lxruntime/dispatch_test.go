@@ -129,3 +129,49 @@ func TestXinglanRealHostDispatchesRealSourceThroughHTTPClient(t *testing.T) {
 	if value != "https://cdn.example.invalid/real-http-fixture.mp3" { t.Fatalf("resolved URL = %#v", value) }
 	if requests != 1 { t.Fatalf("HTTP requests = %d, want 1", requests) }
 }
+
+
+// TestDispatchLXRequestPreservesBinaryRawResponseBytes verifies that lx.request
+// exposes the exact response octets through resp.raw, independently of the
+// text/JSON body decoding path.
+func TestDispatchLXRequestPreservesBinaryRawResponseBytes(t *testing.T) {
+	want := []byte{0x00, 0xff, 0x41, 0x80, 0x7f}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write(want)
+	}))
+	defer server.Close()
+
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{Name: "binary-response-contract"}); err != nil {
+		t.Fatal(err)
+	}
+	install := `
+lx.on('request', async () => await new Promise((resolve, reject) => {
+  lx.request(` + string(mustJSONQuote(server.URL)) + `, {}, (err, resp, body) => {
+    if (err) return reject(err);
+    const expected = [0, 255, 65, 128, 127];
+    if (resp.bytes !== expected.length) return reject(new Error('wrong response byte count: ' + resp.bytes));
+    if (!(resp.raw instanceof Uint8Array)) return reject(new Error('raw response is not Uint8Array'));
+    if (resp.raw.length !== expected.length) return reject(new Error('wrong raw response length'));
+    for (let i = 0; i < expected.length; i++) {
+      if (resp.raw[i] !== expected[i]) return reject(new Error('raw byte mismatch at ' + i + ': ' + resp.raw[i]));
+    }
+    resolve('binary-raw-response-ok');
+  });
+}));
+'registered';
+`
+	if _, err := rt.Eval(context.Background(), install, "register-binary-response.js"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	value, err := rt.DispatchLXRequest(ctx, "kw", "musicUrl", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != "binary-raw-response-ok" {
+		t.Fatalf("dispatch result = %#v", value)
+	}
+}
