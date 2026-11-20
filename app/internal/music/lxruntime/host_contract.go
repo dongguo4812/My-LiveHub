@@ -73,6 +73,7 @@ const lxHostBootstrap = `
   const handlers = Object.create(null);
   const pendingRequests = new Map();
   const requestQueue = [];
+  const abortQueue = [];
   let nextRequestID = 1;
   const state = { initialized: false, initInfo: null, updateAlertShown: false };
   const missingCapabilities = [];
@@ -166,6 +167,7 @@ const lxHostBootstrap = `
         pendingRequests.delete(id);
         const queuedIndex = requestQueue.findIndex(request => request.id === id);
         if (queuedIndex !== -1) requestQueue.splice(queuedIndex, 1);
+        abortQueue.push(id);
         fn.call(lx, new Error('Cancel request'), null, null);
       };
     },
@@ -244,6 +246,9 @@ const lxHostBootstrap = `
   Object.defineProperty(globalThis, '__lxTimerErrors', { value: [], configurable: true });
   Object.defineProperty(globalThis, '__lxTakeRequests', {
     value: () => requestQueue.splice(0, requestQueue.length), configurable: true
+  });
+  Object.defineProperty(globalThis, '__lxTakeAborts', {
+    value: () => abortQueue.splice(0, abortQueue.length), configurable: true
   });
   Object.defineProperty(globalThis, '__lxCompleteRequest', {
     value: (id, error, response) => {

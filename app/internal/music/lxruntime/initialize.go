@@ -41,6 +41,8 @@ func (r *Runtime) InitializeLXSource(ctx context.Context, info ScriptInfo, sourc
 
 	const maxRequests = 256
 	processed := 0
+	tasks := newLXHTTPTasks(client)
+	defer tasks.cancelAll()
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -54,7 +56,8 @@ JSON.stringify({
   initialized: !!globalThis.__lxHostState.initialized,
   requestHandler: typeof globalThis.__lxHostHandlers.request,
   nextTimerDelay: globalThis.__lxNextTimerDelay(),
-  requests: globalThis.__lxTakeRequests()
+  requests: globalThis.__lxTakeRequests(),
+  aborts: globalThis.__lxTakeAborts()
 })
 `, "lx-init-poll.js")
 		if err != nil {
@@ -65,40 +68,42 @@ JSON.stringify({
 			RequestHandler string                `json:"requestHandler"`
 			NextTimerDelay int64                 `json:"nextTimerDelay"`
 			Requests       []lxRequestDescriptor `json:"requests"`
+			Aborts         []uint64 `json:"aborts"`
 		}
 		if err := json.Unmarshal([]byte(stateText), &state); err != nil {
 			return fmt.Errorf("LX initialization: decode host state: %w", err)
 		}
+		tasks.abort(state.Aborts)
 		if len(state.Requests) > 0 {
-			for _, request := range state.Requests {
-				processed++
-				if processed > maxRequests {
-					return fmt.Errorf("LX initialization: request limit (%d) exceeded", maxRequests)
-				}
-				response, requestErr := executeLXHTTPRequest(ctx, request, client)
-				if err := r.completeLXRequest(ctx, request.ID, response, requestErr); err != nil {
-					return err
-				}
+			processed += len(state.Requests)
+			if processed > maxRequests {
+				return fmt.Errorf("LX initialization: request limit (%d) exceeded", maxRequests)
 			}
-			continue
-		}
-		if state.Initialized && state.RequestHandler == "function" {
-			return nil
-		}
-		if state.NextTimerDelay < 0 {
-			return fmt.Errorf("LX initialization: source did not initialize (initialized=%t, requestHandler=%s, requests=%d)", state.Initialized, state.RequestHandler, processed)
-		}
-		wait := time.Duration(state.NextTimerDelay) * time.Millisecond
-		if wait > 10*time.Millisecond {
-			wait = 10 * time.Millisecond
-		}
-		if wait < time.Millisecond {
-			wait = time.Millisecond
+			if err := tasks.start(ctx, state.Requests); err != nil {
+				return err
+			}
 		}
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(wait):
+		case result := <-tasks.completed:
+			if err := tasks.finish(ctx, r, result); err != nil {
+				return err
+			}
+		default:
+		}
+		if state.Initialized && state.RequestHandler == "function" && len(tasks.active) == 0 {
+			return nil
+		}
+		if !state.Initialized && len(tasks.active) == 0 && state.NextTimerDelay < 0 {
+			return fmt.Errorf("LX initialization: source did not initialize (initialized=%t, requestHandler=%s, requests=%d)", state.Initialized, state.RequestHandler, processed)
+		}
+		result, waitErr := tasks.wait(ctx, state.NextTimerDelay)
+		if waitErr != nil {
+			return waitErr
+		}
+		if result != nil {
+			if err := tasks.finish(ctx, r, *result); err != nil {
+				return err
+			}
 		}
 	}
 }
