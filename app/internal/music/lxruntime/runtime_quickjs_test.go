@@ -910,3 +910,72 @@ func TestHelloWorldSourceBuildsRequestTokenThroughNativeLXBuffer(t *testing.T) {
 		t.Fatalf("API requests: first=%d token=%d, want exactly one each", firstAPIRequests, tokenAPIRequests)
 	}
 }
+
+
+// TestLXSourceInitializesAgainstRealLXHostWithDeterministicConfigResponse
+// complements the request-shape rejection test above. It executes the pinned
+// lx.js snapshot through the production QuickJS LX host and supplies the same
+// minimal successful response shape used by the source fixture's legacy host
+// harness. This proves the /rconfig callback -> source init -> request handler
+// path, but does not claim that the mock is a live server configuration.
+func TestLXSourceInitializesAgainstRealLXHostWithDeterministicConfigResponse(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "lx.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntime(t, 10*time.Second)
+	defer rt.Close()
+
+	var requests int
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		requests++
+		if request.Method != http.MethodGet || request.URL.Scheme != "https" ||
+			request.URL.Path != "/rconfig" || request.URL.Query().Get("v") != "7" {
+			return nil, fmt.Errorf("unexpected lx.js configuration request: %s %s", request.Method, request.URL.Redacted())
+		}
+		// Keep the response deliberately minimal and deterministic. The source
+		// fixture's own initialization harness uses this JSON response shape.
+		body := `{"code":200,"url":"https://cdn.example.invalid/fixture.mp3","data":{"url":"https://cdn.example.invalid/fixture.mp3"}}`
+		return &http.Response{
+			StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header),
+			Body: io.NopCloser(strings.NewReader(body)), Request: request,
+		}, nil
+	})}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{
+		Name: "独家音源", Version: "7", Author: "w",
+		Description: "后续更新，请关注微信公众号: 洛雪科技", RawScript: string(source),
+	}, string(source), client); err != nil {
+		t.Fatalf("initialize lx.js against real LX host with deterministic config response: %v", err)
+	}
+	if requests != 1 {
+		t.Fatalf("lx.js configuration requests = %d, want exactly 1", requests)
+	}
+
+	value, err := rt.Eval(ctx, `
+JSON.stringify({
+  initialized: __lxHostState.initialized,
+  sourceNames: Object.keys((__lxHostState.initInfo && __lxHostState.initInfo.sources) || {}).sort(),
+  requestHandler: typeof __lxHostHandlers.request,
+  rawScriptAvailable: lx.currentScriptInfo.rawScript.length > 50000
+})
+`, "lx-source-real-host-result.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Initialized bool     `json:"initialized"`
+		SourceNames []string `json:"sourceNames"`
+		RequestHandler string `json:"requestHandler"`
+		RawScriptAvailable bool `json:"rawScriptAvailable"`
+	}
+	if err := json.Unmarshal([]byte(value), &result); err != nil {
+		t.Fatalf("decode lx.js initialization result %q: %v", value, err)
+	}
+	if !result.Initialized || len(result.SourceNames) == 0 ||
+		result.RequestHandler != "function" || !result.RawScriptAvailable {
+		t.Fatalf("lx.js did not complete real-host initialization: %s", value)
+	}
+}
