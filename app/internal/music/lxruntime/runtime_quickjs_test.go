@@ -761,6 +761,74 @@ func TestHuanyinSearchResultFlowsIntoMusicURLResolution(t *testing.T) {
 	}
 }
 
+// TestHuanyinMiguPlaybackRejectsNegativeResponsesAcrossMatchFallbacks
+// exercises the pinned source's album -> singer -> title lookup sequence.
+// The mocked API returns, respectively, mismatched metadata, a success code
+// without a playback URL, and an explicit negative response. None may be
+// accepted as a playable URL.
+func TestHuanyinMiguPlaybackRejectsNegativeResponsesAcrossMatchFallbacks(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "huanyin.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntime(t, 10*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	var requests []string
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet || request.URL.Host != "api.xcvts.cn" || request.URL.Path != "/api/music/migu" {
+			return nil, fmt.Errorf("unexpected Huanyin negative-response request: %s %s", request.Method, request.URL.Redacted())
+		}
+		requests = append(requests, request.URL.Query().Get("gm"))
+		var body string
+		switch len(requests) {
+		case 1:
+			if requests[0] != "测试歌曲测试专辑" {
+				return nil, fmt.Errorf("first lookup keyword = %q, want album match", requests[0])
+			}
+			body = `{"code":200,"title":"完全不同的歌曲","artist":"测试歌手","album":"测试专辑","music_url":"https://cdn.example.invalid/wrong-song.mp3"}`
+		case 2:
+			if requests[1] != "测试歌曲测试歌手" {
+				return nil, fmt.Errorf("second lookup keyword = %q, want singer match", requests[1])
+			}
+			body = `{"code":200,"title":"测试歌曲","artist":"测试歌手","album":"测试专辑"}`
+		case 3:
+			if requests[2] != "测试歌曲" {
+				return nil, fmt.Errorf("third lookup keyword = %q, want title-only fallback", requests[2])
+			}
+			body = `{"code":404,"message":"not found","music_url":""}`
+		default:
+			return nil, fmt.Errorf("unexpected extra Huanyin lookup %d", len(requests))
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header),
+			Body: io.NopCloser(strings.NewReader(body)), Request: request,
+		}, nil
+	})}
+
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{
+		Name: "幻音音源", Version: "v3", Author: "竹佀", RawScript: string(source),
+	}, string(source), client); err != nil {
+		t.Fatalf("initialize pinned Huanyin source: %v", err)
+	}
+
+	_, err = rt.dispatchLXRequest(ctx, "mg", "musicUrl", map[string]any{
+		"type": "320k",
+		"musicInfo": map[string]any{
+			"name": "测试歌曲", "singer": "测试歌手", "albumName": "测试专辑",
+		},
+	}, client)
+	if err == nil || !strings.Contains(err.Error(), "咪咕找不到") {
+		t.Fatalf("negative playback response error = %v, want source-level not-found error", err)
+	}
+	if len(requests) != 3 {
+		t.Fatalf("Huanyin Migu playback lookups = %d (%v), want exactly 3 match fallbacks", len(requests), requests)
+	}
+}
+
+
 // TestHuanyinPlatformURLMappingCoversAllNativePlatforms verifies that the
 // pinned source maps each declared LX platform and quality to the expected
 // resolver URL, and rejects missing identifiers instead of emitting a
