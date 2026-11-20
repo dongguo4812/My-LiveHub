@@ -149,3 +149,89 @@ func TestHelloWorldKuwoStandardQualityGETContract(t *testing.T) {
 		t.Fatalf("Kuwo request count = %d, want exactly one convert_url request", requests)
 	}
 }
+
+
+// TestHelloWorldQQTangFallbackGETContract covers the pinned QQ source's
+// ordered legacy-provider fallback and the tang API's quality/response mapping.
+func TestHelloWorldQQTangFallbackGETContract(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "helloworld.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntime(t, 10*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	var requests []string
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		path := request.URL.Host + request.URL.Path
+		requests = append(requests, path)
+		if request.Method != http.MethodGet {
+			return nil, fmt.Errorf("QQ fallback method = %s, want GET", request.Method)
+		}
+		switch path {
+		case "103.79.184.97/api/music/url":
+			query := request.URL.Query()
+			if query.Get("source") != "tx" || query.Get("songId") != "helloworld-qq-fixture-003" ||
+				query.Get("quality") != "320k" || query.Get("key") != "6C1F-53W0-GRKI-EVFG" || len(query) != 4 {
+				return nil, fmt.Errorf("unexpected QQ card API query: %#v", query)
+			}
+			if request.Header.Get("X-Card-Key") != "6C1F-53W0-GRKI-EVFG" {
+				return nil, fmt.Errorf("QQ card API X-Card-Key = %q", request.Header.Get("X-Card-Key"))
+			}
+			return &http.Response{StatusCode: 200, Status: "200 OK", Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{}`)), Request: request}, nil
+		case "yy.zddyr.top/lx/api/":
+			query := request.URL.Query()
+			if query.Get("source") != "tx" || query.Get("songmid") != "helloworld-qq-fixture-003" ||
+				query.Get("quality") != "320k" || len(query) != 3 {
+				return nil, fmt.Errorf("unexpected QQ YY API query: %#v", query)
+			}
+			if request.Header.Get("X-Client") != "YYMusicSource/v1.0.0 (Android)" || request.Header.Get("X-Token") == "" {
+				return nil, fmt.Errorf("QQ YY API token/client headers missing: %#v", request.Header)
+			}
+			return &http.Response{StatusCode: 200, Status: "200 OK", Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{}`)), Request: request}, nil
+		case "tang.api.s01s.cn/music_open_api.php":
+			query := request.URL.Query()
+			if query.Get("mid") != "helloworld-qq-fixture-003" || len(query) != 1 {
+				return nil, fmt.Errorf("unexpected QQ tang API query: %#v", query)
+			}
+			if request.Header.Get("User-Agent") != "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36" {
+				return nil, fmt.Errorf("QQ tang API User-Agent = %q", request.Header.Get("User-Agent"))
+			}
+			body := `{"song_play_url_hq":"https://cdn.example/helloworld-qq-tang-hq.mp3"}`
+			return &http.Response{StatusCode: 200, Status: "200 OK", Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+		default:
+			return nil, fmt.Errorf("unexpected QQ API endpoint: %s", request.URL.Redacted())
+		}
+	})}
+
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{
+		Name: "HelloWorld", Version: "260925", Author: "hello world", RawScript: string(source),
+	}, string(source), client); err != nil {
+		t.Fatalf("initialize pinned HelloWorld source: %v", err)
+	}
+	result, err := rt.dispatchLXRequest(ctx, "tx", "musicUrl", map[string]any{
+		"type": "320k",
+		"musicInfo": map[string]any{"songmid": "helloworld-qq-fixture-003", "name": "测试歌曲"},
+	}, client)
+	if err != nil {
+		t.Fatalf("dispatch HelloWorld QQ 320k musicUrl: %v", err)
+	}
+	if got, ok := result.(string); !ok || got != "https://cdn.example/helloworld-qq-tang-hq.mp3" {
+		t.Fatalf("QQ musicUrl = %#v, want tang HQ fixture URL", result)
+	}
+	wantRequests := []string{
+		"103.79.184.97/api/music/url",
+		"yy.zddyr.top/lx/api/",
+		"tang.api.s01s.cn/music_open_api.php",
+	}
+	if len(requests) != len(wantRequests) {
+		t.Fatalf("QQ API requests = %#v, want ordered fallback %#v", requests, wantRequests)
+	}
+	for i := range wantRequests {
+		if requests[i] != wantRequests[i] {
+			t.Fatalf("QQ API request[%d] = %q, want %q (all: %#v)", i, requests[i], wantRequests[i], requests)
+		}
+	}
+}
