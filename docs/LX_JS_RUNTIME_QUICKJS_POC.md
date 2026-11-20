@@ -162,3 +162,115 @@ cancellation.
    deterministic runtime tests.
 
 A successful syntax compile or mocked URL return does not satisfy P2 or P3.
+
+
+---
+
+## Progress checkpoint — 2026-11-20
+
+This checkpoint supersedes the earlier "CI evidence pending" notes above where they conflict.
+It records the state of the isolated PoC branch only; it does not mean production integration
+or universal compatibility with every third-party LX source is complete.
+
+### Repository state
+
+- Branch: `feat/lx-js-runtime-quickjs-poc`
+- HEAD: `15d3d39ad5da272129a5155309d98143fd5a7917`
+- Latest commit: `test(lxruntime): exercise Xinglan EAPI crypto host chain`
+- Latest CI: [Run 44658012367](https://github.com/dongguo4812/My-LiveHub/actions/runs/44658012367) — **success**
+- CI verified: Windows x64 Go setup, MSYS2 UCRT64 toolchain, pinned QuickJS-NG fetch,
+  QuickJS-NG native build and C API smoke test, Go/CGo runtime and pinned LX-script tests.
+- This branch remains isolated and has not been merged into `dev` or `master`.
+
+### Verified implementation
+
+| Area | Current verified state | Boundary / caveat |
+|---|---|---|
+| QuickJS-NG | Pinned QuickJS-NG builds on Windows x64 in CI | This proves the selected target/toolchain build, not every OS/architecture |
+| Go/CGo runtime | Runtime creation/evaluation, Promise jobs, locked-thread execution, interruption/resource tests are in place and CI-tested | Keep the runtime opt-in; no production music-service wiring |
+| LX host metadata/events | Desktop-style `lx` metadata, `lx.on('request')`, `lx.send('inited'/'updateAlert')` contract implemented | Continue checking validation and exact edge semantics against upstream |
+| HTTP | Go-owned HTTP(S) bridge, callback completion, response parsing, 60-second timeout ceiling, 8 MiB response cap | Abort currently removes queued requests; cancellation of an already-running HTTP request still needs implementation |
+| Timers | Bounded host timer queue with timeout/interval registration and explicit due-timer pumping during initialization/dispatch | Need exhaustive timer/Promise ordering and cancellation tests across async host callbacks |
+| Buffer | Node-style Buffer shim covers the currently exercised constructors/conversions, including typed-array conversion and raw-response conversion | Not a complete Node Buffer implementation; add methods only when source audit proves they are needed |
+| Crypto | Native Go MD5, AES-CBC/ECB with PKCS#7, randomBytes and 1024-bit RSA_NO_PADDING bridge; known-answer/round-trip tests | RSA behavior is deliberately pinned to the audited 1024-bit desktop preload contract |
+| zlib | Real Go zlib inflate/deflate with Promise bridge, round-trip/error/size tests | Continue checking accepted input types and exact source-facing error behavior |
+
+### Pinned source evidence
+
+The current fixture set is `lx.js`, `xinglan.js`, `helloworld.js`, and `huanyin.js`.
+The evidence is deterministic and uses controlled HTTP transports; it is not a claim that
+the third-party servers are currently reachable or that every source in the LX ecosystem works.
+
+- **HelloWorld**: tested initialization and a deterministic Tencent music URL path; the source's
+  buffer helper path used to construct its request token is included in the fixture audit.
+- **Xinglan**: tested source initialization and its EAPI helper path. Commit
+  `15d3d39` adds `TestXinglanEAPIUsesNativeCryptoAndBufferHost`, which executes the real
+  fixture's `wyEapi()` and compares the MD5 → AES-128-ECB/PKCS#7 → hex Buffer result with
+  an independently computed Go known-answer result.
+- **Huanyin**: tested Migu musicUrl fallback/query behavior, request parameters and cache behavior,
+  plus search limit handling against a controlled HTTP transport.
+- **lx.js**: fixture is present and its author-configuration/bootstrap behavior has been inspected;
+  full remote `/rconfig` behavior and source-specific initialization paths remain a separate gate.
+- **HTTP raw bytes**: a bridge integration test verifies raw response bytes become a JS typed array
+  and `Buffer.from(resp.raw)` preserves the expected bytes. This does not yet prove that
+  `resp.raw` itself has Node `Buffer.isBuffer()` identity, which is part of the audited desktop
+  contract and must be resolved explicitly.
+
+### Not yet proven
+
+1. Universal compatibility with arbitrary imported LX JavaScript sources.
+2. Complete Node Buffer API parity or every Node/Electron global.
+3. In-flight HTTP abort semantics and exact callback-once behavior under abort/timeout races.
+4. Full timer, interval, Promise-job and async native-callback ordering under concurrent requests.
+5. The exact desktop `resp.raw` Buffer identity contract; current test only proves byte correctness
+   through `Buffer.from(resp.raw)`.
+6. Full `lx.js` author-server configuration/bootstrap against a controlled fixture.
+7. Live third-party network availability, premium playback entitlement, or real playback stability.
+8. Memory/CPU/EXE footprint under representative long-running source workloads.
+9. Production integration, import UX, per-source isolation policy, lifecycle shutdown and playback flow.
+
+### Next tasks — execute in this order; do not redo completed work
+
+**N1 — Close HTTP abort lifecycle gap**
+- Trace request IDs from JS `lx.request()` through queue dispatch to Go HTTP execution.
+- Add a cancellable context registry for dispatched/in-flight requests.
+- Abort must cancel queued or running work and invoke the callback at most once with the upstream-compatible error shape.
+- Add race tests: abort-before-dispatch, abort-in-flight, timeout-vs-abort, response-vs-abort, repeated abort.
+- Preserve the 60-second timeout ceiling and response-size limit.
+
+**N2 — Match `resp.raw` desktop Buffer contract**
+- Re-check the pinned desktop preload implementation and current Go→JS response conversion.
+- Make `resp.raw` satisfy the source-visible Buffer contract if upstream confirms it is a Buffer, without losing exact bytes.
+- Add `Buffer.isBuffer(resp.raw)`, `resp.raw.toString('hex')`, and callback/Promise response tests.
+- Keep `resp.body` JSON-object/string parsing behavior unchanged unless source audit proves otherwise.
+
+**N3 — Validate async event-loop ordering**
+- Test timers firing while awaiting asynchronous `lx.request` and native crypto/zlib Promise callbacks.
+- Verify Promise jobs are pumped after each host callback and before the next source action.
+- Cover clearTimeout/clearInterval, interval rescheduling, timer limits, context cancellation and shutdown.
+- Do not rewrite the timer subsystem unless these tests expose a defect.
+
+**N4 — Finish fixture-driven Buffer/encoding audit**
+- Extract exact Buffer methods and encodings used by the four pinned fixtures.
+- Add only missing methods/encodings with Node-compatible known-answer tests.
+- Explicitly test UTF-8, hex, base64, latin1/binary and typed-array/ArrayBuffer input only where the fixtures or audited preload require them.
+- Do not implement speculative Node APIs merely to inflate the compatibility surface.
+
+**N5 — Complete deterministic source protocol matrix**
+- Add a controlled `lx.js` `/rconfig` fixture and verify initialization registration.
+- For each pinned source, assert actual outbound method, URL, headers/body and returned action value for its covered action.
+- Keep source initialization, search, musicUrl, HTTP and crypto evidence separated in test names and reports.
+- Only after these deterministic tests pass, consider limited live-network smoke checks; live checks are not a substitute for deterministic CI.
+
+**N6 — Measure footprint and make integration decision**
+- Measure runtime memory, CPU under idle/active requests, repeated create/destroy behavior and packaged native binary/EXE size.
+- Compare against the project's low-resource target; publish measured values, not estimates.
+- Review imported-script isolation, quotas, shutdown, licensing and Windows packaging.
+- Only then create a separate production-integration proposal. Do not wire this PoC into the production music service as part of N1–N5.
+
+### Working rule
+
+Before changing code, check this checkpoint and current branch HEAD/CI. Reuse existing tests and
+implementations. Do not recreate QuickJS build, CGo embedding, Buffer fixes, crypto primitives,
+zlib primitives or already-passing fixture tests. Every new claim must point to a concrete test
+or CI run; a green CI is evidence only for the tests actually executed.
