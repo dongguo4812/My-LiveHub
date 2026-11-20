@@ -30,6 +30,10 @@ const responseText = Buffer.from(responseBytes).toString('utf-8');
 const slicedText = Buffer.from([9, 65, 66, 67, 8]).toString('utf8', 1, 4);
 const arrayBufferText = Buffer.from(new Uint8Array([65, 66]).buffer).toString('utf8');
 const allocatedHex = Buffer.alloc(4, 0x2a).toString('hex');
+const allocatedStringPatternHex = Buffer.alloc(5, 'ab').toString('hex');
+const allocatedBufferPatternHex = Buffer.alloc(5, Buffer.from([1, 2])).toString('hex');
+const allocatedEncodedPatternHex = Buffer.alloc(5, 'é', 'utf8').toString('hex');
+const allocatedEmptyPatternHex = Buffer.alloc(4, '').toString('hex');
 const concatenated = Buffer.concat([Buffer.from('LX'), Buffer.from('-Host')]).toString();
 JSON.stringify({
   payloadBase64,
@@ -39,6 +43,10 @@ JSON.stringify({
   slicedText,
   arrayBufferText,
   allocatedHex,
+  allocatedStringPatternHex,
+  allocatedBufferPatternHex,
+  allocatedEncodedPatternHex,
+  allocatedEmptyPatternHex,
   concatenated,
   utf8ByteLength: Buffer.byteLength('音乐', 'utf8')
 })
@@ -55,6 +63,10 @@ JSON.stringify({
 		SlicedText       string `json:"slicedText"`
 		ArrayBufferText  string `json:"arrayBufferText"`
 		AllocatedHex     string `json:"allocatedHex"`
+		AllocatedStringPatternHex string `json:"allocatedStringPatternHex"`
+		AllocatedBufferPatternHex string `json:"allocatedBufferPatternHex"`
+		AllocatedEncodedPatternHex string `json:"allocatedEncodedPatternHex"`
+		AllocatedEmptyPatternHex string `json:"allocatedEmptyPatternHex"`
 		Concatenated     string `json:"concatenated"`
 		UTF8ByteLength   int    `json:"utf8ByteLength"`
 	}
@@ -76,6 +88,12 @@ JSON.stringify({
 	}
 	if got.AllocatedHex != "2a2a2a2a" || got.Concatenated != "LX-Host" {
 		t.Fatalf("Buffer alloc/concat results: alloc=%q concat=%q", got.AllocatedHex, got.Concatenated)
+	}
+	if got.AllocatedStringPatternHex != "6162616261" || got.AllocatedBufferPatternHex != "0102010201" {
+		t.Fatalf("Buffer.alloc pattern fill: string=%q buffer=%q", got.AllocatedStringPatternHex, got.AllocatedBufferPatternHex)
+	}
+	if got.AllocatedEncodedPatternHex != "c3a9c3a9c3" || got.AllocatedEmptyPatternHex != "00000000" {
+		t.Fatalf("Buffer.alloc encoding/empty pattern: encoded=%q empty=%q", got.AllocatedEncodedPatternHex, got.AllocatedEmptyPatternHex)
 	}
 	if got.UTF8ByteLength != 6 {
 		t.Fatalf("Buffer.byteLength('音乐') = %d, want 6", got.UTF8ByteLength)
