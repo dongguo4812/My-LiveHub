@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf16"
-	"unicode/utf8"
 )
 
 // lxBufferFromString implements the string-encoding portion of Node's
@@ -33,8 +32,10 @@ func lxBufferFromString(value []byte, encoding string) ([]byte, error) {
 		// whitespace and non-alphabet characters while decoding.
 		text := strings.Map(func(r rune) rune {
 			switch {
-			case r == '-' : return '+'
-			case r == '_' : return '/'
+			case r == '-':
+				return '+'
+			case r == '_':
+				return '/'
 			case r == '+' || r == '/' || r == '=':
 				return r
 			case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z', r >= '0' && r <= '9':
