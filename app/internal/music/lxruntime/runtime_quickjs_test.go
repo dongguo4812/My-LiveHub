@@ -1287,6 +1287,96 @@ func TestXinglanQQBackendPoolReportsAllFailures(t *testing.T) {
 // Migu resolver against deterministic HTTP failures and verifies that the
 // source reports the complete seven-provider failure rather than returning
 // an empty or misleading playback URL.
+func TestXinglanQsPrimaryFailureFallsBackAndAppendsKey(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntime(t, 15*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var mu sync.Mutex
+	var primaryRequests, backupRequests int
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet || request.URL.Path != "/lx/api/" {
+			return nil, fmt.Errorf("unexpected Xinglan QS request: %s %s", request.Method, request.URL.Redacted())
+		}
+		if request.Header.Get("X-Client") != "XingHaiMusicSource" ||
+			request.Header.Get("User-Agent") != "Mozilla/5.0" {
+			return nil, fmt.Errorf("unexpected Xinglan QS headers: %#v", request.Header)
+		}
+		query := request.URL.Query()
+		for key, want := range map[string]string{
+			"source": "qs", "name": "fixture 汽水歌曲", "singer": "fixture singer",
+			"songmid": "qs-song-fallback-001", "interval": "03:21",
+			"albumName": "fixture album", "quality": "320k",
+		} {
+			if got := query.Get(key); got != want {
+				return nil, fmt.Errorf("QS query %s = %q, want %q (raw %s)", key, got, want, request.URL.RawQuery)
+			}
+		}
+
+		status, body := http.StatusServiceUnavailable,
+			`{"code":503,"msg":"deterministic primary route failure"}`
+		mu.Lock()
+		switch request.URL.Host {
+		case "yy.zddyr.top":
+			primaryRequests++
+		case "zrcdy.dpdns.org":
+			backupRequests++
+			status, body = http.StatusOK,
+				`{"code":200,"data":{"url":"https://cdn.example.invalid/qs/audio.m4a?token=fixture","key":"key value/+","source_url":"https://unused.example.invalid/source"}}`
+		default:
+			mu.Unlock()
+			return nil, fmt.Errorf("unexpected Xinglan QS host: %s", request.URL.Host)
+		}
+		mu.Unlock()
+		return &http.Response{
+			StatusCode: status, Status: http.StatusText(status), Header: make(http.Header),
+			Body: io.NopCloser(strings.NewReader(body)), Request: request,
+		}, nil
+	})}
+
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{
+		Name: "星澜聚合音源", Version: "v4.0.2", RawScript: string(source),
+	}, string(source), client); err != nil {
+		t.Fatalf("initialize pinned Xinglan source: %v", err)
+	}
+
+	result, err := rt.dispatchLXRequest(ctx, "qs", "musicUrl", map[string]any{
+		"type": "320k",
+		"musicInfo": map[string]any{
+			"songmid": "qs-song-fallback-001",
+			"name": "fixture 汽水歌曲",
+			"singer": "fixture singer",
+			"interval": "03:21",
+			"albumName": "fixture album",
+		},
+	}, client)
+	if err != nil {
+		t.Fatalf("dispatch Xinglan QS musicUrl after primary route failure: %v", err)
+	}
+	gotURL, ok := result.(string)
+	if !ok {
+		t.Fatalf("QS musicUrl result type = %T (%#v), want string", result, result)
+	}
+	parsed, err := url.Parse(gotURL)
+	if err != nil {
+		t.Fatalf("parse resolved QS URL %q: %v", gotURL, err)
+	}
+	if parsed.Host != "cdn.example.invalid" || parsed.Path != "/qs/audio.m4a" ||
+		parsed.Query().Get("token") != "fixture" || parsed.Query().Get("key") != "key value/+" {
+		t.Fatalf("resolved QS URL = %q, want backup URL with correctly encoded key", gotURL)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if primaryRequests != 1 || backupRequests != 1 {
+		t.Fatalf("QS endpoint requests: primary=%d backup=%d, want one each", primaryRequests, backupRequests)
+	}
+}
+
 func TestXinglanMiguBackendPoolReportsAllFailures(t *testing.T) {
 	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
 	if err != nil {
