@@ -7,9 +7,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -513,6 +515,25 @@ func TestLXSourceRequestsServerConfigurationAgainstRealLXHost(t *testing.T) {
 	}
 	if requests[0].versionParam != "7" {
 		t.Fatalf("configuration request version parameter = %q, want source version 7", requests[0].versionParam)
+	}
+	// The V7 fixture embeds this server fingerprint. The remaining values are
+	// per-request hexadecimal protocol fields and must not be hard-coded.
+	if got := requests[0].rawQuery; got == "" {
+		t.Fatal("configuration request raw query is empty")
+	}
+	parsedQuery, err := url.ParseQuery(requests[0].rawQuery)
+	if err != nil {
+		t.Fatalf("parse configuration request query: %v", err)
+	}
+	if got := parsedQuery.Get("fp"); got != "42bc92aaf1a30247e40eab9523ca0713" {
+		t.Fatalf("configuration fingerprint = %q, want pinned V7 fingerprint", got)
+	}
+	for key, wantLength := range map[string]int{"e": 32, "to": 24, "s2": 32, "si": 32} {
+		value := parsedQuery.Get(key)
+		decoded, err := hex.DecodeString(value)
+		if err != nil || len(value) != wantLength || len(decoded)*2 != wantLength {
+			t.Errorf("configuration query %s = %q, want %d hexadecimal characters", key, value, wantLength)
+		}
 	}
 	if got, want := strings.Join(requests[0].queryKeys, ","), "e,fp,s2,si,to,v"; got != want {
 		t.Fatalf("configuration request query keys = %q, want exact protocol keys %q", got, want)
