@@ -1538,9 +1538,9 @@ func TestXinglanQQPrimarySuccessSkipsSequentialFallbacks(t *testing.T) {
 }
 
 
-// High-quality Kuwo requests are intentionally routed only to Xinghai's
-// stream endpoint. The source constructs the stream URL locally; it must not
-// fan out to ordinary URL-resolution providers for master/atmos tiers.
+// Kuwo requests are routed through Xinghai's stream endpoint for every
+// declared quality tier. The source constructs the stream URL locally; this
+// matrix verifies the complete quality-to-level mapping without resolver HTTP.
 func TestXinglanKuwoHighQualityUsesStreamBackendOnly(t *testing.T) {
 	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
 	if err != nil {
