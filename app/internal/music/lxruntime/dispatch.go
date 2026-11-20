@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 )
 
 // DispatchLXRequest invokes one LX source action and services every lx.request

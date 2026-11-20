@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 )
 
 // InitializeLXSource installs the desktop host, evaluates a source, and pumps

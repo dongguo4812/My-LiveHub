@@ -8,11 +8,13 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -220,5 +222,106 @@ func TestXinglanEAPIUsesNativeCryptoAndBufferHost(t *testing.T) {
 	want := `{"params":"` + strings.ToUpper(hex.EncodeToString(encrypted)) + `"}`
 	if value != want {
 		t.Fatalf("Xinglan EAPI host result mismatch:\n got: %s\nwant: %s", value, want)
+	}
+}
+
+
+func TestDispatchLXRequestAbortsInFlightHTTPAndCallsBackOnce(t *testing.T) {
+	requestStarted := make(chan struct{})
+	requestCanceled := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(requestStarted)
+		<-r.Context().Done()
+		close(requestCanceled)
+	}))
+	defer server.Close()
+
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{Name: "in-flight-abort"}); err != nil {
+		t.Fatal(err)
+	}
+	install := `
+globalThis.__abortCallbackCount = 0;
+lx.on('request', async () => await new Promise((resolve, reject) => {
+  const cancel = lx.request(`+string(mustJSONQuote(server.URL))+`, { timeout: 5000 }, error => {
+    globalThis.__abortCallbackCount++;
+    if (error) reject(error);
+    else resolve('unexpected-response');
+  });
+  setTimeout(() => { cancel(); cancel(); }, 30);
+}));
+'registered';
+`
+	if _, err := rt.Eval(context.Background(), install, "register-in-flight-abort.js"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, err := rt.DispatchLXRequest(ctx, "kw", "musicUrl", map[string]any{})
+	if err == nil || err.Error() != "Cancel request" {
+		t.Fatalf("dispatch error = %v, want Cancel request", err)
+	}
+	select {
+	case <-requestStarted:
+	case <-ctx.Done():
+		t.Fatal("HTTP request never reached server")
+	}
+	select {
+	case <-requestCanceled:
+	case <-ctx.Done():
+		t.Fatal("in-flight HTTP request context was not canceled")
+	}
+	count, evalErr := rt.Eval(ctx, "globalThis.__abortCallbackCount", "read-abort-callback-count.js")
+	if evalErr != nil {
+		t.Fatal(evalErr)
+	}
+	if count != "1" {
+		t.Fatalf("abort callback count = %s, want 1", count)
+	}
+}
+
+func TestDispatchLXRequestAbortBeforeDispatchRemovesQueuedRequest(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		_, _ = io.WriteString(w, "unexpected")
+	}))
+	defer server.Close()
+
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{Name: "queued-abort"}); err != nil {
+		t.Fatal(err)
+	}
+	script := `
+globalThis.__queuedAbortCallbackCount = 0;
+lx.on('request', async () => await new Promise((resolve, reject) => {
+  const cancel = lx.request(`+string(mustJSONQuote(server.URL))+`, {}, error => {
+    globalThis.__queuedAbortCallbackCount++;
+    if (error) reject(error);
+    else resolve('unexpected-response');
+  });
+  cancel();
+  cancel();
+}));
+'registered';
+`
+	if _, err := rt.Eval(context.Background(), script, "register-queued-abort.js"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, err := rt.DispatchLXRequest(ctx, "kw", "musicUrl", map[string]any{})
+	if err == nil || err.Error() != "Cancel request" {
+		t.Fatalf("dispatch error = %v, want Cancel request", err)
+	}
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("HTTP requests = %d, want 0", got)
+	}
+	count, evalErr := rt.Eval(ctx, "globalThis.__queuedAbortCallbackCount", "read-queued-abort-count.js")
+	if evalErr != nil {
+		t.Fatal(evalErr)
+	}
+	if count != "1" {
+		t.Fatalf("abort callback count = %s, want 1", count)
 	}
 }
