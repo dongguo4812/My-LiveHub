@@ -64,7 +64,7 @@ const MUSIC_QUALITY = {
   wy: HAS_WY_COOKIE
     ? ['128k', '320k', 'flac', 'flac24bit', 'hires', 'atmos', 'master']
     : ['128k', '320k', 'flac'],
-  kw: ['128k', '192k', '320k', 'flac', 'flac24bit'],
+  kw: ['128k', '192k', '320k', 'flac', 'flac24bit', 'hires', 'atmos', 'atmos_plus', 'master'],
   kg: ['128k', '320k', 'flac', 'hires', 'atmos', 'master'],
   mg: ['128k', '320k', 'flac', 'flac24bit', 'hires', 'atmos', 'master'],
   qs: ['128k', '320k', 'flac', 'spatial', 'hires'],
