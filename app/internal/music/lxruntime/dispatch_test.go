@@ -157,6 +157,8 @@ lx.on('request', async () => await new Promise((resolve, reject) => {
     for (let i = 0; i < expected.length; i++) {
       if (resp.raw[i] !== expected[i]) return reject(new Error('raw byte mismatch at ' + i + ': ' + resp.raw[i]));
     }
+    const bufferHex = Buffer.from(resp.raw).toString('hex');
+    if (bufferHex !== '00ff41807f') return reject(new Error('Buffer.from(resp.raw) mismatch: ' + bufferHex));
     resolve('binary-raw-response-ok');
   });
 }));
