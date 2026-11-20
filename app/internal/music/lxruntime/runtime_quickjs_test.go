@@ -1576,7 +1576,7 @@ func TestXinglanKuwoHighQualityUsesStreamBackendOnly(t *testing.T) {
 	if !ok {
 		t.Fatalf("Kuwo musicUrl result type = %T (%#v), want string", result, result)
 	}
-	want := "http://175.27.166.236:8928/kwstreaam?id=kw-stream-song-001&level=master&stream=1"
+	want := "http://175.27.166.236:8928/kwstream?id=kw-stream-song-001&level=master&stream=1"
 	if got != want {
 		t.Fatalf("Kuwo master stream URL = %q, want %q", got, want)
 	}
