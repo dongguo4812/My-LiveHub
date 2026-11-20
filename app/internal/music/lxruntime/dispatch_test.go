@@ -76,7 +76,8 @@ lx.on('request', async () => await new Promise((resolve, reject) => {
     if (resp.statusMessage !== "418 I'm a teapot") return reject(new Error('statusMessage was not preserved: ' + resp.statusMessage));
     if (!resp.headers['X-Lx-Trace'] || resp.headers['X-Lx-Trace'][0] !== 'fixture-418') return reject(new Error('response headers were not preserved'));
     if (resp.bytes !== 9 || body !== 'not found' || resp.body !== body) return reject(new Error('response body metadata was not preserved'));
-    if (!(resp.raw instanceof Uint8Array) || resp.raw.length !== 9) return reject(new Error('raw response bytes were not delivered as Uint8Array'));
+    if (!Buffer.isBuffer(resp.raw) || !(resp.raw instanceof Uint8Array) || resp.raw.length !== 9) return reject(new Error('raw response must be a Buffer-backed Uint8Array'));
+    if (resp.raw.toString('hex') !== '6e6f7420666f756e64') return reject(new Error('raw Buffer hex conversion mismatch'));
     resolve('http-status-and-callback-contract-ok');
   });
 }));
@@ -158,13 +159,13 @@ lx.on('request', async () => await new Promise((resolve, reject) => {
     if (err) return reject(err);
     const expected = [0, 255, 65, 128, 127];
     if (resp.bytes !== expected.length) return reject(new Error('wrong response byte count: ' + resp.bytes));
-    if (!(resp.raw instanceof Uint8Array)) return reject(new Error('raw response is not Uint8Array'));
+    if (!Buffer.isBuffer(resp.raw) || !(resp.raw instanceof Uint8Array)) return reject(new Error('raw response is not a Node-compatible Buffer'));
     if (resp.raw.length !== expected.length) return reject(new Error('wrong raw response length'));
     for (let i = 0; i < expected.length; i++) {
       if (resp.raw[i] !== expected[i]) return reject(new Error('raw byte mismatch at ' + i + ': ' + resp.raw[i]));
     }
-    const bufferHex = Buffer.from(resp.raw).toString('hex');
-    if (bufferHex !== '00ff41807f') return reject(new Error('Buffer.from(resp.raw) mismatch: ' + bufferHex));
+    const bufferHex = resp.raw.toString('hex');
+    if (bufferHex !== '00ff41807f') return reject(new Error('resp.raw.toString(\'hex\') mismatch: ' + bufferHex));
     resolve('binary-raw-response-ok');
   });
 }));
