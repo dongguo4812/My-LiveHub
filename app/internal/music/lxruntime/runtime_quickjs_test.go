@@ -758,3 +758,72 @@ func TestHuanyinSearchResultFlowsIntoMusicURLResolution(t *testing.T) {
 		t.Fatalf("HTTP request counts: search=%d resolve=%d, want exactly one each", searchRequests, resolveRequests)
 	}
 }
+
+// TestHuanyinPlatformURLMappingCoversAllNativePlatforms verifies that the
+// pinned source maps each declared LX platform and quality to the expected
+// resolver URL, and rejects missing identifiers instead of emitting a
+// malformed playback URL. The source itself performs no HTTP request here.
+func TestHuanyinPlatformURLMappingCoversAllNativePlatforms(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "huanyin.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntime(t, 10*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("unexpected network request for direct URL mapping: %s", request.URL.Redacted())
+	})}
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{
+		Name: "幻音音源", Version: "v3", Author: "竹佀", RawScript: string(source),
+	}, string(source), client); err != nil {
+		t.Fatalf("initialize Huanyin source: %v", err)
+	}
+
+	tests := []struct {
+		name, platform, id, quality, want string
+	}{
+		{"QQ 128k", "tx", "qq-song-001", "128k", "https://music-dl.sayqz.com/api/?source=qq&id=qq-song-001&type=url&br=128k"},
+		{"QQ 320k", "tx", "qq-song-001", "320k", "https://music-dl.sayqz.com/api/?source=qq&id=qq-song-001&type=url&br=320k"},
+		{"QQ FLAC", "tx", "qq-song-001", "flac", "https://music-dl.sayqz.com/api/?source=qq&id=qq-song-001&type=url&br=flac"},
+		{"QQ FLAC 24bit", "tx", "qq-song-001", "flac24bit", "https://music-dl.sayqz.com/api/?source=qq&id=qq-song-001&type=url&br=flac24bit"},
+		{"Kuwo", "kw", "kw-song-002", "320k", "https://music-dl.sayqz.com/api/?source=kuwo&id=kw-song-002&type=url&br=320k"},
+		{"Netease", "wy", "wy-song-003", "flac", "https://music-dl.sayqz.com/api/?source=netease&id=wy-song-003&type=url&br=flac"},
+		{"unknown quality fallback", "tx", "qq-song-001", "lossless", "https://music-dl.sayqz.com/api/?source=qq&id=qq-song-001&type=url&br=128k"},
+		{"missing quality default", "tx", "qq-song-001", "", "https://music-dl.sayqz.com/api/?source=qq&id=qq-song-001&type=url&br=128k"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			info := map[string]any{"musicInfo": map[string]any{"songmid": tc.id}}
+			if tc.quality != "" {
+				info["type"] = tc.quality
+			}
+			result, err := rt.dispatchLXRequest(ctx, tc.platform, "musicUrl", info, client)
+			if err != nil {
+				t.Fatalf("dispatch musicUrl: %v", err)
+			}
+			got, ok := result.(string)
+			if !ok || got != tc.want {
+				t.Fatalf("musicUrl = %#v, want %q", result, tc.want)
+			}
+		})
+	}
+
+	t.Run("missing song id", func(t *testing.T) {
+		_, err := rt.dispatchLXRequest(ctx, "tx", "musicUrl", map[string]any{
+			"type": "320k", "musicInfo": map[string]any{"name": "Song without ID"},
+		}, client)
+		if err == nil || !strings.Contains(err.Error(), "没ID") {
+			t.Fatalf("missing ID error = %v, want source validation error", err)
+		}
+	})
+	t.Run("unsupported platform", func(t *testing.T) {
+		_, err := rt.dispatchLXRequest(ctx, "local", "musicUrl", map[string]any{
+			"type": "320k", "musicInfo": map[string]any{"songmid": "song-001"},
+		}, client)
+		if err == nil || !strings.Contains(err.Error(), "不支持") {
+			t.Fatalf("unsupported platform error = %v, want unsupported-source error", err)
+		}
+	})
+}
