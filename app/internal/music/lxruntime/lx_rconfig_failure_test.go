@@ -14,9 +14,9 @@ import (
 	"time"
 )
 
-// The pinned lx.js source cannot register its request handler until its
-// server-managed configuration request succeeds. These cases ensure that
-// transport and authorization failures never look like successful startup.
+// The pinned lx.js source registers its request handler before requesting
+// server-managed configuration. These cases ensure that a failed /rconfig
+// request never marks the source as initialized.
 func TestLXSourceDoesNotInitializeWhenRConfigFails(t *testing.T) {
 	source, err := os.ReadFile(filepath.Join("testdata", "sources", "lx.js"))
 	if err != nil {
@@ -24,7 +24,7 @@ func TestLXSourceDoesNotInitializeWhenRConfigFails(t *testing.T) {
 	}
 
 	tests := []struct {
-		name string
+		name      string
 		roundTrip func(*http.Request) (*http.Response, error)
 	}{
 		{
@@ -35,10 +35,10 @@ func TestLXSourceDoesNotInitializeWhenRConfigFails(t *testing.T) {
 				}
 				return &http.Response{
 					StatusCode: http.StatusForbidden,
-					Status: "403 Forbidden",
-					Header: make(http.Header),
-					Body: io.NopCloser(strings.NewReader(`{"code":1,"msg":"脚本指纹验证失败"}`)),
-					Request: request,
+					Status:     "403 Forbidden",
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{"code":1,"msg":"脚本指纹验证失败"}`)),
+					Request:    request,
 				}, nil
 			},
 		},
@@ -61,11 +61,11 @@ func TestLXSourceDoesNotInitializeWhenRConfigFails(t *testing.T) {
 			defer cancel()
 
 			err := rt.InitializeLXSource(ctx, ScriptInfo{
-				Name: "独家音源",
-				Version: "7",
-				Author: "w",
+				Name:        "独家音源",
+				Version:     "7",
+				Author:      "w",
 				Description: "后续更新，请关注微信公众号: 洛雪科技",
-				RawScript: string(source),
+				RawScript:   string(source),
 			}, string(source), client)
 			if err == nil {
 				t.Fatal("expected initialization to fail when /rconfig is unavailable")
@@ -78,8 +78,8 @@ func TestLXSourceDoesNotInitializeWhenRConfigFails(t *testing.T) {
 			if evalErr != nil {
 				t.Fatal(evalErr)
 			}
-			if state != `{"initialized":false,"requestHandler":"undefined"}` {
-				t.Fatalf("host state after failed /rconfig = %s, want uninitialized without request handler (initialization error: %v)", state, err)
+			if state != `{"initialized":false,"requestHandler":"function"}` {
+				t.Fatalf("host state after failed /rconfig = %s, want initialized=false with the pre-registered request handler (initialization error: %v)", state, err)
 			}
 		})
 	}
