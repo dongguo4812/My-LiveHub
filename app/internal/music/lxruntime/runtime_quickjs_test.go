@@ -1283,6 +1283,75 @@ func TestXinglanQQBackendPoolReportsAllFailures(t *testing.T) {
 // Luoyue v2 URL wins the concurrent head group and prevents every sequential
 // fallback backend from being contacted. The other two head providers are
 // deliberately failed so the result does not depend on request scheduling.
+// TestXinglanMiguBackendPoolReportsAllFailures exercises every configured
+// Migu resolver against deterministic HTTP failures and verifies that the
+// source reports the complete seven-provider failure rather than returning
+// an empty or misleading playback URL.
+func TestXinglanMiguBackendPoolReportsAllFailures(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntime(t, 15*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var mu sync.Mutex
+	var requests []string
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		mu.Lock()
+		requests = append(requests, request.Method+" "+request.URL.Host+request.URL.Path)
+		mu.Unlock()
+		return &http.Response{
+			StatusCode: http.StatusServiceUnavailable,
+			Status: http.StatusText(http.StatusServiceUnavailable),
+			Header: make(http.Header),
+			Body: io.NopCloser(strings.NewReader(`{"code":503,"message":"deterministic Migu backend failure"}`)),
+			Request: request,
+		}, nil
+	})}
+
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{
+		Name: "星澜聚合音源", Version: "v4.0.2", RawScript: string(source),
+	}, string(source), client); err != nil {
+		t.Fatalf("initialize pinned Xinglan source: %v", err)
+	}
+
+	_, err = rt.dispatchLXRequest(ctx, "mg", "musicUrl", map[string]any{
+		"type": "320k",
+		"musicInfo": map[string]any{
+			"songmid": "migu-song-all-backends-fail",
+			"name": "fixture Migu song",
+			"singer": "fixture singer",
+		},
+	}, client)
+	if err == nil {
+		t.Fatal("expected all Migu backends to fail")
+	}
+	message := err.Error()
+	for _, want := range []string{
+		"所有后端均失败（共 7 个）",
+		"云记咪咕(海堂):",
+		"星海主后端:",
+		"Migu直接源:",
+		"Migu API:",
+		"HYWmusic MG:",
+		"星海咪咕:",
+		"FFAPI:",
+	} {
+		if !strings.Contains(message, want) {
+			t.Errorf("Migu aggregate error missing %q: %s", want, message)
+		}
+	}
+	mu.Lock()
+	gotRequests := append([]string(nil), requests...)
+	mu.Unlock()
+	if len(gotRequests) < 7 {
+		t.Fatalf("observed %d HTTP requests, want requests from all Migu backend paths: %v", len(gotRequests), gotRequests)
+	}
+}
+
 func TestXinglanQQPrimarySuccessSkipsSequentialFallbacks(t *testing.T) {
 	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
 	if err != nil {
