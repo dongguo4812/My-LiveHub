@@ -325,3 +325,53 @@ lx.on('request', async () => await new Promise((resolve, reject) => {
 		t.Fatalf("abort callback count = %s, want 1", count)
 	}
 }
+
+func TestDispatchLXRequestTimeoutWinsOverLaterAbort(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
+	defer server.Close()
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{Name: "timeout-vs-abort"}); err != nil { t.Fatal(err) }
+	script := `
+globalThis.__timeoutRaceCallbackCount = 0;
+lx.on('request', async () => await new Promise((resolve, reject) => {
+  const cancel = lx.request(`+string(mustJSONQuote(server.URL))+`, { timeout: 30 }, error => {
+    globalThis.__timeoutRaceCallbackCount++;
+    if (!error) return reject(new Error('timeout request unexpectedly succeeded'));
+    setTimeout(() => resolve(error.message), 80);
+  });
+  setTimeout(() => cancel(), 60);
+}));
+'registered';
+`
+	if _, err := rt.Eval(context.Background(), script, "register-timeout-vs-abort.js"); err != nil { t.Fatal(err) }
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second); defer cancel()
+	value, err := rt.DispatchLXRequest(ctx, "kw", "musicUrl", map[string]any{}); if err != nil { t.Fatal(err) }
+	message, ok := value.(string); if !ok || !strings.Contains(message, "deadline exceeded") { t.Fatalf("timeout result = %#v, want deadline exceeded", value) }
+	count, evalErr := rt.Eval(ctx, "globalThis.__timeoutRaceCallbackCount", "read-timeout-race-count.js"); if evalErr != nil { t.Fatal(evalErr) }
+	if count != "1" { t.Fatalf("timeout callback count = %s, want 1", count) }
+}
+
+func TestDispatchLXRequestResponseWinsOverLaterAbort(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "response-won") }))
+	defer server.Close()
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{Name: "response-vs-abort"}); err != nil { t.Fatal(err) }
+	script := `
+globalThis.__responseRaceCallbackCount = 0;
+lx.on('request', async () => await new Promise((resolve, reject) => {
+  const cancel = lx.request(`+string(mustJSONQuote(server.URL))+`, {}, (error, response, body) => {
+    globalThis.__responseRaceCallbackCount++;
+    if (error) return reject(error);
+    setTimeout(() => resolve(body), 200);
+  });
+  setTimeout(() => cancel(), 100);
+}));
+'registered';
+`
+	if _, err := rt.Eval(context.Background(), script, "register-response-vs-abort.js"); err != nil { t.Fatal(err) }
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second); defer cancel()
+	value, err := rt.DispatchLXRequest(ctx, "kw", "musicUrl", map[string]any{}); if err != nil { t.Fatal(err) }
+	if value != "response-won" { t.Fatalf("response race result = %#v, want response-won", value) }
+	count, evalErr := rt.Eval(ctx, "globalThis.__responseRaceCallbackCount", "read-response-race-count.js"); if evalErr != nil { t.Fatal(evalErr) }
+	if count != "1" { t.Fatalf("response callback count = %s, want 1", count) }
+}
