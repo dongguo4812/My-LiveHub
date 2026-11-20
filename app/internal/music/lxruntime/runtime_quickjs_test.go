@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -826,4 +827,86 @@ func TestHuanyinPlatformURLMappingCoversAllNativePlatforms(t *testing.T) {
 			t.Fatalf("unsupported platform error = %v, want unsupported-source error", err)
 		}
 	})
+}
+
+
+// TestHelloWorldSourceBuildsRequestTokenThroughNativeLXBuffer executes the
+// pinned real source's tx musicUrl action. Its second API's before-hook calls
+// lx.utils.buffer.from and bufToString to construct X-Token; the test decodes
+// the captured header and verifies the token payload rather than testing a
+// synthetic JavaScript reimplementation of that hook.
+func TestHelloWorldSourceBuildsRequestTokenThroughNativeLXBuffer(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "helloworld.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntime(t, 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var firstAPIRequests, tokenAPIRequests int
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.Host {
+		case "103.79.184.97":
+			firstAPIRequests++
+			return &http.Response{
+				StatusCode: http.StatusServiceUnavailable, Status: "503 Service Unavailable",
+				Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`)), Request: request,
+			}, nil
+		case "yy.zddyr.top":
+			tokenAPIRequests++
+			if request.Header.Get("X-Client") != "YYMusicSource/v1.0.0 (Android)" {
+				return nil, fmt.Errorf("X-Client = %q", request.Header.Get("X-Client"))
+			}
+			encodedToken := request.Header.Get("X-Token")
+			if encodedToken == "" {
+				return nil, fmt.Errorf("X-Token header is empty")
+			}
+			tokenBytes, err := base64.StdEncoding.DecodeString(encodedToken)
+			if err != nil {
+				return nil, fmt.Errorf("decode X-Token base64: %w", err)
+			}
+			var token struct {
+				DeviceID string `json:"device_id"`
+				IP       string `json:"ip"`
+				Timestamp int64 `json:"timestamp"`
+				Random   string `json:"random"`
+			}
+			if err := json.Unmarshal(tokenBytes, &token); err != nil {
+				return nil, fmt.Errorf("decode X-Token payload: %w", err)
+			}
+			if !strings.HasPrefix(token.DeviceID, "lx-online-") || token.IP != "0.0.0.0" || token.Timestamp <= 0 || token.Random == "" {
+				return nil, fmt.Errorf("unexpected X-Token payload: %+v", token)
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header),
+				Body: io.NopCloser(strings.NewReader(`{"url":"https://cdn.example/hello-world.mp3"}`)),
+				Request: request,
+			}, nil
+		default:
+			return nil, fmt.Errorf("unexpected HelloWorld API request: %s", request.URL.Redacted())
+		}
+	})}
+
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{
+		Name: "HelloWorld", Version: "260925", Author: "hello world", RawScript: string(source),
+	}, string(source), client); err != nil {
+		t.Fatalf("initialize pinned HelloWorld source: %v", err)
+	}
+	result, err := rt.dispatchLXRequest(ctx, "tx", "musicUrl", map[string]any{
+		"type": "320k",
+		"musicInfo": map[string]any{
+			"songmid": "tx-song-001",
+			"name": "fixture song",
+		},
+	}, client)
+	if err != nil {
+		t.Fatalf("dispatch pinned HelloWorld musicUrl: %v", err)
+	}
+	if got, ok := result.(string); !ok || got != "https://cdn.example/hello-world.mp3" {
+		t.Fatalf("HelloWorld musicUrl = %#v, want fixture CDN URL", result)
+	}
+	if firstAPIRequests != 1 || tokenAPIRequests != 1 {
+		t.Fatalf("API requests: first=%d token=%d, want exactly one each", firstAPIRequests, tokenAPIRequests)
+	}
 }
