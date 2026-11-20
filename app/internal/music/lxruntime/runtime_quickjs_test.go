@@ -583,3 +583,95 @@ func TestHuanyinSourceInitializesAndDispatchesMusicURL(t *testing.T) {
 		t.Fatalf("Huanyin search HTTP requests = %d, want 1", searchRequests)
 	}
 }
+
+
+// TestXinglanRealSourceResolvesMiguURLThroughNativeLXRequest exercises the
+// pinned aggregate source's real musicUrl handler, native HTTP dispatch,
+// backend response parsing, and Migu quality-path rewrite. All network traffic
+// is intercepted; no third-party service is contacted.
+func TestXinglanRealSourceResolvesMiguURLThroughNativeLXRequest(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntime(t, 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var resolveRequests, probeRequests int
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		switch {
+		case request.Method == http.MethodPost &&
+			request.URL.Host == "musicserver.haitangw.cc" &&
+			request.URL.Path == "/v1/music/resolve-url":
+			resolveRequests++
+			if request.Header.Get("Content-Type") != "application/json" {
+				return nil, fmt.Errorf("resolve content type = %q", request.Header.Get("Content-Type"))
+			}
+			var body struct {
+				Source string `json:"source"`
+				RID    string `json:"rid"`
+				Level  string `json:"level"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				return nil, fmt.Errorf("decode resolve request: %w", err)
+			}
+			if body.Source != "mg" || body.RID != "migu-song-001" || body.Level != "standard" {
+				return nil, fmt.Errorf("unexpected resolve payload: %+v", body)
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header),
+				Body: io.NopCloser(strings.NewReader(`{"data":{"url":"https://cdn.example/标清高清/MP3_128_16_Stero/song.mp3?token=abc"}} `)),
+				Request: request,
+			}, nil
+		case request.Method == http.MethodHead && request.URL.Host == "cdn.example":
+			probeRequests++
+			if !strings.Contains(request.URL.EscapedPath(), "MP3_320_16_Stero") {
+				return nil, fmt.Errorf("Migu quality probe path = %q", request.URL.EscapedPath())
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header),
+				Body: io.NopCloser(strings.NewReader("")), Request: request,
+			}, nil
+		default:
+			// Other backends in the source's parallel first-wave are deliberately
+			// unavailable so the test proves the configured Haitang route works.
+			return &http.Response{
+				StatusCode: http.StatusServiceUnavailable, Status: "503 Service Unavailable",
+				Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`)), Request: request,
+			}, nil
+		}
+	})}
+
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{
+		Name: "星澜聚合音源", Version: "v4.0.2", RawScript: string(source),
+	}, string(source), client); err != nil {
+		t.Fatalf("initialize pinned Xinglan source: %v", err)
+	}
+
+	result, err := rt.DispatchLXRequest(ctx, "mg", "musicUrl", map[string]any{
+		"type": "320k",
+		"musicInfo": map[string]any{
+			"songmid": "migu-song-001",
+			"name": "fixture song",
+		},
+	})
+	if err != nil {
+		t.Fatalf("dispatch Xinglan Migu musicUrl through real LX host: %v", err)
+	}
+	resolved, ok := result.(string)
+	if !ok {
+		t.Fatalf("musicUrl result type = %T (%#v), want string", result, result)
+	}
+	if !strings.Contains(resolved, "cdn.example/") ||
+		!strings.Contains(resolved, "MP3_320_16_Stero") ||
+		strings.Contains(resolved, "token=abc") {
+		t.Fatalf("resolved Migu URL = %q, want rewritten 320k CDN URL without query", resolved)
+	}
+	if resolveRequests != 1 {
+		t.Fatalf("Haitang resolve requests = %d, want 1", resolveRequests)
+	}
+	if probeRequests != 1 {
+		t.Fatalf("Migu quality probe requests = %d, want 1", probeRequests)
+	}
+}
