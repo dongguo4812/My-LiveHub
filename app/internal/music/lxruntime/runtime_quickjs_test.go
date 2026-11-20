@@ -913,6 +913,91 @@ func TestHelloWorldSourceBuildsRequestTokenThroughNativeLXBuffer(t *testing.T) {
 }
 
 
+// TestHelloWorldQQQualityFallbackRetriesLowerQualityThroughNativeLXRequest
+// exercises the pinned source's quality fallback after every configured API
+// fails for FLAC. The first QQ API succeeds only after the source downgrades
+// the request to 320k; all traffic is intercepted by the deterministic host.
+func TestHelloWorldQQQualityFallbackRetriesLowerQualityThroughNativeLXRequest(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "helloworld.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntime(t, 20*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	var requests []string
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		requests = append(requests, request.Method+" "+request.URL.Host+request.URL.Path+"?"+request.URL.RawQuery)
+		if request.URL.Host == "103.79.184.97" {
+			if request.Method != http.MethodGet || request.URL.Path != "/api/music/url" {
+				return nil, fmt.Errorf("unexpected QQ primary request: %s %s", request.Method, request.URL.Redacted())
+			}
+			if request.URL.Query().Get("source") != "tx" || request.URL.Query().Get("songId") != "qq-quality-fallback-001" {
+				return nil, fmt.Errorf("unexpected QQ primary query: %s", request.URL.RawQuery)
+			}
+			if request.URL.Query().Get("quality") == "320k" {
+				return &http.Response{
+					StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header),
+					Body: io.NopCloser(strings.NewReader(`{"url":"https://cdn.example.invalid/qq-quality-fallback-320k.mp3"}`)),
+					Request: request,
+				}, nil
+			}
+			if request.URL.Query().Get("quality") != "flac" {
+				return nil, fmt.Errorf("unexpected QQ primary quality: %q", request.URL.Query().Get("quality"))
+			}
+		}
+		switch request.URL.Host {
+		case "103.79.184.97", "yy.zddyr.top", "tang.api.s01s.cn", "musicserver.haitangw.cc", "a.aa.cab":
+			if request.URL.Host == "musicserver.haitangw.cc" && request.Method != http.MethodPost {
+				return nil, fmt.Errorf("Haitang method = %s, want POST", request.Method)
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header),
+				Body: io.NopCloser(strings.NewReader(`{}`)), Request: request,
+			}, nil
+		default:
+			return nil, fmt.Errorf("unexpected HelloWorld QQ fallback request: %s %s", request.Method, request.URL.Redacted())
+		}
+	})}
+
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{
+		Name: "HelloWorld", Version: "260925", Author: "hello world", RawScript: string(source),
+	}, string(source), client); err != nil {
+		t.Fatalf("initialize pinned HelloWorld source: %v", err)
+	}
+	result, err := rt.dispatchLXRequest(ctx, "tx", "musicUrl", map[string]any{
+		"type": "flac",
+		"musicInfo": map[string]any{
+			"songmid": "qq-quality-fallback-001",
+			"name": "fixture QQ quality fallback",
+		},
+	}, client)
+	if err != nil {
+		t.Fatalf("dispatch HelloWorld QQ FLAC fallback: %v", err)
+	}
+	if got, ok := result.(string); !ok || got != "https://cdn.example.invalid/qq-quality-fallback-320k.mp3" {
+		t.Fatalf("QQ musicUrl = %#v, want 320k fallback URL", result)
+	}
+
+	// Five configured APIs must fail in source order for FLAC. The first API
+	// is then retried with 320k and succeeds; no later API should be started.
+	if len(requests) != 6 {
+		t.Fatalf("observed %d QQ API requests, want 5 FLAC attempts plus one 320k retry: %v", len(requests), requests)
+	}
+	if !strings.Contains(requests[0], "quality=flac") || !strings.Contains(requests[5], "quality=320k") {
+		t.Fatalf("quality fallback request order = %v, want FLAC attempts before 320k retry", requests)
+	}
+	wantHosts := []string{"103.79.184.97", "yy.zddyr.top", "tang.api.s01s.cn", "musicserver.haitangw.cc", "a.aa.cab", "103.79.184.97"}
+	for i, host := range wantHosts {
+		if !strings.Contains(requests[i], " "+host+"/") {
+			t.Errorf("request %d = %q, want host %s", i, requests[i], host)
+		}
+	}
+}
+
+
 // TestXinglanQQV2FailureFallsBackToV3ThroughNativeLXRequest exercises the
 // pinned source's real QQ backend chain through the production LX host.
 // The v2 endpoint deliberately returns no playable URL; v3 must then be
