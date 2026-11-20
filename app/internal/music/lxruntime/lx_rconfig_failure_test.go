@@ -43,6 +43,36 @@ func TestLXSourceDoesNotInitializeWhenRConfigFails(t *testing.T) {
 			},
 		},
 		{
+			name: "HTTP 200 with malformed JSON",
+			roundTrip: func(request *http.Request) (*http.Response, error) {
+				if request.Method != http.MethodGet || request.URL.Path != "/rconfig" {
+					return nil, errors.New("unexpected configuration request: " + request.Method + " " + request.URL.Redacted())
+				}
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Status:     "200 OK",
+					Header:     http.Header{"Content-Type": []string{"application/json"}},
+					Body:       io.NopCloser(strings.NewReader("{malformed")),
+					Request:    request,
+				}, nil
+			},
+		},
+		{
+			name: "HTTP 200 with empty JSON object",
+			roundTrip: func(request *http.Request) (*http.Response, error) {
+				if request.Method != http.MethodGet || request.URL.Path != "/rconfig" {
+					return nil, errors.New("unexpected configuration request: " + request.Method + " " + request.URL.Redacted())
+				}
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Status:     "200 OK",
+					Header:     http.Header{"Content-Type": []string{"application/json"}},
+					Body:       io.NopCloser(strings.NewReader("{}")),
+					Request:    request,
+				}, nil
+			},
+		},
+		{
 			name: "transport failure",
 			roundTrip: func(request *http.Request) (*http.Response, error) {
 				if request.Method != http.MethodGet || request.URL.Path != "/rconfig" {
