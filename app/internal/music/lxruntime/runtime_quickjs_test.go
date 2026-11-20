@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -469,9 +470,11 @@ func TestLXSourceRequestsServerConfigurationAgainstRealLXHost(t *testing.T) {
 		for name := range request.URL.Query() {
 			captured.queryKeys = append(captured.queryKeys, name)
 		}
+		sort.Strings(captured.queryKeys)
 		for name := range request.Header {
 			captured.headerNames = append(captured.headerNames, name)
 		}
+		sort.Strings(captured.headerNames)
 		var body []byte
 		if request.Body != nil {
 			body, _ = io.ReadAll(request.Body)
@@ -509,6 +512,12 @@ func TestLXSourceRequestsServerConfigurationAgainstRealLXHost(t *testing.T) {
 	}
 	if requests[0].versionParam != "7" {
 		t.Fatalf("configuration request version parameter = %q, want source version 7", requests[0].versionParam)
+	}
+	if got, want := strings.Join(requests[0].queryKeys, ","), "e,fp,s2,si,to,v"; got != want {
+		t.Fatalf("configuration request query keys = %q, want exact protocol keys %q", got, want)
+	}
+	if got, want := strings.Join(requests[0].headerNames, ","), "Content-Type,User-Agent"; got != want {
+		t.Fatalf("configuration request headers = %q, want %q", got, want)
 	}
 	if requests[0].bodyLength != 0 {
 		t.Fatalf("configuration request body length = %d, want 0", requests[0].bodyLength)
