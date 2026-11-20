@@ -1168,25 +1168,28 @@ func TestXinglanQQPrimarySuccessSkipsSequentialFallbacks(t *testing.T) {
 	mu.Lock()
 	gotRequests := append([]string(nil), requests...)
 	mu.Unlock()
-	if len(gotRequests) != 3 {
-		t.Fatalf("observed %d HTTP requests, want exactly 3 concurrent head-provider requests: %v", len(gotRequests), gotRequests)
+	// The three head providers run concurrently. Haitang itself tries its two
+	// configured hosts sequentially, so four HTTP requests are expected.
+	if len(gotRequests) != 4 {
+		t.Fatalf("observed %d HTTP requests, want 4 requests from the three head providers (including Haitang's two hosts): %v", len(gotRequests), gotRequests)
 	}
-	var luoyueV2, haitang,hyw int
+	var luoyueV2, haitangPrimary, haitangSecondary, hyw int
 	for _, got := range gotRequests {
 		switch {
 		case got == "GET api.vkeys.cn/v2/music/tencent/geturl":
 			luoyueV2++
-		case strings.HasPrefix(got, "POST musicserver.haitangw.cc/v1/music/resolve-url") ||
-			strings.HasPrefix(got, "POST qt.haitangw.net/v1/music/resolve-url"):
-			haitang++
+		case got == "POST musicserver.haitangw.cc/v1/music/resolve-url":
+			haitangPrimary++
+		case got == "POST qt.haitangw.net/v1/music/resolve-url":
+			haitangSecondary++
 		case got == "GET 103.79.184.97/api/music/url":
 			hyw++
 		default:
 			t.Errorf("unexpected backend request: %s", got)
 		}
 	}
-	if luoyueV2 != 1 || haitang != 1 || hyw != 1 {
-		t.Fatalf("head-provider request counts: Luoyue v2=%d Haitang=%d HYW=%d, want exactly one each; requests=%v",
-			luoyueV2, haitang, hyw, gotRequests)
+	if luoyueV2 != 1 || haitangPrimary != 1 || haitangSecondary != 1 || hyw != 1 {
+		t.Fatalf("head-provider request counts: Luoyue v2=%d Haitang primary=%d Haitang secondary=%d HYW=%d, want one request per configured endpoint; requests=%v",
+			luoyueV2, haitangPrimary, haitangSecondary, hyw, gotRequests)
 	}
 }
