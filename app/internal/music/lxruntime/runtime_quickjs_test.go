@@ -1746,3 +1746,90 @@ func TestXinglanKuwoHighQualityUsesStreamBackendOnly(t *testing.T) {
 		t.Fatalf("Kuwo high-quality routes issued %d HTTP requests, want zero (stream URL is constructed locally)", requests)
 	}
 }
+
+
+func TestXinglanKuwoMobileFallbackGETContract(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
+	if err != nil { t.Fatal(err) }
+	rt := newTestRuntime(t, 15*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var mu sync.Mutex
+	var starRequests, backupRequests, officialRequests, mobileRequests int
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		jsonResponse := func(status int, body string) (*http.Response, error) {
+			header := make(http.Header)
+			header.Set("Content-Type", "application/json")
+			return &http.Response{StatusCode: status, Status: http.StatusText(status), Header: header,
+				Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+		}
+		switch request.URL.Host {
+		case "yy.zddyr.top":
+			if request.Method != http.MethodGet { return nil, fmt.Errorf("Xinghai Kuwo method = %s, want GET", request.Method) }
+			mu.Lock(); starRequests++; mu.Unlock()
+			return jsonResponse(http.StatusServiceUnavailable, `{"code":503,"msg":"deterministic primary failure"}`)
+		case "c.wwwweb.top":
+			if request.Method != http.MethodPost || request.URL.Path != "/music/url" {
+				return nil, fmt.Errorf("unexpected HelloWorld Kuwo backup request: %s %s", request.Method, request.URL.Redacted())
+			}
+			var body struct {
+				Source string `json:"source"`
+				MusicID string `json:"musicId"`
+				Quality string `json:"quality"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil { return nil, fmt.Errorf("decode Kuwo backup payload: %w", err) }
+			if body.Source != "kw" || body.MusicID != "kw-mobile-fallback-001" || body.Quality != "320k" {
+				return nil, fmt.Errorf("unexpected Kuwo backup payload: %+v", body)
+			}
+			mu.Lock(); backupRequests++; mu.Unlock()
+			return jsonResponse(http.StatusServiceUnavailable, `{"code":503,"message":"deterministic backup failure"}`)
+		case "mobi.kuwo.cn":
+			if request.Method != http.MethodGet { return nil, fmt.Errorf("Kuwo official method = %s, want GET", request.Method) }
+			q := request.URL.Query()
+			if q.Get("rid") != "kw-mobile-fallback-001" || q.Get("br") != "320kmp3" ||
+				q.Get("source") != "jiakong" || q.Get("type") != "convert_url_with_sign" || q.Get("surl") != "1" {
+				return nil, fmt.Errorf("unexpected Kuwo official query: %s", request.URL.RawQuery)
+			}
+			mu.Lock(); officialRequests++; mu.Unlock()
+			return jsonResponse(http.StatusServiceUnavailable, `{"code":503,"msg":"deterministic official failure"}`)
+		case "nmobi.kuwo.cn":
+			if request.Method != http.MethodGet || request.URL.Path != "/mobi.s" {
+				return nil, fmt.Errorf("Kuwo mobile request = %s %s, want GET /mobi.s", request.Method, request.URL.Redacted())
+			}
+			q := request.URL.Query()
+			if q.Get("rid") != "kw-mobile-fallback-001" || q.Get("br") != "320kmp3" ||
+				q.Get("f") != "web" || q.Get("user") != "0" || q.Get("type") != "convert_url_with_sign" {
+				return nil, fmt.Errorf("unexpected Kuwo mobile query: %s", request.URL.RawQuery)
+			}
+			if !strings.Contains(request.Header.Get("User-Agent"), "Android") {
+				return nil, fmt.Errorf("Kuwo mobile User-Agent = %q, want Android mobile UA", request.Header.Get("User-Agent"))
+			}
+			mu.Lock(); mobileRequests++; mu.Unlock()
+			return jsonResponse(http.StatusOK, `{"code":200,"data":{"url":"https://cdn.example.invalid/kw-mobile-320k.mp3"}}`)
+		default:
+			return nil, fmt.Errorf("unexpected Xinglan Kuwo backend host: %s", request.URL.Host)
+		}
+	})}
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{Name:"星澜聚合音源", Version:"v4.0.2", RawScript:string(source)}, string(source), client); err != nil {
+		t.Fatalf("initialize pinned Xinglan source: %v", err)
+	}
+	result, err := rt.dispatchLXRequest(ctx, "kw", "musicUrl", map[string]any{
+		"type":"320k", "musicInfo":map[string]any{
+			"songmid":"kw-mobile-fallback-001", "rid":"kw-mobile-fallback-001",
+			"name":"fixture Kuwo mobile fallback song", "singer":"fixture singer",
+		},
+	}, client)
+	if err != nil { t.Fatalf("dispatch Kuwo mobile fallback: %v", err) }
+	got, ok := result.(string)
+	if !ok || got != "https://cdn.example.invalid/kw-mobile-320k.mp3" {
+		t.Fatalf("Kuwo mobile fallback URL = %#v, want checked mobile response URL", result)
+	}
+	mu.Lock()
+	gotStar, gotBackup, gotOfficial, gotMobile := starRequests, backupRequests, officialRequests, mobileRequests
+	mu.Unlock()
+	if gotStar != 1 || gotBackup != 1 || gotOfficial != 1 || gotMobile != 1 {
+		t.Fatalf("Kuwo fallback request counts: Xinghai=%d HelloWorldBackup=%d KuwoOfficial=%d KuwoMobile=%d, want exactly one each", gotStar, gotBackup, gotOfficial, gotMobile)
+	}
+}
