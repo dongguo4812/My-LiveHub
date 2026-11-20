@@ -475,7 +475,7 @@ int lxqjs_install_crypto(LXQJSState *state, char **error_out) {
             "      if (typeof byteOffset !== 'number') throw new TypeError('byteOffset must be a number');"
             "      return length === undefined ? new Buffer(value, byteOffset) : new Buffer(value, byteOffset, length);"
             "    }"
-            "    if (ArrayBuffer.isView(value)) return new Buffer(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));"
+            "    if (ArrayBuffer.isView(value)) return new Buffer(value);"
             "    if (value && typeof value.length === 'number') return new Buffer(value);"
             "    throw new TypeError('Buffer.from input must be a string, buffer, ArrayBuffer, or array-like value');"
             "  }"

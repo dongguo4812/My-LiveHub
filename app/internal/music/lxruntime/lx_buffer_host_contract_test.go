@@ -29,6 +29,7 @@ const responseBytes = Buffer.from('{"ok":true,"title":"音乐"}', 'utf-8');
 const responseText = Buffer.from(responseBytes).toString('utf-8');
 const slicedText = Buffer.from([9, 65, 66, 67, 8]).toString('utf8', 1, 4);
 const arrayBufferText = Buffer.from(new Uint8Array([65, 66]).buffer).toString('utf8');
+const typedArrayValuesHex = Buffer.from(new Uint16Array([0x1234, 0x00ff])).toString('hex');
 const sharedBacking = new ArrayBuffer(4);
 const sharedBuffer = Buffer.from(sharedBacking, 1, 2);
 new Uint8Array(sharedBacking)[1] = 0x41;
@@ -48,6 +49,7 @@ JSON.stringify({
   typedArrayIsBuffer: Buffer.isBuffer(new Uint8Array([1, 2])),
   slicedText,
   arrayBufferText,
+  typedArrayValuesHex,
   sharedArrayBufferHex,
   sharedArrayBufferMutation,
   allocatedHex,
@@ -70,6 +72,7 @@ JSON.stringify({
 		TypedArrayIsBuffer bool `json:"typedArrayIsBuffer"`
 		SlicedText       string `json:"slicedText"`
 		ArrayBufferText  string `json:"arrayBufferText"`
+		TypedArrayValuesHex string `json:"typedArrayValuesHex"`
 		SharedArrayBufferHex string `json:"sharedArrayBufferHex"`
 		SharedArrayBufferMutation int `json:"sharedArrayBufferMutation"`
 		AllocatedHex     string `json:"allocatedHex"`
@@ -95,6 +98,9 @@ JSON.stringify({
 	}
 	if got.SlicedText != "ABC" || got.ArrayBufferText != "AB" {
 		t.Fatalf("Buffer conversion results: slice=%q ArrayBuffer=%q", got.SlicedText, got.ArrayBufferText)
+	}
+	if got.TypedArrayValuesHex != "34ff" {
+		t.Fatalf("Buffer.from(Uint16Array) must copy element values, got %q want 34ff", got.TypedArrayValuesHex)
 	}
 	if got.SharedArrayBufferHex != "4100" || got.SharedArrayBufferMutation != 0x42 {
 		t.Fatalf("Buffer.from(ArrayBuffer, offset, length) must share backing storage: hex=%q mutation=%d", got.SharedArrayBufferHex, got.SharedArrayBufferMutation)
