@@ -144,6 +144,7 @@ JSON.stringify({digest, randomLength: random.length, encryptedLength: encrypted.
 
 
 
+// The Eval call drains QuickJS promise jobs; the test reads the settled result in a second Eval.
 func TestLXHostZlibNativeCallbacksAreLinkedAndPromiseBased(t *testing.T) {
 	rt := newTestRuntime(t, 5*time.Second)
 	if err := rt.InstallLXHost(context.Background(), ScriptInfo{Name: "zlib-host-contract"}); err != nil {
