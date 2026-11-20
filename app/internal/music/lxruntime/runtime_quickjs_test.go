@@ -1094,3 +1094,99 @@ func TestXinglanQQBackendPoolReportsAllFailures(t *testing.T) {
 		t.Fatalf("observed %d HTTP requests, want at least 13 across QQ backend pool: %v", len(gotRequests), gotRequests)
 	}
 }
+
+// TestXinglanQQPrimarySuccessSkipsSequentialFallbacks verifies that a valid
+// Luoyue v2 URL wins the concurrent head group and prevents every sequential
+// fallback backend from being contacted. The other two head providers are
+// deliberately failed so the result does not depend on request scheduling.
+func TestXinglanQQPrimarySuccessSkipsSequentialFallbacks(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntime(t, 15*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var mu sync.Mutex
+	var requests []string
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		mu.Lock()
+		requests = append(requests, request.Method+" "+request.URL.Host+request.URL.Path)
+		mu.Unlock()
+
+		jsonResponse := func(status int, body string) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: status, Status: http.StatusText(status), Header: make(http.Header),
+				Body: io.NopCloser(strings.NewReader(body)), Request: request,
+			}, nil
+		}
+
+		switch {
+		case request.Method == http.MethodGet &&
+			request.URL.Host == "api.vkeys.cn" &&
+			request.URL.Path == "/v2/music/tencent/geturl":
+			if request.URL.Query().Get("mid") != "qq-song-primary-success" ||
+				request.URL.Query().Get("quality") != "8" {
+				return nil, fmt.Errorf("unexpected Luoyue v2 query: %s", request.URL.RawQuery)
+			}
+			return jsonResponse(http.StatusOK, `{"code":200,"data":{"url":"https://cdn.example.invalid/qq-primary-v2.mp3"}}`)
+		case request.Method == http.MethodPost &&
+			(request.URL.Host == "musicserver.haitangw.cc" || request.URL.Host == "qt.haitangw.net") &&
+			request.URL.Path == "/v1/music/resolve-url":
+			return jsonResponse(http.StatusServiceUnavailable, `{"code":503,"message":"deterministic Haitang failure"}`)
+		case request.Method == http.MethodGet &&
+			request.URL.Host == "103.79.184.97" &&
+			request.URL.Path == "/api/music/url":
+			return jsonResponse(http.StatusForbidden, `{"code":403,"message":"deterministic HYW failure"}`)
+		default:
+			return nil, fmt.Errorf("unexpected Xinglan QQ request: %s %s", request.Method, request.URL.Redacted())
+		}
+	})}
+
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{
+		Name: "星澜聚合音源", Version: "v4.0.2", RawScript: string(source),
+	}, string(source), client); err != nil {
+		t.Fatalf("initialize pinned Xinglan source: %v", err)
+	}
+
+	result, err := rt.dispatchLXRequest(ctx, "tx", "musicUrl", map[string]any{
+		"type": "320k",
+		"musicInfo": map[string]any{
+			"songmid": "qq-song-primary-success",
+			"name": "fixture QQ song",
+		},
+	}, client)
+	if err != nil {
+		t.Fatalf("dispatch Xinglan QQ musicUrl with primary success: %v", err)
+	}
+	if got, ok := result.(string); !ok || got != "https://cdn.example.invalid/qq-primary-v2.mp3" {
+		t.Fatalf("QQ musicUrl = %#v, want Luoyue v2 URL", result)
+	}
+
+	mu.Lock()
+	gotRequests := append([]string(nil), requests...)
+	mu.Unlock()
+	if len(gotRequests) != 3 {
+		t.Fatalf("observed %d HTTP requests, want exactly 3 concurrent head-provider requests: %v", len(gotRequests), gotRequests)
+	}
+	var luoyueV2, haitang,hyw int
+	for _, got := range gotRequests {
+		switch {
+		case got == "GET api.vkeys.cn/v2/music/tencent/geturl":
+			luoyueV2++
+		case strings.HasPrefix(got, "POST musicserver.haitangw.cc/v1/music/resolve-url") ||
+			strings.HasPrefix(got, "POST qt.haitangw.net/v1/music/resolve-url"):
+			haitang++
+		case got == "GET 103.79.184.97/api/music/url":
+			hyw++
+		default:
+			t.Errorf("unexpected backend request: %s", got)
+		}
+	}
+	if luoyueV2 != 1 || haitang != 1 || hyw != 1 {
+		t.Fatalf("head-provider request counts: Luoyue v2=%d Haitang=%d HYW=%d, want exactly one each; requests=%v",
+			luoyueV2, haitang, hyw, gotRequests)
+	}
+}
