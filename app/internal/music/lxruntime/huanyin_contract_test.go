@@ -151,3 +151,104 @@ func TestHuanyinMiguSearchStopsWhenRequestedLimitIsReached(t *testing.T) {
 		}
 	}
 }
+
+
+// TestHuanyinNativePlatformMusicURLMapping verifies the pinned source's
+// QQ/Kuwo/Netease URL contract through the real LX Host dispatcher. These
+// branches intentionally construct a provider URL locally and must not
+// issue an HTTP request from the source itself.
+func TestHuanyinNativePlatformMusicURLMapping(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "huanyin.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntime(t, 10*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	var unexpectedRequests int
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		unexpectedRequests++
+		return nil, fmt.Errorf("unexpected Huanyin native-platform request: %s %s", request.Method, request.URL.Redacted())
+	})}
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{
+		Name: "幻音音源", Version: "v3", Author: "竹佀", RawScript: string(source),
+	}, string(source), client); err != nil {
+		t.Fatalf("initialize pinned Huanyin source: %v", err)
+	}
+
+	platforms := []struct {
+		source string
+		provider string
+	}{
+		{source: "tx", provider: "qq"},
+		{source: "kw", provider: "kuwo"},
+		{source: "wy", provider: "netease"},
+	}
+	qualities := []struct {
+		requested string
+		encoded string
+	}{
+		{requested: "128k", encoded: "128k"},
+		{requested: "320k", encoded: "320k"},
+		{requested: "flac", encoded: "flac"},
+		{requested: "flac24bit", encoded: "flac24bit"},
+		{requested: "unsupported-quality", encoded: "128k"},
+	}
+	for _, platform := range platforms {
+		for _, quality := range qualities {
+			t.Run(platform.source+"/"+quality.requested, func(t *testing.T) {
+				result, err := rt.dispatchLXRequest(ctx, platform.source, "musicUrl", map[string]any{
+					"type": quality.requested,
+					"musicInfo": map[string]any{
+						"songmid": "huanyin-fixture-song-001",
+					},
+				}, client)
+				if err != nil {
+					t.Fatalf("dispatch %s musicUrl at %s: %v", platform.source, quality.requested, err)
+				}
+				want := "https://music-dl.sayqz.com/api/?source=" + platform.provider +
+					"&id=huanyin-fixture-song-001&type=url&br=" + quality.encoded
+				if got, ok := result.(string); !ok || got != want {
+					t.Fatalf("musicUrl = %#v, want %q", result, want)
+				}
+			})
+		}
+	}
+	if unexpectedRequests != 0 {
+		t.Fatalf("native platform URL mapping issued %d HTTP requests, want none", unexpectedRequests)
+	}
+}
+
+// TestHuanyinNativePlatformMusicURLRejectsMissingSongID verifies that all
+// three local URL-mapping branches reject a request without a song identifier.
+func TestHuanyinNativePlatformMusicURLRejectsMissingSongID(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "huanyin.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntime(t, 10*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("unexpected request without song ID: %s", request.URL.Redacted())
+	})}
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{
+		Name: "幻音音源", Version: "v3", Author: "竹佀", RawScript: string(source),
+	}, string(source), client); err != nil {
+		t.Fatalf("initialize pinned Huanyin source: %v", err)
+	}
+	for _, platform := range []string{"tx", "kw", "wy"} {
+		t.Run(platform, func(t *testing.T) {
+			_, err := rt.dispatchLXRequest(ctx, platform, "musicUrl", map[string]any{
+				"type": "320k", "musicInfo": map[string]any{"name": "missing-id"},
+			}, client)
+			if err == nil || !strings.Contains(err.Error(), "没ID") {
+				t.Fatalf("musicUrl error = %v, want missing-ID error", err)
+			}
+		})
+	}
+}
