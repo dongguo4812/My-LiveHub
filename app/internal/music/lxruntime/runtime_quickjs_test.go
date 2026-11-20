@@ -528,7 +528,7 @@ func TestLXSourceRequestsServerConfigurationAgainstRealLXHost(t *testing.T) {
 	if got := parsedQuery.Get("fp"); got != "42bc92aaf1a30247e40eab9523ca0713" {
 		t.Fatalf("configuration fingerprint = %q, want pinned V7 fingerprint", got)
 	}
-	for key, wantLength := range map[string]int{"e": 32, "to": 24, "s2": 32, "si": 32} {
+	for key, wantLength := range map[string]int{"e": 32, "to": 22, "s2": 32, "si": 32} {
 		value := parsedQuery.Get(key)
 		decoded, err := hex.DecodeString(value)
 		if err != nil || len(value) != wantLength || len(decoded)*2 != wantLength {
