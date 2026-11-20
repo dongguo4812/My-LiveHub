@@ -675,3 +675,86 @@ func TestXinglanRealSourceResolvesMiguURLThroughNativeLXRequest(t *testing.T) {
 		t.Fatalf("Migu quality probe requests = %d, want 1", probeRequests)
 	}
 }
+
+// TestHuanyinSearchResultFlowsIntoMusicURLResolution exercises the complete
+// search -> selected song metadata -> musicUrl path through the pinned source
+// and native LX HTTP host. The transport is deterministic and makes no
+// third-party network requests.
+func TestHuanyinSearchResultFlowsIntoMusicURLResolution(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "huanyin.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntime(t, 10*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	var searchRequests, resolveRequests int
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet || request.URL.Host != "api.xcvts.cn" || request.URL.Path != "/api/music/migu" {
+			return nil, fmt.Errorf("unexpected Huanyin request: %s %s", request.Method, request.URL.Redacted())
+		}
+		switch request.URL.Query().Get("gm") {
+		case "周杰伦":
+			searchRequests++
+			if request.URL.Query().Get("n") != "1" || request.URL.Query().Get("num") != "1" {
+				return nil, fmt.Errorf("unexpected search pagination: %s", request.URL.RawQuery)
+			}
+		case "周杰伦范特西":
+			resolveRequests++
+			if request.URL.Query().Get("n") != "1" || request.URL.Query().Get("num") != "1" {
+				return nil, fmt.Errorf("unexpected resolve pagination: %s", request.URL.RawQuery)
+			}
+		default:
+			return nil, fmt.Errorf("unexpected Huanyin keyword: %q", request.URL.Query().Get("gm"))
+		}
+		body := `{"code":200,"title":"周杰伦","artist":"周杰伦","album":"范特西","duration":"04:00","music_url":"https://cdn.example/jay-chou.mp3"}`
+		return &http.Response{
+			StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header),
+			Body: io.NopCloser(strings.NewReader(body)), Request: request,
+		}, nil
+	})}
+
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{
+		Name: "幻音音源", Version: "v3", Author: "竹佀", RawScript: string(source),
+	}, string(source), client); err != nil {
+		t.Fatalf("initialize Huanyin source: %v", err)
+	}
+
+	searchResult, err := rt.dispatchLXRequest(ctx, "mg", "search", map[string]any{
+		"keyword": "周杰伦", "page": 1, "limit": 1,
+	}, client)
+	if err != nil {
+		t.Fatalf("search Migu through real LX host: %v", err)
+	}
+	items, ok := searchResult.([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("search result = %#v, want one song", searchResult)
+	}
+	selectedSong, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("search item type = %T, want map[string]any", items[0])
+	}
+	for key, want := range map[string]string{
+		"name": "周杰伦", "singer": "周杰伦", "albumName": "范特西", "source": "mg",
+	} {
+		if got, ok := selectedSong[key].(string); !ok || got != want {
+			t.Fatalf("search item %s = %#v, want %q", key, selectedSong[key], want)
+		}
+	}
+
+	playResult, err := rt.dispatchLXRequest(ctx, "mg", "musicUrl", map[string]any{
+		"type": "320k", "musicInfo": selectedSong,
+	}, client)
+	if err != nil {
+		t.Fatalf("resolve selected search result through musicUrl: %v", err)
+	}
+	playURL, ok := playResult.(string)
+	if !ok || playURL != "https://cdn.example/jay-chou.mp3" {
+		t.Fatalf("musicUrl result = %#v, want fixture CDN URL", playResult)
+	}
+	if searchRequests != 1 || resolveRequests != 1 {
+		t.Fatalf("HTTP request counts: search=%d resolve=%d, want exactly one each", searchRequests, resolveRequests)
+	}
+}
