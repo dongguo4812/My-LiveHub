@@ -1566,8 +1566,15 @@ func TestXinglanKuwoHighQualityUsesStreamBackendOnly(t *testing.T) {
 		quality string
 		level   string
 	}{
-		{quality: "master", level: "master"},
+		{quality: "128k", level: "128k"},
+		{quality: "192k", level: "128k"},
+		{quality: "320k", level: "320k"},
+		{quality: "flac", level: "flac"},
 		{quality: "flac24bit", level: "flac"},
+		{quality: "hires", level: "hires"},
+		{quality: "atmos", level: "atmos"},
+		{quality: "atmos_plus", level: "atmos_plus"},
+		{quality: "master", level: "master"},
 	} {
 		t.Run(tc.quality, func(t *testing.T) {
 			result, err := rt.dispatchLXRequest(ctx, "kw", "musicUrl", map[string]any{
