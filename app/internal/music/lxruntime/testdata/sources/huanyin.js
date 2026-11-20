@@ -132,6 +132,10 @@ async function fetchMiguUrl(keyword, checkInfo) {
         reject(new Error('网络问题'))
         return
       }
+      if (resp && Number(resp.statusCode) >= 400) {
+        reject(new Error(`HTTP错误: ${resp.statusCode}`))
+        return
+      }
       
       try {
         const text = resp.body
@@ -236,6 +240,10 @@ async function searchMigu(keyword, page) {
       
       if (err) {
         reject(new Error('网络问题'))
+        return
+      }
+      if (resp && Number(resp.statusCode) >= 400) {
+        reject(new Error(`HTTP错误: ${resp.statusCode}`))
         return
       }
       
