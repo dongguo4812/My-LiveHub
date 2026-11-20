@@ -216,3 +216,83 @@ func TestHuanyinMiguSearchDoesNotAcceptServerErrorBodies(t *testing.T) {
 		}
 	}
 }
+
+// TestHuanyinMiguSearchSkipsHTTPFailureAndContinues verifies that a failed
+// page does not become a result even when its body looks successful, and that
+// subsequent successful pages are parsed until the requested limit is met.
+func TestHuanyinMiguSearchSkipsHTTPFailureAndContinues(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "huanyin.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntime(t, 10*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	var pages []string
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet || request.URL.Host != "api.xcvts.cn" || request.URL.Path != "/api/music/migu" {
+			return nil, fmt.Errorf("unexpected Huanyin search continuation request: %s %s", request.Method, request.URL.Redacted())
+		}
+		query := request.URL.Query()
+		if query.Get("gm") != "连续搜索测试" || query.Get("num") != "1" || query.Get("type") != "json" {
+			return nil, fmt.Errorf("unexpected Migu search query: %s", request.URL.RawQuery)
+		}
+		page := query.Get("n")
+		pages = append(pages, page)
+		if page == "1" {
+			body := `{"code":200,"title":"不能采纳的错误页","artist":"错误歌手","album":"错误专辑","duration":"00:01"}`
+			return &http.Response{
+				StatusCode: http.StatusServiceUnavailable, Status: "503 Service Unavailable",
+				Header: http.Header{"Content-Type": []string{"application/json"}},
+				Body: io.NopCloser(strings.NewReader(body)), Request: request,
+			}, nil
+		}
+		if page != "2" && page != "3" {
+			return nil, fmt.Errorf("unexpected Migu page %q", page)
+		}
+		body, _ := json.Marshal(map[string]any{
+			"code": 200, "title": "有效歌曲" + page, "artist": "有效歌手",
+			"album": "有效专辑", "duration": "03:21",
+		})
+		return &http.Response{
+			StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header),
+			Body: io.NopCloser(strings.NewReader(string(body))), Request: request,
+		}, nil
+	})}
+
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{
+		Name: "幻音音源", Version: "v3", Author: "竹佀", RawScript: string(source),
+	}, string(source), client); err != nil {
+		t.Fatalf("initialize pinned Huanyin source: %v", err)
+	}
+
+	result, err := rt.dispatchLXRequest(ctx, "mg", "search", map[string]any{
+		"keyword": "连续搜索测试", "limit": 2,
+	}, client)
+	if err != nil {
+		t.Fatalf("search Migu after first-page HTTP failure: %v", err)
+	}
+	items, ok := result.([]any)
+	if !ok || len(items) != 2 {
+		t.Fatalf("search result = %#v, want two successful-page songs", result)
+	}
+	if len(pages) != 3 || pages[0] != "1" || pages[1] != "2" || pages[2] != "3" {
+		t.Fatalf("Migu search pages = %#v, want [1 2 3]", pages)
+	}
+	for i, item := range items {
+		song, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("search item %d type = %T, want map", i, item)
+		}
+		wantName := "有效歌曲" + string(rune('2'+i))
+		if song["name"] != wantName || song["singer"] != "有效歌手" ||
+			song["albumName"] != "有效专辑" || song["interval"] != "03:21" || song["source"] != "mg" {
+			t.Fatalf("search item %d = %#v, unexpected mapped metadata", i, song)
+		}
+		if strings.Contains(song["name"].(string), "不能采纳") {
+			t.Fatalf("HTTP 503 response leaked into search results: %#v", song)
+		}
+	}
+}
