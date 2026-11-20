@@ -126,20 +126,65 @@ JSON.stringify({
 
 func TestLXHostCryptoNativeCallbacksAreLinkedAndCallable(t *testing.T) {
 	rt := newTestRuntime(t, 5*time.Second)
-	if err := rt.InstallLXHost(context.Background(), ScriptInfo{}); err != nil { t.Fatal(err) }
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{}); err != nil {
+		t.Fatal(err)
+	}
 	value, err := rt.Eval(context.Background(), `
 const digest = lx.utils.crypto.md5('abc');
-const random = lx.utils.crypto.randomBytes(24);
-const encrypted = lx.utils.crypto.aesEncrypt(
-  Buffer.from('abc'), 'aes-128-cbc',
-  Buffer.from('2b7e151628aed2a6abf7158809cf4f3c', 'hex'),
-  Buffer.from('000102030405060708090a0b0c0d0e0f', 'hex')
-);
-JSON.stringify({digest, randomLength: random.length, encryptedLength: encrypted.length})
+const randomA = lx.utils.crypto.randomBytes(24);
+const randomB = lx.utils.crypto.randomBytes(24);
+const key = Buffer.from('2b7e151628aed2a6abf7158809cf4f3c', 'hex');
+const iv = Buffer.from('000102030405060708090a0b0c0d0e0f', 'hex');
+const encrypted = lx.utils.crypto.aesEncrypt(Buffer.from('abc'), 'aes-128-cbc', key, iv);
+if (!(randomA instanceof Uint8Array) || !(randomB instanceof Uint8Array)) throw new Error('randomBytes did not return Uint8Array');
+if (randomA.length !== 24 || randomB.length !== 24) throw new Error('randomBytes returned wrong length');
+if (Buffer.from(randomA).toString('hex') === Buffer.from(randomB).toString('hex')) throw new Error('randomBytes returned repeated output');
+if (!(encrypted instanceof Uint8Array)) throw new Error('aesEncrypt did not return Uint8Array');
+JSON.stringify({
+  digest,
+  randomHex: Buffer.from(randomA).toString('hex'),
+  encryptedHex: Buffer.from(encrypted).toString('hex')
+})
 `, "lx-crypto-native-contract.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Digest       string `json:"digest"`
+		RandomHex    string `json:"randomHex"`
+		EncryptedHex string `json:"encryptedHex"`
+	}
+	if err := json.Unmarshal([]byte(value), &result); err != nil {
+		t.Fatalf("decode native crypto result %q: %v", value, err)
+	}
+	if result.Digest != "900150983cd24fb0d6963f7d28e17f72" {
+		t.Fatalf("MD5('abc') = %q", result.Digest)
+	}
+	randomBytes, err := hex.DecodeString(result.RandomHex)
+	if err != nil || len(randomBytes) != 24 {
+		t.Fatalf("randomBytes result length/encoding invalid: len=%d err=%v", len(randomBytes), err)
+	}
+	encrypted, err := hex.DecodeString(result.EncryptedHex)
+	if err != nil {
+		t.Fatalf("decode AES output: %v", err)
+	}
+	block, err := aes.NewCipher([]byte{0x2b,0x7e,0x15,0x16,0x28,0xae,0xd2,0xa6,0xab,0xf7,0x15,0x88,0x09,0xcf,0x4f,0x3c})
 	if err != nil { t.Fatal(err) }
-	want := `{"digest":"900150983cd24fb0d6963f7d28e17f72","randomLength":24,"encryptedLength":16}`
-	if value != want { t.Fatalf("native crypto callbacks = %s, want %s", value, want) }
+	if len(encrypted) == 0 || len(encrypted)%block.BlockSize() != 0 {
+		t.Fatalf("AES-CBC output length = %d", len(encrypted))
+	}
+	plain := make([]byte, len(encrypted))
+	cipher.NewCBCDecrypter(block, []byte{0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15}).CryptBlocks(plain, encrypted)
+	padding := int(plain[len(plain)-1])
+	if padding == 0 || padding > block.BlockSize() || padding > len(plain) {
+		t.Fatalf("invalid PKCS#7 padding byte %d", padding)
+	}
+	for _, b := range plain[len(plain)-padding:] {
+		if int(b) != padding { t.Fatalf("invalid PKCS#7 padding: %x", plain) }
+	}
+	if string(plain[:len(plain)-padding]) != "abc" {
+		t.Fatalf("AES-CBC decrypted plaintext = %q", plain[:len(plain)-padding])
+	}
 }
 
 
