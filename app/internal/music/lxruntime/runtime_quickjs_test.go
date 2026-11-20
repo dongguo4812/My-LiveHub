@@ -1020,3 +1020,77 @@ func TestXinglanQQV2FailureFallsBackToV3ThroughNativeLXRequest(t *testing.T) {
 		t.Fatalf("Luoyue requests: v2=%d v3=%d, want exactly one each", gotV2, gotV3)
 	}
 }
+
+// TestXinglanQQBackendPoolReportsAllFailures exercises the pinned source's
+// complete QQ backend pool. The first three providers fail concurrently;
+// every remaining provider must be attempted in source order and its failure
+// must be represented in the final aggregate error.
+func TestXinglanQQBackendPoolReportsAllFailures(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntime(t, 15*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var mu sync.Mutex
+	var requests []string
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		mu.Lock()
+		requests = append(requests, request.Method+" "+request.URL.Host+request.URL.Path)
+		mu.Unlock()
+		return &http.Response{
+			StatusCode: http.StatusServiceUnavailable,
+			Status: http.StatusText(http.StatusServiceUnavailable),
+			Header: make(http.Header),
+			Body: io.NopCloser(strings.NewReader(`{"code":503,"message":"deterministic backend failure"}`)),
+			Request: request,
+		}, nil
+	})}
+
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{
+		Name: "星澜聚合音源", Version: "v4.0.2", RawScript: string(source),
+	}, string(source), client); err != nil {
+		t.Fatalf("initialize pinned Xinglan source: %v", err)
+	}
+
+	_, err = rt.dispatchLXRequest(ctx, "tx", "musicUrl", map[string]any{
+		"type": "320k",
+		"musicInfo": map[string]any{
+			"songmid": "qq-song-all-backends-fail",
+			"name": "fixture QQ song",
+		},
+	}, client)
+	if err == nil {
+		t.Fatal("expected all QQ backends to fail")
+	}
+	message := err.Error()
+	for _, want := range []string{
+		"所有后端均失败（共 13 个）",
+		"落月QQ:",
+		"云记QQ(海堂):",
+		"HYWmusic QQ:",
+		"baimusic QQ:",
+		"QQ官方:",
+		"星海主后端:",
+		"HelloWorld QQ:",
+		"vkeys:",
+		"317ak:",
+		"念心直链:",
+		"FishAPI:",
+		"ygking QQ:",
+		"FFAPI:",
+	} {
+		if !strings.Contains(message, want) {
+			t.Errorf("aggregate error missing %q: %s", want, message)
+		}
+	}
+	mu.Lock()
+	gotRequests := append([]string(nil), requests...)
+	mu.Unlock()
+	if len(gotRequests) < 13 {
+		t.Fatalf("observed %d HTTP requests, want at least 13 across QQ backend pool: %v", len(gotRequests), gotRequests)
+	}
+}
