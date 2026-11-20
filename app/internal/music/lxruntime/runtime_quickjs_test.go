@@ -655,7 +655,7 @@ func TestXinglanRealSourceResolvesMiguURLThroughNativeLXRequest(t *testing.T) {
 			"songmid": "migu-song-001",
 			"name": "fixture song",
 		},
-	})
+	}, client)
 	if err != nil {
 		t.Fatalf("dispatch Xinglan Migu musicUrl through real LX host: %v", err)
 	}
