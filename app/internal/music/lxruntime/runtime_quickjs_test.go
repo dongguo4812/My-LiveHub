@@ -1541,6 +1541,67 @@ func TestXinglanQQPrimarySuccessSkipsSequentialFallbacks(t *testing.T) {
 // Kuwo requests are routed through Xinghai's stream endpoint for every
 // declared quality tier. The source constructs the stream URL locally; this
 // matrix verifies the complete quality-to-level mapping without resolver HTTP.
+// TestXinglanKuwoStandardQualityUsesProviderPool verifies that a standard
+// Kuwo tier bypasses the local stream URL and reaches the ordinary provider pool.
+func TestXinglanKuwoStandardQualityUsesProviderPool(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
+	if err != nil { t.Fatal(err) }
+	rt := newTestRuntime(t, 15*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var mu sync.Mutex
+	var starRequests, backupRequests int
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		jsonResponse := func(status int, body string) (*http.Response, error) {
+			header := make(http.Header)
+			header.Set("Content-Type", "application/json")
+			return &http.Response{StatusCode: status, Status: http.StatusText(status), Header: header,
+				Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+		}
+		if request.URL.Host == "c.wwwweb.top" {
+			if request.Method != http.MethodPost || request.URL.Path != "/music/url" {
+				return nil, fmt.Errorf("unexpected HelloWorld Kuwo backup request: %s %s", request.Method, request.URL.Redacted())
+			}
+			if request.Header.Get("Content-Type") != "application/json" ||
+				request.Header.Get("User-Agent") != "lx-music-desktop/2.10.1" {
+				return nil, fmt.Errorf("unexpected HelloWorld Kuwo backup headers: %#v", request.Header)
+			}
+			var body struct {
+				Source string `json:"source"`
+				MusicID string `json:"musicId"`
+				Quality string `json:"quality"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				return nil, fmt.Errorf("decode Kuwo backup payload: %w", err)
+			}
+			if body.Source != "kw" || body.MusicID != "kw-standard-song-001" || body.Quality != "320k" {
+				return nil, fmt.Errorf("unexpected Kuwo backup payload: %+v", body)
+			}
+			mu.Lock(); backupRequests++; mu.Unlock()
+			return jsonResponse(http.StatusOK, `{"code":200,"url":"https://cdn.example.invalid/kw-standard-320k.mp3"}`)
+		}
+		mu.Lock(); starRequests++; mu.Unlock()
+		return jsonResponse(http.StatusServiceUnavailable, `{"code":503,"msg":"deterministic provider failure"}`)
+	})}
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{Name:"星澜聚合音源", Version:"v4.0.2", RawScript:string(source)}, string(source), client); err != nil {
+		t.Fatalf("initialize pinned Xinglan source: %v", err)
+	}
+	result, err := rt.dispatchLXRequest(ctx, "kw", "musicUrl", map[string]any{
+		"type":"320k", "musicInfo":map[string]any{"songmid":"kw-standard-song-001","name":"fixture Kuwo standard song","singer":"fixture singer"},
+	}, client)
+	if err != nil { t.Fatalf("dispatch standard Kuwo musicUrl: %v", err) }
+	got, ok := result.(string)
+	if !ok || got != "https://cdn.example.invalid/kw-standard-320k.mp3" {
+		t.Fatalf("Kuwo standard musicUrl = %#v, want checked provider URL", result)
+	}
+	mu.Lock(); gotStar, gotBackup := starRequests, backupRequests; mu.Unlock()
+	if gotStar != 1 || gotBackup != 1 {
+		t.Fatalf("Kuwo standard provider requests: star=%d backup=%d, want exactly one each", gotStar, gotBackup)
+	}
+}
+
 func TestXinglanKuwoHighQualityUsesStreamBackendOnly(t *testing.T) {
 	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
 	if err != nil {
