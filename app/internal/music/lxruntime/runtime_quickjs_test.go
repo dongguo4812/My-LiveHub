@@ -910,3 +910,112 @@ func TestHelloWorldSourceBuildsRequestTokenThroughNativeLXBuffer(t *testing.T) {
 		t.Fatalf("API requests: first=%d token=%d, want exactly one each", firstAPIRequests, tokenAPIRequests)
 	}
 }
+
+
+// TestXinglanQQV2FailureFallsBackToV3ThroughNativeLXRequest exercises the
+// pinned source's real QQ backend chain through the production LX host.
+// The v2 endpoint deliberately returns no playable URL; v3 must then be
+// requested with the same song ID and quality and its URL must be returned.
+func TestXinglanQQV2FailureFallsBackToV3ThroughNativeLXRequest(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntime(t, 15*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var mu sync.Mutex
+	var v2Requests, v3Requests int
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		jsonResponse := func(status int, body string) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: status, Status: http.StatusText(status), Header: make(http.Header),
+				Body: io.NopCloser(strings.NewReader(body)), Request: request,
+			}, nil
+		}
+		switch {
+		case request.Method == http.MethodGet &&
+			request.URL.Host == "api.vkeys.cn" &&
+			request.URL.Path == "/v2/music/tencent/geturl":
+			mu.Lock()
+			v2Requests++
+			mu.Unlock()
+			if request.URL.Query().Get("mid") != "qq-song-fallback-001" ||
+				request.URL.Query().Get("quality") != "8" {
+				return nil, fmt.Errorf("unexpected v2 query: %s", request.URL.RawQuery)
+			}
+			if request.Header.Get("Accept") != "application/json" {
+				return nil, fmt.Errorf("v2 Accept header = %q", request.Header.Get("Accept"))
+			}
+			return jsonResponse(http.StatusOK, `{"code":404,"message":"fixture v2 URL unavailable"}`)
+		case request.Method == http.MethodGet &&
+			request.URL.Host == "api.vkeys.cn" &&
+			request.URL.Path == "/music/tencent/song/link":
+			mu.Lock()
+			v3Requests++
+			mu.Unlock()
+			if request.URL.Query().Get("mid") != "qq-song-fallback-001" ||
+				request.URL.Query().Get("quality") != "8" {
+				return nil, fmt.Errorf("unexpected v3 query: %s", request.URL.RawQuery)
+			}
+			if request.Header.Get("Accept") != "application/json" {
+				return nil, fmt.Errorf("v3 Accept header = %q", request.Header.Get("Accept"))
+			}
+			return jsonResponse(http.StatusOK, `{"code":200,"data":{"url":"https://cdn.example.invalid/qq-v3-fallback.mp3"}}`)
+		case request.Method == http.MethodPost &&
+			(request.URL.Host == "musicserver.haitangw.cc" || request.URL.Host == "qt.haitangw.net") &&
+			request.URL.Path == "/v1/music/resolve-url":
+			var body struct {
+				Source string `json:"source"`
+				RID string `json:"rid"`
+				Level string `json:"level"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				return nil, fmt.Errorf("decode parallel Haitang request: %w", err)
+			}
+			if body.Source != "tx" || body.RID != "qq-song-fallback-001" || body.Level != "exhigh" {
+				return nil, fmt.Errorf("unexpected parallel Haitang payload: %+v", body)
+			}
+			return jsonResponse(http.StatusServiceUnavailable, `{"code":503,"message":"fixture backend unavailable"}`)
+		case request.Method == http.MethodGet && request.URL.Host == "103.79.184.97" &&
+			request.URL.Path == "/api/music/url":
+			if request.URL.Query().Get("platform") != "tx" ||
+				request.URL.Query().Get("songId") != "qq-song-fallback-001" ||
+				request.URL.Query().Get("quality") != "320k" {
+				return nil, fmt.Errorf("unexpected HYWmusic query: %s", request.URL.RawQuery)
+			}
+			return jsonResponse(http.StatusForbidden, `{"code":403,"message":"fixture key unavailable"}`)
+		default:
+			return nil, fmt.Errorf("unexpected Xinglan QQ request: %s %s", request.Method, request.URL.Redacted())
+		}
+	})}
+
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{
+		Name: "星澜聚合音源", Version: "v4.0.2", RawScript: string(source),
+	}, string(source), client); err != nil {
+		t.Fatalf("initialize pinned Xinglan source: %v", err)
+	}
+
+	result, err := rt.dispatchLXRequest(ctx, "tx", "musicUrl", map[string]any{
+		"type": "320k",
+		"musicInfo": map[string]any{
+			"songmid": "qq-song-fallback-001",
+			"name": "fixture QQ song",
+		},
+	}, client)
+	if err != nil {
+		t.Fatalf("dispatch Xinglan QQ musicUrl with v2 failure and v3 fallback: %v", err)
+	}
+	got, ok := result.(string)
+	if !ok || got != "https://cdn.example.invalid/qq-v3-fallback.mp3" {
+		t.Fatalf("QQ musicUrl = %#v, want v3 fallback URL", result)
+	}
+	mu.Lock()
+	gotV2, gotV3 := v2Requests, v3Requests
+	mu.Unlock()
+	if gotV2 != 1 || gotV3 != 1 {
+		t.Fatalf("Luoyue requests: v2=%d v3=%d, want exactly one each", gotV2, gotV3)
+	}
+}
