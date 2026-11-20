@@ -149,7 +149,8 @@ func TestLXHostZlibNativeCallbacksAreLinkedAndPromiseBased(t *testing.T) {
 	if err := rt.InstallLXHost(context.Background(), ScriptInfo{Name: "zlib-host-contract"}); err != nil {
 		t.Fatal(err)
 	}
-	value, err := rt.Eval(context.Background(), `
+	_, err := rt.Eval(context.Background(), `
+globalThis.__zlibHostContractResult = 'pending';
 (async () => {
   const original = Buffer.from('洛雪音源 QuickJS zlib host contract');
   const compressed = await lx.utils.zlib.deflate(original);
@@ -164,8 +165,16 @@ func TestLXHostZlibNativeCallbacksAreLinkedAndPromiseBased(t *testing.T) {
   catch (error) { rejected = /zlib inflate/.test(error.message); }
   if (!rejected) throw new Error('invalid zlib input did not reject with host error');
   return 'zlib-native-host-ok';
-})()
+})().then(
+  value => { globalThis.__zlibHostContractResult = value; },
+  error => { globalThis.__zlibHostContractResult = 'ERROR: ' + (error && error.message || error); }
+);
+'queued';
 `, "lx-zlib-host-contract.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := rt.Eval(context.Background(), "globalThis.__zlibHostContractResult", "lx-zlib-host-contract-result.js")
 	if err != nil {
 		t.Fatal(err)
 	}
