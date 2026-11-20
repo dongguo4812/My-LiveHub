@@ -649,7 +649,7 @@ func TestXinglanRealSourceResolvesMiguURLThroughNativeLXRequest(t *testing.T) {
 		t.Fatalf("initialize pinned Xinglan source: %v", err)
 	}
 
-	result, err := rt.DispatchLXRequest(ctx, "mg", "musicUrl", map[string]any{
+	result, err := rt.dispatchLXRequest(ctx, "mg", "musicUrl", map[string]any{
 		"type": "320k",
 		"musicInfo": map[string]any{
 			"songmid": "migu-song-001",
