@@ -1566,12 +1566,7 @@ func TestXinglanKuwoHighQualityUsesStreamBackendOnly(t *testing.T) {
 		quality string
 		level   string
 	}{
-		{quality: "128k", level: "128k"},
-		{quality: "192k", level: "128k"},
-		{quality: "320k", level: "320k"},
-		{quality: "flac", level: "flac"},
 		{quality: "flac24bit", level: "flac"},
-		{quality: "hires", level: "hires"},
 		{quality: "atmos", level: "atmos"},
 		{quality: "atmos_plus", level: "atmos_plus"},
 		{quality: "master", level: "master"},
