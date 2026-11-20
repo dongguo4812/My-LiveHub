@@ -458,6 +458,7 @@ func TestLXSourceRequestsServerConfigurationAgainstRealLXHost(t *testing.T) {
 		scheme string
 		host string
 		path string
+		rawQuery string
 		queryKeys []string
 		versionParam string
 		headerNames []string
@@ -466,7 +467,7 @@ func TestLXSourceRequestsServerConfigurationAgainstRealLXHost(t *testing.T) {
 	}
 	var requests []capturedRequest
 	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		captured := capturedRequest{method: request.Method, scheme: request.URL.Scheme, host: request.URL.Host, path: request.URL.Path, versionParam: request.URL.Query().Get("v")}
+		captured := capturedRequest{method: request.Method, scheme: request.URL.Scheme, host: request.URL.Host, path: request.URL.Path, rawQuery: request.URL.RawQuery, versionParam: request.URL.Query().Get("v")}
 		for name := range request.URL.Query() {
 			captured.queryKeys = append(captured.queryKeys, name)
 		}
@@ -499,8 +500,8 @@ func TestLXSourceRequestsServerConfigurationAgainstRealLXHost(t *testing.T) {
 	if len(requests) != 1 {
 		t.Fatalf("server configuration requests = %d, want exactly 1 (initialization error: %v)", len(requests), err)
 	}
-	t.Logf("captured /rconfig request: method=%s scheme=%s host=%s path=%s queryKeys=%v versionParam=%q headerNames=%v bodyLength=%d bodyJSONKeys=%v",
-		requests[0].method, requests[0].scheme, requests[0].host, requests[0].path, requests[0].queryKeys, requests[0].versionParam, requests[0].headerNames, requests[0].bodyLength, requests[0].bodyJSONKeys)
+	t.Logf("captured /rconfig request: method=%s scheme=%s host=%s path=%s rawQuery=%q queryKeys=%v versionParam=%q headerNames=%v bodyLength=%d bodyJSONKeys=%v",
+		requests[0].method, requests[0].scheme, requests[0].host, requests[0].path, requests[0].rawQuery, requests[0].queryKeys, requests[0].versionParam, requests[0].headerNames, requests[0].bodyLength, requests[0].bodyJSONKeys)
 	if requests[0].method != http.MethodGet {
 		t.Fatalf("configuration request method = %q, want GET", requests[0].method)
 	}
