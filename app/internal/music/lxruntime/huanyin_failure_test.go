@@ -297,3 +297,74 @@ func TestHuanyinMiguSearchSkipsHTTPFailureAndContinues(t *testing.T) {
 		}
 	}
 }
+
+// TestHuanyinMiguSearchSkipsMalformedAndRejectedJSONPages verifies that
+// HTTP 200 responses with malformed JSON or a non-success business code are
+// skipped, while a later valid page is still returned.
+func TestHuanyinMiguSearchSkipsMalformedAndRejectedJSONPages(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "huanyin.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntime(t, 10*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	var pages []string
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet || request.URL.Host != "api.xcvts.cn" || request.URL.Path != "/api/music/migu" {
+			return nil, fmt.Errorf("unexpected Huanyin malformed-response request: %s %s", request.Method, request.URL.Redacted())
+		}
+		query := request.URL.Query()
+		if query.Get("gm") != "响应体异常测试" || query.Get("num") != "1" || query.Get("type") != "json" {
+			return nil, fmt.Errorf("unexpected Migu search query: %s", request.URL.RawQuery)
+		}
+		page := query.Get("n")
+		pages = append(pages, page)
+		var body string
+		switch page {
+		case "1":
+			body = `{"code":200,"title":`
+		case "2":
+			body = `{"code":500,"title":"业务失败页","artist":"不应收录","music_url":"https://cdn.example.invalid/no.mp3"}`
+		case "3":
+			body = `{"code":200,"title":"最终有效歌曲","artist":"有效歌手","album":"有效专辑","duration":"03:45"}`
+		default:
+			return nil, fmt.Errorf("unexpected Migu page %q", page)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK, Status: "200 OK",
+			Header: http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(body)), Request: request,
+		}, nil
+	})}
+
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{
+		Name: "幻音音源", Version: "v3", Author: "竹佀", RawScript: string(source),
+	}, string(source), client); err != nil {
+		t.Fatalf("initialize pinned Huanyin source: %v", err)
+	}
+
+	result, err := rt.dispatchLXRequest(ctx, "mg", "search", map[string]any{
+		"keyword": "响应体异常测试", "limit": 1,
+	}, client)
+	if err != nil {
+		t.Fatalf("search Migu after malformed and rejected JSON pages: %v", err)
+	}
+	items, ok := result.([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("search result = %#v, want exactly one valid song", result)
+	}
+	if len(pages) != 3 || pages[0] != "1" || pages[1] != "2" || pages[2] != "3" {
+		t.Fatalf("Migu search pages = %#v, want [1 2 3]", pages)
+	}
+	song, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("search item type = %T, want map", items[0])
+	}
+	if song["name"] != "最终有效歌曲" || song["singer"] != "有效歌手" ||
+		song["albumName"] != "有效专辑" || song["interval"] != "03:45" || song["source"] != "mg" {
+		t.Fatalf("search item = %#v, unexpected mapped metadata", song)
+	}
+}
