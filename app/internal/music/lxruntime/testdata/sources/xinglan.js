@@ -1544,7 +1544,7 @@ const withUrlCache = async (cacheKey, loader) => {
 // ==================== 后端池与选择 ====================
 
 const BACKEND_POOLS = { tx: TX_BACKENDS, wy: WY_BACKENDS, kw: KW_BACKENDS, kg: KG_BACKENDS, mg: MG_BACKENDS, qs: QS_BACKENDS }
-const KW_HIGH_QUALITY = ['atmos', 'atmos_plus', 'master']
+const KW_HIGH_QUALITY = ['flac24bit', 'atmos', 'atmos_plus', 'master']
 const KW_STREAM_BACKEND = '酷我流媒体'
 
 const isHttpUrl = (u) => typeof u === 'string' && (u.startsWith('http://') || u.startsWith('https://'))

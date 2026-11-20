@@ -1562,25 +1562,35 @@ func TestXinglanKuwoHighQualityUsesStreamBackendOnly(t *testing.T) {
 		t.Fatalf("initialize pinned Xinglan source: %v", err)
 	}
 
-	result, err := rt.dispatchLXRequest(ctx, "kw", "musicUrl", map[string]any{
-		"type": "master",
-		"musicInfo": map[string]any{
-			"songmid": "kw-stream-song-001",
-			"id": "kw-fallback-id-must-not-win",
-		},
-	}, client)
-	if err != nil {
-		t.Fatalf("dispatch Xinglan Kuwo master musicUrl: %v", err)
-	}
-	got, ok := result.(string)
-	if !ok {
-		t.Fatalf("Kuwo musicUrl result type = %T (%#v), want string", result, result)
-	}
-	want := "http://175.27.166.236:8928/kwstream?id=kw-stream-song-001&level=master&stream=1"
-	if got != want {
-		t.Fatalf("Kuwo master stream URL = %q, want %q", got, want)
+	for _, tc := range []struct {
+		quality string
+		level   string
+	}{
+		{quality: "master", level: "master"},
+		{quality: "flac24bit", level: "flac"},
+	} {
+		t.Run(tc.quality, func(t *testing.T) {
+			result, err := rt.dispatchLXRequest(ctx, "kw", "musicUrl", map[string]any{
+				"type": tc.quality,
+				"musicInfo": map[string]any{
+					"songmid": "kw-stream-song-001",
+					"id": "kw-fallback-id-must-not-win",
+				},
+			}, client)
+			if err != nil {
+				t.Fatalf("dispatch Xinglan Kuwo %s musicUrl: %v", tc.quality, err)
+			}
+			got, ok := result.(string)
+			if !ok {
+				t.Fatalf("Kuwo %s musicUrl result type = %T (%#v), want string", tc.quality, result, result)
+			}
+			want := "http://175.27.166.236:8928/kwstream?id=kw-stream-song-001&level=" + tc.level + "&stream=1"
+			if got != want {
+				t.Fatalf("Kuwo %s stream URL = %q, want %q", tc.quality, got, want)
+			}
+		})
 	}
 	if requests != 0 {
-		t.Fatalf("Kuwo master route issued %d HTTP requests, want zero (stream URL is constructed locally)", requests)
+		t.Fatalf("Kuwo high-quality routes issued %d HTTP requests, want zero (stream URL is constructed locally)", requests)
 	}
 }
