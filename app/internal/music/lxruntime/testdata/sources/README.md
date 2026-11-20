@@ -17,6 +17,6 @@ These snapshots are test inputs, not trusted code. They must only be evaluated b
 - `huanyin.js`: real LX host initialization, local platform URL mapping, deterministic Migu search and playback, search-result-to-playback flow, metadata mismatch retry, and cache behavior.
 - Engine: Promise microtask drain, timer lifecycle, HTTP cancellation, and interruption of an infinite loop.
 
-The four fixtures do not yet have equal protocol coverage. See [SOURCE_PROTOCOL_MATRIX.md](../SOURCE_PROTOCOL_MATRIX.md) for the N5 coverage inventory and explicit completion criteria.
+The four fixtures do not yet have equal protocol coverage. See [SOURCE_PROTOCOL_MATRIX.md](../../SOURCE_PROTOCOL_MATRIX.md) for the N5 coverage inventory and explicit completion criteria.
 
 Passing these tests proves only the deterministic cases listed above. It does not prove full API parity, live network behavior, live service availability, entitlement bypass, or guaranteed playback. Live service responses and playback must be tested separately.
