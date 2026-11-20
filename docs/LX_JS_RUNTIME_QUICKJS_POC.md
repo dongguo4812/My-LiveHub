@@ -274,3 +274,33 @@ Before changing code, check this checkpoint and current branch HEAD/CI. Reuse ex
 implementations. Do not recreate QuickJS build, CGo embedding, Buffer fixes, crypto primitives,
 zlib primitives or already-passing fixture tests. Every new claim must point to a concrete test
 or CI run; a green CI is evidence only for the tests actually executed.
+
+
+## N1 completed — HTTP abort lifecycle (2026-11-20)
+
+Implementation commits:
+- `ac9c5894241453cb8ee17f1ee3a8c3f4df7fe6c1` — async HTTP task lifecycle and cancellation bridge
+- `2186d60e7bd62b42e9e405b608f6f9467a2beeb9` — queued/in-flight abort tests
+- `a58319e56fcb596536ee65c10fdeec9f7e2f6b9d` — timeout/response race tests
+
+Changes:
+- The LX JS abort closure now records request IDs in a host abort queue, while preserving immediate callback delivery with `Error('Cancel request')`.
+- Go HTTP operations run in cancellable background tasks; the QuickJS owner thread remains free to pump timers and process source callbacks.
+- Both `DispatchLXRequest` and `InitializeLXSource` use the same request task lifecycle.
+- Active request IDs map to Go `context.CancelFunc`; cancellation reaches `http.NewRequestWithContext`.
+- Completed responses return to the QuickJS owner thread for callback delivery. The JS pending callback map remains the exactly-once gate, so an abort callback cannot be delivered a second time when the canceled HTTP worker later completes.
+- Parent context cancellation cancels all active requests. Existing 60-second timeout ceiling and 8 MiB response cap remain unchanged.
+
+Verified tests:
+- abort before dispatch removes the queued request and produces no HTTP request.
+- abort during an in-flight HTTP request cancels the server-observed request context.
+- repeated abort calls invoke the JS callback exactly once.
+- timeout wins over a later abort; callback remains exactly once.
+- response wins over a later abort; callback remains exactly once.
+- Existing pinned source/runtime integration tests continue to pass.
+
+CI:
+- Run `44659306672` passed for the initial async lifecycle and queued/in-flight abort implementation.
+- Run `44659893914` passed after timeout-vs-abort and response-vs-abort race tests were added.
+
+N1 is complete. Next task is N2 — verify the upstream desktop preload's `resp.raw` type and match Buffer identity only if the source contract requires it. N1 does not establish full Node Buffer compatibility or production integration.
