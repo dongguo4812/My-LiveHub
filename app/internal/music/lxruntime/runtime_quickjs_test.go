@@ -1833,3 +1833,112 @@ func TestXinglanKuwoMobileFallbackGETContract(t *testing.T) {
 		t.Fatalf("Kuwo fallback request counts: Xinghai=%d HelloWorldBackup=%d KuwoOfficial=%d KuwoMobile=%d, want exactly one each", gotStar, gotBackup, gotOfficial, gotMobile)
 	}
 }
+
+
+func TestXinglanHYWMusicKuwoGETContract(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntime(t, 15*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var mu sync.Mutex
+	counts := map[string]int{}
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		jsonResponse := func(status int, body string) (*http.Response, error) {
+			header := make(http.Header)
+			header.Set("Content-Type", "application/json")
+			return &http.Response{StatusCode: status, Status: http.StatusText(status), Header: header,
+				Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+		}
+		switch request.URL.Host {
+		case "yy.zddyr.top":
+			if request.Method != http.MethodGet {
+				return nil, fmt.Errorf("Xinghai Kuwo method = %s, want GET", request.Method)
+			}
+			mu.Lock(); counts["xinghai"]++; mu.Unlock()
+			return jsonResponse(http.StatusServiceUnavailable, `{"code":503,"msg":"deterministic primary failure"}`)
+		case "c.wwwweb.top":
+			if request.Method != http.MethodPost || request.URL.Path != "/music/url" {
+				return nil, fmt.Errorf("unexpected HelloWorld Kuwo backup request: %s %s", request.Method, request.URL.Redacted())
+			}
+			mu.Lock(); counts["helloworld"]++; mu.Unlock()
+			return jsonResponse(http.StatusServiceUnavailable, `{"code":503,"message":"deterministic backup failure"}`)
+		case "mobi.kuwo.cn":
+			if request.Method != http.MethodGet {
+				return nil, fmt.Errorf("Kuwo official method = %s, want GET", request.Method)
+			}
+			mu.Lock(); counts["official"]++; mu.Unlock()
+			return jsonResponse(http.StatusServiceUnavailable, `{"code":503,"msg":"deterministic official failure"}`)
+		case "nmobi.kuwo.cn":
+			if request.Method != http.MethodGet || request.URL.Path != "/mobi.s" {
+				return nil, fmt.Errorf("Kuwo mobile request = %s %s, want GET /mobi.s", request.Method, request.URL.Redacted())
+			}
+			mu.Lock(); counts["mobile"]++; mu.Unlock()
+			return jsonResponse(http.StatusServiceUnavailable, `{"code":503,"msg":"deterministic mobile failure"}`)
+		case "music.nxinxz.com":
+			if request.Method != http.MethodGet || request.URL.Path != "/kgqq/kw.php" {
+				return nil, fmt.Errorf("Nianxin Kuwo request = %s %s, want GET /kgqq/kw.php", request.Method, request.URL.Redacted())
+			}
+			q := request.URL.Query()
+			if q.Get("id") != "kw-hyw-contract-001" || q.Get("level") != "128k" || q.Get("type") != "mp3" {
+				return nil, fmt.Errorf("unexpected Nianxin Kuwo query: %s", request.URL.RawQuery)
+			}
+			mu.Lock(); counts["nianxin"]++; mu.Unlock()
+			return jsonResponse(http.StatusServiceUnavailable, `{"code":503,"msg":"deterministic Nianxin failure"}`)
+		case "103.79.184.97":
+			if request.Method != http.MethodGet || request.URL.Path != "/api/music/url" {
+				return nil, fmt.Errorf("HYWmusic Kuwo request = %s %s, want GET /api/music/url", request.Method, request.URL.Redacted())
+			}
+			q := request.URL.Query()
+			want := map[string]string{
+				"songId":"kw-hyw-contract-001", "songmid":"kw-hyw-contract-001",
+				"rid":"kw-hyw-contract-001", "name":"fixture HYW song",
+				"singer":"fixture singer", "platform":"kw", "source":"kw",
+				"quality":"128k", "key":"6C1F-53W0-GRKI-EVFG",
+			}
+			for key, value := range want {
+				if q.Get(key) != value {
+					return nil, fmt.Errorf("HYWmusic Kuwo query %s = %q, want %q (raw %s)", key, q.Get(key), value, request.URL.RawQuery)
+				}
+			}
+			if request.Header.Get("Accept") != "application/json" ||
+				request.Header.Get("User-Agent") != "Mozilla/5.0" {
+				return nil, fmt.Errorf("unexpected HYWmusic headers: %#v", request.Header)
+			}
+			mu.Lock(); counts["hyw"]++; mu.Unlock()
+			return jsonResponse(http.StatusOK, `{"code":200,"data":{"url":"https://cdn.example.invalid/kw-hyw-128k.mp3"}}`)
+		default:
+			return nil, fmt.Errorf("unexpected Xinglan Kuwo backend host: %s", request.URL.Host)
+		}
+	})}
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{Name:"星澜聚合音源", Version:"v4.0.2", RawScript:string(source)}, string(source), client); err != nil {
+		t.Fatalf("initialize pinned Xinglan source: %v", err)
+	}
+	result, err := rt.dispatchLXRequest(ctx, "kw", "musicUrl", map[string]any{
+		"type":"128k", "musicInfo":map[string]any{
+			"songmid":"kw-hyw-contract-001", "rid":"kw-hyw-contract-001",
+			"name":"fixture HYW song", "singer":"fixture singer",
+		},
+	}, client)
+	if err != nil {
+		t.Fatalf("dispatch HYWmusic Kuwo fallback: %v", err)
+	}
+	got, ok := result.(string)
+	if !ok || got != "https://cdn.example.invalid/kw-hyw-128k.mp3" {
+		t.Fatalf("HYWmusic Kuwo fallback URL = %#v, want checked HYWmusic response URL", result)
+	}
+	mu.Lock()
+	gotCounts := map[string]int{}
+	for key, value := range counts { gotCounts[key] = value }
+	mu.Unlock()
+	wantCounts := map[string]int{"xinghai":1, "helloworld":1, "official":1, "mobile":1, "nianxin":1, "hyw":1}
+	for key, want := range wantCounts {
+		if gotCounts[key] != want {
+			t.Fatalf("Kuwo fallback %s requests = %d, want %d (all counts: %+v)", key, gotCounts[key], want, gotCounts)
+		}
+	}
+}
