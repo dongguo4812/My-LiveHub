@@ -1536,3 +1536,51 @@ func TestXinglanQQPrimarySuccessSkipsSequentialFallbacks(t *testing.T) {
 			luoyueV2, haitangPrimary, haitangSecondary, hyw, gotRequests)
 	}
 }
+
+
+// High-quality Kuwo requests are intentionally routed only to Xinghai's
+// stream endpoint. The source constructs the stream URL locally; it must not
+// fan out to ordinary URL-resolution providers for master/atmos tiers.
+func TestXinglanKuwoHighQualityUsesStreamBackendOnly(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntime(t, 15*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var requests int
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		requests++
+		return nil, fmt.Errorf("unexpected HTTP request for Kuwo high-quality stream route: %s %s", request.Method, request.URL.Redacted())
+	})}
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{
+		Name: "星澜聚合音源", Version: "v4.0.2", RawScript: string(source),
+	}, string(source), client); err != nil {
+		t.Fatalf("initialize pinned Xinglan source: %v", err)
+	}
+
+	result, err := rt.dispatchLXRequest(ctx, "kw", "musicUrl", map[string]any{
+		"type": "master",
+		"musicInfo": map[string]any{
+			"songmid": "kw-stream-song-001",
+			"id": "kw-fallback-id-must-not-win",
+		},
+	}, client)
+	if err != nil {
+		t.Fatalf("dispatch Xinglan Kuwo master musicUrl: %v", err)
+	}
+	got, ok := result.(string)
+	if !ok {
+		t.Fatalf("Kuwo musicUrl result type = %T (%#v), want string", result, result)
+	}
+	want := "http://175.27.166.236:8928/kwstreaam?id=kw-stream-song-001&level=master&stream=1"
+	if got != want {
+		t.Fatalf("Kuwo master stream URL = %q, want %q", got, want)
+	}
+	if requests != 0 {
+		t.Fatalf("Kuwo master route issued %d HTTP requests, want zero (stream URL is constructed locally)", requests)
+	}
+}
