@@ -516,8 +516,38 @@ func TestLXSourceRequestsServerConfigurationAgainstRealLXHost(t *testing.T) {
 	if requests[0].versionParam != "7" {
 		t.Fatalf("configuration request version parameter = %q, want source version 7", requests[0].versionParam)
 	}
-	// The V7 fixture embeds this server fingerprint. The remaining values are
-	// per-request hexadecimal protocol fields and must not be hard-coded.
+	// The pinned source publishes its bootstrap server configuration in a
+	// generated header. Derive the expected host and fingerprint from that
+	// header instead of duplicating deployment-specific values in the test.
+	const configAssignment = "globalThis['SERVER_SCRIPT_CONFIG'] = "
+	configStart := strings.Index(string(source), configAssignment)
+	if configStart < 0 {
+		t.Fatal("pinned LX source is missing SERVER_SCRIPT_CONFIG bootstrap")
+	}
+	configStart += len(configAssignment)
+	configEnd := strings.Index(string(source)[configStart:], ";")
+	if configEnd < 0 {
+		t.Fatal("pinned LX source has an unterminated SERVER_SCRIPT_CONFIG bootstrap")
+	}
+	var serverConfig struct {
+		APIURL      string `json:"apiUrl"`
+		Fingerprint string `json:"fingerprint"`
+	}
+	if err := json.Unmarshal(source[configStart:configStart+configEnd], &serverConfig); err != nil {
+		t.Fatalf("decode pinned SERVER_SCRIPT_CONFIG: %v", err)
+	}
+	serverURL, err := url.Parse(serverConfig.APIURL)
+	if err != nil || serverURL.Scheme != "https" || serverURL.Host == "" {
+		t.Fatalf("invalid pinned server apiUrl %q: %v", serverConfig.APIURL, err)
+	}
+	if requests[0].host != serverURL.Host {
+		t.Fatalf("configuration request host = %q, want bootstrap apiUrl host %q", requests[0].host, serverURL.Host)
+	}
+	if serverConfig.Fingerprint == "" {
+		t.Fatal("pinned SERVER_SCRIPT_CONFIG has no fingerprint")
+	}
+	// The remaining values are per-request hexadecimal protocol fields and
+	// must not be hard-coded.
 	if got := requests[0].rawQuery; got == "" {
 		t.Fatal("configuration request raw query is empty")
 	}
@@ -525,8 +555,8 @@ func TestLXSourceRequestsServerConfigurationAgainstRealLXHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse configuration request query: %v", err)
 	}
-	if got := parsedQuery.Get("fp"); got != "42bc92aaf1a30247e40eab9523ca0713" {
-		t.Fatalf("configuration fingerprint = %q, want pinned V7 fingerprint", got)
+	if got := parsedQuery.Get("fp"); got != serverConfig.Fingerprint {
+		t.Fatalf("configuration fingerprint = %q, want bootstrap fingerprint %q", got, serverConfig.Fingerprint)
 	}
 	for key, wantLength := range map[string]int{"e": 32, "to": 22, "s2": 32, "si": 32} {
 		value := parsedQuery.Get(key)
