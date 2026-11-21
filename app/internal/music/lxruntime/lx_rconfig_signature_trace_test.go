@@ -142,6 +142,9 @@ for (const name of ['aesEncrypt', 'rsaEncrypt']) {
 	charTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxCharCodeTrace)", "lx-rconfig-charcode-trace.js")
 	if err != nil { t.Fatal(err) }
 	t.Logf("source charCodeAt input trace: %s", charTraceJSON)
+	metadataTraceJSON, err := rt.Eval(ctx, `JSON.stringify({scriptMD5Type: typeof globalThis.SCRIPT_MD5, scriptMD5: globalThis.SCRIPT_MD5, rawScriptLength: globalThis.lx.currentScriptInfo.rawScript.length, rawScriptHead: globalThis.lx.currentScriptInfo.rawScript.slice(0, 320), rawScriptTail: globalThis.lx.currentScriptInfo.rawScript.slice(-320), globalKeys: Object.keys(globalThis).filter(key => /md5|script/i.test(key)).slice(0, 80)})`, "lx-rconfig-metadata-trace.js")
+	if err != nil { t.Fatal(err) }
+	t.Logf("source integrity globals and metadata: %s", metadataTraceJSON)
 	t.Logf("source MD5 trace (%d calls): %#v", len(trace), trace)
 	cryptoTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxCryptoTrace)", "lx-rconfig-crypto-trace.js")
 	if err != nil {
