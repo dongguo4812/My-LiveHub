@@ -426,7 +426,28 @@ func TestLXSourceRConfigLiveHandshake(t *testing.T) {
 	liveTraceShim := `
 globalThis.__lxLiveTrace = [];
 globalThis.__lxLiveMD5Trace = [];
+globalThis.__lxLiveEntropyTrace = [];
 const __lxLiveCrypto = globalThis.lx.utils.crypto;
+const __lxLiveRandomBytes = __lxLiveCrypto.randomBytes.bind(__lxLiveCrypto);
+__lxLiveCrypto.randomBytes = function(...args) {
+  const value = __lxLiveRandomBytes(...args);
+  globalThis.__lxLiveEntropyTrace.push({kind: 'randomBytes', args, output: Array.from(value || []).map(byte => Number(byte).toString(16).padStart(2, '0')).join('')});
+  return value;
+};
+const __lxLiveMathRandom = Math.random;
+Math.random = function() {
+  const value = __lxLiveMathRandom.call(Math);
+  globalThis.__lxLiveEntropyTrace.push({kind: 'Math.random', output: String(value)});
+  return value;
+};
+if (globalThis.crypto && typeof globalThis.crypto.getRandomValues === 'function') {
+  const __lxLiveGetRandomValues = globalThis.crypto.getRandomValues.bind(globalThis.crypto);
+  globalThis.crypto.getRandomValues = function(array) {
+    const value = __lxLiveGetRandomValues(array);
+    globalThis.__lxLiveEntropyTrace.push({kind: 'crypto.getRandomValues', output: Array.from(value || []).map(byte => Number(byte).toString(16).padStart(2, '0')).join('')});
+    return value;
+  };
+}
 const __lxLiveMD5 = __lxLiveCrypto.md5.bind(__lxLiveCrypto);
 __lxLiveCrypto.md5 = function(value) {
   const output = __lxLiveMD5(value);
@@ -468,7 +489,7 @@ for (const method of ['log', 'info', 'warn', 'error']) {
 	}, liveTraceShim+string(source), client)
 	traceCtx, traceCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer traceCancel()
-	trace, traceErr := rt.Eval(traceCtx, `JSON.stringify({state: globalThis.__lxHostState, trace: globalThis.__lxLiveTrace, md5Trace: globalThis.__lxLiveMD5Trace, timerErrors: globalThis.__lxTimerErrors, missingCapabilities: globalThis.__lxMissingCapabilities})`, "lx-live-handshake-trace.js")
+	trace, traceErr := rt.Eval(traceCtx, `JSON.stringify({state: globalThis.__lxHostState, trace: globalThis.__lxLiveTrace, md5Trace: globalThis.__lxLiveMD5Trace, entropyTrace: globalThis.__lxLiveEntropyTrace, timerErrors: globalThis.__lxTimerErrors, missingCapabilities: globalThis.__lxMissingCapabilities})`, "lx-live-handshake-trace.js")
 	if traceErr != nil { t.Logf("live handshake diagnostic trace unavailable: %v", traceErr) } else { t.Logf("live handshake diagnostic trace: %s", trace) }
 	t.Logf("live /rconfig HTTP status: %d", status)
 	t.Logf("live /rconfig response body: %s", string(responseBody))
