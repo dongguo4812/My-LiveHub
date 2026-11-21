@@ -61,7 +61,7 @@ __lxCrypto.randomBytes = function(...args) {
 const __lxDateNow = Date.now;
 Date.now = function() {
   const value = __lxDateNow.call(Date);
-  globalThis.__lxCryptoTrace.push({ name: 'Date.now', output: String(value) });
+  globalThis.__lxCryptoTrace.push({ name: 'Date.now', output: String(value), stack: new Error().stack });
   return value;
 };
 const __lxMathRandom = Math.random;
@@ -81,13 +81,13 @@ if (__lxPerformanceNow) {
 const __lxNumberToString = Number.prototype.toString;
 Number.prototype.toString = function(radix) {
   const value = __lxNumberToString.call(this, radix);
-  if (radix === 16) globalThis.__lxCryptoTrace.push({ name: 'Number.toString(16)', input: String(this), output: value });
+  if (radix === 16) globalThis.__lxCryptoTrace.push({ name: 'Number.toString(16)', input: String(this), output: value, stack: new Error().stack });
   return value;
 };
 const __lxFromCharCode = String.fromCharCode;
 String.fromCharCode = function(...codes) {
   const value = __lxFromCharCode.apply(String, codes);
-  if (value.length >= 8) globalThis.__lxCryptoTrace.push({ name: 'String.fromCharCode', input: codes.slice(0, 64), output: value.slice(0, 128) });
+  if (value.length >= 8) globalThis.__lxCryptoTrace.push({ name: 'String.fromCharCode', input: codes.slice(0, 64), output: value.slice(0, 128), stack: new Error().stack });
   return value;
 };
 if (globalThis.crypto && typeof globalThis.crypto === 'object') {
