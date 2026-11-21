@@ -290,6 +290,9 @@ for (const name of ['aesEncrypt', 'rsaEncrypt']) {
 	arrayTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxArrayTrace)", "lx-rconfig-array-trace.js")
 	if err != nil { t.Fatal(err) }
 	t.Logf("source typed-array operation trace: %s", arrayTraceJSON)
+	transformTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxTransformTrace)", "lx-rconfig-transform-trace.js")
+	if err != nil { t.Fatal(err) }
+	t.Logf("source signature string transform trace: %s", transformTraceJSON)
 	responseTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxResponseTrace)", "lx-rconfig-response-trace.js")
 	if err != nil {
 		t.Fatal(err)
