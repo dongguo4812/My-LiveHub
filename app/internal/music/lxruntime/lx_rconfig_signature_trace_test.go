@@ -84,6 +84,33 @@ Number.prototype.toString = function(radix) {
   if (radix === 16) globalThis.__lxCryptoTrace.push({ name: 'Number.toString(16)', input: String(this), output: value, stack: new Error().stack });
   return value;
 };
+
+globalThis.__lxArrayTrace = [];
+const __lxTraceArrayValue = value => {
+  if (!value || typeof value.length !== 'number' || value.length < 8 || value.length > 64) return;
+  if (globalThis.__lxArrayTrace.length >= 300) return;
+  const values = Array.from(value).map(item => typeof item === 'number' ? item : String(item));
+  globalThis.__lxArrayTrace.push({ length: value.length, values, stack: new Error().stack });
+};
+for (const prototype of [Array.prototype, globalThis.Uint8Array && Uint8Array.prototype]) {
+  if (!prototype) continue;
+  for (const method of ['map', 'join', 'set', 'fill', 'slice', 'subarray', 'reverse']) {
+    const original = prototype[method];
+    if (typeof original !== 'function') continue;
+    try {
+      prototype[method] = function(...args) {
+        if (this && typeof this.length === 'number' && this.length >= 8 && this.length <= 64) {
+          __lxTraceArrayValue(this);
+        }
+        const result = original.apply(this, args);
+        if (result && typeof result.length === 'number' && result.length >= 8 && result.length <= 64) {
+          __lxTraceArrayValue(result);
+        }
+        return result;
+      };
+    } catch (_) {}
+  }
+}
 const __lxFromCharCode = String.fromCharCode;
 String.fromCharCode = function(...codes) {
   const value = __lxFromCharCode.apply(String, codes);
