@@ -26,8 +26,9 @@ func TestLXSourceRConfigSignatureTrace(t *testing.T) {
 
 	const traceShim = `
 globalThis.__lxMD5Trace = [];
-const __lxOriginalMD5 = globalThis.lx.utils.crypto.md5.bind(globalThis.lx.utils.crypto);
-globalThis.lx.utils.crypto.md5 = function(value) {
+const __lxCrypto = globalThis.lx.utils.crypto;
+const __lxOriginalMD5 = __lxCrypto.md5.bind(__lxCrypto);
+__lxCrypto.md5 = function(value) {
   const output = __lxOriginalMD5(value);
   globalThis.__lxMD5Trace.push({
     input: typeof value === 'string' ? value : String(value),
@@ -35,6 +36,20 @@ globalThis.lx.utils.crypto.md5 = function(value) {
   });
   return output;
 };
+globalThis.__lxCryptoTrace = [];
+const __lxHex = value => Array.from(value || []).map(byte => Number(byte).toString(16).padStart(2, '0')).join('');
+for (const name of ['aesEncrypt', 'rsaEncrypt']) {
+  const original = __lxCrypto[name].bind(__lxCrypto);
+  __lxCrypto[name] = function(...args) {
+    const result = original(...args);
+    globalThis.__lxCryptoTrace.push({
+      name,
+      args: args.map(value => typeof value === 'string' ? value : __lxHex(value)),
+      output: __lxHex(result)
+    });
+    return result;
+  };
+}
 `
 
 	var capturedURL string
@@ -89,6 +104,11 @@ globalThis.lx.utils.crypto.md5 = function(value) {
 	}
 	t.Logf("captured rconfig URL: %s", parsedURL.Redacted())
 	t.Logf("source MD5 trace (%d calls): %#v", len(trace), trace)
+	cryptoTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxCryptoTrace)", "lx-rconfig-crypto-trace.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("source AES/RSA trace: %s", cryptoTraceJSON)
 	if !matched {
 		t.Logf("rconfig si=%s was not a direct output of a traced MD5 call; it may be derived through byte-level crypto or another transform", si)
 	}
