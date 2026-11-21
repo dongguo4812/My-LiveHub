@@ -119,6 +119,53 @@ if (__lxTypedArrayPrototype) {
     } catch (_) {}
   }
 }
+
+globalThis.__lxTransformTrace = [];
+let __lxTransformBusy = false;
+const __lxRecordTransform = (name, input, output) => {
+  if (__lxTransformBusy || globalThis.__lxTransformTrace.length >= 500) return;
+  const text = typeof output === 'string' ? output : '';
+  const interesting = /^[0-9a-f]{16,64}$/i.test(text) ||
+    (Array.isArray(input) && input.length >= 8 && input.length <= 64) ||
+    (typeof input === 'string' && input.length >= 8 && input.length <= 64);
+  if (!interesting) return;
+  __lxTransformBusy = true;
+  try {
+    globalThis.__lxTransformTrace.push({
+      name,
+      input: typeof input === 'string' ? input : (input && typeof input.length === 'number' ? {length: input.length, head: Array.from(input).slice(0, 40)} : String(input)),
+      output: text.length > 160 ? text.slice(0, 160) : text,
+      stack: new Error().stack
+    });
+  } finally { __lxTransformBusy = false; }
+};
+for (const method of ['join', 'reverse', 'map', 'reduce']) {
+  const original = Array.prototype[method];
+  Array.prototype[method] = function(...args) {
+    const result = original.apply(this, args);
+    __lxRecordTransform('Array.' + method, this, typeof result === 'string' ? result : (result && typeof result.length === 'number' ? Array.from(result).slice(0, 40) : result));
+    return result;
+  };
+}
+const __lxStringSplit = String.prototype.split;
+String.prototype.split = function(...args) {
+  const result = __lxStringSplit.apply(this, args);
+  __lxRecordTransform('String.split', String(this), result);
+  return result;
+};
+const __lxStringReplace = String.prototype.replace;
+String.prototype.replace = function(...args) {
+  const result = __lxStringReplace.apply(this, args);
+  __lxRecordTransform('String.replace', String(this), result);
+  return result;
+};
+const __lxParseInt = globalThis.parseInt;
+globalThis.parseInt = function(...args) {
+  const result = __lxParseInt.apply(globalThis, args);
+  if (args.length && (String(args[0]).length >= 8 || args[1] === 16)) __lxRecordTransform('parseInt', String(args[0]), String(result));
+  return result;
+};
+
 const __lxFromCharCode = String.fromCharCode;
 String.fromCharCode = function(...codes) {
   const value = __lxFromCharCode.apply(String, codes);
