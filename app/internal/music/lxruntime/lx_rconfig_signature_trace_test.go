@@ -86,31 +86,25 @@ Number.prototype.toString = function(radix) {
 };
 
 globalThis.__lxArrayTrace = [];
-const __lxTraceArrayValue = value => {
-  if (!value || typeof value.length !== 'number' || value.length < 8 || value.length > 64) return;
-  if (globalThis.__lxArrayTrace.length >= 300) return;
-  const values = [];
-  for (let index = 0; index < value.length; index++) {
-    const item = value[index];
-    values.push(typeof item === 'number' ? item : String(item));
-  }
-  globalThis.__lxArrayTrace.push({ length: value.length, values, stack: new Error().stack });
-};
-for (const prototype of [Array.prototype, globalThis.Uint8Array && Uint8Array.prototype]) {
-  if (!prototype) continue;
-  for (const method of ['map', 'join', 'set', 'fill', 'slice', 'subarray', 'reverse']) {
-    const original = prototype[method];
+// Instrument only the typed-array prototype and record metadata, never call
+// Array helpers from inside these wrappers. Patching Array.prototype.map/join
+// recursively instruments the trace collector itself in QuickJS.
+const __lxTypedArrayPrototype = globalThis.Uint8Array && Object.getPrototypeOf(Uint8Array.prototype);
+if (__lxTypedArrayPrototype) {
+  for (const method of ['set', 'fill', 'reverse', 'sort']) {
+    const original = __lxTypedArrayPrototype[method];
     if (typeof original !== 'function') continue;
     try {
-      prototype[method] = function(...args) {
-        if (this && typeof this.length === 'number' && this.length >= 8 && this.length <= 64) {
-          __lxTraceArrayValue(this);
+      __lxTypedArrayPrototype[method] = function(...args) {
+        if (globalThis.__lxArrayTrace.length < 500 && this && this.length >= 8 && this.length <= 64) {
+          globalThis.__lxArrayTrace.push({
+            method,
+            length: this.length,
+            argumentLengths: args.map(value => value && typeof value.length === 'number' ? value.length : null),
+            stack: new Error().stack
+          });
         }
-        const result = original.apply(this, args);
-        if (result && typeof result.length === 'number' && result.length >= 8 && result.length <= 64) {
-          __lxTraceArrayValue(result);
-        }
-        return result;
+        return original.apply(this, args);
       };
     } catch (_) {}
   }
