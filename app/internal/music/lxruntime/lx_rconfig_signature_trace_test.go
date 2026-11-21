@@ -144,6 +144,19 @@ if (__lxTypedArrayPrototype) {
   }
 }
 
+globalThis.__lxByteMapTrace = [];
+const __lxArrayMap = Array.prototype.map;
+Array.prototype.map = function(callback, thisArg) {
+  const result = __lxArrayMap.call(this, callback, thisArg);
+  if (this && this.length === 16 && globalThis.__lxByteMapTrace.length < 100) {
+    globalThis.__lxByteMapTrace.push({
+      input: Array.from(this),
+      output: Array.from(result),
+      stack: new Error().stack
+    });
+  }
+  return result;
+};
 globalThis.__lxTransformTrace = [];
 let __lxTransformBusy = false;
 const __lxRecordTransform = (name, input, output) => {
@@ -319,6 +332,9 @@ for (const name of ['aesEncrypt', 'rsaEncrypt']) {
 	t.Logf("source typed-array operation trace: %s", arrayTraceJSON)
 	transformTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxTransformTrace)", "lx-rconfig-transform-trace.js")
 	if err != nil { t.Fatal(err) }
+	byteMapTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxByteMapTrace)", "lx-rconfig-byte-map-trace.js")
+	if err != nil { t.Fatal(err) }
+	t.Logf("source 16-byte map trace: %s", byteMapTraceJSON)
 	t.Logf("source signature string transform trace: %s", transformTraceJSON)
 	responseTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxResponseTrace)", "lx-rconfig-response-trace.js")
 	if err != nil {
