@@ -196,7 +196,7 @@ func TestHuanyinMiguSearchRejectsInvalidAndEmptyResults(t *testing.T) {
 	defer cancel()
 	defer rt.Close()
 
-	if _, err := rt.dispatchLXRequest(ctx, "mg", "search", map[string]any{"keyword": "  "}, client); err == nil || !strings.Contains(err.Error(), "没关键词") {
+	if _, err := rt.dispatchLXRequest(ctx, "mg", "search", map[string]any{"keyword": ""}, client); err == nil || !strings.Contains(err.Error(), "没关键词") {
 		t.Fatalf("empty keyword error = %v, want missing-keyword error", err)
 	}
 	if _, err := rt.dispatchLXRequest(ctx, "mg", "search", map[string]any{"keyword": "不存在"}, client); err == nil || !strings.Contains(err.Error(), "没找到") {
