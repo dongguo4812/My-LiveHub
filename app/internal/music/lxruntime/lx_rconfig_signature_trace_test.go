@@ -37,6 +37,23 @@ __lxCrypto.md5 = function(value) {
   return output;
 };
 globalThis.__lxCryptoTrace = [];
+globalThis.__lxResponseTrace = [];
+const __lxCompleteRequest = globalThis.__lxCompleteRequest;
+const __lxTraceResponse = (value, path) => {
+  if (!value || typeof value !== 'object') return value;
+  return new Proxy(value, {
+    get(target, key, receiver) {
+      const result = Reflect.get(target, key, receiver);
+      globalThis.__lxResponseTrace.push({ path: path + '.' + String(key), type: typeof result,
+        value: result == null || ['string', 'number', 'boolean'].includes(typeof result) ? result : undefined });
+      return result && typeof result === 'object' ? __lxTraceResponse(result, path + '.' + String(key)) : result;
+    }
+  });
+};
+globalThis.__lxCompleteRequest = function(id, error, response) {
+  if (response && typeof response === 'object') response = __lxTraceResponse(response, 'response');
+  return __lxCompleteRequest(id, error, response);
+};
 const __lxHex = value => Array.from(value || []).map(byte => Number(byte).toString(16).padStart(2, '0')).join('');
 for (const name of ['aesEncrypt', 'rsaEncrypt']) {
   const original = __lxCrypto[name].bind(__lxCrypto);
@@ -109,6 +126,11 @@ for (const name of ['aesEncrypt', 'rsaEncrypt']) {
 		t.Fatal(err)
 	}
 	t.Logf("source AES/RSA trace: %s", cryptoTraceJSON)
+	responseTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxResponseTrace)", "lx-rconfig-response-trace.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("source /rconfig response property trace: %s", responseTraceJSON)
 	if !matched {
 		t.Logf("rconfig si=%s was not a direct output of a traced MD5 call; it may be derived through byte-level crypto or another transform", si)
 	}
