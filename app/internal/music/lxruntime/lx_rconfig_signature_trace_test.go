@@ -31,7 +31,7 @@ const __lxOriginalMD5 = __lxCrypto.md5.bind(__lxCrypto);
 __lxCrypto.md5 = function(value) {
   const output = __lxOriginalMD5(value);
   globalThis.__lxMD5Trace.push({
-    input: typeof value === 'string' ? value : String(value),
+    input: (typeof value === 'string' ? value : String(value)).slice(0, 256),
     output
   });
   return output;
@@ -50,10 +50,13 @@ const __lxTraceResponse = (value, path) => {
     }
   });
 };
-globalThis.__lxCompleteRequest = function(id, error, response) {
-  if (response && typeof response === 'object') response = __lxTraceResponse(response, 'response');
-  return __lxCompleteRequest(id, error, response);
-};
+Object.defineProperty(globalThis, '__lxCompleteRequest', {
+  configurable: true,
+  value: function(id, error, response) {
+    if (response && typeof response === 'object') response = __lxTraceResponse(response, 'response');
+    return __lxCompleteRequest(id, error, response);
+  }
+});
 const __lxHex = value => Array.from(value || []).map(byte => Number(byte).toString(16).padStart(2, '0')).join('');
 for (const name of ['aesEncrypt', 'rsaEncrypt']) {
   const original = __lxCrypto[name].bind(__lxCrypto);
