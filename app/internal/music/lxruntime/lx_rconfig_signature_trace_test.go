@@ -89,7 +89,11 @@ globalThis.__lxArrayTrace = [];
 const __lxTraceArrayValue = value => {
   if (!value || typeof value.length !== 'number' || value.length < 8 || value.length > 64) return;
   if (globalThis.__lxArrayTrace.length >= 300) return;
-  const values = Array.from(value).map(item => typeof item === 'number' ? item : String(item));
+  const values = [];
+  for (let index = 0; index < value.length; index++) {
+    const item = value[index];
+    values.push(typeof item === 'number' ? item : String(item));
+  }
   globalThis.__lxArrayTrace.push({ length: value.length, values, stack: new Error().stack });
 };
 for (const prototype of [Array.prototype, globalThis.Uint8Array && Uint8Array.prototype]) {
