@@ -44,7 +44,7 @@ lx.on('request', () => Promise.resolve('unused'));
 lx.send('inited', { sources: {
   kw: { type: 'music', actions: ['musicUrl', 'lyric'], qualitys: ['128k', 'flac', 'flac24bit'] },
   tx: { type: 'music', actions: ['musicUrl'], qualitys: ['320k'] },
-  local: { type: 'music', actions: ['musicUrl', 'lyric', 'pic'], qualitys: ['128k'] },
+  local: { type: 'music', actions: ['musicUrl', 'lyric', 'pic'] },
   unsupported: { type: 'music', actions: ['musicUrl'], qualitys: ['320k'] }
 }});
 'installed';
