@@ -80,6 +80,23 @@ Math.random = function() {
   globalThis.__lxCryptoTrace.push({ name: 'Math.random', output: String(value) });
   return value;
 };
+const __lxMathImul = Math.imul;
+if (typeof __lxMathImul === 'function') Math.imul = function(a, b) {
+  const value = __lxMathImul.call(Math, a, b);
+  if (globalThis.__lxCryptoTrace.length < 1200) globalThis.__lxCryptoTrace.push({ name: 'Math.imul', args: [a, b], output: value, stack: new Error().stack });
+  return value;
+};
+for (const name of ['floor', 'ceil', 'round', 'trunc']) {
+  const original = Math[name];
+  if (typeof original !== 'function') continue;
+  Math[name] = function(value) {
+    const result = original.call(Math, value);
+    if (globalThis.__lxCryptoTrace.length < 1200 && (Math.abs(Number(value)) > 100000 || Math.abs(Number(result)) > 100000)) {
+      globalThis.__lxCryptoTrace.push({ name: 'Math.' + name, input: value, output: result, stack: new Error().stack });
+    }
+    return result;
+  };
+}
 const __lxPerformanceNow = globalThis.performance && globalThis.performance.now;
 if (__lxPerformanceNow) {
   globalThis.performance.now = function() {
