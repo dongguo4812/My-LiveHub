@@ -15,9 +15,10 @@ import (
 )
 
 // The pinned lx.js source registers its request handler before requesting
-// server-managed configuration. These cases ensure that a failed /rconfig
-// request never marks the source as initialized.
-func TestLXSourceDoesNotInitializeWhenRConfigFails(t *testing.T) {
+// server-managed configuration. These cases verify that rejected, malformed,
+// empty, and transport-failed configuration responses do not break source
+// startup; the source intentionally falls back to its built-in providers.
+func TestLXSourceInitializesWhenRConfigIsRejectedOrUnavailable(t *testing.T) {
 	source, err := os.ReadFile(filepath.Join("testdata", "sources", "lx.js"))
 	if err != nil {
 		t.Fatal(err)
@@ -97,8 +98,8 @@ func TestLXSourceDoesNotInitializeWhenRConfigFails(t *testing.T) {
 				Description: "后续更新，请关注微信公众号: 洛雪科技",
 				RawScript:   string(source),
 			}, string(source), client)
-			if err == nil {
-				t.Fatal("expected initialization to fail when /rconfig is unavailable")
+			if err != nil {
+				t.Fatalf("source should retain its built-in providers when /rconfig fails: %v", err)
 			}
 
 			state, evalErr := rt.Eval(ctx, `JSON.stringify({
@@ -108,8 +109,8 @@ func TestLXSourceDoesNotInitializeWhenRConfigFails(t *testing.T) {
 			if evalErr != nil {
 				t.Fatal(evalErr)
 			}
-			if state != `{"initialized":false,"requestHandler":"function"}` {
-				t.Fatalf("host state after failed /rconfig = %s, want initialized=false with the pre-registered request handler (initialization error: %v)", state, err)
+			if state != `{"initialized":true,"requestHandler":"function"}` {
+				t.Fatalf("host state after /rconfig failure = %s, want initialized=true with the registered request handler", state)
 			}
 		})
 	}
