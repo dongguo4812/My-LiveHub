@@ -478,6 +478,19 @@ for (const method of ['log', 'info', 'warn', 'error']) {
 	if status < 200 || status >= 300 {
 		t.Fatalf("live LX /rconfig returned HTTP %d", status)
 	}
+	parsedLiveURL, err := url.Parse(liveRequestURL)
+	if err != nil { t.Fatalf("parse live /rconfig request URL %q: %v", liveRequestURL, err) }
+	query := parsedLiveURL.Query()
+	for key, size := range map[string]int{"e": 32, "to": 22, "fp": 32, "s2": 32, "si": 32} {
+		value := query.Get(key)
+		decoded, decodeErr := hex.DecodeString(value)
+		if decodeErr != nil || len(value) != size || (key == "to" && len(decoded) != 11) {
+			t.Fatalf("live /rconfig signature parameter %s=%q is malformed", key, value)
+		}
+	}
+	if query.Get("fp") != "42bc92aaf1a30247e40eab9523ca0713" || query.Get("v") != "7" {
+		t.Fatalf("live /rconfig fingerprint/version mismatch: %s", parsedLiveURL.Redacted())
+	}
 	var response struct {
 		Code int `json:"code"`
 		Msg string `json:"msg"`
