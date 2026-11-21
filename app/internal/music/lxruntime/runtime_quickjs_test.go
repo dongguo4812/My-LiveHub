@@ -2614,7 +2614,7 @@ func TestHelloWorldAllConfiguredBackendContracts(t *testing.T) {
 		{name:"netease_nianxin_320k",source:"wy",quality:"320k",host:"mcp.nianxinxz.com",path:"/share/ceshi/wy.php",method:http.MethodGet,query:map[string]string{"id":"hw-contract-wy","level":"exhigh"},response:"{\"code\":200,\"url\":\"https://cdn.example.invalid/hw-wy-nianxin.mp3\"}"},
 		{name:"netease_card_key_320k",source:"wy",quality:"320k",host:"103.79.184.97",path:"/api/music/url",method:http.MethodGet,query:map[string]string{"platform":"wy","songId":"hw-contract-wy","quality":"320k","key":"6C1F-53W0-GRKI-EVFG"},headers:map[string]string{"X-Card-Key":"6C1F-53W0-GRKI-EVFG","User-Agent":"lx-music-mobile/2.0.0"},response:"{\"url\":\"https://cdn.example.invalid/hw-wy-card.mp3\"}"},
 		{name:"migu_yy_token_320k",source:"mg",quality:"320k",host:"yy.zddyr.top",path:"/lx/api/",method:http.MethodGet,query:map[string]string{"source":"migu","songmid":"hw-contract-mg","quality":"320k"},headers:map[string]string{"X-Client":"YYMusicSource/v1.0.0 (Android)"},response:"{\"url\":\"https://cdn.example.invalid/hw-mg-yy.mp3\"}"},
-		{name:"migu_oiapi_320k",source:"mg",quality:"320k",host:"oiapi.net",path:"/api/MiGu_Music",method:http.MethodGet,query:map[string]string{"msg":"fixture song","br":"HQ","n":"1"},response:"{\"data\":{\"url\":\"https://cdn.example.invalid/hw-mg-oiapi.mp3\"}"},
+		{name:"migu_oiapi_320k",source:"mg",quality:"320k",host:"oiapi.net",path:"/api/MiGu_Music",method:http.MethodGet,query:map[string]string{"msg":"fixture song","br":"HQ","n":"1"},response:"{\"data\":{\"url\":\"https://cdn.example.invalid/hw-mg-oiapi.mp3\"}}"},
 	}
 	for _, tc := range contracts {
 		t.Run(tc.name, func(t *testing.T) {
