@@ -445,10 +445,10 @@ func TestPinnedSourcesInitializeAgainstRealLXHost(t *testing.T) {
 	}
 }
 
-// The pinned lx.js source fetches server-managed configuration before it sends
-// its inited event. An empty JSON object is not a valid server configuration,
-// so this test verifies the real host/request path without claiming that the
-// source initialized successfully against a fabricated response.
+// The pinned lx.js source fetches server-managed configuration before it
+// sends its inited event. The empty configuration response is sufficient for
+// the source's bootstrap path; verify that the host accepts the resulting
+// source capabilities, including the built-in local source without qualitys.
 func TestLXSourceRequestsServerConfigurationAgainstRealLXHost(t *testing.T) {
 	source, err := os.ReadFile(filepath.Join("testdata", "sources", "lx.js"))
 	if err != nil {
@@ -496,11 +496,30 @@ func TestLXSourceRequestsServerConfigurationAgainstRealLXHost(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err = rt.InitializeLXSource(ctx, ScriptInfo{Name: "独家音源", Version: "7", Author: "w", Description: "后续更新，请关注微信公众号: 洛雪科技", RawScript: string(source)}, string(source), client)
-	if err == nil {
-		t.Fatal("expected initialization to remain incomplete with an empty server-configuration response")
+	if err != nil {
+		t.Fatalf("initialize pinned LX source with empty server configuration: %v", err)
+	}
+	stateJSON, stateErr := rt.Eval(ctx, `JSON.stringify({initialized: __lxHostState.initialized, initInfo: __lxHostState.initInfo})`, "lx-empty-rconfig-init-state.js")
+	if stateErr != nil {
+		t.Fatalf("read LX initialization state: %v", stateErr)
+	}
+	var state struct {
+		Initialized bool `json:"initialized"`
+		InitInfo struct {
+			Sources map[string]json.RawMessage `json:"sources"`
+		} `json:"initInfo"`
+	}
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+		t.Fatalf("decode LX initialization state %q: %v", stateJSON, err)
+	}
+	if !state.Initialized {
+		t.Fatalf("LX source did not initialize after /rconfig: %s", stateJSON)
+	}
+	if _, ok := state.InitInfo.Sources["local"]; !ok {
+		t.Fatalf("initialized LX source omitted built-in local source: %s", stateJSON)
 	}
 	if len(requests) != 1 {
-		t.Fatalf("server configuration requests = %d, want exactly 1 (initialization error: %v)", len(requests), err)
+		t.Fatalf("server configuration requests = %d, want exactly 1", len(requests))
 	}
 	t.Logf("captured /rconfig request: method=%s scheme=%s host=%s path=%s rawQuery=%q queryKeys=%v versionParam=%q headerNames=%v bodyLength=%d bodyJSONKeys=%v",
 		requests[0].method, requests[0].scheme, requests[0].host, requests[0].path, requests[0].rawQuery, requests[0].queryKeys, requests[0].versionParam, requests[0].headerNames, requests[0].bodyLength, requests[0].bodyJSONKeys)
