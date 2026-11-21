@@ -26,6 +26,16 @@ func TestLXSourceRConfigSignatureTrace(t *testing.T) {
 	}
 
 	const traceShim = `
+Error.stackTraceLimit = 40;
+globalThis.__lxDecodeTrace = [];
+for (const name of ['atob', 'btoa']) {
+  const original = globalThis[name];
+  if (typeof original === 'function') globalThis[name] = function(value) {
+    const result = original.call(globalThis, value);
+    if (globalThis.__lxDecodeTrace.length < 100) globalThis.__lxDecodeTrace.push({name, inputLength: String(value).length, outputLength: String(result).length, outputHead: String(result).slice(0, 96), stack: new Error().stack});
+    return result;
+  };
+}
 globalThis.__lxCharCodeTrace = [];
 const __lxCharCodeAt = String.prototype.charCodeAt;
 const __lxCharCodeSeen = new Set();
@@ -227,6 +237,12 @@ for (const name of ['aesEncrypt', 'rsaEncrypt']) {
 		t.Fatal(err)
 	}
 	t.Logf("source AES/RSA trace: %s", cryptoTraceJSON)
+	decodeTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxDecodeTrace)", "lx-rconfig-decode-trace.js")
+	if err != nil { t.Fatal(err) }
+	t.Logf("source base64 decode trace: %s", decodeTraceJSON)
+	arrayTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxArrayTrace)", "lx-rconfig-array-trace.js")
+	if err != nil { t.Fatal(err) }
+	t.Logf("source typed-array operation trace: %s", arrayTraceJSON)
 	responseTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxResponseTrace)", "lx-rconfig-response-trace.js")
 	if err != nil {
 		t.Fatal(err)
