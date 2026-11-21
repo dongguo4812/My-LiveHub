@@ -2661,3 +2661,106 @@ func TestHelloWorldAllConfiguredBackendContracts(t *testing.T) {
 		})
 	}
 }
+
+
+func TestHelloWorldPlatformQualityFallbackContracts(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "helloworld.js"))
+	if err != nil { t.Fatal(err) }
+	type fallbackCase struct {
+		source, host, path, method, id, qualityKey, firstQuality, secondQuality string
+		body bool
+	}
+	cases := []fallbackCase{
+		{source:"kw",host:"nmobi.kuwo.cn",path:"/mobi.s",method:http.MethodGet,id:"hw-fallback-kw",qualityKey:"br",firstQuality:"2000kflac",secondQuality:"320kmp3"},
+		{source:"kg",host:"103.79.184.97",path:"/api/music/url",method:http.MethodGet,id:"hw-fallback-kg",qualityKey:"quality",firstQuality:"flac",secondQuality:"320k"},
+		{source:"tx",host:"103.79.184.97",path:"/api/music/url",method:http.MethodGet,id:"hw-fallback-tx",qualityKey:"quality",firstQuality:"flac",secondQuality:"320k"},
+		{source:"wy",host:"c.wwwweb.top",path:"/music/url",method:http.MethodPost,id:"hw-fallback-wy",body:true,qualityKey:"quality",firstQuality:"flac",secondQuality:"320k"},
+		{source:"mg",host:"yy.zddyr.top",path:"/lx/api/",method:http.MethodGet,id:"hw-fallback-mg",qualityKey:"quality",firstQuality:"flac",secondQuality:"320k"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.source, func(t *testing.T) {
+			rt := newTestRuntime(t, 15*time.Second)
+			defer rt.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			var qualities []string
+			client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				if request.URL.Host != tc.host || request.URL.Path != tc.path {
+					return &http.Response{StatusCode:200,Status:"200 OK",Header:make(http.Header),Body:io.NopCloser(strings.NewReader("{}")),Request:request},nil
+				}
+				if request.Method != tc.method { return nil, fmt.Errorf("%s method = %s, want %s",tc.source,request.Method,tc.method) }
+				var quality string
+				if tc.body {
+					var body map[string]any
+					if err:=json.NewDecoder(request.Body).Decode(&body);err!=nil{return nil,err}
+					quality,_=body[tc.qualityKey].(string)
+				} else { quality=request.URL.Query().Get(tc.qualityKey) }
+				qualities=append(qualities,quality)
+				want:=tc.firstQuality
+				if len(qualities)==2 { want=tc.secondQuality }
+				if len(qualities)>2 || quality!=want { return nil,fmt.Errorf("%s fallback quality sequence = %v, unexpected %q",tc.source,qualities,quality) }
+				body:="{}"
+				if len(qualities)==2 { body="{\"url\":\"https://cdn.example.invalid/hw-fallback-"+tc.source+"-320k.mp3\"}" }
+				return &http.Response{StatusCode:200,Status:"200 OK",Header:make(http.Header),Body:io.NopCloser(strings.NewReader(body)),Request:request},nil
+			})}
+			if err:=rt.InitializeLXSource(ctx,ScriptInfo{Name:"HelloWorld",Version:"260925",RawScript:string(source)},string(source),client);err!=nil{t.Fatal(err)}
+			result,err:=rt.dispatchLXRequest(ctx,tc.source,"musicUrl",map[string]any{
+				"type":"flac","musicInfo":map[string]any{"songmid":tc.id,"hash":tc.id,"rid":tc.id,"id":tc.id,"name":"fixture song"},
+			},client)
+			if err!=nil{t.Fatalf("dispatch %s FLAC fallback: %v",tc.source,err)}
+			wantURL:="https://cdn.example.invalid/hw-fallback-"+tc.source+"-320k.mp3"
+			if result!=wantURL{t.Fatalf("%s fallback result = %#v, want %s",tc.source,result,wantURL)}
+			if len(qualities)!=2{t.Fatalf("%s quality requests = %v, want FLAC then 320k",tc.source,qualities)}
+		})
+	}
+}
+
+func TestHelloWorldEveryPlatformBackendPoolAggregatesFailures(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "helloworld.js"))
+	if err != nil { t.Fatal(err) }
+	cases:=[]struct{source,id string;wantRequests int}{
+		{source:"kw",id:"hw-fail-kw",wantRequests:1},
+		{source:"kg",id:"hw-fail-kg",wantRequests:3},
+		{source:"tx",id:"hw-fail-tx",wantRequests:5},
+		{source:"wy",id:"hw-fail-wy",wantRequests:5},
+		{source:"mg",id:"hw-fail-mg",wantRequests:2},
+	}
+	for _,tc:=range cases{
+		t.Run(tc.source,func(t *testing.T){
+			rt:=newTestRuntime(t,15*time.Second);defer rt.Close()
+			ctx,cancel:=context.WithTimeout(context.Background(),10*time.Second);defer cancel()
+			var requests int
+			client:=&http.Client{Transport:roundTripFunc(func(request *http.Request)(*http.Response,error){
+				requests++
+				return &http.Response{StatusCode:200,Status:"200 OK",Header:make(http.Header),Body:io.NopCloser(strings.NewReader("{}")),Request:request},nil
+			})}
+			if err:=rt.InitializeLXSource(ctx,ScriptInfo{Name:"HelloWorld",Version:"260925",RawScript:string(source)},string(source),client);err!=nil{t.Fatal(err)}
+			_,err:=rt.dispatchLXRequest(ctx,tc.source,"musicUrl",map[string]any{
+				"type":"128k","musicInfo":map[string]any{"songmid":tc.id,"hash":tc.id,"rid":tc.id,"id":tc.id,"name":"fixture song"},
+			},client)
+			if err==nil||!strings.Contains(err.Error(),"所有API均失败(128k)"){t.Fatalf("%s aggregate error = %v, want all-API failure",tc.source,err)}
+			if requests!=tc.wantRequests{t.Fatalf("%s backend requests = %d, want %d",tc.source,requests,tc.wantRequests)}
+		})
+	}
+}
+
+func TestHelloWorldSuccessfulPlaybackURLIsCached(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "helloworld.js"))
+	if err != nil { t.Fatal(err) }
+	rt:=newTestRuntime(t,15*time.Second);defer rt.Close()
+	ctx,cancel:=context.WithTimeout(context.Background(),10*time.Second);defer cancel()
+	var requests int
+	client:=&http.Client{Transport:roundTripFunc(func(request *http.Request)(*http.Response,error){
+		requests++
+		return &http.Response{StatusCode:200,Status:"200 OK",Header:make(http.Header),
+			Body:io.NopCloser(strings.NewReader("{\"url\":\"https://cdn.example.invalid/hw-cache.mp3\"}")),Request:request},nil
+	})}
+	if err:=rt.InitializeLXSource(ctx,ScriptInfo{Name:"HelloWorld",Version:"260925",RawScript:string(source)},string(source),client);err!=nil{t.Fatal(err)}
+	info:=map[string]any{"type":"320k","musicInfo":map[string]any{"songmid":"hw-cache-contract","name":"fixture cached song"}}
+	for i:=0;i<2;i++{
+		result,err:=rt.dispatchLXRequest(ctx,"kg","musicUrl",info,client)
+		if err!=nil{t.Fatalf("cached dispatch %d: %v",i,err)}
+		if result!="https://cdn.example.invalid/hw-cache.mp3"{t.Fatalf("cached dispatch %d result = %#v",i,result)}
+	}
+	if requests!=1{t.Fatalf("cached playback issued %d HTTP requests, want 1",requests)}
+}
