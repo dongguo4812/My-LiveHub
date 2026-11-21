@@ -504,8 +504,8 @@ for (const method of ['log', 'info', 'warn', 'error']) {
 	if err := json.Unmarshal(responseBody, &response); err != nil {
 		t.Fatalf("decode live /rconfig success response %q: %v", responseBody, err)
 	}
-	if response.Code != 0 || response.Msg != "success" || !response.Data.Enabled || response.Data.Paused || response.Data.Version != 7 || response.Data.MinVersion <= 0 || response.Data.Version < response.Data.MinVersion {
-		t.Fatalf("live /rconfig did not return an enabled V7 success payload: %+v", response)
+	if response.Code != 0 || response.Msg != "success" || !response.Data.Enabled || response.Data.Paused || response.Data.Version < 7 || response.Data.MinVersion < 7 || response.Data.Version < response.Data.MinVersion {
+		t.Fatalf("live /rconfig did not return an enabled supported-version success payload: %+v", response)
 	}
 	var handshake struct {
 		State struct { Initialized bool `json:"initialized"` } `json:"state"`
