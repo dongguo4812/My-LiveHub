@@ -2700,7 +2700,9 @@ func TestHelloWorldPlatformQualityFallbackContracts(t *testing.T) {
 				if len(qualities)==2 { want=tc.secondQuality }
 				if len(qualities)>2 || quality!=want { return nil,fmt.Errorf("%s fallback quality sequence = %v, unexpected %q",tc.source,qualities,quality) }
 				body:="{}"
-				if len(qualities)==2 { body="{\"url\":\"https://cdn.example.invalid/hw-fallback-"+tc.source+"-320k.mp3\"}" }\n\t\t\t\tif tc.source=="kw" && len(qualities)==2 { body="{\"data\":{\"url\":\"https://cdn.example.invalid/hw-fallback-kw-320k.mp3\"}}" }\n\t\t\t\tif tc.source=="wy" && len(qualities)==2 { body="{\"code\":200,\"url\":\"https://cdn.example.invalid/hw-fallback-wy-320k.mp3\"}" }
+				if len(qualities)==2 { body="{\"url\":\"https://cdn.example.invalid/hw-fallback-"+tc.source+"-320k.mp3\"}" }
+				if tc.source=="kw" && len(qualities)==2 { body="{\"data\":{\"url\":\"https://cdn.example.invalid/hw-fallback-kw-320k.mp3\"}}" }
+				if tc.source=="wy" && len(qualities)==2 { body="{\"code\":200,\"url\":\"https://cdn.example.invalid/hw-fallback-wy-320k.mp3\"}" }
 				return &http.Response{StatusCode:200,Status:"200 OK",Header:make(http.Header),Body:io.NopCloser(strings.NewReader(body)),Request:request},nil
 			})}
 			if err:=rt.InitializeLXSource(ctx,ScriptInfo{Name:"HelloWorld",Version:"260925",RawScript:string(source)},string(source),client);err!=nil{t.Fatal(err)}
