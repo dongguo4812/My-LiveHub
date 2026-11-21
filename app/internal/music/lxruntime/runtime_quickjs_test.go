@@ -2283,3 +2283,172 @@ func TestXinglanKugouHaiTangPrimaryPOSTContract(t *testing.T) {
 	}
 	if primaryRequests != 1 { t.Fatalf("HaiTang Kugou primary requests = %d, want 1", primaryRequests) }
 }
+
+
+func TestXinglanKuwoPrimarySuccessSkipsSequentialFallbacks(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
+	if err != nil { t.Fatal(err) }
+	rt := newTestRuntime(t, 15*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var mu sync.Mutex
+	primaryRequests, backupRequests, tailRequests := 0, 0, 0
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		jsonResponse := func(status int, body string) (*http.Response, error) {
+			header := make(http.Header)
+			header.Set("Content-Type", "application/json")
+			return &http.Response{StatusCode:status, Status:http.StatusText(status), Header:header,
+				Body:io.NopCloser(strings.NewReader(body)), Request:request}, nil
+		}
+		switch request.URL.Host {
+		case "yy.zddyr.top":
+			q := request.URL.Query()
+			for key, want := range map[string]string{
+				"source":"kw", "name":"fixture Kuwo primary song", "singer":"fixture singer",
+				"songmid":"kw-primary-success-001", "interval":"03:21",
+				"albumName":"fixture album", "quality":"320k",
+			} {
+				if q.Get(key) != want {
+					return nil, fmt.Errorf("Xinghai primary Kuwo query %s = %q, want %q (raw %s)", key, q.Get(key), want, request.URL.RawQuery)
+				}
+			}
+			if request.Method != http.MethodGet || request.Header.Get("User-Agent") != "Mozilla/5.0" {
+				return nil, fmt.Errorf("unexpected Xinghai primary request: %s headers=%#v", request.Method, request.Header)
+			}
+			mu.Lock(); primaryRequests++; mu.Unlock()
+			return jsonResponse(http.StatusOK, "{\"code\":200,\"url\":\"https://cdn.example.invalid/kw-primary-320k.mp3\"}")
+		case "c.wwwweb.top":
+			mu.Lock(); backupRequests++; mu.Unlock()
+			return jsonResponse(http.StatusServiceUnavailable, "{\"code\":503,\"message\":\"deterministic concurrent backup failure\"}")
+		default:
+			mu.Lock(); tailRequests++; mu.Unlock()
+			return jsonResponse(http.StatusServiceUnavailable, "{\"code\":503,\"message\":\"sequential fallback must not run\"}")
+		}
+	})}
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{Name:"星澜聚合音源", Version:"v4.0.2", RawScript:string(source)}, string(source), client); err != nil {
+		t.Fatalf("initialize pinned Xinglan source: %v", err)
+	}
+	result, err := rt.dispatchLXRequest(ctx, "kw", "musicUrl", map[string]any{
+		"type":"320k",
+		"musicInfo":map[string]any{
+			"songmid":"kw-primary-success-001", "rid":"kw-primary-success-001",
+			"name":"fixture Kuwo primary song", "singer":"fixture singer",
+			"interval":"03:21", "albumName":"fixture album",
+		},
+	}, client)
+	if err != nil { t.Fatalf("dispatch Xinghai primary Kuwo success: %v", err) }
+	if got, ok := result.(string); !ok || got != "https://cdn.example.invalid/kw-primary-320k.mp3" {
+		t.Fatalf("Xinghai primary Kuwo URL = %#v, want primary response URL", result)
+	}
+	mu.Lock()
+	gotPrimary, gotBackup, gotTail := primaryRequests, backupRequests, tailRequests
+	mu.Unlock()
+	if gotPrimary != 1 || gotBackup != 1 || gotTail != 0 {
+		t.Fatalf("Kuwo primary/head/tail requests = primary:%d backup:%d tail:%d, want 1,1,0", gotPrimary, gotBackup, gotTail)
+	}
+}
+
+func TestXinglanKuwoBackendPoolReportsAllFailures(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
+	if err != nil { t.Fatal(err) }
+	rt := newTestRuntime(t, 15*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var mu sync.Mutex
+	var requests []string
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		mu.Lock()
+		requests = append(requests, request.Method+" "+request.URL.Host+request.URL.Path)
+		mu.Unlock()
+		return &http.Response{
+			StatusCode:http.StatusServiceUnavailable, Status:http.StatusText(http.StatusServiceUnavailable),
+			Header:make(http.Header), Body:io.NopCloser(strings.NewReader("{\"code\":503,\"message\":\"deterministic Kuwo provider failure\"}")),
+			Request:request,
+		}, nil
+	})}
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{Name:"星澜聚合音源", Version:"v4.0.2", RawScript:string(source)}, string(source), client); err != nil {
+		t.Fatalf("initialize pinned Xinglan source: %v", err)
+	}
+	_, err = rt.dispatchLXRequest(ctx, "kw", "musicUrl", map[string]any{
+		"type":"320k",
+		"musicInfo":map[string]any{
+			"songmid":"kw-all-backends-fail-001", "rid":"kw-all-backends-fail-001",
+			"source":"kw", "name":"fixture Kuwo failure song", "singer":"fixture singer",
+			"interval":"03:21", "albumName":"fixture album",
+		},
+	}, client)
+	if err == nil { t.Fatal("expected all Kuwo backends to fail") }
+	message := err.Error()
+	if !strings.Contains(message, "所有后端均失败（共 10 个）") {
+		t.Fatalf("Kuwo aggregate error does not report ten ordinary providers: %s", message)
+	}
+	for _, name := range []string{
+		"星海主后端:", "HelloWorld KW 主API:", "HelloWorld KW 备用API:",
+		"酷我官方:", "酷我手机版:", "念心直链:", "HYWmusic KW:",
+		"yunmge酷我:", "星海酷我:", "FFAPI:",
+	} {
+		if !strings.Contains(message, name) { t.Errorf("Kuwo aggregate error missing %q: %s", name, message) }
+	}
+	mu.Lock()
+	gotRequests := append([]string(nil), requests...)
+	mu.Unlock()
+	if len(gotRequests) < 9 {
+		t.Fatalf("observed %d Kuwo HTTP requests, want at least 9 actual provider requests: %v", len(gotRequests), gotRequests)
+	}
+}
+
+func TestXinglanQsBackendPoolReportsAllFailures(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
+	if err != nil { t.Fatal(err) }
+	rt := newTestRuntime(t, 15*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var mu sync.Mutex
+	requests := map[string]int{}
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet || request.URL.Path != "/lx/api/" {
+			return nil, fmt.Errorf("unexpected Xinglan QS request: %s %s", request.Method, request.URL.Redacted())
+		}
+		if request.Header.Get("X-Client") != "XingHaiMusicSource" || request.Header.Get("User-Agent") != "Mozilla/5.0" {
+			return nil, fmt.Errorf("unexpected Xinglan QS headers: %#v", request.Header)
+		}
+		q := request.URL.Query()
+		for key, want := range map[string]string{
+			"source":"qs", "name":"fixture QS failure song", "singer":"fixture singer",
+			"songmid":"qs-all-fail-001", "interval":"02:59", "albumName":"fixture QS album", "quality":"320k",
+		} {
+			if q.Get(key) != want {
+				return nil, fmt.Errorf("QS query %s = %q, want %q (raw %s)", key, q.Get(key), want, request.URL.RawQuery)
+			}
+		}
+		mu.Lock(); requests[request.URL.Host]++; mu.Unlock()
+		return &http.Response{
+			StatusCode:http.StatusServiceUnavailable, Status:http.StatusText(http.StatusServiceUnavailable),
+			Header:make(http.Header), Body:io.NopCloser(strings.NewReader("{\"code\":503,\"msg\":\"deterministic QS provider failure\"}")),
+			Request:request,
+		}, nil
+	})}
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{Name:"星澜聚合音源", Version:"v4.0.2", RawScript:string(source)}, string(source), client); err != nil {
+		t.Fatalf("initialize pinned Xinglan source: %v", err)
+	}
+	_, err = rt.dispatchLXRequest(ctx, "qs", "musicUrl", map[string]any{
+		"type":"320k",
+		"musicInfo":map[string]any{
+			"songmid":"qs-all-fail-001", "name":"fixture QS failure song",
+			"singer":"fixture singer", "interval":"02:59", "albumName":"fixture QS album",
+		},
+	}, client)
+	if err == nil { t.Fatal("expected both QS backends to fail") }
+	for _, name := range []string{"星海汽水主线路:", "星海汽水备用线路:"} {
+		if !strings.Contains(err.Error(), name) { t.Errorf("QS aggregate error missing %q: %s", name, err) }
+	}
+	mu.Lock()
+	primary, backup := requests["yy.zddyr.top"], requests["zrcdy.dpdns.org"]
+	mu.Unlock()
+	if primary != 1 || backup != 1 {
+		t.Fatalf("QS provider requests: primary=%d backup=%d, want one each", primary, backup)
+	}
+}
