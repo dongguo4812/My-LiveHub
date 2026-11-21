@@ -16,6 +16,17 @@ import (
 	"time"
 )
 
+// TestLXPinnedSourceFixtureUsesCanonicalLF verifies the checked-out script bytes
+// are identical across Windows and Unix. The V7 integrity signature is computed
+// from rawScript, so Git's Windows CRLF conversion changes the server-side digest.
+func TestLXPinnedSourceFixtureUsesCanonicalLF(t *testing.T) {
+\tsource, err := os.ReadFile(filepath.Join("testdata", "sources", "lx.js"))
+\tif err != nil { t.Fatal(err) }
+\tif bytes.Contains(source, []byte("\\r\\n")) {
+\t\tt.Fatal("pinned lx.js contains CRLF; V7 /rconfig integrity requires canonical LF source bytes")
+\t}
+}
+
 // TestLXSourceRConfigSignatureTrace records the source's own MD5 inputs while
 // constructing /rconfig. The mock response is intentionally invalid: this is
 // a signature-observation test, not a successful-handshake claim.
