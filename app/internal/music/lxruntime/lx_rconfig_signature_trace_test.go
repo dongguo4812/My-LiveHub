@@ -3,6 +3,7 @@
 package lxruntime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -136,5 +137,49 @@ for (const name of ['aesEncrypt', 'rsaEncrypt']) {
 	t.Logf("source /rconfig response property trace: %s", responseTraceJSON)
 	if !matched {
 		t.Logf("rconfig si=%s was not a direct output of a traced MD5 call; it may be derived through byte-level crypto or another transform", si)
+	}
+}
+
+
+// TestLXSourceRConfigLiveHandshake performs one real, signed V7 /rconfig
+// request when explicitly enabled by the dedicated CI workflow. Unlike the
+// deterministic protocol tests, this verifies the live server contract.
+func TestLXSourceRConfigLiveHandshake(t *testing.T) {
+	if os.Getenv("LX_RCONFIG_LIVE") != "1" {
+		t.Skip("set LX_RCONFIG_LIVE=1 to exercise the live LX configuration endpoint")
+	}
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "lx.js"))
+	if err != nil { t.Fatal(err) }
+
+	var status int
+	var responseBody []byte
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		response, err := http.DefaultTransport.RoundTrip(request)
+		if err != nil { return nil, err }
+		if request.URL.Path == "/rconfig" {
+			status = response.StatusCode
+			responseBody, err = io.ReadAll(io.LimitReader(response.Body, 1<<20))
+			_ = response.Body.Close()
+			if err != nil { return nil, err }
+			response.Body = io.NopCloser(bytes.NewReader(responseBody))
+		}
+		return response, nil
+	})
+	client := &http.Client{Transport: transport, Timeout: 15 * time.Second}
+	rt := newTestRuntime(t, 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	err = rt.InitializeLXSource(ctx, ScriptInfo{
+		Name: "独家音源", Version: "7", Author: "w",
+		Description: "后续更新，请关注微信公众号: 洛雪科技",
+		RawScript: string(source),
+	}, string(source), client)
+	t.Logf("live /rconfig HTTP status: %d", status)
+	t.Logf("live /rconfig response body: %s", string(responseBody))
+	if err != nil {
+		t.Fatalf("live LX /rconfig handshake failed (HTTP %d): %v", status, err)
+	}
+	if status < 200 || status >= 300 {
+		t.Fatalf("live LX /rconfig returned HTTP %d", status)
 	}
 }
