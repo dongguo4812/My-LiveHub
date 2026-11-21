@@ -113,7 +113,7 @@ Number.prototype.toString = function(radix) {
     const stack = new Error().stack;
     if (globalThis.__lxCryptoTrace.length < 1200) globalThis.__lxCryptoTrace.push({ name: 'Number.toString(16)', input: String(this), output: value, stack });
     if (globalThis.__lxHexDigitTrace.length < 12000) {
-      globalThis.__lxHexDigitTrace.push({ input: Number(this), output: value, stack: stack.split('\\n').slice(1, 5) });
+      globalThis.__lxHexDigitTrace.push({ input: Number(this), output: value, stack: stack.split(String.fromCharCode(10)).slice(1, 7) });
     }
   }
   return value;
