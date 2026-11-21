@@ -13,6 +13,22 @@ import (
 	"time"
 )
 
+func TestLXHostContractExposesRawScriptMD5(t *testing.T) {
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{RawScript: "abc"}); err != nil {
+		t.Fatal(err)
+	}
+	value, err := rt.Eval(context.Background(), `
+if (globalThis.SCRIPT_MD5 !== '900150983cd24fb0d6963f7d28e17f72') {
+  throw new Error('SCRIPT_MD5 does not match the exact raw source bytes: ' + globalThis.SCRIPT_MD5);
+}
+if (SCRIPT_MD5 !== globalThis.SCRIPT_MD5) throw new Error('SCRIPT_MD5 global binding is unavailable');
+'SCRIPT_MD5-ok';
+`, "lx-script-md5-contract.js")
+	if err != nil { t.Fatal(err) }
+	if value != "SCRIPT_MD5-ok" { t.Fatalf("SCRIPT_MD5 contract = %q", value) }
+}
+
 func TestLXHostContractInitializationAndFiltering(t *testing.T) {
 	rt := newTestRuntime(t, 5*time.Second)
 	err := rt.InstallLXHost(context.Background(), ScriptInfo{
