@@ -159,17 +159,25 @@ Array.prototype.map = function(callback, thisArg) {
 };
 globalThis.__lxBytePushTrace = [];
 const __lxArrayPush = Array.prototype.push;
+const __lxPushArrayIDs = new WeakMap();
+let __lxNextPushArrayID = 1;
 Array.prototype.push = function(...values) {
   const before = this && typeof this.length === 'number' ? this.length : -1;
+  let arrayID = 0;
+  if (Array.isArray(this) && before >= 0 && before < 16) {
+    arrayID = __lxPushArrayIDs.get(this);
+    if (!arrayID) { arrayID = __lxNextPushArrayID++; __lxPushArrayIDs.set(this, arrayID); }
+  }
   const result = __lxArrayPush.apply(this, values);
-  if (before >= 8 && before < 16 && this.length === 16 &&
-      values.length > 0 && values.every(value => typeof value === 'number' || typeof value === 'string') &&
-      globalThis.__lxBytePushTrace.length < 100) {
+  if (arrayID && this.length <= 16 && values.length > 0 &&
+      values.every(value => typeof value === 'number' || typeof value === 'string') &&
+      globalThis.__lxBytePushTrace.length < 2500) {
     globalThis.__lxBytePushTrace.push({
+      arrayID,
       before,
       values: values.slice(0, 16),
-      result: Array.from(this),
-      stack: new Error().stack
+      result: this.length === 16 ? Array.from(this) : undefined,
+      stack: before === 0 || this.length === 16 ? new Error().stack : undefined
     });
   }
   return result;
