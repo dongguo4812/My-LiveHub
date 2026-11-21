@@ -414,6 +414,33 @@ func TestLXSourceRConfigLiveHandshake(t *testing.T) {
 		return response, nil
 	})
 	client := &http.Client{Transport: transport, Timeout: 15 * time.Second}
+	liveTraceShim := `
+globalThis.__lxLiveTrace = [];
+const __lxLiveSend = globalThis.lx.send.bind(globalThis.lx);
+globalThis.lx.send = function(...args) {
+  globalThis.__lxLiveTrace.push({kind: 'send', event: args[0], data: args[1]});
+  return __lxLiveSend(...args).then(value => {
+    globalThis.__lxLiveTrace.push({kind: 'send-resolved', event: args[0]});
+    return value;
+  }, error => {
+    globalThis.__lxLiveTrace.push({kind: 'send-rejected', event: args[0], error: String(error && error.stack || error)});
+    throw error;
+  });
+};
+const __lxLiveComplete = globalThis.__lxCompleteRequest;
+globalThis.__lxCompleteRequest = function(id, error, response) {
+  globalThis.__lxLiveTrace.push({kind: 'http-complete', id, error: error && String(error), statusCode: response && response.statusCode, body: response && response.body});
+  return __lxLiveComplete(id, error, response);
+};
+const __lxConsole = globalThis.console;
+for (const method of ['log', 'info', 'warn', 'error']) {
+  const original = __lxConsole[method];
+  __lxConsole[method] = function(...args) {
+    globalThis.__lxLiveTrace.push({kind: 'console.' + method, args: args.map(value => String(value))});
+    return original.apply(this, args);
+  };
+}
+`
 	rt := newTestRuntime(t, 10*time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -421,7 +448,11 @@ func TestLXSourceRConfigLiveHandshake(t *testing.T) {
 		Name: "独家音源", Version: "7", Author: "w",
 		Description: "后续更新，请关注微信公众号: 洛雪科技",
 		RawScript: string(source),
-	}, string(source), client)
+	}, liveTraceShim+string(source), client)
+	traceCtx, traceCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer traceCancel()
+	trace, traceErr := rt.Eval(traceCtx, `JSON.stringify({state: globalThis.__lxHostState, trace: globalThis.__lxLiveTrace, timerErrors: globalThis.__lxTimerErrors, missingCapabilities: globalThis.__lxMissingCapabilities})`, "lx-live-handshake-trace.js")
+	if traceErr != nil { t.Logf("live handshake diagnostic trace unavailable: %v", traceErr) } else { t.Logf("live handshake diagnostic trace: %s", trace) }
 	t.Logf("live /rconfig HTTP status: %d", status)
 	t.Logf("live /rconfig response body: %s", string(responseBody))
 	if err != nil {
