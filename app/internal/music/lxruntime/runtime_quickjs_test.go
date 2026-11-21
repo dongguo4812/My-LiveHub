@@ -2007,6 +2007,16 @@ func TestXinglanKuwoYunmgeXinghaiAndFFAPIFallbackContracts(t *testing.T) {
 					}
 					mu.Lock(); counts["kuwo_mobile"]++; mu.Unlock()
 					return fail()
+				case "music.nxinxz.com":
+					if request.Method != http.MethodGet || request.URL.Path != "/kgqq/kw.php" {
+						return nil, fmt.Errorf("Nianxin Kuwo request = %s %s, want GET /kgqq/kw.php", request.Method, request.URL.Redacted())
+					}
+					q := request.URL.Query()
+					if q.Get("id") != "kw-remaining-fallback-001" || q.Get("level") != "exhigh" || q.Get("type") != "mp3" {
+						return nil, fmt.Errorf("unexpected Nianxin Kuwo query: %s", request.URL.RawQuery)
+					}
+					mu.Lock(); counts["nianxin"]++; mu.Unlock()
+					return fail()
 				case "103.79.184.97":
 					if request.Method != http.MethodGet || request.URL.Path != "/api/music/url" {
 						return nil, fmt.Errorf("HYWmusic request = %s %s, want GET /api/music/url", request.Method, request.URL.Redacted())
@@ -2071,7 +2081,7 @@ func TestXinglanKuwoYunmgeXinghaiAndFFAPIFallbackContracts(t *testing.T) {
 			gotCounts := map[string]int{}
 			for key, value := range counts { gotCounts[key] = value }
 			mu.Unlock()
-			for _, key := range []string{"xinghai_primary", "helloworld_backup", "kuwo_official", "kuwo_mobile", "hyw", "yunmge"} {
+			for _, key := range []string{"xinghai_primary", "helloworld_backup", "kuwo_official", "kuwo_mobile", "nianxin", "hyw", "yunmge"} {
 				if gotCounts[key] != 1 {
 					t.Errorf("Kuwo %s fallback %s requests = %d, want 1 (all counts: %+v)", target, key, gotCounts[key], gotCounts)
 				}
@@ -2153,4 +2163,123 @@ func TestXinglanNeteaseAndKugouBackendPoolsReportAllFailures(t *testing.T) {
 			}
 		})
 	}
+}
+
+
+func TestXinglanNeteaseOfficialPOSTContractAndTrialRejection(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
+	if err != nil { t.Fatal(err) }
+	for _, trial := range []bool{false, true} {
+		name := "full_url"
+		if trial { name = "trial_url_rejected" }
+		t.Run(name, func(t *testing.T) {
+			rt := newTestRuntime(t, 15*time.Second)
+			defer rt.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			var officialRequests int
+			client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				jsonResponse := func(status int, body string) (*http.Response, error) {
+					header := make(http.Header)
+					header.Set("Content-Type", "application/json")
+					return &http.Response{StatusCode:status, Status:http.StatusText(status), Header:header,
+						Body:io.NopCloser(strings.NewReader(body)), Request:request}, nil
+				}
+				if request.URL.Host != "interface3.music.163.com" {
+					return jsonResponse(http.StatusServiceUnavailable, "{\"code\":503,\"message\":\"deterministic fallback failure\"}")
+				}
+				if request.Method != http.MethodPost || request.URL.Path != "/eapi/song/enhance/player/url/v1" {
+					return nil, fmt.Errorf("Netease official request = %s %s, want POST /eapi/song/enhance/player/url/v1", request.Method, request.URL.Redacted())
+				}
+				if !strings.HasPrefix(request.Header.Get("Content-Type"), "application/x-www-form-urlencoded") ||
+					!strings.Contains(request.Header.Get("User-Agent"), "NeteaseMusicDesktop") ||
+					request.Header.Get("Referer") != "https://music.163.com" ||
+					!strings.Contains(request.Header.Get("Cookie"), "os=pc") {
+					return nil, fmt.Errorf("unexpected Netease official headers: %#v", request.Header)
+				}
+				body, err := io.ReadAll(request.Body)
+				if err != nil { return nil, fmt.Errorf("read Netease EAPI body: %w", err) }
+				form, err := url.ParseQuery(string(body))
+				if err != nil { return nil, fmt.Errorf("parse Netease EAPI form: %w", err) }
+				params := form.Get("params")
+				if params == "" || len(params)%2 != 0 || strings.Trim(params, "0123456789ABCDEF") != "" {
+					return nil, fmt.Errorf("Netease EAPI params is not non-empty uppercase hex: %q", params)
+				}
+				if len(form) != 1 {
+					return nil, fmt.Errorf("Netease EAPI form keys = %v, want only params", form)
+				}
+				officialRequests++
+				if trial {
+					return jsonResponse(http.StatusOK, "{\"data\":[{\"url\":\"https://cdn.example.invalid/trial.mp3\",\"freeTrialInfo\":{\"start\":0,\"end\":30}}]}")
+				}
+				return jsonResponse(http.StatusOK, "{\"data\":[{\"url\":\"https://cdn.example.invalid/netease-320k.mp3\",\"freeTrialInfo\":null}]}")
+			})}
+			if err := rt.InitializeLXSource(ctx, ScriptInfo{Name:"星澜聚合音源", Version:"v4.0.2", RawScript:string(source)}, string(source), client); err != nil {
+				t.Fatalf("initialize pinned Xinglan source: %v", err)
+			}
+			result, err := rt.dispatchLXRequest(ctx, "wy", "musicUrl", map[string]any{
+				"type":"320k",
+				"musicInfo":map[string]any{"songmid":"wy-eapi-contract-001", "name":"fixture Netease song", "singer":"fixture singer", "source":"wy"},
+			}, client)
+			if trial {
+				if err == nil || !strings.Contains(err.Error(), "VIP歌曲仅试听") {
+					t.Fatalf("Netease trial response error = %v, want explicit trial rejection", err)
+				}
+			} else {
+				if err != nil { t.Fatalf("dispatch Netease official full URL: %v", err) }
+				if got, ok := result.(string); !ok || got != "https://cdn.example.invalid/netease-320k.mp3" {
+					t.Fatalf("Netease official URL = %#v, want full playback URL", result)
+				}
+			}
+			if officialRequests != 1 { t.Fatalf("Netease official requests = %d, want 1", officialRequests) }
+		})
+	}
+}
+
+func TestXinglanKugouHaiTangPrimaryPOSTContract(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
+	if err != nil { t.Fatal(err) }
+	rt := newTestRuntime(t, 15*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var primaryRequests int
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		jsonResponse := func(status int, body string) (*http.Response, error) {
+			header := make(http.Header)
+			header.Set("Content-Type", "application/json")
+			return &http.Response{StatusCode:status, Status:http.StatusText(status), Header:header,
+				Body:io.NopCloser(strings.NewReader(body)), Request:request}, nil
+		}
+		if request.URL.Host != "musicserver.haitangw.cc" {
+			return jsonResponse(http.StatusServiceUnavailable, "{\"code\":503,\"message\":\"deterministic fallback failure\"}")
+		}
+		if request.Method != http.MethodPost || request.URL.Path != "/v1/music/resolve-url" {
+			return nil, fmt.Errorf("HaiTang KG request = %s %s, want POST /v1/music/resolve-url", request.Method, request.URL.Redacted())
+		}
+		if request.Header.Get("Content-Type") != "application/json" || request.Header.Get("User-Agent") != "Mozilla/5.0" {
+			return nil, fmt.Errorf("unexpected HaiTang KG headers: %#v", request.Header)
+		}
+		var body map[string]string
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			return nil, fmt.Errorf("decode HaiTang KG payload: %w", err)
+		}
+		if body["source"] != "kg" || body["rid"] != "kg-haitang-contract-001" || body["level"] != "exhigh" {
+			return nil, fmt.Errorf("unexpected HaiTang KG payload: %+v", body)
+		}
+		primaryRequests++
+		return jsonResponse(http.StatusOK, "{\"data\":{\"url\":\"https://cdn.example.invalid/kg-haitang-320k.mp3\"}}")
+	})}
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{Name:"星澜聚合音源", Version:"v4.0.2", RawScript:string(source)}, string(source), client); err != nil {
+		t.Fatalf("initialize pinned Xinglan source: %v", err)
+	}
+	result, err := rt.dispatchLXRequest(ctx, "kg", "musicUrl", map[string]any{
+		"type":"320k",
+		"musicInfo":map[string]any{"songmid":"kg-haitang-contract-001", "hash":"kg-haitang-contract-001", "name":"fixture Kugou song", "singer":"fixture singer"},
+	}, client)
+	if err != nil { t.Fatalf("dispatch HaiTang Kugou primary: %v", err) }
+	if got, ok := result.(string); !ok || got != "https://cdn.example.invalid/kg-haitang-320k.mp3" {
+		t.Fatalf("HaiTang Kugou URL = %#v, want checked primary response URL", result)
+	}
+	if primaryRequests != 1 { t.Fatalf("HaiTang Kugou primary requests = %d, want 1", primaryRequests) }
 }
