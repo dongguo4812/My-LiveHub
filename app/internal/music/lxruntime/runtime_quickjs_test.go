@@ -1932,3 +1932,211 @@ func TestXinglanHYWMusicKuwoGETContract(t *testing.T) {
 		}
 	}
 }
+
+
+func TestXinglanKuwoYunmgeXinghaiAndFFAPIFallbackContracts(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
+	if err != nil { t.Fatal(err) }
+
+	for _, target := range []string{"yunmge", "xinghai", "ffapi"} {
+		t.Run(target, func(t *testing.T) {
+			rt := newTestRuntime(t, 15*time.Second)
+			defer rt.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			counts := map[string]int{}
+			var mu sync.Mutex
+			client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				jsonResponse := func(status int, body string) (*http.Response, error) {
+					header := make(http.Header)
+					header.Set("Content-Type", "application/json")
+					return &http.Response{StatusCode: status, Status: http.StatusText(status), Header: header,
+						Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+				}
+				fail := func() (*http.Response, error) {
+					return jsonResponse(http.StatusServiceUnavailable, "{\"code\":503,\"message\":\"deterministic provider failure\"}")
+				}
+				switch request.URL.Host {
+				case "yy.zddyr.top":
+					q := request.URL.Query()
+					if q.Get("source") != "kw" || q.Get("songmid") != "kw-remaining-fallback-001" {
+						return nil, fmt.Errorf("unexpected Xinghai Kuwo query: %s", request.URL.RawQuery)
+					}
+					if _, primary := q["interval"]; primary {
+						mu.Lock(); counts["xinghai_primary"]++; mu.Unlock()
+						return fail()
+					}
+					if q.Get("name") != "fixture Kuwo fallback song fixture singer" || q.Get("quality") != "320kmp3" {
+						return nil, fmt.Errorf("unexpected Xinghai Kuwo fallback query: %s", request.URL.RawQuery)
+					}
+					mu.Lock(); counts["xinghai_kw"]++; mu.Unlock()
+					if target == "xinghai" {
+						return jsonResponse(http.StatusOK, "{\"code\":200,\"url\":\"https://cdn.example.invalid/kw-xinghai-320k.mp3\"}")
+					}
+					return fail()
+				case "c.wwwweb.top":
+					if request.Method != http.MethodPost || request.URL.Path != "/music/url" {
+						return nil, fmt.Errorf("unexpected HelloWorld Kuwo request: %s %s", request.Method, request.URL.Redacted())
+					}
+					mu.Lock(); counts["helloworld_backup"]++; mu.Unlock()
+					return fail()
+				case "mobi.kuwo.cn":
+					if request.Method != http.MethodGet {
+						return nil, fmt.Errorf("Kuwo official method = %s, want GET", request.Method)
+					}
+					mu.Lock(); counts["kuwo_official"]++; mu.Unlock()
+					return fail()
+				case "nmobi.kuwo.cn":
+					if request.Method != http.MethodGet || request.URL.Path != "/mobi.s" {
+						return nil, fmt.Errorf("Kuwo mobile request = %s %s, want GET /mobi.s", request.Method, request.URL.Redacted())
+					}
+					mu.Lock(); counts["kuwo_mobile"]++; mu.Unlock()
+					return fail()
+				case "103.79.184.97":
+					if request.Method != http.MethodGet || request.URL.Path != "/api/music/url" {
+						return nil, fmt.Errorf("HYWmusic request = %s %s, want GET /api/music/url", request.Method, request.URL.Redacted())
+					}
+					mu.Lock(); counts["hyw"]++; mu.Unlock()
+					return fail()
+				case "api.yunmge.com":
+					if request.Method != http.MethodGet || request.URL.Path != "/kuwo" {
+						return nil, fmt.Errorf("yunmge request = %s %s, want GET /kuwo", request.Method, request.URL.Redacted())
+					}
+					q := request.URL.Query()
+					for key, want := range map[string]string{
+						"key":"yunmge_key", "token":"yunmge_token", "id":"kw-remaining-fallback-001",
+					} {
+						if q.Get(key) != want {
+							return nil, fmt.Errorf("yunmge query %s = %q, want %q (raw %s)", key, q.Get(key), want, request.URL.RawQuery)
+						}
+					}
+					mu.Lock(); counts["yunmge"]++; mu.Unlock()
+					if target == "yunmge" {
+						return jsonResponse(http.StatusOK, "{\"code\":200,\"data\":{\"all_bitrates\":[{\"bitrate\":128,\"play_url\":\"https://cdn.example.invalid/kw-yunmge-128k.mp3\"},{\"bitrate\":320,\"play_url\":\"https://cdn.example.invalid/kw-yunmge-320k.mp3\"}]}}")
+					}
+					return fail()
+				case "ffapi.cn":
+					if request.Method != http.MethodGet || request.URL.Path != "/int/v2/songurl" {
+						return nil, fmt.Errorf("FFAPI request = %s %s, want GET /int/v2/songurl", request.Method, request.URL.Redacted())
+					}
+					if got := request.URL.Query().Get("url"); got != "https://www.kuwo.cn/play_detail/kw-remaining-fallback-001" {
+						return nil, fmt.Errorf("FFAPI page URL = %q, want Kuwo play_detail URL", got)
+					}
+					mu.Lock(); counts["ffapi"]++; mu.Unlock()
+					if target == "ffapi" {
+						return jsonResponse(http.StatusOK, "{\"code\":200,\"data\":{\"play_url\":\"https://cdn.example.invalid/kw-ffapi-320k.mp3\"}}")
+					}
+					return fail()
+				default:
+					return nil, fmt.Errorf("unexpected Xinglan Kuwo backend host: %s", request.URL.Host)
+				}
+			})}
+
+			if err := rt.InitializeLXSource(ctx, ScriptInfo{Name:"星澜聚合音源", Version:"v4.0.2", RawScript:string(source)}, string(source), client); err != nil {
+				t.Fatalf("initialize pinned Xinglan source: %v", err)
+			}
+			result, err := rt.dispatchLXRequest(ctx, "kw", "musicUrl", map[string]any{
+				"type":"320k",
+				"musicInfo":map[string]any{
+					"songmid":"kw-remaining-fallback-001", "rid":"kw-remaining-fallback-001",
+					"source":"kw", "name":"fixture Kuwo fallback song", "singer":"fixture singer",
+				},
+			}, client)
+			if err != nil { t.Fatalf("dispatch Kuwo fallback target %s: %v", target, err) }
+			got, ok := result.(string)
+			if !ok { t.Fatalf("Kuwo fallback result = %#v (%T), want string", result, result) }
+			wantURL := map[string]string{
+				"yunmge":"https://cdn.example.invalid/kw-yunmge-320k.mp3",
+				"xinghai":"https://cdn.example.invalid/kw-xinghai-320k.mp3",
+				"ffapi":"https://cdn.example.invalid/kw-ffapi-320k.mp3",
+			}[target]
+			if got != wantURL { t.Fatalf("Kuwo %s URL = %q, want %q", target, got, wantURL) }
+
+			mu.Lock()
+			gotCounts := map[string]int{}
+			for key, value := range counts { gotCounts[key] = value }
+			mu.Unlock()
+			for _, key := range []string{"xinghai_primary", "helloworld_backup", "kuwo_official", "kuwo_mobile", "hyw", "yunmge"} {
+				if gotCounts[key] != 1 {
+					t.Errorf("Kuwo %s fallback %s requests = %d, want 1 (all counts: %+v)", target, key, gotCounts[key], gotCounts)
+				}
+			}
+			if target == "yunmge" && gotCounts["xinghai_kw"] != 0 {
+				t.Errorf("yunmge success should stop before Xinghai fallback, got counts: %+v", gotCounts)
+			}
+			if target != "yunmge" && gotCounts["xinghai_kw"] != 1 {
+				t.Errorf("%s fallback should reach Xinghai once, got counts: %+v", target, gotCounts)
+			}
+			if target == "ffapi" && gotCounts["ffapi"] != 1 {
+				t.Errorf("FFAPI fallback requests = %d, want 1", gotCounts["ffapi"])
+			}
+		})
+	}
+}
+
+func TestXinglanNeteaseAndKugouBackendPoolsReportAllFailures(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
+	if err != nil { t.Fatal(err) }
+
+	for _, tc := range []struct {
+		source string
+		quality string
+		count int
+		backendNames []string
+	}{
+		{source:"wy", quality:"320k", count:9, backendNames:[]string{
+			"网易云官方:", "ikun网易云:", "笒鬼鬼:", "星海主后端:", "念心直链:",
+			"FishAPI:", "HYWmusic WY:", "残像 WY:", "FFAPI:",
+		}},
+		{source:"kg", quality:"320k", count:11, backendNames:[]string{
+			"海堂KG:", "HYWmusic KG:", "白姬KG:", "星海KG:", "星海主后端:",
+			"长青海棠:", "酷狗官方:", "念心KG:", "星海酷狗:", "念心酷狗:", "FFAPI:",
+		}},
+	} {
+		t.Run(tc.source, func(t *testing.T) {
+			rt := newTestRuntime(t, 15*time.Second)
+			defer rt.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			var mu sync.Mutex
+			var requests []string
+			client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				mu.Lock()
+				requests = append(requests, request.Method+" "+request.URL.Host+request.URL.Path)
+				mu.Unlock()
+				return &http.Response{
+					StatusCode:http.StatusServiceUnavailable, Status:http.StatusText(http.StatusServiceUnavailable),
+					Header:make(http.Header), Body:io.NopCloser(strings.NewReader("{\\"code\\":503,\\"message\\":\\"deterministic provider failure\\"}")),
+					Request:request,
+				}, nil
+			})}
+			if err := rt.InitializeLXSource(ctx, ScriptInfo{Name:"星澜聚合音源", Version:"v4.0.2", RawScript:string(source)}, string(source), client); err != nil {
+				t.Fatalf("initialize pinned Xinglan source: %v", err)
+			}
+			_, err := rt.dispatchLXRequest(ctx, tc.source, "musicUrl", map[string]any{
+				"type":tc.quality,
+				"musicInfo":map[string]any{
+					"songmid":"xinglan-"+tc.source+"-all-fail-001", "hash":"xinglan-"+tc.source+"-hash-001",
+					"rid":"xinglan-"+tc.source+"-rid-001", "id":"xinglan-"+tc.source+"-id-001",
+					"name":"fixture Xinglan song", "songName":"fixture Xinglan song",
+					"singer":"fixture singer", "albumId":"fixture-album-001", "source":tc.source,
+				},
+			}, client)
+			if err == nil { t.Fatalf("expected all %s backends to fail", tc.source) }
+			message := err.Error()
+			if !strings.Contains(message, fmt.Sprintf("所有后端均失败（共 %d 个）", tc.count)) {
+				t.Errorf("%s aggregate error does not report %d backends: %s", tc.source, tc.count, message)
+			}
+			for _, name := range tc.backendNames {
+				if !strings.Contains(message, name) { t.Errorf("%s aggregate error missing %q: %s", tc.source, name, message) }
+			}
+			mu.Lock()
+			gotRequests := append([]string(nil), requests...)
+			mu.Unlock()
+			if len(gotRequests) < tc.count {
+				t.Errorf("%s observed %d HTTP requests, want at least %d backend requests: %v", tc.source, len(gotRequests), tc.count, gotRequests)
+			}
+		})
+	}
+}
