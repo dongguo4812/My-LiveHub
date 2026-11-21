@@ -427,6 +427,19 @@ func TestLXSourceRConfigLiveHandshake(t *testing.T) {
 globalThis.__lxLiveTrace = [];
 globalThis.__lxLiveMD5Trace = [];
 globalThis.__lxLiveEntropyTrace = [];
+globalThis.__lxLiveArithmeticTrace = [];
+const __lxLiveImul = Math.imul;
+if (typeof __lxLiveImul === 'function') Math.imul = function(a, b) {
+  const value = __lxLiveImul.call(Math, a, b);
+  if (globalThis.__lxLiveArithmeticTrace.length < 2000) globalThis.__lxLiveArithmeticTrace.push({kind: 'Math.imul', args: [a, b], output: value, stack: new Error().stack});
+  return value;
+};
+const __lxLiveNumberToString = Number.prototype.toString;
+Number.prototype.toString = function(radix) {
+  const value = __lxLiveNumberToString.call(this, radix);
+  if (radix === 16 && globalThis.__lxLiveArithmeticTrace.length < 2000) globalThis.__lxLiveArithmeticTrace.push({kind: 'hex', input: Number(this), output: value, stack: new Error().stack});
+  return value;
+};
 const __lxLiveCrypto = globalThis.lx.utils.crypto;
 const __lxLiveRandomBytes = __lxLiveCrypto.randomBytes.bind(__lxLiveCrypto);
 __lxLiveCrypto.randomBytes = function(...args) {
@@ -489,7 +502,7 @@ for (const method of ['log', 'info', 'warn', 'error']) {
 	}, liveTraceShim+string(source), client)
 	traceCtx, traceCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer traceCancel()
-	trace, traceErr := rt.Eval(traceCtx, `JSON.stringify({state: globalThis.__lxHostState, trace: globalThis.__lxLiveTrace, md5Trace: globalThis.__lxLiveMD5Trace, entropyTrace: globalThis.__lxLiveEntropyTrace, timerErrors: globalThis.__lxTimerErrors, missingCapabilities: globalThis.__lxMissingCapabilities})`, "lx-live-handshake-trace.js")
+	trace, traceErr := rt.Eval(traceCtx, `JSON.stringify({state: globalThis.__lxHostState, trace: globalThis.__lxLiveTrace, md5Trace: globalThis.__lxLiveMD5Trace, entropyTrace: globalThis.__lxLiveEntropyTrace, arithmeticTrace: globalThis.__lxLiveArithmeticTrace, timerErrors: globalThis.__lxTimerErrors, missingCapabilities: globalThis.__lxMissingCapabilities})`, "lx-live-handshake-trace.js")
 	if traceErr != nil { t.Logf("live handshake diagnostic trace unavailable: %v", traceErr) } else { t.Logf("live handshake diagnostic trace: %s", trace) }
 	t.Logf("live /rconfig HTTP status: %d", status)
 	t.Logf("live /rconfig response body: %s", string(responseBody))
