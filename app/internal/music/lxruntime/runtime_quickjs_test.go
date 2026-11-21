@@ -2193,7 +2193,7 @@ func TestXinglanNeteaseOfficialPOSTContractAndTrialRejection(t *testing.T) {
 				}
 				if !strings.HasPrefix(request.Header.Get("Content-Type"), "application/x-www-form-urlencoded") ||
 					!strings.Contains(request.Header.Get("User-Agent"), "NeteaseMusicDesktop") ||
-					request.Header.Get("Referer") != "https://music.163.com" ||
+					request.Header.Get("Referer") != "https://music.163.com/" ||
 					!strings.Contains(request.Header.Get("Cookie"), "os=pc") {
 					return nil, fmt.Errorf("unexpected Netease official headers: %#v", request.Header)
 				}
