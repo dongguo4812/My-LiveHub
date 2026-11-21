@@ -1879,16 +1879,6 @@ func TestXinglanHYWMusicKuwoGETContract(t *testing.T) {
 			}
 			mu.Lock(); counts["mobile"]++; mu.Unlock()
 			return jsonResponse(http.StatusServiceUnavailable, `{"code":503,"msg":"deterministic mobile failure"}`)
-		case "music.nxinxz.com":
-			if request.Method != http.MethodGet || request.URL.Path != "/kgqq/kw.php" {
-				return nil, fmt.Errorf("Nianxin Kuwo request = %s %s, want GET /kgqq/kw.php", request.Method, request.URL.Redacted())
-			}
-			q := request.URL.Query()
-			if q.Get("id") != "kw-hyw-contract-001" || q.Get("level") != "128k" || q.Get("type") != "mp3" {
-				return nil, fmt.Errorf("unexpected Nianxin Kuwo query: %s", request.URL.RawQuery)
-			}
-			mu.Lock(); counts["nianxin"]++; mu.Unlock()
-			return jsonResponse(http.StatusServiceUnavailable, `{"code":503,"msg":"deterministic Nianxin failure"}`)
 		case "103.79.184.97":
 			if request.Method != http.MethodGet || request.URL.Path != "/api/music/url" {
 				return nil, fmt.Errorf("HYWmusic Kuwo request = %s %s, want GET /api/music/url", request.Method, request.URL.Redacted())
@@ -1935,7 +1925,7 @@ func TestXinglanHYWMusicKuwoGETContract(t *testing.T) {
 	gotCounts := map[string]int{}
 	for key, value := range counts { gotCounts[key] = value }
 	mu.Unlock()
-	wantCounts := map[string]int{"xinghai":1, "helloworld":1, "official":1, "mobile":1, "nianxin":1, "hyw":1}
+	wantCounts := map[string]int{"xinghai":1, "helloworld":1, "official":1, "mobile":1, "hyw":1}
 	for key, want := range wantCounts {
 		if gotCounts[key] != want {
 			t.Fatalf("Kuwo fallback %s requests = %d, want %d (all counts: %+v)", key, gotCounts[key], want, gotCounts)
