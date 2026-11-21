@@ -106,9 +106,16 @@ if (__lxPerformanceNow) {
   };
 }
 const __lxNumberToString = Number.prototype.toString;
+globalThis.__lxHexDigitTrace = [];
 Number.prototype.toString = function(radix) {
   const value = __lxNumberToString.call(this, radix);
-  if (radix === 16) globalThis.__lxCryptoTrace.push({ name: 'Number.toString(16)', input: String(this), output: value, stack: new Error().stack });
+  if (radix === 16) {
+    const stack = new Error().stack;
+    if (globalThis.__lxCryptoTrace.length < 1200) globalThis.__lxCryptoTrace.push({ name: 'Number.toString(16)', input: String(this), output: value, stack });
+    if (globalThis.__lxHexDigitTrace.length < 12000) {
+      globalThis.__lxHexDigitTrace.push({ input: Number(this), output: value, stack: stack.split('\\n').slice(1, 5) });
+    }
+  }
   return value;
 };
 
@@ -301,6 +308,9 @@ for (const name of ['aesEncrypt', 'rsaEncrypt']) {
 		t.Fatal(err)
 	}
 	t.Logf("source AES/RSA trace: %s", cryptoTraceJSON)
+	hexDigitTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxHexDigitTrace)", "lx-rconfig-hex-digit-trace.js")
+	if err != nil { t.Fatal(err) }
+	t.Logf("source hex digit conversion trace: %s", hexDigitTraceJSON)
 	decodeTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxDecodeTrace)", "lx-rconfig-decode-trace.js")
 	if err != nil { t.Fatal(err) }
 	t.Logf("source base64 decode trace: %s", decodeTraceJSON)
