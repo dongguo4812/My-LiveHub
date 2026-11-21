@@ -2537,3 +2537,51 @@ func TestXinglanKugouNianxinSequentialFallbackGETContract(t *testing.T) {
 	}
 	if fallbackRequests != 1 { t.Fatalf("Nianxin Kugou requests = %d, want 1", fallbackRequests) }
 }
+
+
+func TestXinglanMiguXinghaiSequentialFallbackGETContract(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
+	if err != nil { t.Fatal(err) }
+	rt := newTestRuntime(t, 15*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var fallbackRequests int
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		jsonResponse := func(status int, body string) (*http.Response, error) {
+			header := make(http.Header)
+			header.Set("Content-Type", "application/json")
+			return &http.Response{StatusCode:status, Status:http.StatusText(status), Header:header,
+				Body:io.NopCloser(strings.NewReader(body)), Request:request}, nil
+		}
+		if request.URL.Host != "api.xinghai.com" {
+			return jsonResponse(http.StatusServiceUnavailable, "{\"code\":503,\"message\":\"deterministic preceding Migu provider failure\"}")
+		}
+		if request.Method != http.MethodGet || request.URL.Path != "/lx/api/" {
+			return nil, fmt.Errorf("Xinghai Migu request = %s %s, want GET /lx/api/", request.Method, request.URL.Redacted())
+		}
+		q := request.URL.Query()
+		for key, want := range map[string]string{
+			"source":"migu", "songmid":"mg-xinghai-contract-001",
+			"name":"fixture Migu song fixture singer", "quality":"320kmp3",
+		} {
+			if q.Get(key) != want {
+				return nil, fmt.Errorf("Xinghai Migu query %s = %q, want %q (raw %s)", key, q.Get(key), want, request.URL.RawQuery)
+			}
+		}
+		fallbackRequests++
+		return jsonResponse(http.StatusOK, "{\"code\":200,\"url\":\"https://cdn.example.invalid/mg-xinghai-320k.mp3\"}")
+	})}
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{Name:"星澜聚合音源", Version:"v4.0.2", RawScript:string(source)}, string(source), client); err != nil {
+		t.Fatalf("initialize pinned Xinglan source: %v", err)
+	}
+	result, err := rt.dispatchLXRequest(ctx, "mg", "musicUrl", map[string]any{
+		"type":"320k",
+		"musicInfo":map[string]any{"songmid":"mg-xinghai-contract-001", "name":"fixture Migu song", "singer":"fixture singer", "source":"mg"},
+	}, client)
+	if err != nil { t.Fatalf("dispatch Xinghai Migu fallback: %v", err) }
+	if got, ok := result.(string); !ok || got != "https://cdn.example.invalid/mg-xinghai-320k.mp3" {
+		t.Fatalf("Xinghai Migu URL = %#v, want fallback URL", result)
+	}
+	if fallbackRequests != 1 { t.Fatalf("Xinghai Migu requests = %d, want 1", fallbackRequests) }
+}
