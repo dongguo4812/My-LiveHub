@@ -4,6 +4,8 @@ package lxruntime
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,7 +33,10 @@ func (r *Runtime) InstallLXHost(ctx context.Context, info ScriptInfo) error {
 	if err != nil {
 		return fmt.Errorf("encode LX script metadata: %w", err)
 	}
-	bootstrap := lxHostBootstrap + "\n;globalThis.lx.currentScriptInfo = " + string(metadata) + ";\n" + lxBrowserBootstrap
+	scriptDigest := md5.Sum([]byte(info.RawScript))
+	scriptMD5 := hex.EncodeToString(scriptDigest[:])
+	bootstrap := lxHostBootstrap + "\n;globalThis.lx.currentScriptInfo = " + string(metadata) +
+		";\nglobalThis.SCRIPT_MD5 = " + fmt.Sprintf("%q", scriptMD5) + ";\n" + lxBrowserBootstrap
 	if _, err := r.Eval(ctx, bootstrap, "lx-host-bootstrap.js"); err != nil {
 		return fmt.Errorf("install LX host contract: %w", err)
 	}
