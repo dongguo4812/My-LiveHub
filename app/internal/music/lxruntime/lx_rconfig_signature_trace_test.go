@@ -30,8 +30,9 @@ func TestLXPinnedSourceFixtureUsesCanonicalLF(t *testing.T) {
 }
 
 // TestLXSourceRConfigSignatureTrace records the source's own MD5 inputs while
-// constructing /rconfig. The mock response is intentionally invalid: this is
-// a signature-observation test, not a successful-handshake claim.
+// constructing /rconfig. The mock response is intentionally empty: the source falls back to its
+// built-in providers, allowing this test to observe signature construction
+// without requiring the live configuration service.
 func TestLXSourceRConfigSignatureTrace(t *testing.T) {
 	source, err := os.ReadFile(filepath.Join("testdata", "sources", "lx.js"))
 	if err != nil {
@@ -317,8 +318,13 @@ for (const name of ['aesEncrypt', 'rsaEncrypt']) {
 		Description: "后续更新，请关注微信公众号: 洛雪科技",
 		RawScript: string(source),
 	}, instrumentedSource, client)
-	if err == nil {
-		t.Fatal("expected invalid empty /rconfig response to leave initialization incomplete")
+	if err != nil {
+		t.Fatalf("source should initialize with built-in providers when /rconfig is empty: %v", err)
+	}
+	stateJSON, stateErr := rt.Eval(ctx, `JSON.stringify({initialized: globalThis.__lxHostState.initialized, requestHandler: typeof globalThis.__lxHostHandlers.request})`, "lx-rconfig-empty-response-state.js")
+	if stateErr != nil { t.Fatal(stateErr) }
+	if stateJSON != `{"initialized":true,"requestHandler":"function"}` {
+		t.Fatalf("host state after empty /rconfig response = %s, want initialized=true with request handler", stateJSON)
 	}
 	if capturedURL == "" {
 		t.Fatalf("source did not issue /rconfig before initialization failed: %v", err)
