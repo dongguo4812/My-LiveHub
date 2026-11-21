@@ -2107,7 +2107,7 @@ func TestXinglanNeteaseAndKugouBackendPoolsReportAllFailures(t *testing.T) {
 				mu.Unlock()
 				return &http.Response{
 					StatusCode:http.StatusServiceUnavailable, Status:http.StatusText(http.StatusServiceUnavailable),
-					Header:make(http.Header), Body:io.NopCloser(strings.NewReader("{\\"code\\":503,\\"message\\":\\"deterministic provider failure\\"}")),
+					Header:make(http.Header), Body:io.NopCloser(strings.NewReader("{\"code\":503,\"message\":\"deterministic provider failure\"}")),
 					Request:request,
 				}, nil
 			})}
