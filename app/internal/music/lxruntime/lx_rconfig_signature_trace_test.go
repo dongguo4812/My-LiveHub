@@ -52,6 +52,24 @@ __lxCrypto.md5 = function(value) {
   return output;
 };
 globalThis.__lxCryptoTrace = [];
+const __lxRandomBytes = __lxCrypto.randomBytes.bind(__lxCrypto);
+__lxCrypto.randomBytes = function(...args) {
+  const result = __lxRandomBytes(...args);
+  globalThis.__lxCryptoTrace.push({ name: 'randomBytes', args, output: __lxHex(result) });
+  return result;
+};
+const __lxDateNow = Date.now;
+Date.now = function() {
+  const value = __lxDateNow.call(Date);
+  globalThis.__lxCryptoTrace.push({ name: 'Date.now', output: String(value) });
+  return value;
+};
+const __lxMathRandom = Math.random;
+Math.random = function() {
+  const value = __lxMathRandom.call(Math);
+  globalThis.__lxCryptoTrace.push({ name: 'Math.random', output: String(value) });
+  return value;
+};
 globalThis.__lxResponseTrace = [];
 const __lxCompleteRequest = globalThis.__lxCompleteRequest;
 const __lxTraceResponse = (value, path) => {
