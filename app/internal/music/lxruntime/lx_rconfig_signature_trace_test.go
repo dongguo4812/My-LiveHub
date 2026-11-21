@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/hex"
 	"io"
 	"net/http"
 	"net/url"
@@ -389,7 +390,7 @@ for (const name of ['aesEncrypt', 'rsaEncrypt']) {
 	}
 	t.Logf("source /rconfig response property trace: %s", responseTraceJSON)
 	if !matched {
-		t.Logf("rconfig si=%s was not a direct output of a traced MD5 call; it may be derived through byte-level crypto or another transform", si)
+		t.Fatalf("rconfig si=%s was not produced by a traced MD5 call; signature derivation is not verified", si)
 	}
 }
 
@@ -405,11 +406,13 @@ func TestLXSourceRConfigLiveHandshake(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 
 	var status int
+	var liveRequestURL string
 	var responseBody []byte
 	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		response, err := http.DefaultTransport.RoundTrip(request)
 		if err != nil { return nil, err }
 		if request.URL.Path == "/rconfig" {
+			liveRequestURL = request.URL.String()
 			t.Logf("live /rconfig request headers: content-type=%q user-agent=%q", request.Header.Get("Content-Type"), request.Header.Get("User-Agent"))
 			status = response.StatusCode
 			responseBody, err = io.ReadAll(io.LimitReader(response.Body, 1<<20))
@@ -422,6 +425,14 @@ func TestLXSourceRConfigLiveHandshake(t *testing.T) {
 	client := &http.Client{Transport: transport, Timeout: 15 * time.Second}
 	liveTraceShim := `
 globalThis.__lxLiveTrace = [];
+globalThis.__lxLiveMD5Trace = [];
+const __lxLiveCrypto = globalThis.lx.utils.crypto;
+const __lxLiveMD5 = __lxLiveCrypto.md5.bind(__lxLiveCrypto);
+__lxLiveCrypto.md5 = function(value) {
+  const output = __lxLiveMD5(value);
+  globalThis.__lxLiveMD5Trace.push({input: String(value), output});
+  return output;
+};
 const __lxLiveSend = globalThis.lx.send.bind(globalThis.lx);
 globalThis.lx.send = function(...args) {
   globalThis.__lxLiveTrace.push({kind: 'send', event: args[0], data: args[1]});
@@ -457,7 +468,7 @@ for (const method of ['log', 'info', 'warn', 'error']) {
 	}, liveTraceShim+string(source), client)
 	traceCtx, traceCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer traceCancel()
-	trace, traceErr := rt.Eval(traceCtx, `JSON.stringify({state: globalThis.__lxHostState, trace: globalThis.__lxLiveTrace, timerErrors: globalThis.__lxTimerErrors, missingCapabilities: globalThis.__lxMissingCapabilities})`, "lx-live-handshake-trace.js")
+	trace, traceErr := rt.Eval(traceCtx, `JSON.stringify({state: globalThis.__lxHostState, trace: globalThis.__lxLiveTrace, md5Trace: globalThis.__lxLiveMD5Trace, timerErrors: globalThis.__lxTimerErrors, missingCapabilities: globalThis.__lxMissingCapabilities})`, "lx-live-handshake-trace.js")
 	if traceErr != nil { t.Logf("live handshake diagnostic trace unavailable: %v", traceErr) } else { t.Logf("live handshake diagnostic trace: %s", trace) }
 	t.Logf("live /rconfig HTTP status: %d", status)
 	t.Logf("live /rconfig response body: %s", string(responseBody))
@@ -472,6 +483,7 @@ for (const method of ['log', 'info', 'warn', 'error']) {
 		Msg string `json:"msg"`
 		Data struct {
 			Enabled bool `json:"enabled"`
+			Paused bool `json:"paused"`
 			Version int `json:"version"`
 			MinVersion int `json:"minVersion"`
 		} `json:"data"`
@@ -479,12 +491,13 @@ for (const method of ['log', 'info', 'warn', 'error']) {
 	if err := json.Unmarshal(responseBody, &response); err != nil {
 		t.Fatalf("decode live /rconfig success response %q: %v", responseBody, err)
 	}
-	if response.Code != 0 || response.Msg != "success" || !response.Data.Enabled || response.Data.Version != 7 || response.Data.MinVersion > 7 {
+	if response.Code != 0 || response.Msg != "success" || !response.Data.Enabled || response.Data.Paused || response.Data.Version != 7 || response.Data.MinVersion <= 0 || response.Data.Version < response.Data.MinVersion {
 		t.Fatalf("live /rconfig did not return an enabled V7 success payload: %+v", response)
 	}
 	var handshake struct {
 		State struct { Initialized bool `json:"initialized"` } `json:"state"`
 		Trace []struct { Kind string `json:"kind"`; Event string `json:"event"` } `json:"trace"`
+		MD5Trace []struct { Input string `json:"input"`; Output string `json:"output"` } `json:"md5Trace"`
 		TimerErrors []string `json:"timerErrors"`
 		MissingCapabilities []string `json:"missingCapabilities"`
 	}
@@ -493,6 +506,21 @@ for (const method of ['log', 'info', 'warn', 'error']) {
 	}
 	if !handshake.State.Initialized {
 		t.Fatalf("live /rconfig returned success but LX did not initialize: %s", trace)
+	}
+	si := query.Get("si")
+	matchedSI := false
+	for _, call := range handshake.MD5Trace {
+		if call.Output == si {
+			preimage, decodeErr := hex.DecodeString(call.Input)
+			if decodeErr != nil || len(preimage) != 32 {
+				t.Fatalf("live /rconfig si preimage is not a 64-character hex digest: %q", call.Input)
+			}
+			matchedSI = true
+			break
+		}
+	}
+	if !matchedSI {
+		t.Fatalf("live /rconfig si=%s was not produced by a traced MD5 call", si)
 	}
 	initedResolved := false
 	for _, event := range handshake.Trace {
