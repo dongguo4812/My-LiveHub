@@ -467,4 +467,41 @@ for (const method of ['log', 'info', 'warn', 'error']) {
 	if status < 200 || status >= 300 {
 		t.Fatalf("live LX /rconfig returned HTTP %d", status)
 	}
+	var response struct {
+		Code int `json:"code"`
+		Msg string `json:"msg"`
+		Data struct {
+			Enabled bool `json:"enabled"`
+			Version int `json:"version"`
+			MinVersion int `json:"minVersion"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		t.Fatalf("decode live /rconfig success response %q: %v", responseBody, err)
+	}
+	if response.Code != 0 || response.Msg != "success" || !response.Data.Enabled || response.Data.Version != 7 || response.Data.MinVersion > 7 {
+		t.Fatalf("live /rconfig did not return an enabled V7 success payload: %+v", response)
+	}
+	var handshake struct {
+		State struct { Initialized bool `json:"initialized"` } `json:"state"`
+		Trace []struct { Kind string `json:"kind"`; Event string `json:"event"` } `json:"trace"`
+		TimerErrors []string `json:"timerErrors"`
+		MissingCapabilities []string `json:"missingCapabilities"`
+	}
+	if err := json.Unmarshal([]byte(trace), &handshake); err != nil {
+		t.Fatalf("decode live LX initialization trace: %v", err)
+	}
+	if !handshake.State.Initialized {
+		t.Fatalf("live /rconfig returned success but LX did not initialize: %s", trace)
+	}
+	initedResolved := false
+	for _, event := range handshake.Trace {
+		if event.Kind == "send-resolved" && event.Event == "inited" { initedResolved = true; break }
+	}
+	if !initedResolved {
+		t.Fatalf("live LX did not resolve its inited event: %s", trace)
+	}
+	if len(handshake.TimerErrors) != 0 || len(handshake.MissingCapabilities) != 0 {
+		t.Fatalf("live LX initialization reported timer errors or missing capabilities: %s", trace)
+	}
 }
