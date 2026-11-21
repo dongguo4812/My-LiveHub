@@ -2585,3 +2585,79 @@ func TestXinglanMiguXinghaiSequentialFallbackGETContract(t *testing.T) {
 	}
 	if fallbackRequests != 1 { t.Fatalf("Xinghai Migu requests = %d, want 1", fallbackRequests) }
 }
+
+
+func TestHelloWorldAllConfiguredBackendContracts(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "helloworld.js"))
+	if err != nil { t.Fatal(err) }
+	type contract struct {
+		name, source, quality, host, path, method string
+		query map[string]string
+		body map[string]string
+		headers map[string]string
+		response string
+	}
+	contracts := []contract{
+		{name:"kuwo_haitang_master",source:"kw",quality:"master",host:"musicserver.haitangw.cc",path:"/v1/music/resolve-url",method:http.MethodPost,body:map[string]string{"source":"kw","rid":"hw-contract-kw","level":"master"},response:"{\"data\":{\"url\":\"https://cdn.example.invalid/hw-kw-master.mp3\"}}"},
+		{name:"kuwo_mobile_320k",source:"kw",quality:"320k",host:"nmobi.kuwo.cn",path:"/mobi.s",method:http.MethodGet,query:map[string]string{"rid":"hw-contract-kw","br":"320kmp3","type":"convert_url_with_sign"},response:"{\"data\":{\"url\":\"https://cdn.example.invalid/hw-kw-320k.mp3\"}}"},
+		{name:"kugou_card_key_320k",source:"kg",quality:"320k",host:"103.79.184.97",path:"/api/music/url",method:http.MethodGet,query:map[string]string{"source":"kg","songId":"hw-contract-kg","quality":"320k","key":"6C1F-53W0-GRKI-EVFG"},headers:map[string]string{"X-Card-Key":"6C1F-53W0-GRKI-EVFG"},response:"{\"url\":\"https://cdn.example.invalid/hw-kg-card.mp3\"}"},
+		{name:"kugou_yy_token_320k",source:"kg",quality:"320k",host:"yy.zddyr.top",path:"/lx/api/",method:http.MethodGet,query:map[string]string{"source":"kg","mainHash":"hw-contract-kg","quality":"320k"},headers:map[string]string{"X-Client":"YYMusicSource/v1.0.0 (Android)"},response:"{\"url\":\"https://cdn.example.invalid/hw-kg-yy.mp3\"}"},
+		{name:"kugou_haitang_320k",source:"kg",quality:"320k",host:"musicserver.haitangw.cc",path:"/v1/music/resolve-url",method:http.MethodPost,body:map[string]string{"source":"kg","rid":"hw-contract-kg","level":"exhigh"},response:"{\"data\":{\"url\":\"https://cdn.example.invalid/hw-kg-haitang.mp3\"}}"},
+		{name:"qq_card_key_320k",source:"tx",quality:"320k",host:"103.79.184.97",path:"/api/music/url",method:http.MethodGet,query:map[string]string{"source":"tx","songId":"hw-contract-tx","quality":"320k","key":"6C1F-53W0-GRKI-EVFG"},headers:map[string]string{"X-Card-Key":"6C1F-53W0-GRKI-EVFG"},response:"{\"url\":\"https://cdn.example.invalid/hw-tx-card.mp3\"}"},
+		{name:"qq_yy_token_320k",source:"tx",quality:"320k",host:"yy.zddyr.top",path:"/lx/api/",method:http.MethodGet,query:map[string]string{"source":"tx","songmid":"hw-contract-tx","quality":"320k"},headers:map[string]string{"X-Client":"YYMusicSource/v1.0.0 (Android)"},response:"{\"url\":\"https://cdn.example.invalid/hw-tx-yy.mp3\"}"},
+		{name:"qq_tang_320k",source:"tx",quality:"320k",host:"tang.api.s01s.cn",path:"/music_open_api.php",method:http.MethodGet,query:map[string]string{"mid":"hw-contract-tx"},response:"{\"song_play_url_hq\":\"https://cdn.example.invalid/hw-tx-tang.mp3\"}"},
+		{name:"qq_haitang_320k",source:"tx",quality:"320k",host:"musicserver.haitangw.cc",path:"/v1/music/resolve-url",method:http.MethodPost,body:map[string]string{"source":"tx","rid":"hw-contract-tx","level":"exhigh"},response:"{\"data\":{\"url\":\"https://cdn.example.invalid/hw-tx-haitang.mp3\"}}"},
+		{name:"qq_search_api_320k",source:"tx",quality:"320k",host:"a.aa.cab",path:"/qq.music",method:http.MethodGet,query:map[string]string{"msg":"fixture song","n":"1","type":"1"},response:"{\"data\":{\"music\":\"https://cdn.example.invalid/hw-tx-search.mp3\"}}"},
+		{name:"netease_wwwweb_320k",source:"wy",quality:"320k",host:"c.wwwweb.top",path:"/music/url",method:http.MethodPost,body:map[string]string{"source":"wy","musicId":"hw-contract-wy","quality":"320k"},headers:map[string]string{"User-Agent":"lx-music-desktop/2.10.1"},response:"{\"code\":200,\"url\":\"https://cdn.example.invalid/hw-wy-wwwweb.mp3\"}"},
+		{name:"netease_haitang_320k",source:"wy",quality:"320k",host:"musicserver.haitangw.cc",path:"/v1/music/resolve-url",method:http.MethodPost,body:map[string]string{"source":"wy","rid":"hw-contract-wy","level":"exhigh"},response:"{\"data\":{\"url\":\"https://cdn.example.invalid/hw-wy-haitang.mp3\"}}"},
+		{name:"netease_yy_token_320k",source:"wy",quality:"320k",host:"yy.zddyr.top",path:"/lx/api/",method:http.MethodGet,query:map[string]string{"source":"wy","songmid":"hw-contract-wy","quality":"320k"},headers:map[string]string{"X-Client":"YYMusicSource/v1.0.0 (Android)"},response:"{\"url\":\"https://cdn.example.invalid/hw-wy-yy.mp3\"}"},
+		{name:"netease_nianxin_320k",source:"wy",quality:"320k",host:"mcp.nianxinxz.com",path:"/share/ceshi/wy.php",method:http.MethodGet,query:map[string]string{"id":"hw-contract-wy","level":"exhigh"},response:"{\"code\":200,\"url\":\"https://cdn.example.invalid/hw-wy-nianxin.mp3\"}"},
+		{name:"netease_card_key_320k",source:"wy",quality:"320k",host:"103.79.184.97",path:"/api/music/url",method:http.MethodGet,query:map[string]string{"platform":"wy","songId":"hw-contract-wy","quality":"320k","key":"6C1F-53W0-GRKI-EVFG"},headers:map[string]string{"X-Card-Key":"6C1F-53W0-GRKI-EVFG","User-Agent":"lx-music-mobile/2.0.0"},response:"{\"url\":\"https://cdn.example.invalid/hw-wy-card.mp3\"}"},
+		{name:"migu_yy_token_320k",source:"mg",quality:"320k",host:"yy.zddyr.top",path:"/lx/api/",method:http.MethodGet,query:map[string]string{"source":"migu","songmid":"hw-contract-mg","quality":"320k"},headers:map[string]string{"X-Client":"YYMusicSource/v1.0.0 (Android)"},response:"{\"url\":\"https://cdn.example.invalid/hw-mg-yy.mp3\"}"},
+		{name:"migu_oiapi_320k",source:"mg",quality:"320k",host:"oiapi.net",path:"/api/MiGu_Music",method:http.MethodGet,query:map[string]string{"msg":"fixture song","br":"HQ","n":"1"},response:"{\"data\":{\"url\":\"https://cdn.example.invalid/hw-mg-oiapi.mp3\"}"},
+	}
+	for _, tc := range contracts {
+		t.Run(tc.name, func(t *testing.T) {
+			rt := newTestRuntime(t, 15*time.Second)
+			defer rt.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			var requests int
+			client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				requests++
+				jsonResponse := func(body string) (*http.Response, error) {
+					return &http.Response{StatusCode:http.StatusOK, Status:"200 OK", Header:make(http.Header),
+						Body:io.NopCloser(strings.NewReader(body)), Request:request}, nil
+				}
+				if request.URL.Host == tc.host && request.URL.Path == tc.path {
+					if request.Method != tc.method { return nil, fmt.Errorf("%s method = %s, want %s", tc.name, request.Method, tc.method) }
+					for key, want := range tc.query {
+						if got := request.URL.Query().Get(key); got != want { return nil, fmt.Errorf("%s query %s = %q, want %q (raw %s)", tc.name, key, got, want, request.URL.RawQuery) }
+					}
+					for key, want := range tc.headers {
+						if got := request.Header.Get(key); got != want { return nil, fmt.Errorf("%s header %s = %q, want %q", tc.name, key, got, want) }
+					}
+					if len(tc.body) > 0 {
+						var got map[string]any
+						if err := json.NewDecoder(request.Body).Decode(&got); err != nil { return nil, fmt.Errorf("%s decode body: %w", tc.name, err) }
+						for key, want := range tc.body { if got[key] != want { return nil, fmt.Errorf("%s body %s = %#v, want %q", tc.name, key, got[key], want) } }
+					}
+					return jsonResponse(tc.response)
+				}
+				return jsonResponse("{}")
+			})}
+			if err := rt.InitializeLXSource(ctx, ScriptInfo{Name:"HelloWorld", Version:"260925", Author:"hello world", RawScript:string(source)}, string(source), client); err != nil {
+				t.Fatalf("initialize pinned HelloWorld source: %v", err)
+			}
+			id := map[string]string{"kw":"hw-contract-kw","kg":"hw-contract-kg","tx":"hw-contract-tx","wy":"hw-contract-wy","mg":"hw-contract-mg"}[tc.source]
+			result, err := rt.dispatchLXRequest(ctx, tc.source, "musicUrl", map[string]any{
+				"type":tc.quality,
+				"musicInfo":map[string]any{"songmid":id,"hash":id,"rid":id,"id":id,"name":"fixture song","singer":"fixture singer"},
+			}, client)
+			if err != nil { t.Fatalf("dispatch %s: %v", tc.name, err) }
+			got, ok := result.(string)
+			if !ok || got == "" || !strings.HasPrefix(got, "https://cdn.example.invalid/") { t.Fatalf("%s result = %#v, want fixture playback URL", tc.name, result) }
+			if requests < 1 { t.Fatalf("%s issued no HTTP requests", tc.name) }
+		})
+	}
+}
