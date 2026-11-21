@@ -70,6 +70,40 @@ Math.random = function() {
   globalThis.__lxCryptoTrace.push({ name: 'Math.random', output: String(value) });
   return value;
 };
+const __lxPerformanceNow = globalThis.performance && globalThis.performance.now;
+if (__lxPerformanceNow) {
+  globalThis.performance.now = function() {
+    const value = __lxPerformanceNow.call(globalThis.performance);
+    globalThis.__lxCryptoTrace.push({ name: 'performance.now', output: String(value) });
+    return value;
+  };
+}
+const __lxNumberToString = Number.prototype.toString;
+Number.prototype.toString = function(radix) {
+  const value = __lxNumberToString.call(this, radix);
+  if (radix === 16) globalThis.__lxCryptoTrace.push({ name: 'Number.toString(16)', input: String(this), output: value });
+  return value;
+};
+const __lxFromCharCode = String.fromCharCode;
+String.fromCharCode = function(...codes) {
+  const value = __lxFromCharCode.apply(String, codes);
+  if (value.length >= 8) globalThis.__lxCryptoTrace.push({ name: 'String.fromCharCode', input: codes.slice(0, 64), output: value.slice(0, 128) });
+  return value;
+};
+if (globalThis.crypto && typeof globalThis.crypto === 'object') {
+  for (const name of ['getRandomValues', 'randomUUID']) {
+    const original = globalThis.crypto[name];
+    if (typeof original === 'function') {
+      try {
+        globalThis.crypto[name] = function(...args) {
+          const value = original.apply(this, args);
+          globalThis.__lxCryptoTrace.push({ name: 'crypto.' + name, args: args.map(arg => arg && arg.length != null ? arg.length : String(arg)), output: name === 'randomUUID' ? String(value) : __lxHex(value) });
+          return value;
+        };
+      } catch (_) {}
+    }
+  }
+}
 globalThis.__lxResponseTrace = [];
 const __lxCompleteRequest = globalThis.__lxCompleteRequest;
 const __lxTraceResponse = (value, path) => {
