@@ -65,6 +65,8 @@ jobs:
 
       - name: Test Go CGo runtime and pinned LX scripts
         shell: msys2 {0}
+        env:
+          LX_RCONFIG_LIVE: "1"
         run: |
           WORKSPACE="$(cygpath -u "$GITHUB_WORKSPACE")"
           TEMP_DIR="$(cygpath -u "$RUNNER_TEMP")"
