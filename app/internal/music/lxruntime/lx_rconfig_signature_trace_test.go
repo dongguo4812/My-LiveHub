@@ -157,6 +157,23 @@ Array.prototype.map = function(callback, thisArg) {
   }
   return result;
 };
+globalThis.__lxBytePushTrace = [];
+const __lxArrayPush = Array.prototype.push;
+Array.prototype.push = function(...values) {
+  const before = this && typeof this.length === 'number' ? this.length : -1;
+  const result = __lxArrayPush.apply(this, values);
+  if (before >= 8 && before < 16 && this.length === 16 &&
+      values.length > 0 && values.every(value => typeof value === 'number' || typeof value === 'string') &&
+      globalThis.__lxBytePushTrace.length < 100) {
+    globalThis.__lxBytePushTrace.push({
+      before,
+      values: values.slice(0, 16),
+      result: Array.from(this),
+      stack: new Error().stack
+    });
+  }
+  return result;
+};
 globalThis.__lxTransformTrace = [];
 let __lxTransformBusy = false;
 const __lxRecordTransform = (name, input, output) => {
@@ -335,6 +352,9 @@ for (const name of ['aesEncrypt', 'rsaEncrypt']) {
 	byteMapTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxByteMapTrace)", "lx-rconfig-byte-map-trace.js")
 	if err != nil { t.Fatal(err) }
 	t.Logf("source 16-byte map trace: %s", byteMapTraceJSON)
+	bytePushTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxBytePushTrace)", "lx-rconfig-byte-push-trace.js")
+	if err != nil { t.Fatal(err) }
+	t.Logf("source 16-byte push trace: %s", bytePushTraceJSON)
 	t.Logf("source signature string transform trace: %s", transformTraceJSON)
 	responseTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxResponseTrace)", "lx-rconfig-response-trace.js")
 	if err != nil {
