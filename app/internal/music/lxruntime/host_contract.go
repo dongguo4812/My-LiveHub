@@ -122,13 +122,17 @@ const lxHostBootstrap = `
             for (const source of allSources) {
               const userSource = data.sources[source];
               if (!userSource || userSource.type !== 'music') continue;
-              if (!Array.isArray(userSource.actions) || !Array.isArray(userSource.qualitys)) {
+              // LX's built-in local source omits qualitys entirely. Treat an
+              // absent quality list as no advertised quality constraints, while
+              // still validating an explicitly supplied list.
+              const userQualitys = userSource.qualitys == null ? [] : userSource.qualitys;
+              if (!Array.isArray(userSource.actions) || !Array.isArray(userQualitys)) {
                 throw new Error('Invalid source capabilities: ' + source);
               }
               sources[source] = {
                 type: 'music',
                 actions: supportActions[source].filter(action => userSource.actions.includes(action)),
-                qualitys: supportQualitys[source].filter(quality => userSource.qualitys.includes(quality))
+                qualitys: supportQualitys[source].filter(quality => userQualitys.includes(quality))
               };
             }
           } catch (error) {
