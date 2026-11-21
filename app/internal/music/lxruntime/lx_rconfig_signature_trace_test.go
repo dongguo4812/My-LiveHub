@@ -26,6 +26,21 @@ func TestLXSourceRConfigSignatureTrace(t *testing.T) {
 	}
 
 	const traceShim = `
+globalThis.__lxCharCodeTrace = [];
+const __lxCharCodeAt = String.prototype.charCodeAt;
+const __lxCharCodeSeen = new Set();
+String.prototype.charCodeAt = function(index) {
+  const value = String(this);
+  if ((value.length >= 16 && value.length <= 80 && /^[0-9a-f]+$/i.test(value)) ||
+      value.length > 256) {
+    const key = value.length + ':' + value.slice(0, 96) + ':' + value.slice(-32);
+    if (!__lxCharCodeSeen.has(key) && globalThis.__lxCharCodeTrace.length < 160) {
+      __lxCharCodeSeen.add(key);
+      globalThis.__lxCharCodeTrace.push({ length: value.length, head: value.slice(0, 160), tail: value.slice(-64) });
+    }
+  }
+  return __lxCharCodeAt.call(this, index);
+};
 globalThis.__lxMD5Trace = [];
 const __lxCrypto = globalThis.lx.utils.crypto;
 const __lxOriginalMD5 = __lxCrypto.md5.bind(__lxCrypto);
@@ -124,6 +139,9 @@ for (const name of ['aesEncrypt', 'rsaEncrypt']) {
 		}
 	}
 	t.Logf("captured rconfig URL: %s", parsedURL.Redacted())
+	charTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxCharCodeTrace)", "lx-rconfig-charcode-trace.js")
+	if err != nil { t.Fatal(err) }
+	t.Logf("source charCodeAt input trace: %s", charTraceJSON)
 	t.Logf("source MD5 trace (%d calls): %#v", len(trace), trace)
 	cryptoTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxCryptoTrace)", "lx-rconfig-crypto-trace.js")
 	if err != nil {
