@@ -13,6 +13,25 @@ never contact upstream services.
 | `helloworld.js` | Real LX Host initialization and source registration. | QQ music URL resolution; pinned source's native Buffer token construction with captured token decoding; five-API FLAC failure followed by 320k quality retry; Kuwo master-quality JSON POST endpoint, headers, exact payload, and `data.url` response parsing (`TestHelloWorldKuwoMasterPOSTContract`); standard 128k GET `convert_url_with_sign` fallback, exact query/header mapping, and direct URL response (`TestHelloWorldKuwoStandardQualityGETContract`). | QQ 320k ordered fallback through the first card-key GET API, the YY tokenized GET API, then the tang `music_open_api.php?mid=` GET API; exact query/header contracts and `song_play_url_hq` response extraction are asserted by `TestHelloWorldQQTangFallbackGETContract`. Other API templates and real upstream behavior are not proven. |
 | `huanyin.js` | Real LX Host initialization and source registration. | Local platform URL mapping; Migu search; search-result-to-playback flow; metadata mismatch retry/cache; album→singer→title negative-response fallback; transport-error fallback; three sequential source-level timeout/cancellation attempts. | QQ/Kuwo/Netease coverage currently checks local URL construction, not remote playback. Migu HTTP behavior is deterministic mock-only. |
 
+
+## Xinglan stage acceptance
+
+The Xinglan stage acceptance suite is green on the feature branch at
+`2e4f0e38272d62f21073099338c09d49fa27b879` (CI run
+[44847125767](https://github.com/dongguo4812/My-LiveHub/actions/runs/44847125767)).
+The CI log records all Xinglan tests and subtests passing, including:
+
+- QQ: v2→v3 fallback, 13-provider all-fail aggregation, primary success, and tail suppression.
+- Netease: 9-provider all-fail aggregation, official EAPI success/trial rejection, and Canxiang sequential fallback.
+- Kuwo: stream-vs-provider routing, ordinary provider fallback chain, all-fail aggregation, primary success, and tail suppression.
+- Kugou: 11-provider all-fail aggregation, HaiTang primary POST, and Nianxin sequential fallback.
+- Migu: 7-provider all-fail aggregation, HaiTang resolver/quality rewrite, and Xinghai sequential fallback.
+- QS: primary-to-backup fallback, key encoding, and all-fail aggregation.
+
+This acceptance is for deterministic QuickJS + real LX Host tests with intercepted
+HTTP. It confirms the source/Host request and response contracts represented above;
+it does not establish live third-party endpoint availability or guaranteed playback.
+
 ## Cross-cutting Host/runtime coverage
 
 - Promise microtask draining, timer lifecycle/order, in-flight HTTP cancellation, and interruption of an infinite loop.
