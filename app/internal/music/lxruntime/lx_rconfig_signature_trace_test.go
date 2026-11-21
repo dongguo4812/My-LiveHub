@@ -428,6 +428,59 @@ globalThis.__lxLiveTrace = [];
 globalThis.__lxLiveMD5Trace = [];
 globalThis.__lxLiveEntropyTrace = [];
 globalThis.__lxLiveArithmeticTrace = [];
+globalThis.__lxLiveBytePushTrace = [];
+globalThis.__lxLiveDecodeTrace = [];
+globalThis.__lxLiveStringTrace = [];
+const __lxLiveArrayPush = Array.prototype.push;
+const __lxLivePushIDs = new WeakMap();
+let __lxLiveNextPushID = 1;
+Array.prototype.push = function(...values) {
+  const before = this && typeof this.length === 'number' ? this.length : -1;
+  let id = 0;
+  if (Array.isArray(this) && before >= 0 && before < 16 && values.length &&
+      values.every(value => typeof value === 'number' && Number.isFinite(value))) {
+    id = __lxLivePushIDs.get(this);
+    if (!id) { id = __lxLiveNextPushID++; __lxLivePushIDs.set(this, id); }
+  }
+  const result = __lxLiveArrayPush.apply(this, values);
+  if (id && globalThis.__lxLiveBytePushTrace.length < 1000 && this.length <= 16) {
+    globalThis.__lxLiveBytePushTrace.push({id, before, values: values.slice(0, 16),
+      result: this.length === 16 ? Array.from(this) : undefined,
+      stack: before === 0 || this.length === 16 ? new Error().stack : undefined});
+  }
+  return result;
+};
+const __lxLiveFromCharCode = String.fromCharCode;
+String.fromCharCode = function(...codes) {
+  const value = __lxLiveFromCharCode.apply(String, codes);
+  if (value.length >= 8 && globalThis.__lxLiveStringTrace.length < 300) {
+    globalThis.__lxLiveStringTrace.push({codes: codes.slice(0, 64), output: value.slice(0, 128), stack: new Error().stack});
+  }
+  return value;
+};
+if (typeof globalThis.atob === 'function') {
+  const __lxLiveAtob = globalThis.atob;
+  globalThis.atob = function(value) {
+    const output = __lxLiveAtob.call(globalThis, value);
+    if (globalThis.__lxLiveDecodeTrace.length < 40) globalThis.__lxLiveDecodeTrace.push({inputLength: String(value).length, outputLength: output.length, outputHead: output.slice(0, 48), stack: new Error().stack});
+    return output;
+  };
+}
+const __lxLiveCrypto = globalThis.lx.utils.crypto;
+for (const name of ['aesEncrypt', 'rsaEncrypt']) {
+  const original = __lxLiveCrypto[name].bind(__lxLiveCrypto);
+  __lxLiveCrypto[name] = function(...args) {
+    const output = original(...args);
+    if (globalThis.__lxLiveEntropyTrace.length < 200) globalThis.__lxLiveEntropyTrace.push({
+      kind: name,
+      args: args.map(value => typeof value === 'string' ? value.slice(0, 256) :
+        (value && typeof value.length === 'number' ? {length: value.length, head: Array.from(value).slice(0, 32)} : String(value))),
+      output: output && typeof output.length === 'number' ? Array.from(output).slice(0, 64) : String(output).slice(0, 256),
+      stack: new Error().stack
+    });
+    return output;
+  };
+}
 const __lxLiveImul = Math.imul;
 if (typeof __lxLiveImul === 'function') Math.imul = function(a, b) {
   const value = __lxLiveImul.call(Math, a, b);
@@ -502,7 +555,7 @@ for (const method of ['log', 'info', 'warn', 'error']) {
 	}, liveTraceShim+string(source), client)
 	traceCtx, traceCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer traceCancel()
-	trace, traceErr := rt.Eval(traceCtx, `JSON.stringify({state: globalThis.__lxHostState, trace: globalThis.__lxLiveTrace, md5Trace: globalThis.__lxLiveMD5Trace, entropyTrace: globalThis.__lxLiveEntropyTrace, arithmeticTrace: globalThis.__lxLiveArithmeticTrace, timerErrors: globalThis.__lxTimerErrors, missingCapabilities: globalThis.__lxMissingCapabilities})`, "lx-live-handshake-trace.js")
+	trace, traceErr := rt.Eval(traceCtx, `JSON.stringify({state: globalThis.__lxHostState, trace: globalThis.__lxLiveTrace, md5Trace: globalThis.__lxLiveMD5Trace, entropyTrace: globalThis.__lxLiveEntropyTrace, arithmeticTrace: globalThis.__lxLiveArithmeticTrace, bytePushTrace: globalThis.__lxLiveBytePushTrace, decodeTrace: globalThis.__lxLiveDecodeTrace, stringTrace: globalThis.__lxLiveStringTrace, timerErrors: globalThis.__lxTimerErrors, missingCapabilities: globalThis.__lxMissingCapabilities})`, "lx-live-handshake-trace.js")
 	if traceErr != nil { t.Logf("live handshake diagnostic trace unavailable: %v", traceErr) } else { t.Logf("live handshake diagnostic trace: %s", trace) }
 	t.Logf("live /rconfig HTTP status: %d", status)
 	t.Logf("live /rconfig response body: %s", string(responseBody))
