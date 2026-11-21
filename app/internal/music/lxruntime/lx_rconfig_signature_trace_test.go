@@ -175,6 +175,7 @@ func TestLXSourceRConfigLiveHandshake(t *testing.T) {
 		response, err := http.DefaultTransport.RoundTrip(request)
 		if err != nil { return nil, err }
 		if request.URL.Path == "/rconfig" {
+			t.Logf("live /rconfig request headers: content-type=%q user-agent=%q", request.Header.Get("Content-Type"), request.Header.Get("User-Agent"))
 			status = response.StatusCode
 			responseBody, err = io.ReadAll(io.LimitReader(response.Body, 1<<20))
 			_ = response.Body.Close()
