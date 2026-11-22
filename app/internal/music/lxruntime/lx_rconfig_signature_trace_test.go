@@ -493,9 +493,9 @@ Number.prototype.toString = function(radix) {
   if (radix === 16 && globalThis.__lxLiveArithmeticTrace.length < 2000) globalThis.__lxLiveArithmeticTrace.push({kind: 'hex', input: Number(this), output: value, stack: new Error().stack});
   return value;
 };
-const __lxLiveCrypto = globalThis.lx.utils.crypto;
-const __lxLiveRandomBytes = __lxLiveCrypto.randomBytes.bind(__lxLiveCrypto);
-__lxLiveCrypto.randomBytes = function(...args) {
+const __lxLiveCryptoForSignature = globalThis.lx.utils.crypto;
+const __lxLiveRandomBytes = __lxLiveCryptoForSignature.randomBytes.bind(__lxLiveCryptoForSignature);
+__lxLiveCryptoForSignature.randomBytes = function(...args) {
   const value = __lxLiveRandomBytes(...args);
   globalThis.__lxLiveEntropyTrace.push({kind: 'randomBytes', args, output: Array.from(value || []).map(byte => Number(byte).toString(16).padStart(2, '0')).join('')});
   return value;
@@ -514,8 +514,8 @@ if (globalThis.crypto && typeof globalThis.crypto.getRandomValues === 'function'
     return value;
   };
 }
-const __lxLiveMD5 = __lxLiveCrypto.md5.bind(__lxLiveCrypto);
-__lxLiveCrypto.md5 = function(value) {
+const __lxLiveMD5 = __lxLiveCryptoForSignature.md5.bind(__lxLiveCryptoForSignature);
+__lxLiveCryptoForSignature.md5 = function(value) {
   const output = __lxLiveMD5(value);
   globalThis.__lxLiveMD5Trace.push({input: String(value), output});
   return output;
