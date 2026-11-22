@@ -2815,3 +2815,40 @@ func TestHelloWorldSuccessfulPlaybackURLIsCached(t *testing.T) {
 	}
 	if requests!=1{t.Fatalf("cached playback issued %d HTTP requests, want 1",requests)}
 }
+
+
+// TestHelloWorldRejectsMalformedPlaybackURLAndUsesAnotherBackend verifies
+// that a syntactically URL-like but non-HTTP response is never exposed as a
+// playback URL and does not prevent another configured provider from winning.
+func TestHelloWorldRejectsMalformedPlaybackURLAndUsesAnotherBackend(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "helloworld.js"))
+	if err != nil { t.Fatal(err) }
+	rt := newTestRuntime(t, 15*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var validBackendRequests int
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body := `{}`
+		switch request.URL.Host {
+		case "103.79.184.97":
+			body = `{"url":"javascript:alert(1)"}`
+		case "yy.zddyr.top":
+			validBackendRequests++
+			body = `{"url":"https://cdn.example.invalid/helloworld-valid-fallback.mp3"}`
+		}
+		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header),
+			Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+	})}
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{Name:"HelloWorld", Version:"260925", RawScript:string(source)}, string(source), client); err != nil {
+		t.Fatal(err)
+	}
+	result, err := rt.dispatchLXRequest(ctx, "kg", "musicUrl", map[string]any{
+		"type":"320k", "musicInfo":map[string]any{"songmid":"hw-invalid-url-fallback", "hash":"hw-invalid-url-fallback", "id":"hw-invalid-url-fallback", "name":"fixture song"},
+	}, client)
+	if err != nil { t.Fatalf("resolve after malformed provider URL: %v", err) }
+	if result != "https://cdn.example.invalid/helloworld-valid-fallback.mp3" {
+		t.Fatalf("playback URL = %#v, want valid fallback URL", result)
+	}
+	if validBackendRequests == 0 { t.Fatal("valid fallback backend was not queried") }
+}
