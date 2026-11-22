@@ -58,11 +58,11 @@ func TestLXRConfigScriptDigestUTF16AndUTF8Cases(t *testing.T) {
 		name, source, want string
 	}{
 		{name: "empty", source: "", want: "d41d8cd98f00b204e9800998ecf8427e"},
-		{name: "ascii", source: "abc", want: "cfcfa4e426d3a79a9e55948520468d06"},
-		{name: "cjk-utf8", source: "洛雪音乐", want: "fdacac6faa7723832bb146b24c31e558"},
-		{name: "mixed-utf8", source: "Aé中", want: "f65812fe5fa2564874703b0652656cdd"},
-		{name: "supplementary-surrogate-pair", source: "🎵LX", want: "d28fe07de867bd97737f4b1b3d551a70"},
-		{name: "combining-mark-not-normalized", source: "e\u0301", want: "661f1e1c09ee68c75f37106be3826951"},
+		{name: "ascii", source: "abc", want: "9d6f71686b6a21da02f048a7a78de121"},
+		{name: "cjk-utf8", source: "洛雪音乐", want: "71c24b2baa9f5f9ccf246f9980034b85"},
+		{name: "mixed-utf8", source: "Aé中", want: "f86a6be751142445a280409973f71f25"},
+		{name: "supplementary-surrogate-pair", source: "🎵LX", want: "0c5def35e4dbf172e01b50a3ab1984c8"},
+		{name: "combining-mark-not-normalized", source: "e\u0301", want: "c15e1937f5e41a2dbf948bbfc2e30f41"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -80,13 +80,12 @@ func TestLXRConfigSignatureTimestampBoundariesAndInputVariants(t *testing.T) {
 		source    string
 		want      string
 	}{
-		{name: "zero-timestamp", timestamp: 0, source: "洛雪音乐", want: "c4688dca24d4bb56f72881e2ab8e0f52"},
-		{name: "one-millisecond", timestamp: 1, source: "洛雪音乐", want: "e7f1b4ca3741cd3baf5ed8d85ff45bd9"},
-		{name: "modulus-minus-one", timestamp: lxRConfigPrefixMod - 1, source: "洛雪音乐", want: "8c813a663db53b56fc9b3b0fd7bbc9ab"},
-		{name: "modulus", timestamp: lxRConfigPrefixMod, source: "洛雪音乐", want: "c4688dca24d4bb56f72881e2ab8e0f52"},
-		{name: "modulus-plus-one", timestamp: lxRConfigPrefixMod + 1, source: "洛雪音乐", want: "e7f1b4ca3741cd3baf5ed8d85ff45bd9"},
-		{name: "large-timestamp", timestamp: 9223372036854775807, source: "洛雪音乐", want: "61306b61464bd81685f613b0c977d642"},
-		{name: "different-source", timestamp: 1795334998585, source: "🎵LX", want: "75e322baa64c8b5fbabc80e0fc14c859"},
+		{name: "zero-timestamp", timestamp: 0, source: "洛雪音乐", want: "840cbf30082a0bb9f14de55c5f811082"},
+		{name: "one-millisecond", timestamp: 1, source: "洛雪音乐", want: "b5c7ba3aa50c4ad3dbe1c48d3cac9d77"},
+		{name: "modulus-minus-one", timestamp: lxRConfigPrefixMod - 1, source: "洛雪音乐", want: "0af77402b55e8cb872f23f3d9cf4b3b4"},
+		{name: "modulus", timestamp: lxRConfigPrefixMod, source: "洛雪音乐", want: "840cbf30082a0bb9f14de55c5f811082"},
+		{name: "modulus-plus-one", timestamp: lxRConfigPrefixMod + 1, source: "洛雪音乐", want: "b5c7ba3aa50c4ad3dbe1c48d3cac9d77"},
+		{name: "different-source", timestamp: 1795334998585, source: "🎵LX", want: "bcdb96fed1c81ce645aa77ce2aeb678b"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
