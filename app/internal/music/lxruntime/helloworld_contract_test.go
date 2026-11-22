@@ -1,3 +1,5 @@
+//go:build lxquickjs && cgo
+
 package lxruntime
 
 import (
