@@ -369,6 +369,32 @@ for (const name of ['aesEncrypt', 'rsaEncrypt']) {
 	hexDigitTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxHexDigitTrace)", "lx-rconfig-hex-digit-trace.js")
 	if err != nil { t.Fatal(err) }
 	t.Logf("source hex digit conversion trace: %s", hexDigitTraceJSON)
+	// The V7 dynamic prefix pipeline hashes the hexadecimal timestamp, not
+	// the decimal timestamp. Keep this distinction explicit: older reverse-
+	// engineering notes that only model MD5(decimal timestamp) are incomplete.
+	var hexTrace []struct {
+		Input float64 `json:"input"`
+		Output string `json:"output"`
+	}
+	if err := json.Unmarshal([]byte(hexDigitTraceJSON), &hexTrace); err != nil {
+		t.Fatalf("decode timestamp hex trace: %v", err)
+	}
+	timestampHexMD5Observed := false
+	for _, hexCall := range hexTrace {
+		if hexCall.Input < 1e12 || hexCall.Output == "" {
+			continue
+		}
+		for _, md5Call := range trace {
+			if md5Call.Input == hexCall.Output && len(md5Call.Output) == 32 {
+				timestampHexMD5Observed = true
+				t.Logf("V7 dynamic-prefix timestamp stage: decimal=%0.0f hex=%s md5(hex)=%s",
+					hexCall.Input, hexCall.Output, md5Call.Output)
+			}
+		}
+	}
+	if !timestampHexMD5Observed {
+		t.Fatalf("V7 dynamic-prefix timestamp stage did not hash a hexadecimal timestamp; hex trace=%s", hexDigitTraceJSON)
+	}
 	decodeTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxDecodeTrace)", "lx-rconfig-decode-trace.js")
 	if err != nil { t.Fatal(err) }
 	t.Logf("source base64 decode trace: %s", decodeTraceJSON)
