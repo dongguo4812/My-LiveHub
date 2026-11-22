@@ -273,7 +273,7 @@ func TestHuanyinMiguPlaybackCacheExpiresAndRefreshes(t *testing.T) {
 		requests++
 		url := "https://cdn.example.invalid/huanyin-expired-" + fmt.Sprint(requests) + ".mp3"
 		return huanyinJSONResponse(request, http.StatusOK,
-			`{"code":200,"title":"过期歌曲","artist":"测试歌手","album":"测试专辑","music_url":"`+url+`"}`), nil
+			`{"code":200,"title":"过期歌曲","artist":"测试歌手","album":"测试专辑","music_url":"`+url+`"}`)
 	})}
 	rt, ctx, cancel := huanyinProtocolFixture(t, client)
 	defer cancel()
