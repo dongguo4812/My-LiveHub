@@ -353,8 +353,16 @@ for (const name of ['aesEncrypt', 'rsaEncrypt']) {
 	matched := false
 	for _, call := range trace {
 		if strings.EqualFold(call.Output, si) {
+			preimage, decodeErr := hex.DecodeString(call.Input)
+			if decodeErr != nil || len(preimage) != 32 || len(call.Input) != 64 {
+				t.Fatalf("rconfig si preimage must be exactly 32 bytes of hex, got %q", call.Input)
+			}
 			matched = true
-			t.Logf("rconfig si preimage observed through lx.utils.crypto.md5: input=%q output=%s", call.Input, call.Output)
+			// Keep the 16-byte dynamic prefix separate from the second
+			// 16-byte digest. This is the exact boundary needed by the
+			// ongoing V7 signature reverse-engineering work.
+			t.Logf("rconfig si preimage components: dynamic_prefix=%s trailing_digest=%s output=%s",
+				call.Input[:32], call.Input[32:], call.Output)
 		}
 	}
 	t.Logf("captured rconfig URL: %s", parsedURL.Redacted())
