@@ -2890,3 +2890,82 @@ func TestHelloWorldPlaybackCacheExpiresAndRefreshes(t *testing.T) {
 		t.Fatalf("HelloWorld requests after TTL expiry = %d, want 2", requests)
 	}
 }
+
+
+// TestXinglanPlaybackCacheExpiresAndRefreshes verifies that a successful
+// Xinglan URL is reused before its 20-minute TTL and fetched again afterwards.
+func TestXinglanPlaybackCacheExpiresAndRefreshes(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntime(t, 8*time.Second)
+	if _, err := rt.Eval(context.Background(), lxTestHostShim, "lx-test-host.js"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.Eval(context.Background(), `
+globalThis.__xinglanRequestCount = 0;
+globalThis.lx.request = (url, options, callback) => {
+  if (typeof options === 'function') callback = options;
+  globalThis.__xinglanRequestCount++;
+  const body = JSON.stringify({
+    code: 200,
+    url: 'https://cdn.example.invalid/xinglan-' + globalThis.__xinglanRequestCount + '.mp3',
+    data: { url: 'https://cdn.example.invalid/xinglan-' + globalThis.__xinglanRequestCount + '.mp3' }
+  });
+  if (typeof callback === 'function') callback(null, {
+    statusCode: 200, headers: { 'content-type': 'application/json' }, body
+  });
+  return () => {};
+};
+globalThis.lx.currentScriptInfo.rawScript = `+quoteJS(string(source))+`;
+globalThis.__xinglanNow = 3000000;
+Date.now = () => globalThis.__xinglanNow;
+`, "xinglan-cache-fixture.js"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.Eval(context.Background(), string(source), "xinglan.js"); err != nil {
+		t.Fatal(err)
+	}
+	resolve := func(label string) string {
+		t.Helper()
+		_, err := rt.Eval(context.Background(), `
+globalThis.__xinglanResult = '';
+globalThis.__xinglanError = '';
+Promise.resolve(globalThis.__lxGetHandler('request')({
+  source: 'kw', action: 'musicUrl',
+  info: { musicInfo: { songmid: 'xinglan-cache-expiry-fixture', name: 'Fixture Song' }, type: '320k' }
+})).then(value => { globalThis.__xinglanResult = value; })
+  .catch(error => { globalThis.__xinglanError = String(error); });
+'started';
+`, label+"-dispatch.js")
+		if err != nil { t.Fatal(err) }
+		value, err := rt.Eval(context.Background(), "globalThis.__xinglanResult", label+"-result.js")
+		if err != nil { t.Fatal(err) }
+		if value == "" {
+			errText, _ := rt.Eval(context.Background(), "globalThis.__xinglanError", label+"-error.js")
+			t.Fatalf("%s playback failed: %q", label, errText)
+		}
+		return value
+	}
+	first := resolve("xinglan-first")
+	second := resolve("xinglan-cache-hit")
+	if first != second {
+		t.Fatalf("cache hit URL = %q, want original %q", second, first)
+	}
+	count, err := rt.Eval(context.Background(), "globalThis.__xinglanRequestCount", "xinglan-cache-hit-count.js")
+	if err != nil || count != "1" {
+		t.Fatalf("requests before expiry = %q, err %v; want 1", count, err)
+	}
+	if _, err := rt.Eval(context.Background(), "globalThis.__xinglanNow += 20 * 60 * 1000 + 1", "xinglan-expire-cache.js"); err != nil {
+		t.Fatal(err)
+	}
+	third := resolve("xinglan-after-expiry")
+	if third == first {
+		t.Fatalf("URL after cache expiry = %q, want refreshed URL", third)
+	}
+	count, err = rt.Eval(context.Background(), "globalThis.__xinglanRequestCount", "xinglan-expired-count.js")
+	if err != nil || count != "2" {
+		t.Fatalf("requests after expiry = %q, err %v; want 2", count, err)
+	}
+}
