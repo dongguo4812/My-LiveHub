@@ -7,6 +7,42 @@
 const { EVENT_NAMES, request, on, send } = globalThis.lx
 
 const cache = new Map()
+const CACHE_TTL = 5 * 60 * 1000
+const CACHE_MAX_ENTRIES = 128
+
+function isHttpUrl(value) {
+  if (typeof value !== 'string' || !value.trim()) return false
+  try {
+    const parsed = new URL(value.trim())
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && !!parsed.hostname
+  } catch (_) {
+    return false
+  }
+}
+
+function getCachedUrl(key) {
+  const entry = cache.get(key)
+  if (!entry) return null
+  if (entry.expiresAt <= Date.now() || !isHttpUrl(entry.url)) {
+    cache.delete(key)
+    return null
+  }
+  return entry.url
+}
+
+function setCachedUrl(key, url) {
+  if (!isHttpUrl(url)) throw new Error('无效播放链接')
+  const now = Date.now()
+  for (const [cacheKey, entry] of cache) {
+    if (entry.expiresAt <= now || !isHttpUrl(entry.url)) cache.delete(cacheKey)
+  }
+  while (cache.size >= CACHE_MAX_ENTRIES) {
+    const oldest = cache.keys().next()
+    if (oldest.done) break
+    cache.delete(oldest.value)
+  }
+  cache.set(key, { url, expiresAt: now + CACHE_TTL })
+}
 
 on(EVENT_NAMES.request, ({ source, action, info }) => {
   if (action === 'musicUrl') {
@@ -68,9 +104,8 @@ async function getMiguUrl(musicInfo) {
   
   const cacheKey = `${musicInfo.name}|${musicInfo.albumName || musicInfo.album || ''}|${musicInfo.singer || ''}`
   
-  if (cache.has(cacheKey)) {
-    return cache.get(cacheKey)
-  }
+  const cachedUrl = getCachedUrl(cacheKey)
+  if (cachedUrl) return cachedUrl
   
   const songName = musicInfo.name
   const singer = musicInfo.singer || ''
@@ -104,8 +139,8 @@ async function getMiguUrl(musicInfo) {
   for (const match of matches) {
     try {
       const url = await fetchMiguUrl(match.keyword, match.strict ? musicInfo : null)
-      if (url) {
-        cache.set(cacheKey, url)
+      if (isHttpUrl(url)) {
+        setCachedUrl(cacheKey, url)
         return url
       }
     } catch (e) {
@@ -141,7 +176,7 @@ async function fetchMiguUrl(keyword, checkInfo) {
         const text = resp.body
         const data = typeof text === 'string' ? JSON.parse(text) : text
         
-        if (data.code === 200 && data.music_url) {
+        if (data.code === 200 && isHttpUrl(data.music_url)) {
           // 需要检查信息
           if (checkInfo) {
             if (checkMatch(data, checkInfo)) {
