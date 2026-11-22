@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Add opt-in numeric bytecode operand tracing to pinned QuickJS-NG v0.18.0."""
 from pathlib import Path
-import re
 import sys
 
 path = Path(sys.argv[1])
@@ -18,11 +17,11 @@ for opcode, label in ops.items():
     start = source.find(marker)
     if start < 0:
         continue
-    end = source.find("\\n        CASE(", start + len(marker))
+    end = source.find("\n        CASE(", start + len(marker))
     if end < 0:
         end = len(source)
     block = source[start:end]
-    needle = "op1 = sp[-2];\\n                op2 = sp[-1];"
+    needle = "op1 = sp[-2];\n                op2 = sp[-1];"
     if needle not in block:
         continue
     trace = f"""op1 = sp[-2];
@@ -41,7 +40,7 @@ for opcode, label in ops.items():
                                 const char *trace_fn = JS_AtomToCString(ctx, trace_bc->func_name);
                                 const char *trace_left = JS_ToCString(ctx, op1);
                                 const char *trace_right = JS_ToCString(ctx, op2);
-                                fprintf(stderr, "LXQJS_OP opcode={label} file=%s fn=%s pc=%td lhs=%s rhs=%s\\n",
+                                fprintf(stderr, "LXQJS_OP opcode={label} file=%s fn=%s pc=%td lhs=%s rhs=%s\n",
                                     trace_file, trace_fn ? trace_fn : "", pc - trace_bc->byte_code_buf,
                                     trace_left ? trace_left : "?", trace_right ? trace_right : "?");
                                 if (trace_fn) JS_FreeCString(ctx, trace_fn);
