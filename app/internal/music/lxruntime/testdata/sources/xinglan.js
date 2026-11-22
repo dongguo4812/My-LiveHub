@@ -1533,7 +1533,7 @@ const withUrlCache = async (cacheKey, loader) => {
     await acquireRateSlot()
     const url = await loader()
     URL_CACHE.set(cacheKey, { url: url, expire: Date.now() + CACHE_TTL })
-    if (URL_CACHE.size > CACHE_MAX_ENTRIES) pruneCache()
+    if (URL_CACHE.size >= CACHE_MAX_ENTRIES) pruneCache()
     return url
   })()
   INFLIGHT.set(cacheKey, task)
@@ -1547,7 +1547,11 @@ const BACKEND_POOLS = { tx: TX_BACKENDS, wy: WY_BACKENDS, kw: KW_BACKENDS, kg: K
 const KW_HIGH_QUALITY = ['flac24bit', 'atmos', 'atmos_plus', 'master']
 const KW_STREAM_BACKEND = '酷我流媒体'
 
-const isHttpUrl = (u) => typeof u === 'string' && (u.startsWith('http://') || u.startsWith('https://'))
+const isHttpUrl = (value) => {
+  if (typeof value !== 'string') return false
+  const url = value.trim()
+  return /^https?:\/\/[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::\d{1,5})?(?:[/?#]|$)/i.test(url)
+}
 
 const pickBackends = (source, quality, backends) => {
   if (source !== 'kw') return backends
