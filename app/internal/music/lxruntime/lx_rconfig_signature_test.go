@@ -1,13 +1,9 @@
 package lxruntime
 
 import (
-	"crypto/md5"
-	"encoding/hex"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
-	"unicode/utf16"
 )
 
 func TestLXRConfigV7ScriptDigest(t *testing.T) {
@@ -16,21 +12,6 @@ func TestLXRConfigV7ScriptDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 	const want = "72e3d795b46dbd5672e17bd57e905eb0"
-	lower := strings.ToLower(string(source))
-	units := utf16.Encode([]rune(lower))
-	var between, after, before strings.Builder
-	for i, unit := range units {
-		if i != 0 { between.WriteRune('\u200b') }
-		between.WriteRune(rune(unit))
-		after.WriteRune(rune(unit))
-		after.WriteRune('\u200b')
-		before.WriteRune('\u200b')
-		before.WriteRune(rune(unit))
-	}
-	md5hex := func(v string) string { sum := md5.Sum([]byte(v)); return hex.EncodeToString(sum[:]) }
-	t.Logf("digest candidates lower=%s between=%s after=%s before=%s rawBetween=%s",
-		md5hex(lower), md5hex(between.String()), md5hex(after.String()), md5hex(before.String()),
-		md5hex(strings.ReplaceAll(string(source), "", "\u200b")))
 	if got := lxRConfigScriptDigest(string(source)); got != want {
 		t.Fatalf("V7 script digest = %q, want %q", got, want)
 	}
