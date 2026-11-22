@@ -141,6 +141,8 @@ JSON.stringify({
   utf16leHex: utf16le.toString('hex'),
   utf16leRoundTrip: utf16le.toString('utf16le'),
   utf16leByteLength: Buffer.byteLength(source, 'utf16le'),
+  md5Unicode: lx.utils.crypto.md5('洛雪音乐'),
+  md5Supplementary: lx.utils.crypto.md5('🎵LX'),
   typedArrayUtf16le: Buffer.from(bytes).toString('utf16le'),
   timestampIsFiniteInteger: Number.isFinite(now) && Number.isInteger(now),
   timestampIsSafeInteger: Number.isSafeInteger(now),
@@ -157,6 +159,8 @@ JSON.stringify({
 		UTF16LEHex string `json:"utf16leHex"`
 		UTF16LERoundTrip string `json:"utf16leRoundTrip"`
 		UTF16LEByteLength int `json:"utf16leByteLength"`
+		MD5Unicode string `json:"md5Unicode"`
+		MD5Supplementary string `json:"md5Supplementary"`
 		TypedArrayUTF16LE string `json:"typedArrayUtf16le"`
 		TimestampIsFiniteInteger bool `json:"timestampIsFiniteInteger"`
 		TimestampIsSafeInteger bool `json:"timestampIsSafeInteger"`
@@ -170,6 +174,9 @@ JSON.stringify({
 	}
 	if got.UTF16LEHex != "3cd8b5df4c005800" || got.UTF16LERoundTrip != "🎵LX" || got.UTF16LEByteLength != 8 {
 		t.Fatalf("QuickJS UTF-16LE Buffer conversion mismatch: hex=%q roundtrip=%q byteLength=%d", got.UTF16LEHex, got.UTF16LERoundTrip, got.UTF16LEByteLength)
+	}
+	if got.MD5Unicode != "6b18adfb3b1acece1c70a9b85aa70572" || got.MD5Supplementary != "c45f574f87faa7305bf804923d803cca" {
+		t.Fatalf("QuickJS native MD5 Unicode mismatch: cjk=%q supplementary=%q", got.MD5Unicode, got.MD5Supplementary)
 	}
 	if got.TypedArrayUTF16LE != "A🎵" {
 		t.Fatalf("QuickJS TypedArray UTF-16LE conversion = %q, want A🎵", got.TypedArrayUTF16LE)
