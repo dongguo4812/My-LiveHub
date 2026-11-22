@@ -40,8 +40,12 @@ for opcode, label in ops.items():
                                 const char *trace_fn = JS_AtomToCString(ctx, trace_bc->func_name);
                                 const char *trace_left = JS_ToCString(ctx, op1);
                                 const char *trace_right = JS_ToCString(ctx, op2);
-                                fprintf(stderr, "LXQJS_OP opcode={label} file=%s fn=%s pc=%td lhs=%s rhs=%s\\n",
+                                int trace_column = 1;
+                                int trace_line = find_line_num(ctx, trace_bc,
+                                    (uint32_t)(pc - trace_bc->byte_code_buf), &trace_column);
+                                fprintf(stderr, "LXQJS_OP opcode={label} file=%s fn=%s pc=%td source_line=%d source_column=%d lhs=%s rhs=%s\\n",
                                     trace_file, trace_fn ? trace_fn : "", pc - trace_bc->byte_code_buf,
+                                    trace_line, trace_column,
                                     trace_left ? trace_left : "?", trace_right ? trace_right : "?");
                                 if (trace_fn) JS_FreeCString(ctx, trace_fn);
                                 if (trace_left) JS_FreeCString(ctx, trace_left);
