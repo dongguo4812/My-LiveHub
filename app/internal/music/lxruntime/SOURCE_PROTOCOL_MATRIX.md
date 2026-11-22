@@ -51,7 +51,7 @@ service availability or guaranteed playback.
 
 ## Cross-cutting Host/runtime coverage
 
-- Promise microtask draining, timer lifecycle/order, in-flight HTTP cancellation, and interruption of an infinite loop.
+- Promise microtask draining, timer lifecycle/order and callback-turn caps; in-flight HTTP cancellation on caller-context cancellation and runtime shutdown; active JavaScript evaluation interruption on runtime shutdown; native Crypto/Zlib Promise ordering relative to timers.
 - Node Buffer identity and byte/encoding behavior, including latin1/binary/ascii and base64/base64url cases.
 - Tests that use the lightweight JavaScript shim are explicitly shim tests; they do not substitute for real LX Host integration tests.
 
@@ -69,3 +69,25 @@ guaranteed playback. No deterministic provider-contract test in this matrix shou
 Huanyin protocol acceptance is recorded at the feature-branch commit after the CI run succeeds. The dedicated protocol suite checks each Migu match route, HTTP/transport/JSON negative-response handling, three-page search behavior, empty-result rejection, and successful-result caching. Existing integration tests cover the real LX Host registration, all native platform URL mappings, search-to-playback, and metadata mismatch / missing-URL / negative-code fallback sequence.
 
 Provider HTTP is intercepted by deterministic test transports. The separate live V7 `/rconfig` handshake contacts only the LX configuration service; it does not establish music-provider availability or guaranteed playback.
+
+
+## N3: event-loop and runtime lifecycle acceptance
+
+N3 lifecycle acceptance is green on feature-branch commit
+`8abecba7174f95caab683363d7733a72b55aa85d` (CI run
+[44990973767](https://github.com/dongguo4812/My-LiveHub/actions/runs/44990973767)).
+The Windows x64 QuickJS-NG CGo job completed successfully, and its log confirms:
+
+- Native Crypto remains synchronous; Zlib Promise jobs are drained before the
+  dispatch action is observed complete, while due timers preserve the asserted order.
+- Async HTTP callback and its queued Promise microtask complete in the expected
+  order relative to timer callbacks and the source action continuation.
+- Caller-context cancellation aborts an in-flight HTTP request.
+- Runtime shutdown cancels an in-flight dispatch and its HTTP request.
+- Runtime shutdown interrupts an active non-terminating JavaScript evaluation
+  rather than waiting for the configured evaluation timeout.
+- Timer clearing, interval rescheduling, and the per-pump 1,000-callback cap pass.
+
+This verifies the tested lifecycle and scheduling contracts on the Windows x64
+QuickJS-NG CGo target. It is not a general proof of race freedom on every platform;
+other operating systems and architectures still require their own native CI runs.
