@@ -50,6 +50,12 @@ jobs:
           git clone --depth 1 --branch v0.18.0 https://github.com/quickjs-ng/quickjs.git "$RUNNER_TEMP/quickjs-ng"
           git -C "$RUNNER_TEMP/quickjs-ng" rev-parse HEAD
 
+      - name: Instrument pinned QuickJS arithmetic opcodes for LX signature tracing
+        shell: msys2 {0}
+        run: |
+          WORKSPACE="$(cygpath -u "$GITHUB_WORKSPACE")"
+          python "$WORKSPACE/.github/scripts/instrument-quickjs-ops.py" "$RUNNER_TEMP/quickjs-ng/quickjs.c"
+
       - name: Build QuickJS-NG and native C API smoke test
         shell: msys2 {0}
         run: |
@@ -67,6 +73,7 @@ jobs:
         shell: msys2 {0}
         env:
           LX_RCONFIG_LIVE: "1"
+          LX_QJS_TRACE_OPS: "1"
         run: |
           WORKSPACE="$(cygpath -u "$GITHUB_WORKSPACE")"
           TEMP_DIR="$(cygpath -u "$RUNNER_TEMP")"
