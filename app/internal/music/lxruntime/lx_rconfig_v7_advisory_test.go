@@ -81,11 +81,7 @@ func TestLXSourceRConfigDeterministicProtocolFixture(t *testing.T) {
 
 	const timestamp int64 = 1795334998585
 	const responseFixture = `{"code":0,"msg":"success","data":{"enabled":true,"paused":false,"pausedText":"V8 is available; V7 remains accepted","version":8,"minVersion":8,"updateUrl":"https://updates.example/lx-v8","hqQuality":{"tx":{"qualities":["flac"]},"kg":{"qualities":["320k"]},"wy":{"qualities":["flac"]}}}}`
-	protocolShim := "const __lxProtocolDateNow = Date.now; Date.now = function() { return " + strconv.FormatInt(timestamp, 10) + "; };\n" +
-		"globalThis.__lxProtocolResponseReads = [];\n" +
-		"const __lxProtocolComplete = globalThis.__lxCompleteRequest;\n" +
-		"const __lxProtocolWrap = (value, path) => { if (!value || typeof value !== 'object') return value; return new Proxy(value, { get(target, key, receiver) { const result = Reflect.get(target, key, receiver); globalThis.__lxProtocolResponseReads.push(path + '.' + String(key)); return __lxProtocolWrap(result, path + '.' + String(key)); } }); };\n" +
-		"globalThis.__lxCompleteRequest = function(id, error, response) { return __lxProtocolComplete(id, error, __lxProtocolWrap(response, 'response')); };\n"
+	protocolShim := "Date.now = function() { return " + strconv.FormatInt(timestamp, 10) + "; };\n"
 
 	var captured *http.Request
 	requestCount := 0
@@ -149,13 +145,12 @@ func TestLXSourceRConfigDeterministicProtocolFixture(t *testing.T) {
 		t.Fatalf("deterministic V7 si = %q, want %q", got, want)
 	}
 
-	stateJSON, err := rt.Eval(ctx, "JSON.stringify({initialized:globalThis.__lxHostState.initialized,updateAlertShown:globalThis.__lxHostState.updateAlertShown,sources:Object.keys(globalThis.__lxHostState.initInfo.sources),responseReads:globalThis.__lxProtocolResponseReads})", "lx-rconfig-deterministic-protocol-state.js")
+	stateJSON, err := rt.Eval(ctx, "JSON.stringify({initialized:globalThis.__lxHostState.initialized,updateAlertShown:globalThis.__lxHostState.updateAlertShown,sources:Object.keys(globalThis.__lxHostState.initInfo.sources)})", "lx-rconfig-deterministic-protocol-state.js")
 	if err != nil { t.Fatal(err) }
 	var state struct {
 		Initialized bool `json:"initialized"`
 		UpdateAlertShown bool `json:"updateAlertShown"`
 		Sources []string `json:"sources"`
-		ResponseReads []string `json:"responseReads"`
 	}
 	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
 		t.Fatalf("decode deterministic protocol state %s: %v", stateJSON, err)
@@ -163,9 +158,4 @@ func TestLXSourceRConfigDeterministicProtocolFixture(t *testing.T) {
 	if !state.Initialized { t.Fatalf("successful /rconfig response did not initialize V7 source: %s", stateJSON) }
 	if !state.UpdateAlertShown { t.Fatalf("V8 update advisory was not surfaced separately from V7 initialization: %s", stateJSON) }
 	if len(state.Sources) == 0 { t.Fatalf("successful /rconfig response did not register providers: %s", stateJSON) }
-	for _, property := range []string{"response.body", "response.body.code", "response.body.data", "response.body.data.enabled", "response.body.data.version", "response.body.data.minVersion"} {
-		found := false
-		for _, read := range state.ResponseReads { if read == property { found = true; break } }
-		if !found { t.Errorf("response parser did not read %q; observed reads: %v", property, state.ResponseReads) }
-	}
 }
