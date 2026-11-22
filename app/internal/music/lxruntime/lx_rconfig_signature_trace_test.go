@@ -628,7 +628,7 @@ for (const method of ['log', 'info', 'warn', 'error']) {
 	}, liveTraceShim+string(source), client)
 	traceCtx, traceCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer traceCancel()
-	trace, traceErr := rt.Eval(traceCtx, `JSON.stringify({state: globalThis.__lxHostState, trace: globalThis.__lxLiveTrace, md5Trace: globalThis.__lxLiveMD5Trace, entropyTrace: globalThis.__lxLiveEntropyTrace, arithmeticTrace: globalThis.__lxLiveArithmeticTrace, bytePushTrace: globalThis.__lxLiveBytePushTrace, decodeTrace: globalThis.__lxLiveDecodeTrace, stringTrace: globalThis.__lxLiveStringTrace, timerErrors: globalThis.__lxTimerErrors, missingCapabilities: globalThis.__lxMissingCapabilities})`, "lx-live-handshake-trace.js")
+	trace, traceErr := rt.Eval(traceCtx, `JSON.stringify({state: globalThis.__lxHostState, trace: globalThis.__lxLiveTrace, md5Trace: globalThis.__lxLiveMD5Trace, entropyTrace: globalThis.__lxLiveEntropyTrace, arithmeticTrace: globalThis.__lxLiveArithmeticTrace, bytePushTrace: globalThis.__lxLiveBytePushTrace, typedArrayTrace: globalThis.__lxLiveTypedArrayTrace, decodeTrace: globalThis.__lxLiveDecodeTrace, stringTrace: globalThis.__lxLiveStringTrace, timerErrors: globalThis.__lxTimerErrors, missingCapabilities: globalThis.__lxMissingCapabilities})`, "lx-live-handshake-trace.js")
 	if traceErr != nil { t.Logf("live handshake diagnostic trace unavailable: %v", traceErr) } else { t.Logf("live handshake diagnostic trace: %s", trace) }
 	t.Logf("live /rconfig HTTP status: %d", status)
 	t.Logf("live /rconfig response body: %s", string(responseBody))
