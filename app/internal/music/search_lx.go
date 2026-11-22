@@ -509,31 +509,19 @@ func(p neteaseSearchProvider)Search(ctx context.Context,keyword string,page,limi
 }
 
 // Migu (mg): request signing follows the LX desktop SDK's MD5 signature.
-const (
-	miguDeviceID = "963B7AA0D21511ED807EE5846EC87D20"
-	miguSignatureSalt = "6cdc72a439cef99a3418d2a78aa28c73"
-	miguAppSalt = "yyapp2d16148780a1dcc7408e06336b98cfd50"
-)
-
-// miguSignature reproduces the LX desktop SDK signing input exactly:
-// query + signature salt + app salt + device ID + millisecond timestamp.
-func miguSignature(keyword, timestamp, deviceID string) string {
-	sum := md5.Sum([]byte(keyword + miguSignatureSalt + miguAppSalt + deviceID + timestamp))
-	return hex.EncodeToString(sum[:])
-}
-
 type miguSearchProvider struct{client *http.Client;endpoint string}
 func(p miguSearchProvider)ID()string{return LXSearchMG}
 func(p miguSearchProvider)Name()string{return "咪咕音乐"}
 func(p miguSearchProvider)Search(ctx context.Context,keyword string,page,limit int)(SearchPage,error){
 	if limit <= 0 { limit = lxSongSearchPageSize }
 	now:=strconv.FormatInt(time.Now().UnixMilli(),10)
-	device:=miguDeviceID
-	signature:=miguSignature(keyword,now,device)
+	device:="963B7AA0D21511ED807EE5846EC87D20"
+	signatureMD5:="6cdc72a439cef99a3418d2a78aa28c73"
+	signature:=md5.Sum([]byte(keyword+signatureMD5+"yyapp2d16148780a1dcc7408e06336b98cfd50"+device+now))
 	u,_:=url.Parse(p.endpoint);q:=u.Query()
 	q.Set("isCorrect","0");q.Set("isCopyright","1");q.Set("searchSwitch",`{"song":1,"album":0,"singer":0,"tagSong":1,"mvSong":0,"bestShow":1,"songlist":0,"lyricSong":0}`)
 	q.Set("pageSize",strconv.Itoa(limit));q.Set("text",keyword);q.Set("pageNo",strconv.Itoa(page));q.Set("sort","0");q.Set("sid","USS");u.RawQuery=q.Encode()
-	headers:=map[string]string{"uiVersion":"A_music_3.6.1","deviceId":device,"timestamp":now,"sign":signature,"channel":"0146921","User-Agent":"Mozilla/5.0 (Linux; U; Android 11.0.0; zh-cn; MI 11 Build/OPR1.170623.032) AppleWebKit/534.30 (KHTML, like Gecko) Version/4.0 Mobile Safari/534.30"}
+	headers:=map[string]string{"uiVersion":"A_music_3.6.1","deviceId":device,"timestamp":now,"sign":hex.EncodeToString(signature[:]),"channel":"0146921","User-Agent":"Mozilla/5.0 (Linux; U; Android 11.0.0; zh-cn; MI 11 Build/OPR1.170623.032) AppleWebKit/534.30 (KHTML, like Gecko) Version/4.0 Mobile Safari/534.30"}
 	raw,err:=doLXJSON(ctx,p.client,http.MethodGet,u.String(),headers,nil);if err!=nil{return SearchPage{},err}
 	if stringValue(raw["code"])!="000000"{return SearchPage{},fmt.Errorf("咪咕搜索失败：%s",stringValue(raw["info"]))}
 	data:=mapValue(raw["songResultData"]);items:=sliceValue(data["resultList"]);tracks:=make([]Track,0);seen:=map[string]bool{}
