@@ -586,6 +586,8 @@ for (const method of ['log', 'info', 'warn', 'error']) {
 			Paused bool `json:"paused"`
 			Version int `json:"version"`
 			MinVersion int `json:"minVersion"`
+			UpdateURL string `json:"updateUrl"`
+			PausedText string `json:"pausedText"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(responseBody, &response); err != nil {
@@ -593,6 +595,15 @@ for (const method of ['log', 'info', 'warn', 'error']) {
 	}
 	if response.Code != 0 || response.Msg != "success" || !response.Data.Enabled || response.Data.Paused || response.Data.Version < 7 || response.Data.MinVersion < 7 || response.Data.Version < response.Data.MinVersion {
 		t.Fatalf("live /rconfig did not return an enabled supported-version success payload: %+v", response)
+	}
+	// A newer server-side script version is an update advisory, not a protocol
+	// failure: V7 remains usable while the service advertises V8.
+	if response.Data.Version > 7 {
+		if response.Data.UpdateURL == "" {
+			t.Fatalf("server advertised newer source version %d without an update URL", response.Data.Version)
+		}
+		t.Logf("non-blocking source update advisory: running V7, server version=%d minVersion=%d updateUrl=%s pausedText=%q",
+			response.Data.Version, response.Data.MinVersion, response.Data.UpdateURL, response.Data.PausedText)
 	}
 	var handshake struct {
 		State struct { Initialized bool `json:"initialized"` } `json:"state"`
