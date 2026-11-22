@@ -26,6 +26,13 @@ func (r *Runtime) dispatchLXRequest(ctx context.Context, source, action string, 
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	dispatchCtx, cancelDispatch := context.WithCancel(ctx)
+	stopShutdown := context.AfterFunc(r.lifecycle, cancelDispatch)
+	defer func() {
+		stopShutdown()
+		cancelDispatch()
+	}()
+	ctx = dispatchCtx
 	if strings.TrimSpace(source) == "" || strings.TrimSpace(action) == "" {
 		return nil, errors.New("LX dispatch: source and action are required")
 	}
