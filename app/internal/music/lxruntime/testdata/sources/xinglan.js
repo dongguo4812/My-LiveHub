@@ -1532,6 +1532,7 @@ const withUrlCache = async (cacheKey, loader) => {
   const task = (async () => {
     await acquireRateSlot()
     const url = await loader()
+    if (!isHttpUrl(url)) throw new Error('后端返回无效播放URL')
     URL_CACHE.set(cacheKey, { url: url, expire: Date.now() + CACHE_TTL })
     if (URL_CACHE.size >= CACHE_MAX_ENTRIES) pruneCache()
     return url
@@ -1548,9 +1549,16 @@ const KW_HIGH_QUALITY = ['flac24bit', 'atmos', 'atmos_plus', 'master']
 const KW_STREAM_BACKEND = '酷我流媒体'
 
 const isHttpUrl = (value) => {
-  if (typeof value !== 'string') return false
-  const url = value.trim()
-  return /^https?:\/\/[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::\d{1,5})?(?:[/?#]|$)/i.test(url)
+  if (typeof value !== 'string' || !value.trim()) return false
+  try {
+    const parsed = new URL(value.trim())
+    if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || !parsed.hostname) return false
+    // URL normalizes invalid ports by throwing; reject credentials and whitespace too.
+    if (parsed.username || parsed.password || /\\s/.test(value)) return false
+    return true
+  } catch (_) {
+    return false
+  }
 }
 
 const pickBackends = (source, quality, backends) => {
