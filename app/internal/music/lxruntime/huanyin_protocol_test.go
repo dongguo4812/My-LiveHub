@@ -299,3 +299,27 @@ func TestHuanyinMiguPlaybackCacheExpiresAndRefreshes(t *testing.T) {
 		t.Fatalf("Migu requests after TTL expiry = %d, want 2", requests)
 	}
 }
+
+
+func TestHuanyinMiguInvalidPlaybackURLIsNotCached(t *testing.T) {
+	var requests int
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		requests++
+		return huanyinJSONResponse(request, http.StatusOK,
+			`{"code":200,"title":"无效缓存歌曲","artist":"测试歌手","album":"测试专辑","music_url":"javascript:alert(1)"}`)
+	})}
+	rt, ctx, cancel := huanyinProtocolFixture(t, client)
+	defer cancel()
+	defer rt.Close()
+	info := map[string]any{"musicInfo": map[string]any{
+		"name": "无效缓存歌曲", "singer": "测试歌手", "albumName": "测试专辑",
+	}}
+	for attempt := 1; attempt <= 2; attempt++ {
+		if result, err := rt.dispatchLXRequest(ctx, "mg", "musicUrl", info, client); err == nil {
+			t.Fatalf("attempt %d returned invalid playback URL %#v", attempt, result)
+		}
+	}
+	if requests < 2 {
+		t.Fatalf("invalid playback response made %d backend requests across two attempts; invalid URL must not be cached", requests)
+	}
+}
