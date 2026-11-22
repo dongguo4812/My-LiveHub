@@ -36,13 +36,15 @@ for opcode, label in ops.items():
                         const char *trace_file = JS_AtomToCString(ctx, trace_bc->filename);
                         if (trace_file != NULL && strstr(trace_file, "独家音源") != NULL) {{
                             static unsigned int trace_count;
-                            if (trace_count++ < 1200) {{
+                            int trace_column = 1;
+                            int trace_line = find_line_num(ctx, trace_bc,
+                                (uint32_t)(pc - trace_bc->byte_code_buf), &trace_column);
+                            // Focus on the packed V7 signature-prefix decoder.
+                            if (trace_line == 13 && trace_column >= 18000 &&
+                                trace_column <= 20200 && trace_count++ < 12000) {{
                                 const char *trace_fn = JS_AtomToCString(ctx, trace_bc->func_name);
                                 const char *trace_left = JS_ToCString(ctx, op1);
                                 const char *trace_right = JS_ToCString(ctx, op2);
-                                int trace_column = 1;
-                                int trace_line = find_line_num(ctx, trace_bc,
-                                    (uint32_t)(pc - trace_bc->byte_code_buf), &trace_column);
                                 fprintf(stderr, "LXQJS_OP opcode={label} file=%s fn=%s pc=%td source_line=%d source_column=%d lhs=%s rhs=%s\\n",
                                     trace_file, trace_fn ? trace_fn : "", pc - trace_bc->byte_code_buf,
                                     trace_line, trace_column,
