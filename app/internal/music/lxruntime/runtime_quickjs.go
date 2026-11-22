@@ -50,6 +50,8 @@ type Runtime struct {
 	commands chan command
 	done     chan struct{}
 	close    sync.Once
+	lifecycle context.Context
+	shutdown context.CancelFunc
 }
 
 func New(opts Options) (*Runtime, error) {
@@ -63,9 +65,12 @@ func New(opts Options) (*Runtime, error) {
 		opts.EvalTimeout = defaultEvalTimeout
 	}
 
+	lifecycle, shutdown := context.WithCancel(context.Background())
 	r := &Runtime{
 		commands: make(chan command),
 		done:     make(chan struct{}),
+		lifecycle: lifecycle,
+		shutdown: shutdown,
 	}
 	ready := make(chan error, 1)
 	go r.loop(opts, ready)
@@ -203,6 +208,9 @@ func (r *Runtime) Close() error {
 		return nil
 	}
 	r.close.Do(func() {
+		if r.shutdown != nil {
+			r.shutdown()
+		}
 		select {
 		case <-r.done:
 		case r.commands <- command{close: true}:
