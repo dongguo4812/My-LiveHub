@@ -159,6 +159,22 @@ if (__lxTypedArrayPrototype) {
     } catch (_) {}
   }
 }
+globalThis.__lxTypedArrayMapTrace = [];
+if (__lxTypedArrayPrototype && typeof __lxTypedArrayPrototype.map === 'function') {
+  const __lxTypedArrayMap = __lxTypedArrayPrototype.map;
+  __lxTypedArrayPrototype.map = function(callback, thisArg) {
+    const before = this && this.length >= 8 && this.length <= 64 ? Array.from(this) : null;
+    const result = __lxTypedArrayMap.call(this, callback, thisArg);
+    if (before && globalThis.__lxTypedArrayMapTrace.length < 300) {
+      globalThis.__lxTypedArrayMapTrace.push({
+        input: before,
+        output: result && typeof result.length === 'number' ? Array.from(result) : String(result),
+        stack: new Error().stack
+      });
+    }
+    return result;
+  };
+}
 
 globalThis.__lxByteMapTrace = [];
 const __lxArrayMap = Array.prototype.map;
@@ -429,6 +445,9 @@ for (const name of ['aesEncrypt', 'rsaEncrypt']) {
 	arrayTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxArrayTrace)", "lx-rconfig-array-trace.js")
 	if err != nil { t.Fatal(err) }
 	t.Logf("source typed-array operation trace: %s", arrayTraceJSON)
+	typedArrayMapTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxTypedArrayMapTrace)", "lx-rconfig-typed-array-map-trace.js")
+	if err != nil { t.Fatal(err) }
+	t.Logf("source typed-array map trace: %s", typedArrayMapTraceJSON)
 	transformTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxTransformTrace)", "lx-rconfig-transform-trace.js")
 	if err != nil { t.Fatal(err) }
 	byteMapTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxByteMapTrace)", "lx-rconfig-byte-map-trace.js")
