@@ -113,17 +113,6 @@ if (typeof __lxMathImul === 'function') Math.imul = function(a, b) {
   if (globalThis.__lxCryptoTrace.length < 1200) globalThis.__lxCryptoTrace.push({ name: 'Math.imul', args: [a, b], output: value, stack: new Error().stack });
   return value;
 };
-const __lxMathPow = Math.pow;
-const __lxMathAbs = Math.abs;
-Math.pow = function(a, b) {
-  const value = __lxMathPow.call(Math, a, b);
-  if (globalThis.__lxCryptoTrace.length < 2400 &&
-      (__lxMathAbs(Number(a)) > 100000 || __lxMathAbs(Number(b)) > 100000 ||
-       __lxMathAbs(Number(value)) > 100000000)) {
-    globalThis.__lxCryptoTrace.push({ name: 'Math.pow', args: [a, b], output: value, stack: new Error().stack });
-  }
-  return value;
-};
 for (const name of ['floor', 'ceil', 'round', 'trunc']) {
   const original = Math[name];
   if (typeof original !== 'function') continue;
