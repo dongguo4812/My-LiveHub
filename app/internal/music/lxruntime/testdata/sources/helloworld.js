@@ -356,7 +356,16 @@ const cache = Object.create(null);
 const sourceKeys = Object.keys(CONFIG);
 
 const getCache = k => ENABLE_CACHE && cache[k]?.expire > Date.now() ? cache[k].data : (delete cache[k], null);
-const setCache = (k, d) => ENABLE_CACHE && (cache[k] = { data: d, expire: Date.now() + CACHE_TTL });
+const setCache = (k, d) => {
+  if (!ENABLE_CACHE || !asUrl(d)) return;
+  const now = Date.now();
+  for (const key of Object.keys(cache)) if (cache[key].expire <= now) delete cache[key];
+  if (!Object.prototype.hasOwnProperty.call(cache, k) && Object.keys(cache).length >= 500) {
+    const oldest = Object.keys(cache).sort((a, b) => cache[a].expire - cache[b].expire)[0];
+    if (oldest) delete cache[oldest];
+  }
+  cache[k] = { data: d, expire: now + CACHE_TTL };
+};
 
 const httpRequest = (url, options = {}) => new Promise((resolve, reject) => {
   const timer = setTimeout(() => reject(new Error('请求超时')), options.timeout || TIMEOUT);
@@ -376,9 +385,12 @@ const getField = (obj, path) => path.split('.').reduce((val, p) => val == null ?
   : Array.isArray(val) ? (/^\d+$/.test(p) ? val[+p] : val.map(v => v?.[p]).find(v => v != null && v !== ''))
   : val[p], obj);
 
-const asUrl = v => typeof v === 'string' && /^(https?:)?\/\//.test(v.trim())
-  ? (v.trim().startsWith('//') ? 'https:' + v.trim() : v.trim())
-  : null;
+const asUrl = value => {
+  if (typeof value !== 'string') return null;
+  const candidate = value.trim().startsWith('//') ? 'https:' + value.trim() : value.trim();
+  return /^https?:\/\/[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::\d{1,5})?(?:[/?#]|$)/i.test(candidate)
+    ? candidate : null;
+};
 
 const findUrl = (data, fields) => data == null ? null : asUrl(data) || fields.map(f => asUrl(getField(data, f))).find(Boolean) || null;
 
