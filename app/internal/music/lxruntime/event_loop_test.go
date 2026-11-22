@@ -302,3 +302,63 @@ func TestRuntimeCloseInterruptsActiveJavaScriptEvaluation(t *testing.T) {
 		t.Fatal("active evaluation did not stop after runtime shutdown")
 	}
 }
+
+
+func TestEvalContextCancellationInterruptsActiveJavaScript(t *testing.T) {
+	rt, err := New(Options{
+		MemoryLimitBytes: 16 << 20,
+		StackLimitBytes:  512 << 10,
+		EvalTimeout:      5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	evalDone := make(chan error, 1)
+	go func() {
+		_, evalErr := rt.Eval(ctx, "while (true) {}", "eval-context-cancel.js")
+		evalDone <- evalErr
+	}()
+	// Give the owner goroutine time to enter the JavaScript loop; the runtime
+	// timeout is deliberately much longer than the cancellation assertion.
+	time.Sleep(30 * time.Millisecond)
+	started := time.Now()
+	cancel()
+	select {
+	case evalErr := <-evalDone:
+		if !errors.Is(evalErr, context.Canceled) {
+			t.Fatalf("evaluation error = %v, want context.Canceled", evalErr)
+		}
+		if elapsed := time.Since(started); elapsed > time.Second {
+			t.Fatalf("context cancellation took too long: %s", elapsed)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("context cancellation did not interrupt active JavaScript evaluation")
+	}
+}
+
+func TestRuntimeConcurrentCloseIsIdempotentAndRejectsNewEval(t *testing.T) {
+	rt := newTestRuntime(t, 5*time.Second)
+	const callers = 8
+	results := make(chan error, callers)
+	var wg sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results <- rt.Close()
+		}()
+	}
+	wg.Wait()
+	close(results)
+	for err := range results {
+		if err != nil {
+			t.Fatalf("concurrent close returned error: %v", err)
+		}
+	}
+	if _, err := rt.Eval(context.Background(), "1 + 1", "eval-after-close.js"); err == nil {
+		t.Fatal("evaluation unexpectedly succeeded after runtime close")
+	}
+}
