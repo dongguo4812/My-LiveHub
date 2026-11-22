@@ -304,3 +304,38 @@ CI:
 - Run `44659893914` passed after timeout-vs-abort and response-vs-abort race tests were added.
 
 N1 is complete. Next task is N2 — verify the upstream desktop preload's `resp.raw` type and match Buffer identity only if the source contract requires it. N1 does not establish full Node Buffer compatibility or production integration.
+
+## Progress checkpoint — 2026-11-22 (CI #289)
+
+This checkpoint records verification performed against the current PoC branch. It supersedes older pending statements below when they conflict with concrete tests and CI evidence.
+
+### /rconfig blocker status
+
+- Live V7 handshake: **verified** by TestLXSourceRConfigLiveHandshake in CI run [#289](https://github.com/dongguo4812/My-LiveHub/actions/runs/44982441975).
+- The live endpoint returned HTTP 200 with code 0, msg success, enabled true, paused false, server version 8, and minVersion 8.
+- The V7 source generated and sent well-formed e, to, fp, s2, and si parameters; the live test verified the pinned V7 fingerprint and matched si to the source's traced MD5 output.
+- The source completed initialization and the inited event resolved. The V8 update advisory is non-blocking for the V7 source.
+- Deterministic rejected, malformed, empty, and transport-failure response tests also pass.
+- Boundary: this proves the pinned V7 source's current live handshake and update-advisory behavior. It does not prove that the unavailable V8 source fixture has been executed, nor does it prove live third-party playback.
+
+### N2 — resp.raw Buffer contract: complete
+
+CI #289 passes TestDispatchLXRequestPreservesBinaryRawResponseBytes: raw octets survive the Go→JS bridge and resp.raw is a Buffer-backed Uint8Array with correct hex conversion. TestLXHostBufferMatchesPinnedSourceUsage verifies Buffer.isBuffer(resp.raw), typed-array distinction, ArrayBuffer sharing, allocation, concatenation, and pinned-source Buffer operations. dispatch.go reconstructs response.raw with Buffer.from before invoking the source callback.
+
+### N4 — pinned-fixture Buffer/encoding audit: verified for current fixtures
+
+CI #289 passes the host-contract tests and Node-compatible encoding/edge tests, including UTF-8, hex, base64/base64url, latin1, ASCII, UTF-16LE, typed-array input, ArrayBuffer sharing, Buffer allocation/concatenation, and invalid encoding handling. This is a fixture-driven compatibility surface, not a claim of complete Node Buffer API parity.
+
+### N3 — remaining event-loop validation
+
+Existing CI evidence covers timeout/interval cancellation and rescheduling, the 1,000 callbacks-per-turn cap, timer + HTTP callback + Promise-microtask ordering, in-flight HTTP cancellation, and async HTTP completion. Still required before marking N3 complete: explicit timer/Promise ordering around native zlib Promise completion; explicit crypto/zlib callback ordering against a pending timer and subsequent source action; shutdown behavior with pending timers and outstanding async work.
+
+### Next execution order
+
+1. Finish N3 native async/timer ordering and shutdown tests; fix only defects exposed by tests.
+2. Reconcile the source protocol matrix and this checkpoint so completed N1/N2/N4/N5 work is not repeated.
+3. Complete remaining footprint measurements and security/integration decision (N6).
+4. Keep production integration separate until the PoC acceptance gates and review are complete.
+
+CI #289 is evidence for the named tests only; it is not, by itself, approval for production integration or a claim of universal compatibility with arbitrary LX scripts.
+
