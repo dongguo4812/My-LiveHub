@@ -66,7 +66,7 @@ String.prototype.charCodeAt = function(index) {
     }
     if (globalThis.__lxCharCodeCallTrace.length < 2500) {
       const stack = new Error().stack;
-      if (stack.includes('343:7947') || stack.includes('343:17665') || stack.includes('343:14818') || stack.includes('343:15411')) {
+      if (stack.includes('354:7947') || stack.includes('354:17665') || stack.includes('354:14818') || stack.includes('354:15411')) {
         globalThis.__lxCharCodeCallTrace.push({
           length: value.length, index, char: value.charAt(index),
           code: __lxCharCodeAt.call(this, index),
