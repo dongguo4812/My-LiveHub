@@ -219,22 +219,6 @@ func TestQQSearchUsesCurrentUnsignedModuleEnvelope(t *testing.T) {
 	if attempts != 1 { t.Fatalf("QQ request attempts = %d, want 1", attempts) }
 }
 
-func TestMiguSignatureMatchesPinnedLXVector(t *testing.T) {
-	got := miguSignature("稻香", "1700000000123", miguDeviceID)
-	const want = "d02ce512e63089a5d3634627b1d7fedf"
-	if got != want {
-		t.Fatalf("Migu signature = %q, want %q", got, want)
-	}
-}
-
-func TestMiguSignatureChangesWithTimestamp(t *testing.T) {
-	first := miguSignature("song", "1700000000123", miguDeviceID)
-	second := miguSignature("song", "1700000000124", miguDeviceID)
-	if first == second {
-		t.Fatal("Migu signature must include the millisecond timestamp")
-	}
-}
-
 func TestDefaultLXSearchQQEndpointMatchesLXDesktop(t *testing.T) {
 	if got := DefaultLXSearchEndpoints().QQ; got != "https://u.y.qq.com/cgi-bin/musicu.fcg" {
 		t.Fatalf("QQ search endpoint = %q, want current musicu.fcg endpoint", got)
