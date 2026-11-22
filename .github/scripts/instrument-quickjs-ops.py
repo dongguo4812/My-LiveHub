@@ -39,9 +39,11 @@ for opcode, label in ops.items():
                             int trace_column = 1;
                             int trace_line = find_line_num(ctx, trace_bc,
                                 (uint32_t)(pc - trace_bc->byte_code_buf), &trace_column);
-                            // Focus on the packed V7 signature-prefix decoder.
-                            if (trace_line == 13 && trace_column >= 18000 &&
-                                trace_column <= 20200 && trace_count++ < 12000) {{
+                            // Trace only the final packed V7 signature-prefix decoder.
+                            // The earlier 18000-19700 range is a hot base64/byte conversion
+                            // loop and floods CI logs without exposing the prefix assembly.
+                            if (trace_line == 13 && trace_column >= 19700 &&
+                                trace_column <= 20200 && trace_count++ < 1200) {{
                                 const char *trace_fn = JS_AtomToCString(ctx, trace_bc->func_name);
                                 const char *trace_left = JS_ToCString(ctx, op1);
                                 const char *trace_right = JS_ToCString(ctx, op2);
