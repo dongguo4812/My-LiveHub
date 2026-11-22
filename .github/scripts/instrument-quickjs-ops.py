@@ -42,8 +42,8 @@ for opcode, label in ops.items():
                             // Trace only the final packed V7 signature-prefix decoder.
                             // The earlier 18000-19700 range is a hot base64/byte conversion
                             // loop and floods CI logs without exposing the prefix assembly.
-                            if (trace_line == 354 && trace_column >= 19700 &&
-                                trace_column <= 20200 && trace_count++ < 1200) {{
+                            if (trace_line == 354 && trace_column >= 17500 &&
+                                trace_column <= 20500 && trace_count++ < 5000) {{
                                 const char *trace_fn = JS_AtomToCString(ctx, trace_bc->func_name);
                                 const char *trace_left = JS_ToCString(ctx, op1);
                                 const char *trace_right = JS_ToCString(ctx, op2);
