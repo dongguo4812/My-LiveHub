@@ -176,6 +176,61 @@ if (__lxTypedArrayPrototype && typeof __lxTypedArrayPrototype.map === 'function'
   };
 }
 
+// Trace typed-array creation and view/copy operations: the 16-byte prefix
+// is converted to hex in the obfuscated interpreter, so map/set hooks alone
+// miss the source buffer that feeds that conversion.
+globalThis.__lxTypedArrayCreateTrace = [];
+const __lxOriginalUint8Array = globalThis.Uint8Array;
+try {
+  globalThis.Uint8Array = new Proxy(__lxOriginalUint8Array, {
+    construct(target, args, newTarget) {
+      const value = Reflect.construct(target, args, newTarget);
+      if (value && value.length >= 8 && value.length <= 64 &&
+          globalThis.__lxTypedArrayCreateTrace.length < 500) {
+        globalThis.__lxTypedArrayCreateTrace.push({
+          args: args.map(arg => arg && typeof arg.length === 'number'
+            ? {length: arg.length, head: Array.from(arg).slice(0, 40)} : arg),
+          output: Array.from(value),
+          stack: new Error().stack
+        });
+      }
+      return value;
+    }
+  });
+} catch (_) {}
+if (__lxTypedArrayPrototype) {
+  for (const method of ['slice', 'subarray']) {
+    const original = __lxTypedArrayPrototype[method];
+    if (typeof original !== 'function') continue;
+    __lxTypedArrayPrototype[method] = function(...args) {
+      const result = original.apply(this, args);
+      if (this && this.length >= 8 && this.length <= 64 &&
+          globalThis.__lxTypedArrayCreateTrace.length < 500) {
+        globalThis.__lxTypedArrayCreateTrace.push({
+          method, args, input: Array.from(this),
+          output: result && typeof result.length === 'number' ? Array.from(result) : null,
+          stack: new Error().stack
+        });
+      }
+      return result;
+    };
+  }
+}
+globalThis.__lxStringSliceTrace = [];
+for (const method of ['slice', 'substring', 'substr']) {
+  const original = String.prototype[method];
+  String.prototype[method] = function(...args) {
+    const result = original.apply(this, args);
+    if (String(this).length >= 8 && String(this).length <= 256 &&
+        globalThis.__lxStringSliceTrace.length < 800) {
+      globalThis.__lxStringSliceTrace.push({
+        method, input: String(this), args, output: result,
+        stack: new Error().stack
+      });
+    }
+    return result;
+  };
+}
 globalThis.__lxByteMapTrace = [];
 const __lxArrayMap = Array.prototype.map;
 Array.prototype.map = function(callback, thisArg) {
@@ -445,6 +500,12 @@ for (const name of ['aesEncrypt', 'rsaEncrypt']) {
 	arrayTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxArrayTrace)", "lx-rconfig-array-trace.js")
 	if err != nil { t.Fatal(err) }
 	t.Logf("source typed-array operation trace: %s", arrayTraceJSON)
+	typedArrayCreateTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxTypedArrayCreateTrace)", "lx-rconfig-typed-array-create-trace.js")
+	if err != nil { t.Fatal(err) }
+	t.Logf("source typed-array allocation/view trace: %s", typedArrayCreateTraceJSON)
+	stringSliceTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxStringSliceTrace)", "lx-rconfig-string-slice-trace.js")
+	if err != nil { t.Fatal(err) }
+	t.Logf("source string slice trace: %s", stringSliceTraceJSON)
 	typedArrayMapTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxTypedArrayMapTrace)", "lx-rconfig-typed-array-map-trace.js")
 	if err != nil { t.Fatal(err) }
 	t.Logf("source typed-array map trace: %s", typedArrayMapTraceJSON)
