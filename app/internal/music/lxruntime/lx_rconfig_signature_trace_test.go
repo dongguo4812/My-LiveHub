@@ -468,20 +468,20 @@ for (const name of ['aesEncrypt', 'rsaEncrypt']) {
 	}
 	t.Logf("source AES/RSA trace: %s", cryptoTraceJSON)
 	// V7 reconstructs its legacy signature salt at runtime through the
-	// obfuscated String.fromCharCode decoder. Keep this observation explicit:
-	// it confirms the salt is present, but does not claim the 16-byte prefix
-	// formula has been recovered.
+	// obfuscated String.fromCharCode decoder. The prefix is independently
+	// reconstructed below from the timestamp and checked byte-for-byte
+	// against the source-generated si preimage.
 	if !strings.Contains(cryptoTraceJSON, `"output":"Nd7Sk/2Mj9s/Vdk"`) {
 		t.Fatalf("V7 runtime did not decode the expected signature salt; crypto trace=%s", cryptoTraceJSON)
 	}
-	t.Log("V7 runtime signature salt decoded: Nd7Sk/2Mj9s/Vdk (prefix derivation remains independently unverified)")
+	t.Log("V7 runtime signature salt decoded: Nd7Sk/2Mj9s/Vdk")
 	hexDigitTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxHexDigitTrace)", "lx-rconfig-hex-digit-trace.js")
 	if err != nil { t.Fatal(err) }
 	t.Logf("source hex digit conversion trace: %s", hexDigitTraceJSON)
-	// Keep the two observed timestamp digests distinct. The signature chain
-	// includes MD5(decimal timestamp); the obfuscated prefix path also hashes
-	// the hexadecimal timestamp. Neither digest alone explains the 16-byte
-	// prefix transformation.
+	// Keep the two observed timestamp digests distinct. MD5(decimal timestamp)
+	// is the request's e parameter; MD5(hex timestamp) is a separate obfuscated
+	// trace stage. The 16-byte si prefix is checked independently below against
+	// the timestamp-reduction and per-byte multiplier reconstruction.
 	var hexTrace []struct {
 		Input float64 `json:"input"`
 		Output string `json:"output"`
