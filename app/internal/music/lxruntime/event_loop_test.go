@@ -174,7 +174,7 @@ lx.on('request', async () => {
   const input = Buffer.from('quickjs-native-zlib-ordering', 'utf8');
   setTimeout(() => __nativeAsyncEvents.push('timer'), 0);
   const digest = lx.utils.crypto.md5('fixture');
-  if (digest !== 'e2c0be24560d78c5e599c2a9c9d0b2e7') throw new Error('native MD5 result mismatch');
+  if (digest !== '4cf9d4f0069fc18fb3fcc0a50dceb852') throw new Error('native MD5 result mismatch');
   __nativeAsyncEvents.push('crypto');
   const compressed = await lx.utils.zlib.deflate(input);
   __nativeAsyncEvents.push('zlib-deflate');
