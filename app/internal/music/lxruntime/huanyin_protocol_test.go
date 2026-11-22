@@ -265,3 +265,37 @@ func TestHuanyinMiguPlaybackRejectsNonHTTPURLAndContinuesMatching(t *testing.T) 
 		t.Fatalf("lookup sequence = %v, want retry after invalid URL", keywords)
 	}
 }
+
+
+func TestHuanyinMiguPlaybackCacheExpiresAndRefreshes(t *testing.T) {
+	var requests int
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		requests++
+		url := "https://cdn.example.invalid/huanyin-expired-" + fmt.Sprint(requests) + ".mp3"
+		return huanyinJSONResponse(request, http.StatusOK,
+			`{"code":200,"title":"过期歌曲","artist":"测试歌手","album":"测试专辑","music_url":"`+url+`"}`), nil
+	})}
+	rt, ctx, cancel := huanyinProtocolFixture(t, client)
+	defer cancel()
+	defer rt.Close()
+	if _, err := rt.Eval(ctx, "globalThis.__testNow = 1000000; Date.now = () => globalThis.__testNow;", "huanyin-cache-clock.js"); err != nil {
+		t.Fatal(err)
+	}
+	info := map[string]any{"musicInfo": map[string]any{
+		"name": "过期歌曲", "singer": "测试歌手", "albumName": "测试专辑",
+	}}
+	first, err := rt.dispatchLXRequest(ctx, "mg", "musicUrl", info, client)
+	if err != nil || first != "https://cdn.example.invalid/huanyin-expired-1.mp3" {
+		t.Fatalf("initial playback = %#v, error %v", first, err)
+	}
+	if _, err := rt.Eval(ctx, "globalThis.__testNow += 5 * 60 * 1000 + 1", "huanyin-expire-cache.js"); err != nil {
+		t.Fatal(err)
+	}
+	second, err := rt.dispatchLXRequest(ctx, "mg", "musicUrl", info, client)
+	if err != nil || second != "https://cdn.example.invalid/huanyin-expired-2.mp3" {
+		t.Fatalf("playback after cache expiry = %#v, error %v", second, err)
+	}
+	if requests != 2 {
+		t.Fatalf("Migu requests after TTL expiry = %d, want 2", requests)
+	}
+}
