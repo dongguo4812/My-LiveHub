@@ -27,7 +27,7 @@ func lxRConfigDynamicPrefix(timestamp int64) string {
 	return hex.EncodeToString(prefix[:])
 }
 
-// lxRConfigScriptDigest reproduces the source integrity half of si: lowercase
+// lxRConfigScriptDigest reproduces the source integrity half of si: uppercase
 // the complete source, insert U+200B between UTF-16 code units, then MD5 it.
 func lxRConfigScriptDigest(source string) string {
 	units := utf16.Encode([]rune(strings.ToUpper(source)))
