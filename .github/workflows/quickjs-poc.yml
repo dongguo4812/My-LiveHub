@@ -36,7 +36,9 @@ jobs:
         uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
-          update: true
+          # Avoid a full MSYS2 system upgrade on every CI run; it adds extra
+          # mirror metadata requests and has caused transient signature-download timeouts.
+          update: false
           path-type: inherit
           install: >-
             git
