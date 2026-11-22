@@ -2852,3 +2852,41 @@ func TestHelloWorldRejectsMalformedPlaybackURLAndUsesAnotherBackend(t *testing.T
 	}
 	if validBackendRequests == 0 { t.Fatal("valid fallback backend was not queried") }
 }
+
+
+func TestHelloWorldPlaybackCacheExpiresAndRefreshes(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "helloworld.js"))
+	if err != nil { t.Fatal(err) }
+	rt := newTestRuntime(t, 15*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var requests int
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		requests++
+		body := fmt.Sprintf("{\"url\":\"https://cdn.example.invalid/hw-expired-%d.mp3\"}", requests)
+		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header),
+			Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+	})}
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{Name: "HelloWorld", Version: "260925", RawScript: string(source)}, string(source), client); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.Eval(ctx, "globalThis.__testNow = 2000000; Date.now = () => globalThis.__testNow;", "helloworld-cache-clock.js"); err != nil {
+		t.Fatal(err)
+	}
+	info := map[string]any{"type": "320k", "musicInfo": map[string]any{"songmid": "hw-expiry-contract", "name": "fixture expired song"}}
+	first, err := rt.dispatchLXRequest(ctx, "kg", "musicUrl", info, client)
+	if err != nil || first != "https://cdn.example.invalid/hw-expired-1.mp3" {
+		t.Fatalf("initial playback = %#v, error %v", first, err)
+	}
+	if _, err := rt.Eval(ctx, "globalThis.__testNow += 20 * 60 * 1000 + 1", "helloworld-expire-cache.js"); err != nil {
+		t.Fatal(err)
+	}
+	second, err := rt.dispatchLXRequest(ctx, "kg", "musicUrl", info, client)
+	if err != nil || second != "https://cdn.example.invalid/hw-expired-2.mp3" {
+		t.Fatalf("playback after cache expiry = %#v, error %v", second, err)
+	}
+	if requests != 2 {
+		t.Fatalf("HelloWorld requests after TTL expiry = %d, want 2", requests)
+	}
+}
