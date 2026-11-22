@@ -39,11 +39,11 @@ for opcode, label in ops.items():
                             int trace_column = 1;
                             int trace_line = find_line_num(ctx, trace_bc,
                                 (uint32_t)(pc - trace_bc->byte_code_buf), &trace_column);
-                            // Trace only the final packed V7 signature-prefix decoder.
-                            // The earlier 18000-19700 range is a hot base64/byte conversion
-                            // loop and floods CI logs without exposing the prefix assembly.
-                            if (trace_line == 354 && trace_column >= 17500 &&
-                                trace_column <= 20500 && trace_count++ < 5000) {{
+                            // Trace the VM dispatch region that converts the timestamp-derived token
+                            // and assembles the 16-byte V7 signature prefix. The 17500+
+                            // range is only the embedded base64 decoder, not signature logic.
+                            if (trace_line == 354 && trace_column >= 9800 &&
+                                trace_column <= 15000 && trace_count++ < 5000) {{
                                 const char *trace_fn = JS_AtomToCString(ctx, trace_bc->func_name);
                                 const char *trace_left = JS_ToCString(ctx, op1);
                                 const char *trace_right = JS_ToCString(ctx, op2);
