@@ -433,8 +433,12 @@ for (const name of ['aesEncrypt', 'rsaEncrypt']) {
 	}
 	si := parsedURL.Query().Get("si")
 	matched := false
+	var signaturePreimage string
+	var signatureOutput string
 	for _, call := range trace {
 		if strings.EqualFold(call.Output, si) {
+			signaturePreimage = call.Input
+			signatureOutput = call.Output
 			preimage, decodeErr := hex.DecodeString(call.Input)
 			if decodeErr != nil || len(preimage) != 32 || len(call.Input) != 64 {
 				t.Fatalf("rconfig si preimage must be exactly 32 bytes of hex, got %q", call.Input)
@@ -487,6 +491,7 @@ for (const name of ['aesEncrypt', 'rsaEncrypt']) {
 	}
 	timestampDecimalMD5Observed := false
 	timestampHexMD5Observed := false
+	var observedTimestamp int64
 	for _, hexCall := range hexTrace {
 		if hexCall.Input < 1e12 || hexCall.Output == "" {
 			continue
@@ -494,6 +499,7 @@ for (const name of ['aesEncrypt', 'rsaEncrypt']) {
 		for _, md5Call := range trace {
 			if md5Call.Input == fmt.Sprintf("%.0f", hexCall.Input) && len(md5Call.Output) == 32 {
 				timestampDecimalMD5Observed = true
+				observedTimestamp = int64(hexCall.Input)
 				t.Logf("V7 signature timestamp digest: decimal=%0.0f md5(decimal)=%s",
 					hexCall.Input, md5Call.Output)
 			}
@@ -508,6 +514,22 @@ for (const name of ['aesEncrypt', 'rsaEncrypt']) {
 		t.Fatalf("V7 timestamp digest stages incomplete: decimalMD5=%t hexMD5=%t hex trace=%s",
 			timestampDecimalMD5Observed, timestampHexMD5Observed, hexDigitTraceJSON)
 	}
+	if len(signaturePreimage) != 64 || signatureOutput != si {
+		t.Fatalf("captured V7 si preimage/output missing: preimage=%q output=%q si=%q", signaturePreimage, signatureOutput, si)
+	}
+	wantPrefix := lxRConfigDynamicPrefix(observedTimestamp)
+	if gotPrefix := signaturePreimage[:32]; gotPrefix != wantPrefix {
+		t.Fatalf("V7 runtime dynamic prefix mismatch at timestamp %d: source=%s Go=%s", observedTimestamp, gotPrefix, wantPrefix)
+	}
+	wantDigest := lxRConfigScriptDigest(string(source))
+	if gotDigest := signaturePreimage[32:]; gotDigest != wantDigest {
+		t.Fatalf("V7 runtime script digest mismatch: source=%s Go=%s", gotDigest, wantDigest)
+	}
+	if wantSignature := lxRConfigSignature(observedTimestamp, string(source)); signatureOutput != wantSignature {
+		t.Fatalf("V7 runtime si mismatch at timestamp %d: source=%s Go=%s", observedTimestamp, signatureOutput, wantSignature)
+	}
+	t.Logf("V7 si algorithm verified against live source execution: timestamp=%d prefix=%s script_digest=%s si=%s",
+		observedTimestamp, wantPrefix, wantDigest, signatureOutput)
 	decodeTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxDecodeTrace)", "lx-rconfig-decode-trace.js")
 	if err != nil { t.Fatal(err) }
 	t.Logf("source base64 decode trace: %s", decodeTraceJSON)
