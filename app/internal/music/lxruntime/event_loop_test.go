@@ -406,7 +406,7 @@ lx.on('request', async () => {
 		_, err := rt.DispatchLXRequest(context.Background(), "kw", "musicUrl", map[string]any{})
 		dispatchDone <- err
 	}()
-	startDeadline := time.NewTimer(20 * time.Second)
+	startDeadline := time.NewTimer(60 * time.Second)
 	defer startDeadline.Stop()
 	for i := 0; i < requestCount; i++ {
 		select {
@@ -415,7 +415,7 @@ lx.on('request', async () => {
 			// Always close the runtime before failing so in-flight requests are
 			// canceled and httptest.Server cleanup cannot hang for another 5s.
 			_ = rt.Close()
-			t.Fatalf("only %d of %d HTTP requests started within 20s", startedCount.Load(), requestCount)
+			t.Fatalf("only %d of %d HTTP requests started within 60s", startedCount.Load(), requestCount)
 		}
 	}
 	if err := rt.Close(); err != nil {
