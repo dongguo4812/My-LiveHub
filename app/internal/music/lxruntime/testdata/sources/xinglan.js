@@ -1549,14 +1549,13 @@ const KW_HIGH_QUALITY = ['flac24bit', 'atmos', 'atmos_plus', 'master']
 const KW_STREAM_BACKEND = '酷我流媒体'
 
 const isHttpUrl = (value) => {
-  if (typeof value !== 'string' || !value.trim() || /\\s/.test(value)) return false
+  if (typeof value !== 'string' || !value.trim() || /\s/.test(value)) return false
   const url = value.trim()
-  const match = url.match(/^https?:\\/\\/([a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)(?::(\\d{1,5}))?(?:[/?#]|$)/i)
+  const match = url.match(/^https?:\/\/([a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)(?::(\d{1,5}))?(?:[/?#]|$)/i)
   if (!match || match[1].includes('..')) return false
   if (match[2] && (Number(match[2]) < 1 || Number(match[2]) > 65535)) return false
   return !/@/.test(match[1])
-}
-const pickBackends = (source, quality, backends) => {
+}const pickBackends = (source, quality, backends) => {
   if (source !== 'kw') return backends
   if (KW_HIGH_QUALITY.includes(quality)) return backends.filter((b) => b.name === KW_STREAM_BACKEND)
   return backends.filter((b) => b.name !== KW_STREAM_BACKEND)
