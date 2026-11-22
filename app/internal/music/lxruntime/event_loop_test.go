@@ -210,3 +210,56 @@ lx.on('request', async () => {
 	}
 }
 
+
+
+func TestRuntimeCloseCancelsInflightDispatchAndHTTP(t *testing.T) {
+	started := make(chan struct{})
+	canceled := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-r.Context().Done()
+		close(canceled)
+	}))
+	defer server.Close()
+
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{Name: "runtime-shutdown"}); err != nil {
+		t.Fatal(err)
+	}
+	install := `
+lx.on('request', async () => await new Promise((resolve, reject) => {
+  lx.request(` + "` + string(mustJSONQuote(server.URL)) + `" + `, {}, error => error ? reject(error) : resolve('unexpected'));
+}));
+'registered';
+`
+	if _, err := rt.Eval(context.Background(), install, "register-runtime-shutdown.js"); err != nil {
+		t.Fatal(err)
+	}
+
+	dispatchDone := make(chan error, 1)
+	go func() {
+		_, err := rt.DispatchLXRequest(context.Background(), "kw", "musicUrl", map[string]any{})
+		dispatchDone <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("HTTP request did not start")
+	}
+	if err := rt.Close(); err != nil {
+		t.Fatalf("close runtime: %v", err)
+	}
+	select {
+	case <-canceled:
+	case <-time.After(time.Second):
+		t.Fatal("runtime close did not cancel in-flight HTTP request")
+	}
+	select {
+	case err := <-dispatchDone:
+		if err == nil {
+			t.Fatal("dispatch unexpectedly succeeded after runtime shutdown")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("dispatch did not stop after runtime shutdown")
+	}
+}
