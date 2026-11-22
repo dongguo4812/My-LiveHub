@@ -55,6 +55,7 @@ for (const name of ['atob', 'btoa']) {
 globalThis.__lxCharCodeTrace = [];
 const __lxCharCodeAt = String.prototype.charCodeAt;
 const __lxCharCodeSeen = new Set();
+globalThis.__lxCharCodeCallTrace = [];
 String.prototype.charCodeAt = function(index) {
   const value = String(this);
   if (value.length >= 8) {
@@ -62,6 +63,16 @@ String.prototype.charCodeAt = function(index) {
     if (!__lxCharCodeSeen.has(key) && globalThis.__lxCharCodeTrace.length < 500) {
       __lxCharCodeSeen.add(key);
       globalThis.__lxCharCodeTrace.push({ length: value.length, digest: globalThis.lx.utils.crypto.md5(value), head: value.slice(0, 240), tail: value.slice(-96) });
+    }
+    if (globalThis.__lxCharCodeCallTrace.length < 2500) {
+      const stack = new Error().stack;
+      if (stack.includes('343:7947') || stack.includes('343:17665') || stack.includes('343:14818') || stack.includes('343:15411')) {
+        globalThis.__lxCharCodeCallTrace.push({
+          length: value.length, index, char: value.charAt(index),
+          code: __lxCharCodeAt.call(this, index),
+          head: value.slice(0, 96), tail: value.slice(-64), stack
+        });
+      }
     }
   }
   return __lxCharCodeAt.call(this, index);
@@ -440,6 +451,9 @@ for (const name of ['aesEncrypt', 'rsaEncrypt']) {
 	charTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxCharCodeTrace)", "lx-rconfig-charcode-trace.js")
 	if err != nil { t.Fatal(err) }
 	t.Logf("source charCodeAt input trace: %s", charTraceJSON)
+	charCodeCallTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxCharCodeCallTrace)", "lx-rconfig-charcode-call-trace.js")
+	if err != nil { t.Fatal(err) }
+	t.Logf("source charCodeAt call-site trace: %s", charCodeCallTraceJSON)
 	metadataTraceJSON, err := rt.Eval(ctx, `JSON.stringify({scriptMD5Type: typeof globalThis.SCRIPT_MD5, scriptMD5: globalThis.SCRIPT_MD5, rawScriptLength: globalThis.lx.currentScriptInfo.rawScript.length, rawScriptMD5: globalThis.lx.utils.crypto.md5(globalThis.lx.currentScriptInfo.rawScript), rawScriptHead: globalThis.lx.currentScriptInfo.rawScript.slice(0, 320), rawScriptTail: globalThis.lx.currentScriptInfo.rawScript.slice(-320), globalKeys: Object.keys(globalThis).filter(key => /md5|script/i.test(key)).slice(0, 80)})`, "lx-rconfig-metadata-trace.js")
 	if err != nil { t.Fatal(err) }
 	t.Logf("source integrity globals and metadata: %s", metadataTraceJSON)
