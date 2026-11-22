@@ -159,3 +159,54 @@ lx.on('request', async () => await new Promise((resolve, reject) => {
 		t.Fatal("dispatch context did not cancel in-flight HTTP")
 	}
 }
+
+// TestDispatchOrdersNativeCryptoAndZlibPromiseJobsAroundTimers verifies that
+// native crypto remains synchronous, native zlib Promise jobs are drained,
+// and due timers run before dispatch observes the completed source action.
+func TestDispatchOrdersNativeCryptoAndZlibPromiseJobsAroundTimers(t *testing.T) {
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{Name: "native-async-ordering"}); err != nil {
+		t.Fatal(err)
+	}
+	install := `
+globalThis.__nativeAsyncEvents = [];
+lx.on('request', async () => {
+  const input = Buffer.from('quickjs-native-zlib-ordering', 'utf8');
+  setTimeout(() => __nativeAsyncEvents.push('timer'), 0);
+  const digest = lx.utils.crypto.md5('fixture');
+  if (digest !== 'e2c0be24560d78c5e599c2a9c9d0b2e7') throw new Error('native MD5 result mismatch');
+  __nativeAsyncEvents.push('crypto');
+  const compressed = await lx.utils.zlib.deflate(input);
+  __nativeAsyncEvents.push('zlib-deflate');
+  const restored = await lx.utils.zlib.inflate(compressed);
+  if (Buffer.from(restored).toString('utf8') !== 'quickjs-native-zlib-ordering') {
+    throw new Error('native zlib round trip mismatch');
+  }
+  __nativeAsyncEvents.push('zlib-inflate');
+  __nativeAsyncEvents.push('action-complete');
+  return 'native-async-ordering-ok';
+});
+'registered';
+`;
+	if _, err := rt.Eval(context.Background(), install, "register-native-async-ordering.js"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	value, err := rt.DispatchLXRequest(ctx, "kw", "musicUrl", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != "native-async-ordering-ok" {
+		t.Fatalf("dispatch result = %#v, want native-async-ordering-ok", value)
+	}
+	events, err := rt.Eval(ctx, "JSON.stringify(globalThis.__nativeAsyncEvents)", "read-native-async-events.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = `["crypto","zlib-deflate","zlib-inflate","action-complete","timer"]`
+	if events != want {
+		t.Fatalf("native crypto/zlib/timer event order = %s, want %s", events, want)
+	}
+}
+
