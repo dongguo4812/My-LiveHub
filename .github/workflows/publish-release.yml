@@ -4,6 +4,9 @@ on:
   workflow_run:
     workflows:
       - Desktop validation
+    branches:
+      - master
+      - 'v*'
     types:
       - completed
 
