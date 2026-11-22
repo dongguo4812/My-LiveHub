@@ -30,7 +30,7 @@ func lxRConfigDynamicPrefix(timestamp int64) string {
 // lxRConfigScriptDigest reproduces the source integrity half of si: lowercase
 // the complete source, insert U+200B between UTF-16 code units, then MD5 it.
 func lxRConfigScriptDigest(source string) string {
-	units := utf16.Encode([]rune(strings.ToLower(source)))
+	units := utf16.Encode([]rune(strings.ToUpper(source)))
 	var transformed strings.Builder
 	transformed.Grow(len(source) * 4)
 	for i, unit := range units {
