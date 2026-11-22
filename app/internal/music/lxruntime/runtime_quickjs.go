@@ -184,8 +184,14 @@ func (r *Runtime) Eval(ctx context.Context, source, filename string) (string, er
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	evalCtx, cancelEval := context.WithCancel(ctx)
+	stopShutdown := context.AfterFunc(r.lifecycle, cancelEval)
+	defer func() {
+		stopShutdown()
+		cancelEval()
+	}()
 	result := make(chan evalResult, 1)
-	cmd := command{ctx: ctx, source: source, filename: filename, result: result}
+	cmd := command{ctx: evalCtx, source: source, filename: filename, result: result}
 	select {
 	case <-r.done:
 		return "", errors.New("QuickJS runtime is closed")
