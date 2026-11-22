@@ -228,7 +228,7 @@ func TestRuntimeCloseCancelsInflightDispatchAndHTTP(t *testing.T) {
 	}
 	install := `
 lx.on('request', async () => await new Promise((resolve, reject) => {
-  lx.request(` + "` + string(mustJSONQuote(server.URL)) + `" + `, {}, error => error ? reject(error) : resolve('unexpected'));
+  lx.request(` + string(mustJSONQuote(server.URL)) + `, {}, error => error ? reject(error) : resolve('unexpected'));
 }));
 'registered';
 `
