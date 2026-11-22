@@ -193,7 +193,10 @@ Array.prototype.push = function(...values) {
       before,
       values: values.slice(0, 16),
       result: this.length === 16 ? Array.from(this) : undefined,
-      stack: before === 0 || this.length === 16 ? new Error().stack : undefined
+      // Capture every append, not just the first and final byte. The 16-byte
+      // rconfig prefix is assembled through an obfuscated interpreter, so the
+      // caller frame can change between individual byte conversions.
+      stack: new Error().stack
     });
   }
   return result;
