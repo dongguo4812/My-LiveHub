@@ -1,8 +1,10 @@
 # N5: deterministic LX source protocol matrix
 
 Every protocol integration test executes the checked-in JavaScript fixture in QuickJS.
-Outbound HTTP is intercepted by a deterministic Go `http.RoundTripper`; tests must
-never contact upstream services.
+Deterministic provider-contract tests intercept outbound HTTP with a Go
+`http.RoundTripper`. The separately gated `LX_RCONFIG_LIVE=1` V7 handshake test is
+the explicit exception: it contacts the LX configuration service to verify the live
+signed `/rconfig` contract; it does not call music-provider playback endpoints.
 
 ## Fixture matrix
 
@@ -59,11 +61,11 @@ N5 does not mean all four fixtures have equal coverage. In particular, the pinne
 
 A passing test proves only the deterministic source/Host contract asserted by that test.
 It does not prove live endpoint availability, account entitlements, VIP bypass, or
-guaranteed playback. No test in this matrix should access live third-party services.
+guaranteed playback. No deterministic provider-contract test in this matrix should access live third-party services; the explicitly gated LX configuration handshake is the sole live-network exception.
 
 
 ## Huanyin stage acceptance
 
 Huanyin protocol acceptance is recorded at the feature-branch commit after the CI run succeeds. The dedicated protocol suite checks each Migu match route, HTTP/transport/JSON negative-response handling, three-page search behavior, empty-result rejection, and successful-result caching. Existing integration tests cover the real LX Host registration, all native platform URL mappings, search-to-playback, and metadata mismatch / missing-URL / negative-code fallback sequence.
 
-All outbound HTTP is intercepted by deterministic test transports. This validates the pinned source's request and response behavior, not live upstream availability or guaranteed playback.
+Provider HTTP is intercepted by deterministic test transports. The separate live V7 `/rconfig` handshake contacts only the LX configuration service; it does not establish music-provider availability or guaranteed playback.
