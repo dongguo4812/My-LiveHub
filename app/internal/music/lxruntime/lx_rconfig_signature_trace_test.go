@@ -370,6 +370,14 @@ for (const name of ['aesEncrypt', 'rsaEncrypt']) {
 		t.Fatal(err)
 	}
 	t.Logf("source AES/RSA trace: %s", cryptoTraceJSON)
+	// V7 reconstructs its legacy signature salt at runtime through the
+	// obfuscated String.fromCharCode decoder. Keep this observation explicit:
+	// it confirms the salt is present, but does not claim the 16-byte prefix
+	// formula has been recovered.
+	if !strings.Contains(cryptoTraceJSON, `"output":"Nd7Sk/2Mj9s/Vdk"`) {
+		t.Fatalf("V7 runtime did not decode the expected signature salt; crypto trace=%s", cryptoTraceJSON)
+	}
+	t.Log("V7 runtime signature salt decoded: Nd7Sk/2Mj9s/Vdk (prefix derivation remains independently unverified)")
 	hexDigitTraceJSON, err := rt.Eval(ctx, "JSON.stringify(globalThis.__lxHexDigitTrace)", "lx-rconfig-hex-digit-trace.js")
 	if err != nil { t.Fatal(err) }
 	t.Logf("source hex digit conversion trace: %s", hexDigitTraceJSON)
