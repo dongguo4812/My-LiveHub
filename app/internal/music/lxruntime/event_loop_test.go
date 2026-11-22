@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -362,5 +363,72 @@ func TestRuntimeConcurrentCloseIsIdempotentAndRejectsNewEval(t *testing.T) {
 	}
 	if _, err := rt.Eval(context.Background(), "1 + 1", "eval-after-close.js"); err == nil {
 		t.Fatal("evaluation unexpectedly succeeded after runtime close")
+	}
+}
+
+
+func TestRuntimeCloseCancelsMaximumInflightHTTPBatch(t *testing.T) {
+	const requestCount = 256
+	started := make(chan struct{}, requestCount)
+	canceled := make(chan struct{}, requestCount)
+	var startedCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		startedCount.Add(1)
+		started <- struct{}{}
+		<-r.Context().Done()
+		canceled <- struct{}{}
+	}))
+	defer server.Close()
+
+	rt := newTestRuntime(t, 10*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{Name: "maximum-inflight-shutdown"}); err != nil {
+		t.Fatal(err)
+	}
+	install := `
+lx.on('request', async () => {
+  const requests = [];
+  for (let i = 0; i < 256; i++) {
+    requests.push(new Promise((resolve, reject) => {
+      lx.request(` + string(mustJSONQuote(server.URL)) + `, {}, error => error ? reject(error) : resolve());
+    }));
+  }
+  await Promise.all(requests);
+  return 'unexpected-success';
+});
+'registered';
+`
+	if _, err := rt.Eval(context.Background(), install, "register-maximum-inflight-shutdown.js"); err != nil {
+		t.Fatal(err)
+	}
+
+	dispatchDone := make(chan error, 1)
+	go func() {
+		_, err := rt.DispatchLXRequest(context.Background(), "kw", "musicUrl", map[string]any{})
+		dispatchDone <- err
+	}()
+	for i := 0; i < requestCount; i++ {
+		select {
+		case <-started:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("only %d of %d HTTP requests started", startedCount.Load(), requestCount)
+		}
+	}
+	if err := rt.Close(); err != nil {
+		t.Fatalf("close runtime: %v", err)
+	}
+	for i := 0; i < requestCount; i++ {
+		select {
+		case <-canceled:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("only %d of %d HTTP requests observed cancellation", i, requestCount)
+		}
+	}
+	select {
+	case err := <-dispatchDone:
+		if err == nil {
+			t.Fatal("dispatch unexpectedly succeeded after runtime shutdown")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("dispatch did not stop after maximum-batch runtime shutdown")
 	}
 }
