@@ -118,3 +118,63 @@ JSON.stringify({
 		t.Fatalf("Buffer.byteLength('音乐') = %d, want 6", got.UTF8ByteLength)
 	}
 }
+
+
+// TestLXRConfigQuickJSStringBufferAndTimestampCompatibility exercises the JS-facing
+// primitives used by V7 signature construction. Go-only vectors cannot detect
+// a QuickJS bridge encoding or timestamp mismatch.
+func TestLXRConfigQuickJSStringBufferAndTimestampCompatibility(t *testing.T) {
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{Name: "rconfig-compat", RawScript: "fixture"}); err != nil {
+		t.Fatal(err)
+	}
+
+	value, err := rt.Eval(context.Background(), `
+const source = '🎵LX';
+const utf8 = Buffer.from(source, 'utf8');
+const utf16le = Buffer.from(source, 'utf16le');
+const bytes = new Uint8Array([0x41, 0x00, 0x3c, 0xd8, 0xb5, 0xdf]);
+const now = Date.now();
+JSON.stringify({
+  utf8Hex: utf8.toString('hex'),
+  utf8RoundTrip: utf8.toString('utf8'),
+  utf16leHex: utf16le.toString('hex'),
+  utf16leRoundTrip: utf16le.toString('utf16le'),
+  utf16leByteLength: Buffer.byteLength(source, 'utf16le'),
+  typedArrayUtf16le: Buffer.from(bytes).toString('utf16le'),
+  timestampIsFiniteInteger: Number.isFinite(now) && Number.isInteger(now),
+  timestampIsSafeInteger: Number.isSafeInteger(now),
+  timestampNonNegative: now >= 0
+})
+`, "lx-rconfig-js-compat.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var got struct {
+		UTF8Hex string `json:"utf8Hex"`
+		UTF8RoundTrip string `json:"utf8RoundTrip"`
+		UTF16LEHex string `json:"utf16leHex"`
+		UTF16LERoundTrip string `json:"utf16leRoundTrip"`
+		UTF16LEByteLength int `json:"utf16leByteLength"`
+		TypedArrayUTF16LE string `json:"typedArrayUtf16le"`
+		TimestampIsFiniteInteger bool `json:"timestampIsFiniteInteger"`
+		TimestampIsSafeInteger bool `json:"timestampIsSafeInteger"`
+		TimestampNonNegative bool `json:"timestampNonNegative"`
+	}
+	if err := json.Unmarshal([]byte(value), &got); err != nil {
+		t.Fatalf("decode QuickJS compatibility result %q: %v", value, err)
+	}
+	if got.UTF8Hex != "f09f8eb54c58" || got.UTF8RoundTrip != "🎵LX" {
+		t.Fatalf("QuickJS UTF-8 Buffer conversion mismatch: hex=%q roundtrip=%q", got.UTF8Hex, got.UTF8RoundTrip)
+	}
+	if got.UTF16LEHex != "3cd8b5df4c005800" || got.UTF16LERoundTrip != "🎵LX" || got.UTF16LEByteLength != 8 {
+		t.Fatalf("QuickJS UTF-16LE Buffer conversion mismatch: hex=%q roundtrip=%q byteLength=%d", got.UTF16LEHex, got.UTF16LERoundTrip, got.UTF16LEByteLength)
+	}
+	if got.TypedArrayUTF16LE != "A🎵" {
+		t.Fatalf("QuickJS TypedArray UTF-16LE conversion = %q, want A🎵", got.TypedArrayUTF16LE)
+	}
+	if !got.TimestampIsFiniteInteger || !got.TimestampIsSafeInteger || !got.TimestampNonNegative {
+		t.Fatalf("Date.now() is incompatible with V7 millisecond timestamp arithmetic: %+v", got)
+	}
+}
