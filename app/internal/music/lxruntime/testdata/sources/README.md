@@ -11,7 +11,7 @@ These snapshots are test inputs, not trusted code. They are evaluated only by th
 
 ## Current coverage summary
 
-- `lx.js`: syntax compilation and real LX Host `/rconfig` request-shape verification. The request test deliberately returns an invalid empty configuration and expects initialization not to complete. Successful configuration parsing and post-handshake actions are not yet proven.
+- `lx.js`: syntax compilation; deterministic rejected/malformed/empty/transport `/rconfig` failures; V7 initialization with a valid advisory payload reporting server version/minVersion 8; live signed `/rconfig` handshake and request diagnostics. This proves the pinned V7 source accepts the observed update advisory, not that V8 is available or that post-handshake playback actions work.
 - `xinglan.js`: real LX Host initialization; deterministic Migu music URL resolution; JSON POST contract and 320k URL rewrite/probe; QQ v2→v3 fallback; QQ provider-pool all-fail aggregation; concurrent head-provider behavior.
 - `helloworld.js`: real LX Host initialization and deterministic QQ music URL resolution; native LX Buffer token construction and captured-token verification; FLAC-to-320k quality fallback.
 - `huanyin.js`: real LX Host initialization; local platform URL mapping; deterministic Migu search/playback and search-result flow; metadata mismatch/cache behavior; negative responses; transport failures; timeout and request cancellation across three matching fallbacks.
@@ -19,4 +19,4 @@ These snapshots are test inputs, not trusted code. They are evaluated only by th
 
 See [SOURCE_PROTOCOL_MATRIX.md](../../SOURCE_PROTOCOL_MATRIX.md) for test-level coverage and explicit limitations.
 
-Passing these tests proves only the deterministic cases listed above. It does not prove full API parity, live network behavior, live service availability, account entitlement, VIP bypass, or guaranteed playback. The `lx.js` valid server-configuration handshake remains unverified and must not be represented as complete.
+Passing these tests proves only the deterministic cases listed above. It does not prove full API parity, live network behavior, live service availability, account entitlement, VIP bypass, or guaranteed playback. The `lx.js` V7 `/rconfig` handshake and observed V8 update-advisory acceptance are covered; V8 source compatibility and post-handshake playback behavior remain unverified.
