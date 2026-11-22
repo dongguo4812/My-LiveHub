@@ -230,3 +230,38 @@ func TestHuanyinSuccessfulMiguPlaybackURLIsCached(t *testing.T) {
 		t.Fatalf("identical successful playback made %d requests, want one cached lookup", requests)
 	}
 }
+
+
+func TestHuanyinMiguPlaybackRejectsNonHTTPURLAndContinuesMatching(t *testing.T) {
+	var keywords []string
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		keyword := request.URL.Query().Get("gm")
+		keywords = append(keywords, keyword)
+		if keyword == "测试歌曲测试专辑" {
+			return huanyinJSONResponse(request, http.StatusOK,
+				`{"code":200,"title":"测试歌曲","artist":"测试歌手","album":"测试专辑","music_url":"javascript:alert(1)"}`)
+		}
+		if keyword == "测试歌曲测试歌手" {
+			return huanyinJSONResponse(request, http.StatusOK,
+				`{"code":200,"title":"测试歌曲","artist":"测试歌手","album":"测试专辑","music_url":"https://cdn.example.invalid/validated.mp3"}`)
+		}
+		return nil, fmt.Errorf("unexpected lookup keyword %q", keyword)
+	})}
+	rt, ctx, cancel := huanyinProtocolFixture(t, client)
+	defer cancel()
+	defer rt.Close()
+
+	result, err := rt.dispatchLXRequest(ctx, "mg", "musicUrl", map[string]any{
+		"type": "320k",
+		"musicInfo": map[string]any{"name": "测试歌曲", "singer": "测试歌手", "albumName": "测试专辑"},
+	}, client)
+	if err != nil {
+		t.Fatalf("resolve after rejecting non-HTTP URL: %v", err)
+	}
+	if result != "https://cdn.example.invalid/validated.mp3" {
+		t.Fatalf("playback URL = %#v, want validated HTTPS URL", result)
+	}
+	if strings.Join(keywords, "|") != "测试歌曲测试专辑|测试歌曲测试歌手" {
+		t.Fatalf("lookup sequence = %v, want retry after invalid URL", keywords)
+	}
+}
