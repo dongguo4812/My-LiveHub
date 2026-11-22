@@ -85,3 +85,17 @@ jobs:
           export CGO_LDFLAGS="-L$TEMP_DIR/lx-quickjs-host-build/lib -lqjs"
           go test -tags lxquickjs -count=3 -run '^TestLXSourceRConfigLiveHandshake$' ./internal/music/lxruntime
           go test -tags lxquickjs -count=1 -v ./internal/music/lxruntime
+
+      - name: Measure QuickJS runtime lifecycle and binary footprint
+        shell: msys2 {0}
+        run: |
+          WORKSPACE="$(cygpath -u "$GITHUB_WORKSPACE")"
+          TEMP_DIR="$(cygpath -u "$RUNNER_TEMP")"
+          cd "$WORKSPACE/app"
+          export CGO_ENABLED=1
+          export CC=gcc
+          export CGO_LDFLAGS="-L$TEMP_DIR/lx-quickjs-host-build/lib -lqjs"
+          go test -tags lxquickjs -run '^TestLXRuntimeDefaultResourceLimits$' ./internal/music/lxruntime
+          go test -tags lxquickjs -run '^$' -bench '^BenchmarkLXRuntime(CreateClose|Eval)$' -benchtime=100x -benchmem ./internal/music/lxruntime
+          go test -tags lxquickjs -c -o "$TEMP_DIR/lxruntime.test.exe" ./internal/music/lxruntime
+          ls -lh "$TEMP_DIR/lx-quickjs-host-build/lib/libqjs.a" "$TEMP_DIR/lx-quickjs-host-build/lx_quickjs_host_smoke.exe" "$TEMP_DIR/lxruntime.test.exe"
