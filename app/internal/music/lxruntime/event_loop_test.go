@@ -263,3 +263,42 @@ lx.on('request', async () => await new Promise((resolve, reject) => {
 		t.Fatal("dispatch did not stop after runtime shutdown")
 	}
 }
+
+
+func TestRuntimeCloseInterruptsActiveJavaScriptEvaluation(t *testing.T) {
+	rt, err := New(Options{
+		MemoryLimitBytes: 16 << 20,
+		StackLimitBytes:  512 << 10,
+		EvalTimeout:      5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	evalDone := make(chan error, 1)
+	go func() {
+		_, evalErr := rt.Eval(context.Background(), "while (true) {}", "runtime-close-interrupt.js")
+		evalDone <- evalErr
+	}()
+	// Let the owner goroutine enter the non-terminating JavaScript loop.
+	time.Sleep(30 * time.Millisecond)
+
+	closed := make(chan error, 1)
+	go func() { closed <- rt.Close() }()
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatalf("close runtime: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("runtime close did not interrupt active JavaScript evaluation")
+	}
+	select {
+	case err := <-evalDone:
+		if err == nil {
+			t.Fatal("active evaluation unexpectedly succeeded after runtime shutdown")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("active evaluation did not stop after runtime shutdown")
+	}
+}
