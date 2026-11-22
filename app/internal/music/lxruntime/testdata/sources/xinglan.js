@@ -1555,7 +1555,9 @@ const isHttpUrl = (value) => {
   if (!match || match[1].includes('..')) return false
   if (match[2] && (Number(match[2]) < 1 || Number(match[2]) > 65535)) return false
   return !/@/.test(match[1])
-}const pickBackends = (source, quality, backends) => {
+}
+
+const pickBackends = (source, quality, backends) => {
   if (source !== 'kw') return backends
   if (KW_HIGH_QUALITY.includes(quality)) return backends.filter((b) => b.name === KW_STREAM_BACKEND)
   return backends.filter((b) => b.name !== KW_STREAM_BACKEND)
