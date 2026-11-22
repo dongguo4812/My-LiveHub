@@ -2969,3 +2969,60 @@ Promise.resolve(globalThis.__lxGetHandler('request')({
 		t.Fatalf("requests after expiry = %q, before expiry %q, err %v; want another backend lookup", countAfterExpiry, countBeforeExpiry, err)
 	}
 }
+
+
+func TestHelloWorldInvalidPlaybackURLIsNotCached(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "helloworld.js"))
+	if err != nil { t.Fatal(err) }
+	rt := newTestRuntime(t, 15*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+	var requests int
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		requests++
+		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header),
+			Body: io.NopCloser(strings.NewReader(`{"url":"javascript:alert(1)"}`)), Request: request}, nil
+	})}
+	if err := rt.InitializeLXSource(ctx, ScriptInfo{Name: "HelloWorld", Version: "260925", RawScript: string(source)}, string(source), client); err != nil {
+		t.Fatal(err)
+	}
+	info := map[string]any{"type":"320k","musicInfo":map[string]any{
+		"songmid":"hw-invalid-not-cached","hash":"hw-invalid-not-cached","id":"hw-invalid-not-cached","name":"invalid cache fixture",
+	}}
+	for attempt:=1; attempt<=2; attempt++ {
+		if result, err := rt.dispatchLXRequest(ctx,"kg","musicUrl",info,client); err == nil {
+			t.Fatalf("attempt %d returned invalid URL %#v",attempt,result)
+		}
+	}
+	if requests < 2 {
+		t.Fatalf("HelloWorld made %d provider requests across two failed attempts; invalid URL must not be cached",requests)
+	}
+}
+
+func TestXinglanInvalidPlaybackURLIsNotCached(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("testdata", "sources", "xinglan.js"))
+	if err != nil { t.Fatal(err) }
+	rt := newTestRuntime(t, 20*time.Second)
+	defer rt.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	var requests int
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response,error) {
+		requests++
+		return &http.Response{StatusCode:http.StatusOK,Status:"200 OK",Header:make(http.Header),
+			Body:io.NopCloser(strings.NewReader(`{"code":200,"url":"javascript:alert(1)","data":{"url":"javascript:alert(1)"}}`)),Request:request},nil
+	})}
+	if err := rt.InitializeLXSource(ctx,ScriptInfo{Name:"星澜聚合音源",Version:"v4.0.2",RawScript:string(source)},string(source),client); err != nil {
+		t.Fatal(err)
+	}
+	info:=map[string]any{"type":"320k","musicInfo":map[string]any{"songmid":"xinglan-invalid-not-cached","name":"invalid cache fixture"}}
+	for attempt:=1;attempt<=2;attempt++ {
+		if result,err:=rt.dispatchLXRequest(ctx,"tx","musicUrl",info,client);err==nil {
+			t.Fatalf("attempt %d returned invalid URL %#v",attempt,result)
+		}
+	}
+	if requests<2 {
+		t.Fatalf("Xinglan made %d provider requests across two failed attempts; invalid URL must not be cached",requests)
+	}
+}
