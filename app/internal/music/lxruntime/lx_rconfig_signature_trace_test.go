@@ -483,7 +483,26 @@ globalThis.__lxLiveMD5Trace = [];
 globalThis.__lxLiveEntropyTrace = [];
 globalThis.__lxLiveArithmeticTrace = [];
 globalThis.__lxLiveBytePushTrace = [];
+globalThis.__lxLiveTypedArrayTrace = [];
 globalThis.__lxLiveDecodeTrace = [];
+const __lxLiveU8 = Uint8Array.prototype;
+for (const method of ['set', 'fill', 'reverse', 'sort']) {
+  const original = __lxLiveU8[method];
+  if (typeof original !== 'function') continue;
+  __lxLiveU8[method] = function(...args) {
+    const before = this.length >= 8 && this.length <= 64 ? Array.from(this) : null;
+    const result = original.apply(this, args);
+    if (before && globalThis.__lxLiveTypedArrayTrace.length < 500) {
+      globalThis.__lxLiveTypedArrayTrace.push({
+        method, before, after: Array.from(this),
+        args: args.map(value => value && typeof value.length === 'number'
+          ? Array.from(value).slice(0, 32) : value),
+        stack: new Error().stack
+      });
+    }
+    return result;
+  };
+}
 globalThis.__lxLiveStringTrace = [];
 const __lxLiveArrayPush = Array.prototype.push;
 const __lxLivePushIDs = new WeakMap();
