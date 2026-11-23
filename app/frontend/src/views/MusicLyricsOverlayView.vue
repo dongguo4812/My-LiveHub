@@ -89,7 +89,7 @@ async function refreshPlayback() {
   if (refreshing) return
   refreshing = true
   try {
-    const next = await MusicService.GetPlaybackStatus()
+    const next = await MusicService.GetCachedPlaybackStatus()
     playback.value = next
     lyricPositionAnchor = next.position_ms ?? 0
     lyricPositionAnchorAt = Date.now()
