@@ -29,6 +29,7 @@ type storedLXScript struct {
 	Homepage         string   `json:"homepage,omitempty"`
 	Source           string   `json:"source"`
 	ExtensionActions []string `json:"extension_actions,omitempty"`
+	NativeActions []string `json:"native_actions,omitempty"`
 	SupportedSources []string `json:"supported_sources,omitempty"`
 	Enabled          bool     `json:"enabled"`
 	LastError        string   `json:"last_error,omitempty"`
@@ -73,7 +74,7 @@ func summarizeLXScript(script storedLXScript) LXScriptSummary {
 		ID: script.ID, Name: script.Name, Description: script.Description,
 		Version: script.Version, Author: script.Author, Homepage: script.Homepage,
 		Enabled: script.Enabled, ExtensionActions: append([]string(nil), script.ExtensionActions...),
-		SupportedSources: append([]string(nil), script.SupportedSources...), LastError: script.LastError,
+		NativeActions: append([]string(nil), script.NativeActions...), SupportedSources: append([]string(nil), script.SupportedSources...), LastError: script.LastError,
 	}
 }
 
@@ -189,10 +190,10 @@ func (r *productionMusicLXRuntime) ImportScript(ctx context.Context, name, sourc
 	if err := lxruntime.ValidateLXScriptSource(source); err != nil { return LXScriptSummary{}, err }
 	info := parseImportedLXScriptInfo(name, source)
 	if ctx == nil { ctx = context.Background() }
-	actions, supportedSources, err := lxruntime.DetectLXScriptExtensionActions(ctx, info, source, nil)
+	capabilities, err := lxruntime.DetectLXScriptCapabilities(ctx, info, source, nil)
 	if err != nil { return LXScriptSummary{}, fmt.Errorf("无法识别脚本能力：%w", err) }
 	probe, err := lxruntime.NewSourceManagerWithScripts(nil, []lxruntime.LXSourceScript{{
-		Info: info, Source: source, ExtensionActions: actions,
+		Info: info, Source: source, ExtensionActions: capabilities.ExtensionActions,
 	}})
 	if err != nil { return LXScriptSummary{}, fmt.Errorf("validate imported LX script: %w", err) }
 	_ = probe.Close()
@@ -216,7 +217,7 @@ func (r *productionMusicLXRuntime) ImportScript(ctx context.Context, name, sourc
 	r.scripts = append(r.scripts, storedLXScript{
 		ID: id, Name: info.Name, Description: info.Description, Version: info.Version,
 		Author: info.Author, Homepage: info.Homepage, Source: source,
-		ExtensionActions: append([]string(nil), actions...), SupportedSources: append([]string(nil), supportedSources...), Enabled: true,
+		ExtensionActions: append([]string(nil), capabilities.ExtensionActions...), NativeActions: append([]string(nil), capabilities.NativeActions...), SupportedSources: append([]string(nil), capabilities.SupportedSources...), Enabled: true,
 	})
 	if err := r.rebuildLocked(ctx); err != nil {
 		r.scripts = r.scripts[:len(r.scripts)-1]
