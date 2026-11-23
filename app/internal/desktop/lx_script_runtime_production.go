@@ -6,31 +6,43 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sync"
 
-	"github.com/dongguo4812/My-LiveHub/app/internal/music"
 	"github.com/dongguo4812/My-LiveHub/app/internal/music/lxruntime"
 )
 
 type productionMusicLXRuntime struct {
+	mu sync.Mutex
 	manager *lxruntime.SourceManager
 }
 
 func newLXScriptRuntime() lxScriptRuntime {
-	return &productionMusicLXRuntime{manager: lxruntime.NewSourceManager(&http.Client{})}
+	return &productionMusicLXRuntime{}
 }
 
 func (r *productionMusicLXRuntime) Start(ctx context.Context) error {
-	if r == nil || r.manager == nil {
+	if r == nil {
 		return errors.New("production LX source runtime is unavailable")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.manager == nil {
+		r.manager = lxruntime.NewSourceManager(&http.Client{})
 	}
 	return r.manager.Start(ctx)
 }
 
 func (r *productionMusicLXRuntime) ResolvePlaybackURL(ctx context.Context, source string, info any) (string, error) {
-	if r == nil || r.manager == nil {
+	if r == nil {
 		return "", errors.New("production LX source runtime is unavailable")
 	}
-	value, err := r.manager.ResolvePlaybackURL(ctx, source, info)
+	r.mu.Lock()
+	manager := r.manager
+	r.mu.Unlock()
+	if manager == nil {
+		return "", errors.New("production LX source runtime has not started")
+	}
+	value, err := manager.ResolvePlaybackURL(ctx, source, info)
 	if err != nil {
 		return "", err
 	}
@@ -42,10 +54,15 @@ func (r *productionMusicLXRuntime) ResolvePlaybackURL(ctx context.Context, sourc
 }
 
 func (r *productionMusicLXRuntime) Close() error {
-	if r == nil || r.manager == nil {
+	if r == nil {
 		return nil
 	}
-	return r.manager.Close()
+	r.mu.Lock()
+	manager := r.manager
+	r.manager = nil
+	r.mu.Unlock()
+	if manager == nil {
+		return nil
+	}
+	return manager.Close()
 }
-
-var _ music.PlaybackEngineLifecycle = (*LXPlaybackEngine)(nil)
