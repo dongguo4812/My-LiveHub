@@ -39,6 +39,39 @@ lx.send(lx.EVENT_NAMES.inited, {
 		t.Fatalf("detected sources = %#v, want [kw]", sources)
 	}
 }
+func TestDetectLXScriptCapabilitiesAcceptsNativeMusicURLOnly(t *testing.T) {
+	source := `
+lx.on(lx.EVENT_NAMES.request, async () => 'https://example.com/song.mp3');
+lx.send(lx.EVENT_NAMES.inited, {
+  sources: { fish: { type: 'music', actions: ['musicUrl'], qualitys: ['128k'] } }
+});
+`
+	capabilities, err := DetectLXScriptCapabilities(context.Background(), ScriptInfo{Name: "native-music-url-only"}, source, nil)
+	if err != nil { t.Fatalf("native musicUrl-only source should be recognized: %v", err) }
+	if len(capabilities.SupportedSources) != 1 || capabilities.SupportedSources[0] != "fish" {
+		t.Fatalf("supported sources = %#v, want [fish]", capabilities.SupportedSources)
+	}
+	if len(capabilities.NativeActions) != 1 || capabilities.NativeActions[0] != "musicUrl" {
+		t.Fatalf("native actions = %#v, want [musicUrl]", capabilities.NativeActions)
+	}
+	if len(capabilities.ExtensionActions) != 0 {
+		t.Fatalf("native musicUrl must not be misclassified as a community action: %#v", capabilities.ExtensionActions)
+	}
+}
+
+func TestDetectLXScriptCapabilitiesRejectsUnknownActions(t *testing.T) {
+	source := `
+lx.on(lx.EVENT_NAMES.request, async () => 'ok');
+lx.send(lx.EVENT_NAMES.inited, {
+  sources: { unknown: { type: 'music', actions: ['unsupportedAction'] } }
+});
+`
+	_, err := DetectLXScriptCapabilities(context.Background(), ScriptInfo{Name: "unknown-action"}, source, nil)
+	if err == nil || !strings.Contains(err.Error(), "unsupportedAction") {
+		t.Fatalf("unknown-only action declaration should fail with explicit reason, got %v", err)
+	}
+}
+
 func TestProductionSourceManagerLifecycleGuards(t *testing.T) {
 	manager := newTestSourceManager(t, []LXSourceScript{
 		{Info: ScriptInfo{Name: "fixture-one"}, Source: "lx.on('request', () => 'https://1.1.1.1/a.mp3');"},
