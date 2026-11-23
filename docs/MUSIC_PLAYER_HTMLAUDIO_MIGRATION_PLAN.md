@@ -427,12 +427,12 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 - Wails v3.1.0 与前端运行时具备事件/绑定通信能力，Go 协调器与单例 HTMLAudio 的边界在技术上成立。
 
 限制与结论：
-- 现有实现是“部分洛雪运行时 + 固定内置脚本 URL resolver”，不是完整洛雪 JS 运行时，也不是通用用户脚本导入系统。
+- 现有实现已具备部分洛雪运行时和通用用户脚本导入/生命周期管理，但仍不是完整洛雪 JS 运行时；生产搜索/详情/歌词 action 调度尚未接通。
 - 当前脚本 action 入口主要验证了 musicUrl；不能据此认定搜索、详情、歌词都已由洛雪 JS 脚本执行。
 - 当前五个平台搜索由 Go 原生 provider 提供；这与“搜索由洛雪 JS 执行”的目标存在明确差距。
 - URL resolver 返回字符串，无法完整表达媒体请求 headers、Cookie/Referer、MIME、过期和刷新策略。
 - URL resolver 尚未接入旧播放器主播放链路；HTMLAudio 也没有目标 Windows WebView 的真实实播证据。
-- 用户脚本导入、脚本管理和安全隔离尚未形成可验收闭环。
+- 用户脚本导入、持久化、启停/删除、损坏隔离和运行时释放已通过 A 阶段验收；完整 action 权限和调度仍按后续阶段推进。
 
 因此：**架构方向通过可行性审查；A 阶段的生产脚本导入与生命周期已完成，剩余协议、兼容性和 action 调度缺口按第 4 节唯一顺序进入 B。当前 B 是下一阶段但尚未开始。**
 
@@ -441,7 +441,7 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 | 编号 | 缺口 | 当前事实 | 必须采取的处理 |
 |---|---|---|---|
 | F-01 | 洛雪原生协议与搜索扩展边界 | 已核对的 action 调用链以 musicUrl 为主；现有五平台搜索在 Go provider | 保留洛雪原生脚本 API 兼容层；搜索统一由 JS 脚本执行的需求，采用明确标识的 My-LiveHub 扩展 action（例如 search / detail / lyric），不得伪称这些是洛雪原生 action。对原生脚本缺少扩展 action 的情况提供清晰能力声明，不静默回退到 Go 五平台实现 |
-| F-02 | 用户脚本导入与管理 | 当前 SourceManager 以 go:embed 固定注册三个脚本 | 设计脚本目录/导入、元信息校验、启停/删除、版本与配置管理；内置脚本和用户脚本共用 Runtime 工厂、加载器、权限策略和 action dispatcher |
+| F-02 | 用户脚本导入与管理 | A 阶段已接入 `config/local/lx_sources.json`、production SourceManager、MusicService 管理 API 和设置页 | 已完成导入、元信息/hash 校验、持久化恢复、启停/删除、损坏隔离及关闭释放；后续只处理 action 调度和扩展能力，不重复建设脚本管理体系 |
 | F-03 | 洛雪运行时兼容矩阵 | 已实现部分全局对象、lx API、请求桥接；各 API 的真实覆盖程度仍需逐项核验 | 建立 API 级矩阵，记录状态、代码位置、协议来源、测试和差异；按真实第三方脚本依赖补齐，不能仅凭符号存在就标为兼容 |
 | F-04 | 播放资源结构 | 当前 resolver 返回 URL 字符串 | 将返回契约升级为结构化 PlaybackResource，至少包含 URL、source/track/quality、媒体 headers（敏感字段受控）、MIME/编码提示、过期/刷新信息、代理策略和脱敏元数据 |
 | F-05 | 媒体传输能力 | HTMLAudio 不能任意设置请求头，真实媒体要求尚未采样 | 先采集真实资源的响应和请求限制；优先直连或脚本音质回退，确有必要才实现支持 Range/取消/重定向/流式响应的受控 Go 代理 |
