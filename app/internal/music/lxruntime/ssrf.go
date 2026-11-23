@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -148,7 +147,5 @@ func isPublicLXIP(ip netip.Addr) bool {
 			return false
 		}
 	}
-	// Avoid accepting malformed ports during redirect validation.
-	_ = strconv.Itoa(0)
 	return true
 }
