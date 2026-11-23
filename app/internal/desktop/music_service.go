@@ -339,7 +339,10 @@ func (s *MusicService) searchSongRequestTrack(parent context.Context, keyword, r
 	return searchSongRequestAcrossSources(parent, sourceIDs, func(source string) ([]music.Track, error) {
 		ctx, cancel := context.WithTimeout(parent, 18*time.Second)
 		defer cancel()
-		result, err := s.searcher.SearchProvider(ctx, source, keyword, 1)
+		s.mu.RLock()
+		searcher, resolver := s.searcher, s.scriptRuntime
+		s.mu.RUnlock()
+		result, err := music.NewUnifiedSourceService(searcher, resolver).SearchSource(ctx, source, keyword, 1)
 		if err != nil { return nil, err }
 		return result.Tracks, nil
 	}, requestedTitle, requestedArtist)
@@ -575,7 +578,10 @@ func (s *MusicService) SearchSourcePage(keyword, source string, page int) (Music
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 18*time.Second)
 	defer cancel()
-	result, err := s.searcher.SearchProvider(ctx, source, keyword, page)
+	s.mu.RLock()
+	searcher, resolver := s.searcher, s.scriptRuntime
+	s.mu.RUnlock()
+	result, err := music.NewUnifiedSourceService(searcher, resolver).SearchSource(ctx, source, keyword, page)
 	if err != nil {
 		return MusicSearchResponse{}, err
 	}
@@ -618,7 +624,10 @@ func (s *MusicService) searchPage(parent context.Context, keyword string, page i
 	}
 	ctx, cancel := context.WithTimeout(parent, 18*time.Second)
 	defer cancel()
-	result, sourceErrors, err := s.searcher.SearchSources(ctx, keyword, page, sourceIDs)
+	s.mu.RLock()
+	searcher, resolver := s.searcher, s.scriptRuntime
+	s.mu.RUnlock()
+	result, sourceErrors, err := music.NewUnifiedSourceService(searcher, resolver).Search(ctx, keyword, page, sourceIDs)
 	response := MusicSearchResponse{
 		Tracks: result.Tracks, Errors: sourceErrors, Page: result.Page,
 		PageSize: result.PageSize, Total: result.Total, MaxPage: result.MaxPage,
