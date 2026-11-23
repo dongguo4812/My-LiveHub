@@ -138,19 +138,22 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 
 ### C. 播放 URL、音质回退与缓存闭环
 
-**当前代码状态：部分完成。** A 阶段已将持久化用户脚本装载到 production SourceManager，并验证 `musicUrl` resolver 可执行；队列选曲到实际播放的生产链路、结构化 PlaybackResource、音质回退和缓存闭环仍未完成。
+**当前代码状态：实施中（未达到完成门）。** A/B 已完成。C 已新增结构化 `PlaybackResource`（URL/source/track/quality、媒体 headers、MIME/codec、过期/刷新及代理标志），并将其作为进程内字段挂接到队列 Track（`json:"-"`，不进入普通队列 JSON）；统一 resolver 已支持所选音质优先、按音源质量列表顺序回退、TTL 缓存、到期淘汰、显式失效和一次刷新解析。MusicService 队列选曲路径现会调用统一资源 resolver；资源感知引擎可通过 `LoadResource` 消费结构化资源，旧引擎仍保留兼容回退。新增确定性质量回退、缓存命中/过期/失效、URL/header 安全校验测试。**当前尚不能标记 C 完成**：生产旧引擎尚不实现 `LoadResource`，因此结构化资源尚未由最终 HTMLAudio 播放器消费；当前脚本 `musicUrl` 协议只返回 URL 字符串，媒体 GET headers/Cookie/Referer、MIME/codec、ExpiresAt 和代理需求没有真实来源数据，不能伪造；真实媒体失败事件触发刷新仍需资源感知播放器桥接。
 
 **工作内容**
-- 将生产队列选中歌曲到 SourceManager URL 解析接通，复用已有 resolver/facade。
-- 统一音质优先级和回退顺序，处理缓存 TTL、缓存命中、URL 过期、失效重解析、有限重试及音源失败隔离。
-- 定义结构化 PlaybackResource，表达 URL、source/track/quality、媒体请求 headers、MIME/编码提示、过期/刷新信息和代理需求。
+- [进行中] 将生产队列选中歌曲接入统一播放资源 resolver；复用现有 SourceManager 原生 `musicUrl`，按音源范围路由，不调用社区扩展 action 冒充原生解析。
+- [已实现待CI] 统一音质顺序：显式请求音质优先，其次 Track.SelectedQuality，再按音源返回的 Track.Qualities 顺序逐级尝试；失败后继续下一质量。
+- [已实现待CI] 增加有上限的进程内 TTL 缓存、源过期时间上限、命中、过期淘汰、显式失效和单次刷新解析；缓存键按 source/track/quality 隔离。
+- [已实现待CI] 定义结构化 PlaybackResource，表达 URL、source/track/quality、媒体 headers、MIME/编码提示、过期/刷新信息和代理需求；资源字段不进入 Track 普通 JSON，避免签名 URL 意外出现在队列事件/状态中。
+- [待完成] 接入资源感知播放引擎消费 `LoadResource`，并在实际媒体加载失败时调用单次刷新；D 阶段 HTMLAudio 桥接必须消费该结构化资源。
 - 将脚本 API 请求 headers 与最终媒体 GET headers/Cookie/Referer 分开管理；敏感信息不得写入日志或普通事件。
 - 生产 URL 和请求继续受安全策略约束；媒体最终连接的 DNS pinning/redirect 由后续受控媒体传输保证。
 
 **完成门**
-- 队列歌曲可由实际导入脚本解析出结构化播放资源并交付播放器。
-- 音质回退、缓存命中、过期/失效链接重解析、有限重试和安全拒绝均有确定性测试。
-- 媒体请求上下文可完整、安全地传递；相关 CI 通过。
+- [进行中] 队列路径可解析并持有结构化资源；尚未由 HTMLAudio/资源感知生产引擎消费，不能判定通过。
+- [进行中] 音质回退、缓存命中、TTL 到期、显式失效、单次刷新解析及 URL/header 安全拒绝已新增确定性测试；必须以本阶段最终 CI 成功为准。
+- [未通过] 媒体请求上下文尚无脚本协议来源，不能声称 headers/Cookie/Referer 已完整传递；需要明确扩展协议或受控媒体传输契约并验证安全过滤。
+- C 仅在资源感知生产播放链路、真实媒体失败刷新、请求上下文契约和全部 CI 均通过后标记完成。
 
 ### D. HTMLAudio PoC 与正式播放桥接
 
