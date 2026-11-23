@@ -21,6 +21,7 @@ const (
 	defaultMemoryLimit = 32 << 20
 	defaultStackLimit = 512 << 10
 	defaultEvalTimeout = 3 * time.Second
+	maxInitializationEvalTimeout = 60 * time.Second
 )
 
 type Options struct {
@@ -31,6 +32,7 @@ type Options struct {
 type evalResult struct { value string; err error }
 type command struct {
 	ctx context.Context
+	evalTimeout time.Duration
 	source, filename string
 	result chan evalResult
 	close bool
@@ -162,6 +164,7 @@ func (r *Runtime) loop(opts Options, ready chan<- error) {
 		}
 		if err := cmd.ctx.Err(); err != nil { cmd.result <- evalResult{err:err}; continue }
 		timeout := opts.EvalTimeout
+		if cmd.evalTimeout > 0 { timeout = cmd.evalTimeout }
 		if deadline, ok := cmd.ctx.Deadline(); ok { if remaining := time.Until(deadline); remaining < timeout { timeout = remaining } }
 		if timeout <= 0 { cmd.result <- evalResult{err:context.DeadlineExceeded}; continue }
 		r.api.setInterrupted(state, 0)
@@ -221,12 +224,19 @@ func nativeCString(ptr unsafe.Pointer, limit int) string {
 }
 
 func (r *Runtime) Eval(ctx context.Context, source, filename string) (string, error) {
+	return r.EvalWithTimeout(ctx, source, filename, 0)
+}
+
+// EvalWithTimeout overrides the runtime's ordinary per-evaluation watchdog for
+// one bounded operation. The caller context remains the hard upper bound.
+func (r *Runtime) EvalWithTimeout(ctx context.Context, source, filename string, timeout time.Duration) (string, error) {
+	if r == nil { return "", errors.New("QuickJS runtime is nil") }
 	if ctx == nil { ctx = context.Background() }
 	evalCtx, cancelEval := context.WithCancel(ctx)
 	stopShutdown := context.AfterFunc(r.lifecycle, cancelEval)
 	defer func(){ stopShutdown(); cancelEval() }()
 	result := make(chan evalResult, 1)
-	cmd := command{ctx:evalCtx, source:source, filename:filename, result:result}
+	cmd := command{ctx:evalCtx, evalTimeout:timeout, source:source, filename:filename, result:result}
 	select {
 	case <-r.done: return "", errors.New("QuickJS runtime is closed")
 	case <-ctx.Done(): return "", ctx.Err()
