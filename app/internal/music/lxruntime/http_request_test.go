@@ -149,28 +149,17 @@ func (fn lxRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func TestLXHTTPRedirectCannotReachLoopback(t *testing.T) {
-	client := &http.Client{Transport: lxRoundTripFunc(func(req *http.Request) (*http.Response, error) {
-		return &http.Response{
-			StatusCode: http.StatusFound,
-			Header: http.Header{"Location": []string{"http://127.0.0.1:23330/private"}},
-			Body: io.NopCloser(strings.NewReader("")),
-			Request: req,
-		}, nil
-	})}
-	safeClient, err := lxSafeHTTPClient(client)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req, err := http.NewRequest(http.MethodGet, "http://1.1.1.1/start", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = safeClient.Do(req)
+	safeClient, err := lxSafeHTTPClient(&http.Client{})
+	if err != nil { t.Fatal(err) }
+	req, err := http.NewRequest(http.MethodGet, "http://127.0.0.1:23330/private", nil)
+	if err != nil { t.Fatal(err) }
+	previous, err := http.NewRequest(http.MethodGet, "http://1.1.1.1/start", nil)
+	if err != nil { t.Fatal(err) }
+	err = safeClient.CheckRedirect(req, []*http.Request{previous})
 	if err == nil || !strings.Contains(err.Error(), "not public") {
 		t.Fatalf("redirect to loopback should be rejected, got %v", err)
 	}
 }
-
 
 func TestLXRequestResourceLimits(t *testing.T) {
 	tooLargeBody, _ := json.Marshal(strings.Repeat("x", lxMaxRequestBodyBytes+1))
@@ -211,6 +200,9 @@ func TestValidateLXRequestHeadersRejectsInvalidNamesAndControlBytes(t *testing.T
 		{"X-Test:Injected": "value"},
 		{"X-Test": "bad\x00value"},
 		{"X-Test": "bad\x7fvalue"},
+		{"Connection": "keep-alive"},
+		{"Transfer-Encoding": "chunked"},
+		{"Host": "127.0.0.1"},
 	} {
 		if err := validateLXRequestHeaders(headers); err == nil {
 			t.Errorf("invalid header accepted: %#v", headers)
@@ -222,19 +214,13 @@ func TestValidateLXRequestHeadersRejectsInvalidNamesAndControlBytes(t *testing.T
 }
 
 func TestLXHTTPSRedirectCannotDowngradeToHTTP(t *testing.T) {
-	client := &http.Client{Transport: lxRoundTripFunc(func(req *http.Request) (*http.Response, error) {
-		return &http.Response{
-			StatusCode: http.StatusFound,
-			Header: http.Header{"Location": []string{"http://1.1.1.1/downgrade"}},
-			Body: io.NopCloser(strings.NewReader("")),
-			Request: req,
-		}, nil
-	})}
-	safeClient, err := lxSafeHTTPClient(client)
+	safeClient, err := lxSafeHTTPClient(&http.Client{})
 	if err != nil { t.Fatal(err) }
-	req, err := http.NewRequest(http.MethodGet, "https://1.1.1.1/start", nil)
+	req, err := http.NewRequest(http.MethodGet, "http://1.1.1.1/downgrade", nil)
 	if err != nil { t.Fatal(err) }
-	_, err = safeClient.Do(req)
+	previous, err := http.NewRequest(http.MethodGet, "https://1.1.1.1/start", nil)
+	if err != nil { t.Fatal(err) }
+	err = safeClient.CheckRedirect(req, []*http.Request{previous})
 	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "downgrade") {
 		t.Fatalf("HTTPS-to-HTTP redirect should be rejected, got %v", err)
 	}

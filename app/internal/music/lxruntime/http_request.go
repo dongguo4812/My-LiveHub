@@ -166,6 +166,12 @@ func validateLXRequestHeaders(headers map[string]any) error {
 		if !validHTTPToken(key) {
 			return errors.New("lx.request: invalid request header name")
 		}
+		switch strings.ToLower(key) {
+		case "connection", "proxy-connection", "keep-alive", "proxy-authenticate",
+			"proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade",
+			"content-length", "host":
+			return errors.New("lx.request: hop-by-hop or framing header is not allowed")
+		}
 		for i := 0; i < len(valueText); i++ {
 			b := valueText[i]
 			// HTTP field values permit horizontal tab and visible/obs-text

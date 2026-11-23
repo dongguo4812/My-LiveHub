@@ -25,6 +25,8 @@ const payload = JSON.stringify({ source: 'tx', title: '音乐' });
 const payloadBytes = lx.utils.buffer.from(payload, 'utf-8');
 const payloadBase64 = lx.utils.buffer.bufToString(payloadBytes, 'base64');
 const lxBufferFromIsBuffer = Buffer.isBuffer(payloadBytes);
+const aesResult = lx.utils.crypto.aesEncrypt(Buffer.from('LX'), 'aes-128-ecb', Buffer.from('0123456789abcdef'), Buffer.alloc(0));
+const randomResult = lx.utils.crypto.randomBytes(16);
 
 const responseBytes = Buffer.from('{"ok":true,"title":"音乐"}', 'utf-8');
 const responseText = Buffer.from(responseBytes).toString('utf-8');
@@ -46,6 +48,8 @@ const concatenated = Buffer.concat([Buffer.from('LX'), Buffer.from('-Host')]).to
 JSON.stringify({
   payloadBase64,
   lxBufferFromIsBuffer,
+  aesResultIsBuffer: Buffer.isBuffer(aesResult),
+  randomResultIsBuffer: Buffer.isBuffer(randomResult),
   responseText,
   responseIsBuffer: Buffer.isBuffer(responseBytes),
   typedArrayIsBuffer: Buffer.isBuffer(new Uint8Array([1, 2])),
@@ -70,6 +74,8 @@ JSON.stringify({
 	var got struct {
 		PayloadBase64    string `json:"payloadBase64"`
 		LXBufferFromIsBuffer bool `json:"lxBufferFromIsBuffer"`
+		AESResultIsBuffer bool `json:"aesResultIsBuffer"`
+		RandomResultIsBuffer bool `json:"randomResultIsBuffer"`
 		ResponseText     string `json:"responseText"`
 		ResponseIsBuffer bool   `json:"responseIsBuffer"`
 		TypedArrayIsBuffer bool `json:"typedArrayIsBuffer"`
@@ -90,7 +96,7 @@ JSON.stringify({
 		t.Fatalf("decode Buffer contract result %q: %v", value, err)
 	}
 	payload, _ := json.Marshal(map[string]string{"source": "tx", "title": "音乐"})
-	if !got.LXBufferFromIsBuffer { t.Fatal("lx.utils.buffer.from must return a Node-compatible Buffer") }
+	if !got.LXBufferFromIsBuffer || !got.AESResultIsBuffer || !got.RandomResultIsBuffer { t.Fatalf("native byte helpers must return Buffer instances: buffer.from=%v aes=%v random=%v", got.LXBufferFromIsBuffer, got.AESResultIsBuffer, got.RandomResultIsBuffer) }
 	if got.PayloadBase64 != base64.StdEncoding.EncodeToString(payload) {
 		t.Fatalf("lx.utils.buffer base64 = %q, want encoding of %s", got.PayloadBase64, payload)
 	}

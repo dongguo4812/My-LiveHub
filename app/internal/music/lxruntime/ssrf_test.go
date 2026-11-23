@@ -5,6 +5,7 @@ package lxruntime
 import (
 	"context"
 	"net/netip"
+	"net/http"
 	"sync"
 	"errors"
 	"strings"
@@ -131,5 +132,18 @@ func TestLXSafeHTTPClientDisablesAmbientProxy(t *testing.T) {
 	if transport.Proxy != nil { t.Fatal("safe LX transport retained ambient proxy configuration") }
 	if transport.DialTLS != nil || transport.DialTLSContext != nil {
 		t.Fatal("safe LX transport retained a TLS dial bypass")
+	}
+}
+
+
+type lxRejectingRoundTripper struct{}
+func (lxRejectingRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("test transport should never be called")
+}
+
+func TestLXSafeHTTPClientRejectsCustomTransportInProduction(t *testing.T) {
+	_, err := lxSafeHTTPClient(&http.Client{Transport: lxRejectingRoundTripper{}})
+	if err == nil || !strings.Contains(err.Error(), "custom HTTP transport") {
+		t.Fatalf("strict policy should reject custom RoundTripper, got %v", err)
 	}
 }

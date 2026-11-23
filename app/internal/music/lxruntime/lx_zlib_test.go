@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"compress/zlib"
 	"testing"
+	"context"
+	"time"
 )
 
 func TestLXZlibDeflateInflateRoundTrip(t *testing.T) {
@@ -44,4 +46,20 @@ func TestLXZlibEnforcesInputAndOutputLimits(t *testing.T) {
 	if _, err := lxZlibInflate(encoded.Bytes()); err == nil {
 		t.Fatal("expected oversized inflate output to fail")
 	}
+}
+
+
+func TestLXZlibBridgeReturnsNodeCompatibleBuffer(t *testing.T) {
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{Name: "zlib-buffer-contract"}); err != nil { t.Fatal(err) }
+	if _, err := rt.Eval(context.Background(), `
+globalThis.__lxZlibBufferState = 'pending';
+lx.utils.zlib.deflate(Buffer.from('zlib-buffer-contract')).then(compressed => {
+  globalThis.__lxZlibBufferState = Buffer.isBuffer(compressed) ? 'buffer' : 'not-buffer';
+});
+'started';
+`, "lx-zlib-buffer-contract.js"); err != nil { t.Fatal(err) }
+	value, err := rt.Eval(context.Background(), "String(globalThis.__lxZlibBufferState)", "lx-zlib-buffer-result.js")
+	if err != nil { t.Fatal(err) }
+	if value != "buffer" { t.Fatalf("zlib.deflate must resolve a Node-compatible Buffer, got %q", value) }
 }

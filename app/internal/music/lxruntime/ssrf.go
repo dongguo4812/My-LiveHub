@@ -68,9 +68,14 @@ func lxSafeHTTPClientWithResolver(client *http.Client, allowPrivate bool, resolv
 		}
 		clone.Transport = safeTransport
 	} else {
-		// Custom RoundTrippers are useful for deterministic tests. They cannot
-		// provide DNS pinning, so only permit literal public IP destinations.
-		clone.Transport = lxLiteralIPPolicyTransport{next: base, allowPrivate: allowPrivate}
+		// A custom RoundTripper can ignore req.URL and dial an arbitrary address;
+		// URL validation cannot constrain its actual network destination.
+		// Production therefore rejects it. Tests may opt into an injected
+		// transport only through the explicit allowPrivate test policy.
+		if !allowPrivate {
+			return nil, errors.New("lx.request: custom HTTP transport is not allowed by strict network policy")
+		}
+		clone.Transport = base
 	}
 	previousRedirect := client.CheckRedirect
 	clone.CheckRedirect = func(req *http.Request, via []*http.Request) error {
@@ -89,23 +94,6 @@ func lxSafeHTTPClientWithResolver(client *http.Client, allowPrivate bool, resolv
 		return nil
 	}
 	return &clone, nil
-}
-
-type lxLiteralIPPolicyTransport struct {
-	next http.RoundTripper
-	allowPrivate bool
-}
-
-func (t lxLiteralIPPolicyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if !t.allowPrivate {
-		if _, err := netip.ParseAddr(req.URL.Hostname()); err != nil {
-			return nil, errors.New("lx.request: custom transport cannot guarantee DNS pinning")
-		}
-	}
-	if err := validateLXDestinationWithPolicy(req.Context(), req.URL, t.allowPrivate); err != nil {
-		return nil, err
-	}
-	return t.next.RoundTrip(req)
 }
 
 func validateLXDestination(ctx context.Context, target *url.URL) error {
