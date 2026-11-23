@@ -845,3 +845,16 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 6. 第三方样本未明确授权再分发完整源码，因此本项目只记录固定版本、blob SHA、来源链接和测试观察，不把完整第三方脚本复制进仓库。后续若需要离线 CI fixture，应先确认许可或取得用户提供的可测试副本，再计算并固定 SHA-256。
 
 **目标脚本采样已完成第一轮；真实执行仍未完成。** 当前测试文件已对仓库自带三份脚本做初始化握手验证，但尚未对外部 FeichangDao/XingHai 执行 action。下一步需要在可注入、可录制回放的 HTTP Host 层完成测试隔离，再逐项执行真实外部脚本；不可直接放开 CI 出网。
+
+
+### 10.16 脚本网络请求资源配额补强
+
+在 SSRF 地址策略之外，进一步为每个脚本发起的 `lx.request` 增加宿主侧资源边界：
+- URL 最大 8 KiB；
+- 请求 body 最大 2 MiB；
+- 请求 header 最多 100 项，key/value 总计最多 64 KiB，并拒绝 CR/LF header injection；
+- 响应 body 最大 8 MiB；
+- 全局同时执行的 LX HTTP 请求最多 8 个，等待 semaphore 时可响应 context cancel；先取得网络槽位再构造请求 body，避免大量并发任务先分配大 body；
+- 默认 HTTP 超时/最大超时仍为 60 秒；请求任务总数仍由 dispatch/init 的上限约束。
+
+已新增 `TestLXRequestResourceLimits` 覆盖超大 URL、超大 body、header injection 和 header 数量限制。当前测试代码仍待 CI/本地实际运行。上述配额是 My-LiveHub 的安全策略，不宣称与洛雪 Needle 对任意超大请求完全等价；真实脚本兼容性若受限，应以明确错误和可配置的安全上限处理，不得移除安全边界。
