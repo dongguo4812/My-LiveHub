@@ -99,6 +99,13 @@ type LXScriptSummary = Awaited<ReturnType<typeof MusicService.ListLXScripts>>[nu
 const lxScripts = ref<LXScriptSummary[]>([])
 const lxScriptName = ref('')
 const lxScriptSource = ref('')
+const lxScriptExtensionActions = ref<string[]>([])
+const lxScriptExtensionActionOptions = [
+  { label: '搜索', value: 'search' },
+  { label: '详情', value: 'detail' },
+  { label: '歌词', value: 'lyric' },
+  { label: '封面', value: 'pic' },
+]
 const lxScriptFileInput = ref<HTMLInputElement | null>(null)
 const lxScriptBusy = ref(false)
 
@@ -129,9 +136,10 @@ async function importLXScript() {
   error.value = ''
   success.value = ''
   try {
-    const added = await MusicService.ImportLXScript(lxScriptName.value.trim(), lxScriptSource.value, [])
+    const added = await MusicService.ImportLXScript(lxScriptName.value.trim(), lxScriptSource.value, [...lxScriptExtensionActions.value])
     lxScriptName.value = ''
     lxScriptSource.value = ''
+    lxScriptExtensionActions.value = []
     await refreshLXScripts()
     success.value = `已导入音源脚本：${added.name}`
   } catch (reason) {
@@ -579,6 +587,12 @@ onUnmounted(() => {
             <input ref="lxScriptFileInput" class="hidden-file-input" type="file" accept=".js,text/javascript,application/javascript" @change="readLXScriptFile" />
             <el-button plain @click="chooseLXScriptFile">选择脚本文件</el-button>
           </div>
+        </div>
+        <div class="setting-row">
+          <div><strong>社区扩展 action</strong><p>仅勾选脚本实际实现的能力；musicUrl 仍走洛雪原生 action。</p></div>
+          <el-checkbox-group v-model="lxScriptExtensionActions">
+            <el-checkbox v-for="option in lxScriptExtensionActionOptions" :key="option.value" :label="option.value">{{ option.label }}</el-checkbox>
+          </el-checkbox-group>
         </div>
         <el-input v-model="lxScriptSource" type="textarea" :rows="8" resize="vertical" placeholder="粘贴完整的洛雪 JS 音源脚本源码……" />
         <div class="card-actions">

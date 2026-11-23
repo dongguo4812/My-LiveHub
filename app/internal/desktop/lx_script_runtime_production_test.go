@@ -133,6 +133,7 @@ func TestProductionLXCommunityActionsReachMusicService(t *testing.T) {
  source:=`
 lx.on(lx.EVENT_NAMES.request, async ({source,action,info}) => {
  if(source!=='kw') throw new Error('unexpected source '+source);
+ if(action==='musicUrl') return 'https://1.1.1.1/fixture-song.mp3';
  if(action==='search') return {tracks:[{id:'fixture-song',name:'Fixture Song',singer:'Fixture Artist',interval:180}],total:1,page:1,page_size:30,max_page:1};
  if(action==='detail') return {album:'Fixture Album'};
  if(action==='lyric') return '[00:00.00]Fixture lyric';
@@ -145,7 +146,11 @@ lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl'],qu
  if err:=runtime.Start(context.Background());err!=nil{t.Fatal(err)}
  defer service.Shutdown()
  if !runtime.HasExtensionAction("search")||!runtime.HasExtensionAction("detail")||!runtime.HasExtensionAction("lyric")||!runtime.HasExtensionAction("pic"){t.Fatal("declared community actions were not exposed")}
+ if runtime.HasExtensionAction("musicUrl"){t.Fatal("native musicUrl must not be classified as a community extension")}
+ resolved,err:=runtime.ResolvePlaybackURL(context.Background(),"kw",map[string]any{"musicInfo":map[string]any{"songmid":"fixture-song"},"type":"128k"})
+ if err!=nil||resolved!="https://1.1.1.1/fixture-song.mp3"{t.Fatalf("native musicUrl action: %q, %v",resolved,err)}
  page,err:=service.SearchSourcePage("Fixture Song","kw",1);if err!=nil{t.Fatalf("script search through MusicService: %v",err)}
+ globalPage,err:=service.SearchPage("Fixture Song",1);if err!=nil||len(globalPage.Tracks)!=1||globalPage.Tracks[0].Title!="Fixture Song"{t.Fatalf("script search through MusicService.SearchPage: %#v, %v",globalPage,err)}
  if len(page.Tracks)!=1||page.Tracks[0].ID!="kw_fixture-song"||page.Tracks[0].Title!="Fixture Song"||page.Tracks[0].DurationMS!=180000{t.Fatalf("unexpected script search page: %#v",page)}
  track:=page.Tracks[0]
  detail,err:=service.GetLXTrackDetail(track);if err!=nil{t.Fatalf("detail action: %v",err)}

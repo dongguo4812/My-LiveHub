@@ -6,6 +6,7 @@ import (
  "errors"
  "fmt"
  "strings"
+ "sync"
  "time"
 
  "github.com/dongguo4812/My-LiveHub/app/internal/music"
@@ -36,10 +37,19 @@ func (a scriptAwareSourceSearcher) SearchProvider(ctx context.Context, source, k
  if handled { if err != nil { return music.SearchPage{},err }; return normalizeLXScriptSearchResult(source,keyword,page,value) }
  return a.base.SearchProvider(ctx,source,keyword,page)
 }
-func (a scriptAwareSourceSearcher) SearchSources(ctx context.Context, keyword string, page int, sourceIDs []string) (music.SearchPage,map[string]string,error) {
- result:=music.SearchPage{Tracks:[]music.Track{},Page:page,PageSize:30,MaxPage:1}; failures:=map[string]string{}
- for _,source:=range sourceIDs { if err:=ctx.Err();err!=nil{return result,failures,err}; item,err:=a.SearchProvider(ctx,source,keyword,page);if err!=nil{failures[source]=err.Error();continue};result.Tracks=append(result.Tracks,item.Tracks...);if item.Total>result.Total{result.Total=item.Total};if item.MaxPage>result.MaxPage{result.MaxPage=item.MaxPage} }
- result.Tracks=dedupeScriptTracks(result.Tracks);return result,failures,nil
+func (a scriptAwareSourceSearcher) SearchSources(ctx context.Context, keyword string, page int, sourceIDs []string) (music.SearchPage, map[string]string, error) {
+ if ctx==nil { ctx=context.Background() }
+ type outcome struct { page music.SearchPage; err error }
+ outcomes:=make([]outcome,len(sourceIDs))
+ var wg sync.WaitGroup
+ for i,source:=range sourceIDs { wg.Add(1); go func(index int,id string){ defer wg.Done(); outcomes[index].page,outcomes[index].err=a.SearchProvider(ctx,id,keyword,page) }(i,source) }
+ wg.Wait()
+ result:=music.SearchPage{Tracks:[]music.Track{},Page:page,PageSize:30,MaxPage:1}
+ failures:=map[string]string{}
+ for i,source:=range sourceIDs { if outcomes[i].err!=nil { failures[source]=outcomes[i].err.Error(); continue }; item:=outcomes[i].page; result.Tracks=append(result.Tracks,item.Tracks...); if item.Total>result.Total { result.Total=item.Total }; if item.MaxPage>result.MaxPage { result.MaxPage=item.MaxPage } }
+ if err:=ctx.Err();err!=nil { return result,failures,err }
+ result.Tracks=dedupeScriptTracks(result.Tracks)
+ return result,failures,nil
 }
 func dedupeScriptTracks(tracks []music.Track) []music.Track {
  seen:=map[string]bool{};out:=make([]music.Track,0,len(tracks))
