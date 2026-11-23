@@ -1052,6 +1052,11 @@ func (s *MusicService) setLastError(err error) {
 
 func (s *MusicService) cancelPlaybackWatcher() {
 	s.mu.Lock()
+	if s.playResolveCancel != nil {
+		s.playResolveCancel()
+		s.playResolveCancel = nil
+		s.playResolveGeneration++
+	}
 	if s.watchCancel != nil {
 		s.watchCancel()
 		s.watchCancel = nil
