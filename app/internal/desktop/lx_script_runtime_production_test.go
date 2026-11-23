@@ -176,7 +176,7 @@ func TestProductionLXCommunityActionIsolatesFailingScript(t *testing.T) {
 
 func TestProductionLXCommunityActionHonorsContextCancellation(t *testing.T) {
  runtime:=newLXScriptRuntime(testLXConfigManager(t)).(*productionMusicLXRuntime)
- source:=`lx.on(lx.EVENT_NAMES.request,async ({info})=>info.slow?new Promise(resolve=>setTimeout(()=>resolve('late'),1000)):'ok');lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl']}}});`
+ source:=`lx.on(lx.EVENT_NAMES.request,async ({info})=>info.slow?new Promise(resolve=>setTimeout(()=>resolve('late'),1000)):'ok');lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl','detail']}}});`
  if _,err:=runtime.ImportScript(context.Background(),"slow action fixture",source);err!=nil{t.Fatal(err)}
  if err:=runtime.Start(context.Background());err!=nil{t.Fatal(err)}
  defer runtime.Close()
@@ -184,3 +184,17 @@ func TestProductionLXCommunityActionHonorsContextCancellation(t *testing.T) {
  _,err:=runtime.DispatchExtensionAction(ctx,"kw","detail",map[string]any{"slow":true})
  if !errors.Is(err,context.DeadlineExceeded){t.Fatalf("extension action did not honor caller deadline: %v",err)}
 }
+
+func TestProductionLXScriptImportRejectsScriptsWithoutCommunityActions(t *testing.T) {
+	manager := testLXConfigManager(t)
+	runtime := newLXScriptRuntime(manager).(*productionMusicLXRuntime)
+	source := `lx.on(lx.EVENT_NAMES.request, () => 'https://1.1.1.1/song.mp3'); lx.send(lx.EVENT_NAMES.inited, {sources:{kw:{type:'music',actions:['musicUrl']}}});`
+	_, err := runtime.ImportScript(context.Background(), "native-only fixture", source)
+	if err == nil || !strings.Contains(err.Error(), "没有声明 My-LiveHub 支持的社区扩展 action") {
+		t.Fatalf("native-only script import error = %v, want explicit unsupported capability error", err)
+	}
+	if got := runtime.ListScripts(); len(got) != 0 {
+		t.Fatalf("unsupported script was silently persisted: %#v", got)
+	}
+}
+
