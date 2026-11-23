@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // DispatchLXRequest invokes one LX source action and services every lx.request
@@ -133,6 +134,8 @@ JSON.stringify({
 	}
 }
 
+const lxResponseDeliveryEvalTimeout = 15 * time.Second
+
 func (r *Runtime) completeLXRequest(ctx context.Context, id uint64, response *lxHTTPResponse, requestErr error) error {
 	var errorText any
 	if requestErr != nil {
@@ -165,7 +168,7 @@ func (r *Runtime) completeLXRequest(ctx context.Context, id uint64, response *lx
   'completed';
 })()
 `
-	if _, err := r.Eval(ctx, script, "lx-dispatch-complete.js"); err != nil {
+	if _, err := r.EvalWithTimeout(ctx, script, "lx-dispatch-complete.js", lxResponseDeliveryEvalTimeout); err != nil {
 		return fmt.Errorf("LX dispatch: deliver HTTP response: %w", err)
 	}
 	return nil
