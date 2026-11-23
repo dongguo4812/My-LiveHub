@@ -49,14 +49,14 @@ type Runtime struct {
 }
 
 type quickJSAPI struct {
-	newRuntime func(uintptr, uintptr, *uintptr) uintptr
-	freeRuntime func(uintptr)
-	setInterrupted func(uintptr, uintptr)
-	eval func(uintptr, uintptr, uintptr, *uintptr) uintptr
-	installCrypto func(uintptr, *uintptr) int32
-	freeString func(uintptr)
-	alloc func(uintptr) uintptr
-	dealloc func(uintptr)
+	newRuntime func(uintptr, uintptr, *unsafe.Pointer) unsafe.Pointer
+	freeRuntime func(unsafe.Pointer)
+	setInterrupted func(unsafe.Pointer, int32)
+	eval func(unsafe.Pointer, unsafe.Pointer, unsafe.Pointer, *unsafe.Pointer) unsafe.Pointer
+	installCrypto func(unsafe.Pointer, *unsafe.Pointer) int32
+	freeString func(unsafe.Pointer)
+	alloc func(uintptr) unsafe.Pointer
+	dealloc func(unsafe.Pointer)
 	setCallbacks func(uintptr, uintptr, uintptr, uintptr, uintptr, uintptr, uintptr)
 }
 
@@ -146,15 +146,15 @@ func (r *Runtime) loop(opts Options, ready chan<- error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	defer close(r.done)
-	var nativeError uintptr
+	var nativeError unsafe.Pointer
 	state := r.api.newRuntime(uintptr(opts.MemoryLimitBytes), uintptr(opts.StackLimitBytes), &nativeError)
-	if state == 0 { ready <- r.takeError(nativeError, "QuickJS runtime initialization failed"); return }
+	if state == nil { ready <- r.takeError(nativeError, "QuickJS runtime initialization failed"); return }
 	defer r.api.freeRuntime(state)
 	ready <- nil
 	for cmd := range r.commands {
 		if cmd.close { return }
 		if cmd.installCrypto {
-			var installError uintptr
+			var installError unsafe.Pointer
 			if r.api.installCrypto(state, &installError) != 0 {
 				cmd.result <- evalResult{err:r.takeError(installError, "QuickJS crypto installation failed")}
 			} else { cmd.result <- evalResult{} }
@@ -175,7 +175,7 @@ func (r *Runtime) loop(opts Options, ready chan<- error) {
 		timer := time.AfterFunc(timeout, func() { r.api.setInterrupted(state, 1); close(timerDone) })
 		sourcePtr := r.allocCString(cmd.source)
 		filenamePtr := r.allocCString(cmd.filename)
-		var evalError uintptr
+		var evalError unsafe.Pointer
 		value := r.api.eval(state, sourcePtr, filenamePtr, &evalError)
 		r.api.dealloc(sourcePtr)
 		r.api.dealloc(filenamePtr)
@@ -196,24 +196,24 @@ func (r *Runtime) loop(opts Options, ready chan<- error) {
 	}
 }
 
-func (r *Runtime) allocCString(value string) uintptr {
+func (r *Runtime) allocCString(value string) unsafe.Pointer {
 	ptr := r.api.alloc(uintptr(len(value)+1))
-	if ptr == 0 { return 0 }
-	dst := unsafe.Slice((*byte)(unsafe.Pointer(ptr)), len(value)+1)
+	if ptr == nil { return nil }
+	dst := unsafe.Slice((*byte)(ptr), len(value)+1)
 	copy(dst, value); dst[len(value)] = 0
 	return ptr
 }
-func (r *Runtime) takeError(ptr uintptr, fallback string) error {
-	if ptr == 0 { return errors.New(fallback) }
+func (r *Runtime) takeError(ptr unsafe.Pointer, fallback string) error {
+	if ptr == nil { return errors.New(fallback) }
 	value := nativeCString(ptr, 1<<20)
 	r.api.freeString(ptr)
 	return errors.New(value)
 }
-func nativeCString(ptr uintptr, limit int) string {
-	if ptr == 0 { return "" }
+func nativeCString(ptr unsafe.Pointer, limit int) string {
+	if ptr == nil { return "" }
 	data := make([]byte, 0, 256)
 	for i := 0; i < limit; i++ {
-		b := *(*byte)(unsafe.Pointer(ptr + uintptr(i)))
+		b := *(*byte)(unsafe.Add(ptr, uintptr(i)))
 		if b == 0 { return string(data) }
 		data = append(data, b)
 	}
