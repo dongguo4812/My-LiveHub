@@ -406,11 +406,10 @@ lx.on('request', async () => {
 		_, err := rt.DispatchLXRequest(context.Background(), "kw", "musicUrl", map[string]any{})
 		dispatchDone <- err
 	}()
-	// Windows CI can impose a lower practical concurrent-connection ceiling
-	// than the runtime's 256-request dispatch limit. Wait for a substantial
-	// in-flight batch, then verify shutdown cancels every request that reached
-	// the server instead of requiring all 256 TCP connections to be accepted.
-	const minimumStarted = requestCount / 2
+	// The host-wide HTTP semaphore intentionally caps network concurrency at
+	// eight even though one JS action may enqueue up to 256 requests. Wait for
+	// all permitted slots, then verify shutdown cancels active and queued work.
+	const minimumStarted = lxMaxConcurrentRequests
 	startDeadline := time.NewTimer(20 * time.Second)
 	defer startDeadline.Stop()
 	for startedCount.Load() < minimumStarted {
@@ -425,6 +424,9 @@ lx.on('request', async () => {
 		t.Fatalf("close runtime: %v", err)
 	}
 	startedAtShutdown := int(startedCount.Load())
+	if startedAtShutdown != lxMaxConcurrentRequests {
+		t.Fatalf("active HTTP requests at shutdown = %d, want exactly %d", startedAtShutdown, lxMaxConcurrentRequests)
+	}
 	for i := 0; i < startedAtShutdown; i++ {
 		select {
 		case <-canceled:

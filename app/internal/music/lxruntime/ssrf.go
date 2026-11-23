@@ -111,7 +111,12 @@ func validateLXDestinationWithResolver(ctx context.Context, target *url.URL, all
 	if target.User != nil {
 		return errors.New("lx.request: URL credentials are not allowed")
 	}
-	_, err := resolveLXHostWithResolver(ctx, target.Hostname(), allowPrivate, resolver)
+	// allowPrivate is an unexported test-only policy used by newTestRuntime
+	// and httptest transports. Production callers always use strict DNS checks.
+	if allowPrivate {
+		return nil
+	}
+	_, err := resolveLXHostWithResolver(ctx, target.Hostname(), false, resolver)
 	return err
 }
 

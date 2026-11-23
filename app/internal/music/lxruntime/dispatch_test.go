@@ -74,8 +74,8 @@ lx.on('request', async () => await new Promise((resolve, reject) => {
   lx.request(` + string(mustJSONQuote(server.URL)) + `, {}, (err, resp, body) => {
     if (err) return reject(err);
     if (resp.statusCode !== 418) return reject(new Error('statusCode was not preserved'));
-    if (resp.statusMessage !== "418 I'm a teapot") return reject(new Error('statusMessage was not preserved: ' + resp.statusMessage));
-    if (!resp.headers['X-Lx-Trace'] || resp.headers['X-Lx-Trace'][0] !== 'fixture-418') return reject(new Error('response headers were not preserved'));
+    if (resp.statusMessage !== "I'm a teapot") return reject(new Error('statusMessage was not preserved: ' + resp.statusMessage));
+    if (resp.headers['x-lx-trace'] !== 'fixture-418') return reject(new Error('response headers were not preserved'));
     if (resp.bytes !== 9 || body !== 'not found' || resp.body !== body) return reject(new Error('response body metadata was not preserved'));
     if (!Buffer.isBuffer(resp.raw) || !(resp.raw instanceof Uint8Array) || resp.raw.length !== 9) return reject(new Error('raw response must be a Buffer-backed Uint8Array'));
     if (resp.raw.toString('hex') !== '6e6f7420666f756e64') return reject(new Error('raw Buffer hex conversion mismatch'));
