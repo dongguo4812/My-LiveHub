@@ -59,6 +59,11 @@ if ($Mode -eq 'dev') {
     exit $LASTEXITCODE
 }
 
-& wails3 build
+$env:GOFLAGS = '-tags=lxproduction'
+New-Item -ItemType Directory -Force -Path (Join-Path $PSScriptRoot '..\bin') | Out-Null
+$executablePath = Join-Path $PSScriptRoot '..\bin\My-LiveHub.exe'
+Write-Host 'Building the production desktop executable directly with Go (avoids recursively invoking the Taskfile build task)...' -ForegroundColor Cyan
+& go build -o $executablePath .
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-exit $LASTEXITCODE
+Write-Host "Build completed: $executablePath" -ForegroundColor Green
+exit 0
