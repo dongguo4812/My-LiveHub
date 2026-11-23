@@ -194,3 +194,37 @@ func TestProductionSourceManagerAvailabilityReflectsImportedScripts(t *testing.T
 	if err := manager.Close(); err != nil { t.Fatal(err) }
 	if manager.HasScripts() { t.Fatal("closed source manager reported available scripts") }
 }
+
+
+func TestProductionSourceManagerRoutesCommunityActionsToMatchingSourceScript(t *testing.T) {
+	makeScript := func(name, source string) LXSourceScript {
+		return LXSourceScript{Info: ScriptInfo{Name: name}, Source: source, ExtensionActions: []string{"search", "detail", "lyric", "pic"}}
+	}
+	kw := `
+lx.on(lx.EVENT_NAMES.request, async ({ source, action, info }) => source + ':' + action + ':' + String(info.value));
+lx.send(lx.EVENT_NAMES.inited, { sources: { kw: { type: 'music', actions: ['musicUrl'], qualitys: ['128k'] } } });
+`
+	kg := `
+lx.on(lx.EVENT_NAMES.request, async ({ source, action, info }) => source + ':' + action + ':' + String(info.value));
+lx.send(lx.EVENT_NAMES.inited, { sources: { kg: { type: 'music', actions: ['musicUrl'], qualitys: ['128k'] } } });
+`
+	manager := newTestSourceManager(t, []LXSourceScript{makeScript("kw-only", kw), makeScript("kg-only", kg)})
+	if err := manager.Start(context.Background()); err != nil { t.Fatal(err) }
+	defer manager.Close()
+
+	for _, source := range []string{"kw", "kg"} {
+		for _, action := range []string{"search", "detail", "lyric", "pic"} {
+			if !manager.HasExtensionAction(source, action) { t.Fatalf("%s/%s was not advertised as a candidate", source, action) }
+			got, err := manager.DispatchExtensionAction(context.Background(), source, action, map[string]any{"value": "fixture"})
+			if err != nil { t.Fatalf("dispatch %s/%s: %v", source, action, err) }
+			want := source + ":" + action + ":fixture"
+			if got != want { t.Fatalf("%s/%s dispatched to wrong script: got %#v, want %q", source, action, got, want) }
+		}
+	}
+	if manager.HasExtensionAction("wy", "search") { t.Fatal("unadvertised source must not claim community search capability after initialization") }
+	_, err := manager.DispatchExtensionAction(context.Background(), "wy", "search", map[string]any{"value": "fixture"})
+	var unsupported interface { LXExtensionSourceUnsupported() bool }
+	if !errors.As(err, &unsupported) || !unsupported.LXExtensionSourceUnsupported() {
+		t.Fatalf("unadvertised source error = %v, want source-unsupported classification", err)
+	}
+}
