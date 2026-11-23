@@ -93,6 +93,11 @@ func TestUnifiedSourceServicePreservesNativeProviderPlaybackMetadata(t *testing.
 		wantMusicFields map[string]string
 	}{
 		{
+			name: "Kuwo", source: "kw", songID: "kw-song-1", quality: "320k",
+			sourceData: map[string]string{"songmid": "kw-song-1", "album_id": "kw-album-1"},
+			wantMusicFields: map[string]string{"albumId": "kw-album-1"},
+		},
+		{
 			name: "QQ", source: "tx", songID: "qq-song-1", quality: "320k",
 			sourceData: map[string]string{"songmid": "qq-song-1", "media_mid": "qq-media-1", "album_mid": "qq-album-1"},
 			qualityData: map[string]string{"file": "qq-file-320"},
