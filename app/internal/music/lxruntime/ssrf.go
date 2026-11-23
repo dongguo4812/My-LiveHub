@@ -36,6 +36,9 @@ func lxSafeHTTPClientWithPolicy(client *http.Client, allowPrivate bool) (*http.C
 		safeTransport := transport.Clone()
 		// Do not let an ambient proxy bypass the address policy.
 		safeTransport.Proxy = nil
+		// Force HTTPS through the validated DialContext path as well.
+		safeTransport.DialTLS = nil
+		safeTransport.DialTLSContext = nil
 		dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
 		safeTransport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
 			host, port, err := net.SplitHostPort(address)
