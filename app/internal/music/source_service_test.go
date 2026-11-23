@@ -62,8 +62,7 @@ func TestUnifiedSourceServiceSearchAndResolveAcrossProviders(t *testing.T) {
 		if call.info["type"] == nil { t.Errorf("%s missing selected quality", call.source) }
 		if call.source == "tx" && call.info["type"] != "128k" { t.Errorf("selected track quality = %v, want 128k", call.info["type"]) }
 		musicInfo, _ := call.info["musicInfo"].(map[string]any)
-		meta, _ := musicInfo["meta"].(map[string]any)
-		if musicInfo == nil || meta == nil || meta["songId"] == "" { t.Errorf("%s missing native LX song identity: %#v", call.source, call.info) }
+		if musicInfo == nil || musicInfo["songmid"] == "" { t.Errorf("%s missing native LX song identity: %#v", call.source, call.info) }
 	}
 }
 
@@ -140,26 +139,20 @@ func TestUnifiedSourceServicePreservesNativeProviderPlaybackMetadata(t *testing.
 			if !ok {
 				t.Fatalf("musicInfo = %#v", info["musicInfo"])
 			}
-			meta, ok := musicInfo["meta"].(map[string]any)
-			if !ok { t.Fatalf("musicInfo.meta = %#v", musicInfo["meta"]) }
-			if meta["songId"] != tt.songID {
-				t.Errorf("native song ID = %#v, want %q", meta["songId"], tt.songID)
+			if musicInfo["songmid"] != tt.songID {
+				t.Errorf("native song ID = %#v, want %q", musicInfo["songmid"], tt.songID)
 			}
 			for key, want := range tt.wantMusicFields {
-				if meta[key] != want {
-					t.Errorf("musicInfo.meta.%s = %#v, want %q", key, meta[key], want)
+				if musicInfo[key] != want {
+					t.Errorf("musicInfo.%s = %#v, want %q", key, musicInfo[key], want)
 				}
 			}
-			qualitys, ok := meta["qualitys"].([]map[string]any)
-			if !ok || len(qualitys) != 1 {
-				t.Fatalf("quality metadata = %#v", meta["qualitys"])
-			}
-			indexed, ok := meta["_qualitys"].(map[string]any)
-			if !ok || indexed[tt.quality] == nil { t.Fatalf("indexed quality metadata = %#v", meta["_qualitys"]) }
+			qualitys, ok := musicInfo["types"].([]map[string]any)
+			if !ok || len(qualitys) != 1 { t.Fatalf("quality metadata = %#v", musicInfo["types"]) }
+			indexed, ok := musicInfo["_types"].(map[string]any)
+			if !ok || indexed[tt.quality] == nil { t.Fatalf("indexed quality metadata = %#v", musicInfo["_types"]) }
 			for key, want := range tt.qualityData {
-				if qualitys[0][key] != want {
-					t.Errorf("qualitys[0].%s = %#v, want %q", key, qualitys[0][key], want)
-				}
+				if qualitys[0][key] != want { t.Errorf("types[0].%s = %#v, want %q", key, qualitys[0][key], want) }
 			}
 		})
 	}
