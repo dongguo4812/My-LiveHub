@@ -176,7 +176,7 @@ func TestProductionLXCommunityActionIsolatesFailingScript(t *testing.T) {
 
 func TestProductionLXCommunityActionHonorsContextCancellation(t *testing.T) {
  runtime:=newLXScriptRuntime(testLXConfigManager(t)).(*productionMusicLXRuntime)
- source:=`lx.on(lx.EVENT_NAMES.request,async ({info})=>info.slow?new Promise(()=>{}):'ok');lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl']}}});`
+ source:=`lx.on(lx.EVENT_NAMES.request,async ({info})=>info.slow?new Promise(resolve=>setTimeout(()=>resolve('late'),1000)):'ok');lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl']}}});`
  if _,err:=runtime.ImportScript(context.Background(),"slow action fixture",source,[]string{"detail"});err!=nil{t.Fatal(err)}
  if err:=runtime.Start(context.Background());err!=nil{t.Fatal(err)}
  defer runtime.Close()
