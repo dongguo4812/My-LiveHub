@@ -861,3 +861,86 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 
 
 **10.16 补充记录：** 生产 transport 还会清除调用方可能预设的 `DialTLS` / `DialTLSContext`，强制 HTTPS 握手走已校验并 pin IP 的 `DialContext` 路径，防止自定义 TLS dialer 绕过 SSRF 校验。对应代码提交：`8f7a521b787e29293f3dbad1f3e1eb88572f0fed`。CI status/workflow 查询仍为空，全部测试继续标记为待实际运行。
+
+### 10.17 本轮完整源码审计与修复记录（2026-11-23）
+
+本节覆盖本轮对主方案、当前 feature 分支、洛雪官方源码和目标生态脚本的源码审计。它是此前 10.13–10.16 记录的最新状态；历史记录中的“待 CI”状态以本节和最新 workflow 结果为准。
+
+#### A. 协议边界与真实脚本审计
+
+**洛雪官方协议（固定源码版本 323e4bac505da428adae8db6b58039fb2b36b86d）**
+
+- 官方 EVENT_NAMES 为 request、inited、updateAlert；lx.request(url, options, callback) 使用 Needle 风格请求，支持 method、headers、body/form/formData、timeout、response raw/body 和 abort/cancel。
+- 远程自定义源原生 action 是 musicUrl；local source 还允许 lyric、pic。官方内置 musicSdk 的搜索/详情 API 与自定义源 action 是不同层级。
+- 因此 search、detail 不是官方远程自定义源原生 action。社区脚本的 search、远程 lyric、pic 必须视为扩展能力，不得写入官方原生 action 白名单或称为洛雪原生协议。
+- musicUrl 官方结果是 HTTP(S) URL 字符串；部分社区脚本返回包含 url/lyric/cover 的对象，不能假定所有生态脚本都满足原生返回类型。
+
+**真实目标生态样本（静态源码审阅）**
+
+| 样本 | 来源与固定版本 | 已核对行为 | 当前验证等级 |
+|---|---|---|---|
+| Xinglan 4.0.2 | pdone/lx-music-source commit 07dca9589e3734b140ec4ef396ee29dfe63687a2，blob f12581f4d2b05b6585480fd3436595836f91040a | musicUrl、咪咕 URL 路径质量回退、HEAD 探测、请求 headers、AES/MD5/Buffer 和多后端回退 | 仓库固定快照 + mock 测试 |
+| FeichangDao | 同一 commit，blob c1724ef140e03bdca336bb92c397c4d0a5a26199 | 社区 search/lyric 扩展、KRC→LRC、Promise.any、缓存、质量回退、Referer/Accept headers | 仅静态审阅，未在本仓库执行 |
+| XingHai | 同一 commit，blob 3eb0ce8c233ba5e1b2f0f1b4d70856e6accb3be5 | musicUrl/lyric/pic 扩展、初始化 IP/版本请求、Buffer/base64、token/headers | 仅静态审阅，未在本仓库执行 |
+| HelloWorld | 仓库固定测试快照 | 请求/响应、错误、初始化和播放 URL 测试 | mock 测试 |
+| Huanyin | 本项目自制兼容性 fixture，不是外部真实音源 | 用于搜索/协议测试的模拟 action | 仅测试 fixture，不得作为生产音源 |
+| lx.js | 上游曾下架并被 README 警告含恶意逻辑的脚本快照 | 仅用于隔离环境中的协议/签名测试 | 不作为生产音源，不纳入常规真实音源池 |
+
+上游样本仓库没有可确认的再分发授权。本项目不把 FeichangDao/XingHai 的完整第三方源码复制到生产二进制；后续如需离线 fixture，先取得许可或用户提供的副本并固定 SHA-256。不得自动批量执行订阅仓库中的任意脚本。
+
+#### B. QuickJS 宿主 API 兼容性审计
+
+- lx.request：Go 请求队列、回调、response/raw/body、超时、取消；HTTP 响应 header 统一为小写 key，普通 header value 为字符串，set-cookie 保留数组；statusMessage 使用 reason phrase，raw 以 Buffer 语义交给 JS。
+- lx.utils.crypto：MD5、AES、RSA、randomBytes。当前 AES 实现覆盖脚本样本使用的 CBC/ECB 路径；不宣称等同 Node crypto 全部算法/参数。
+- lx.utils.buffer / Buffer：覆盖当前样本使用的 from、alloc、concat、toString、byteLength、isBuffer 等常见操作；Buffer 有容量上限，不是完整 Node Buffer API。
+- lx.utils.zlib：deflate/inflate Promise 语义，输入/输出受限；原生桥接生成的字节结果统一包装成 Node-compatible Buffer，而不是裸 Uint8Array。
+- 初始化/事件：核对 currentScriptInfo、lx.version、lx.env、lx.on、lx.send、inited 和 updateAlert 的实际调用链。
+- 定时器/Promise：QuickJS owner-thread 执行、事件循环泵送和请求回调生命周期受宿主控制。
+- 明确差异：不提供完整 Chromium DOM、fetch、Node process/require、文件系统模块或完整 Node Buffer/crypto；代理请求被安全策略禁用；社区扩展 action 还没有独立的生产调度接口。
+
+#### C. 本轮已落地的安全与生命周期修复
+
+1. 全局 HTTP semaphore 在 DNS 预检之前获取，避免并发请求在限流前放大 DNS 查询。
+2. header 名称执行 HTTP token 校验；拒绝控制字符、hop-by-hop/framing headers（Host、Content-Length、Connection、Transfer-Encoding 等）。
+3. 重定向逐跳校验，限制跳数，拒绝 URL credentials，并拒绝 HTTPS→HTTP downgrade。
+4. 生产路径拒绝自定义 RoundTripper，避免自定义 transport 忽略 req.URL 后自行连接任意地址；代理配置被清除，TLS 专用 dialer 被清除，连接必须经过已校验的 DialContext。
+5. DNS 所有 A/AAAA 结果整体校验；混合公网/私网答案整体拒绝；连接时再次解析并只拨号校验过的 IP。增加可注入 resolver 的确定性 DNS rebinding 测试。
+6. lxHTTPTasks 在 abort 时立即移除 active 项；取消时等待所有请求 goroutine 退出，避免脚本关闭后遗留 HTTP goroutine。
+7. SourceManager 默认 HTTP timeout 与 LX request 60 秒上限一致；Close 先取消 manager context，再等待 dispatch lock，避免初始化/网络请求阻塞关闭。
+8. SourceManager 的播放 URL 结果先做公网地址校验，并在 DNS 校验期间占用全局网络 semaphore。这仍不是媒体连接 pinning：WebView HTMLAudio 直连时 DNS 可能在校验后变化；最终必须通过 Go 受控媒体代理完成连接 pinning、redirect 和媒体 headers 策略。
+9. 测试私网放行仅由包内 test helper 设置，生产 Runtime/SourceManager 不启用该策略。
+10. 生产 SourceManager 不再把 testdata/sources 的测试快照（尤其项目自制 Huanyin）当成内置生产音源。新增 NewSourceManagerWithScripts 接收脚本管理层显式提供的脚本；默认 NewSourceManager 不捆绑社区/测试脚本。导入、持久化、授权和刷新尚未接入该入口。
+
+#### D. 测试与 CI 记录
+
+- 必需 CI 改为 QuickJS 专项音乐检查：构建 QuickJS-NG CGo/native smoke；运行 go test -tags lxquickjs ./internal/music/lxruntime ./internal/music、go vet；运行 go test -tags lxproduction ./internal/music/lxruntime ./internal/music。
+- 已移除必需 CI 中的实时第三方 /rconfig 握手；LX_RCONFIG_LIVE 不再作为 CI 必过条件。实时握手保留为可选诊断。之前 live handshake 连续返回 HTTP status 0，没有取得 HTTP 响应，因此该外部握手当前标记为外部阻塞，不把它误判为签名算法失败。
+- 已移除该 workflow 的 Node/Wails frontend build、完整桌面程序构建和 installer/portable ZIP 步骤；feature 分支 push 只触发 QuickJS 专项 workflow。PR #45 已关闭且未合并。
+- c643fef2460bef50f4e2d8d4e5 对应 QuickJS workflow run 45115196974：QuickJS native build、lxquickjs music tests、lxproduction music tests均通过。
+- 后续 source-manager 不再捆绑测试脚本、播放 URL 安全校验和本节文档更新属于后续提交；必须以本节对应最新 commit 的 workflow 结果作为最终 CI 状态，不能沿用 c643fef 的成功结果替代最新代码验收。
+
+#### E. 完整验收状态矩阵
+
+| 审计/验收项 | 状态 | 证据与未完成项 |
+|---|---|---|
+| 洛雪官方原生协议边界 | 已完成（源码审计） | 固定官方 commit；已区分 native action 与社区扩展 |
+| Xinglan 真实快照播放 URL/质量回退/请求头 | 测试通过（mock） | QuickJS 专项 CI；不是第三方在线服务实测 |
+| HelloWorld 固定快照初始化/请求回调 | 测试通过（mock） | QuickJS 专项 CI |
+| Huanyin 搜索 action | 测试 fixture 通过 | 本项目自制模拟样本，不计入真实生态脚本验收 |
+| FeichangDao search/lyric/Promise.any | 待验证 | 仅静态审阅；需在可控 mock 下执行固定脚本 |
+| XingHai lyric/pic/Buffer/init 网络 | 待验证 | 仅静态审阅；需在可控 mock 下执行固定脚本 |
+| 歌曲详情 | 待实现/待验证 | 官方原生协议没有 detail action；社区扩展调度尚未实现 |
+| 搜索统一调度 | 未完成 | 当前 Search 仍由 Go LXSearchClient providers 执行，不是 QuickJS 社区脚本 action |
+| 歌词/封面统一调度 | 未完成 | 当前 GetLyrics 仍走旧播放引擎；QuickJS lyric/pic 扩展未接入 |
+| QuickJS 原生 Buffer/crypto/zlib | 测试通过（当前覆盖范围） | 本地 QuickJS 宿主测试；不等于完整 Node API |
+| 初始化/请求取消/并发限制 | 测试通过（当前覆盖范围） | mock/生命周期测试；真实外部脚本初始化仍待执行 |
+| SSRF/DNS rebinding/redirect/proxy/header | 测试通过（当前覆盖范围） | 可控 resolver 与 mock；媒体 URL 的 WebView 最终连接尚未 pin |
+| SourceManager 关闭与资源释放 | 测试通过（当前覆盖范围） | cancellation/waitgroup 测试；持续播放 soak 未做 |
+| 用户脚本导入/持久化/授权/刷新 | 未完成 | NewSourceManagerWithScripts 已提供入口，尚未接入现有 UI/config/store |
+| QuickJS 运行时接入实际播放链路 | 未完成 | PlayTrackNow 仍走旧 LXPlaybackEngine.Load，不是 QuickJS 解析结果 |
+| HTMLAudio 最终播放 | 未完成 | 当前 MusicView.vue 没有 HTMLAudio 播放元素/事件链；仍依赖旧播放引擎 |
+| 媒体 headers/Range/redirect 代理 | 未完成 | 目前只处理脚本 API 请求，不支持 HTMLAudio 受控媒体代理 |
+| 内存目标/2 小时稳定性 | 待验证 | 尚无实际 WebView/主进程增量与 soak 数据 |
+| 可选 live /rconfig | 外部阻塞 | 之前三次 HTTP status 0，没有 HTTP 响应；required CI 已改为 deterministic mock |
+
+**当前阶段结论：** QuickJS 运行时与 Go Host API 的一组关键兼容性/网络安全测试已通过；但 My-LiveHub 音乐模块迁移整体不能验收完成。搜索/详情/歌词/封面扩展 action、导入脚本接入、真实外部脚本 mock 执行、QuickJS 播放链路接入、HTMLAudio、媒体代理和内存/长时间稳定性仍未完成。不得把 QuickJS PoC CI 通过写成独立音乐播放器迁移完成。

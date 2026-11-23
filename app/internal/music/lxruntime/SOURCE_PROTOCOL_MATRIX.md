@@ -91,3 +91,7 @@ The Windows x64 QuickJS-NG CGo job completed successfully, and its log confirms:
 This verifies the tested lifecycle and scheduling contracts on the Windows x64
 QuickJS-NG CGo target. It is not a general proof of race freedom on every platform;
 other operating systems and architectures still require their own native CI runs.
+
+## 2026-11-23 required-CI policy update
+
+The required QuickJS workflow now runs only deterministic mock/recorded tests. It does not set LX_RCONFIG_LIVE=1 and does not require a live third-party /rconfig handshake. The optional live diagnostic previously returned HTTP status 0 three times without an HTTP response; that is an external reachability blocker, not evidence of an si signature mismatch. See docs/MUSIC_PLAYER_HTMLAUDIO_MIGRATION_PLAN.md section 10.17 for the current authoritative audit and acceptance matrix.

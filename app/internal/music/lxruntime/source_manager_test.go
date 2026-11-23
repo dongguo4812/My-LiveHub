@@ -19,7 +19,7 @@ func TestProductionSourceManagerLifecycleGuards(t *testing.T) {
 	}
 	for _, script := range manager.scripts {
 		if script.info.RawScript != script.source || script.info.RawScript == "" {
-			t.Fatalf("%s does not expose the exact embedded source bytes as RawScript", script.info.Name)
+			t.Fatalf("%s does not expose the exact registered source bytes as RawScript", script.info.Name)
 		}
 	}
 	if _, err := manager.ResolvePlaybackURL(context.Background(), "kw", map[string]any{}); err == nil {
@@ -51,6 +51,10 @@ func TestProductionSourceManagerUsesLXRequestTimeoutBudget(t *testing.T) {
 	if len(manager.scripts) != 0 { t.Fatalf("default manager unexpectedly bundled %d test/community scripts", len(manager.scripts)) }
 	if manager.client.Timeout != lxMaxRequestTimeout {
 		t.Fatalf("default source HTTP client timeout = %s, want %s", manager.client.Timeout, lxMaxRequestTimeout)
+	}
+	if err := manager.Start(context.Background()); err != nil { t.Fatalf("empty manager Start should be safe: %v", err) }
+	if _, err := manager.ResolvePlaybackURL(context.Background(), "kw", map[string]any{}); err == nil || !strings.Contains(err.Error(), "no LX scripts available") {
+		t.Fatalf("empty manager should report missing imported scripts, got %v", err)
 	}
 	_ = manager.Close()
 }

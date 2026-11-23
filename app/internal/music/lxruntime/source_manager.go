@@ -116,6 +116,10 @@ func (m *SourceManager) ResolvePlaybackURL(ctx context.Context, source string, i
 		m.mu.Unlock()
 		return nil, errors.New("LX source manager is closed")
 	}
+	if !m.started {
+		m.mu.Unlock()
+		return nil, errors.New("LX source manager has not started")
+	}
 	managerCtx := m.ctx
 	m.mu.Unlock()
 
