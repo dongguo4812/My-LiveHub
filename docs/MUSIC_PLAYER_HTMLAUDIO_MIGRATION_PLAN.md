@@ -988,3 +988,52 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 提交 28e1005cbb5d9fcd3bec5461c6318cb7fefd125a 的 QuickJS CI 中，新增的 desktop music integration step 在 bash 命令中缺少 -run 正则的闭合单引号，导致：
 line 3: unexpected EOF while looking for matching single quote
 这属于 workflow 命令转义错误，不是 Go 编译或测试失败。已移除不必要的行尾锚点并补齐闭合引号。该提交的 lxquickjs、go vet、lxproduction music/runtime 测试均通过；desktop 定向测试因 shell 语法未实际启动，修正后重新执行。
+
+
+### 10.24 本轮源码审计状态汇总与验收边界（2026-11-23）
+
+本轮审计基线为分支 feat/lx-js-runtime-quickjs-poc。最新代码提交 b4fafb3a6c04fc61172a6321323f450a65ea983f 的 QuickJS-NG Windows x64 CI Run 45121422401 **success**。该 workflow 实际通过：
+1. QuickJS-NG native C API smoke test；
+2. lxquickjs runtime/music 全量确定性测试；
+3. lxquickjs go vet；
+4. lxproduction runtime/music 测试；
+5. desktop music runtime integration 定向测试（仅运行 MusicService 来源能力和 production LX runtime 可用性两个测试，不运行 Desktop validation、installer、portable ZIP 或 release）。
+
+#### 10.24.1 审计状态矩阵
+
+| 审计项 | 状态 | 证据/边界 |
+|---|---|---|
+| 唯一主方案与架构约束 | 已完成审查 | 本文档为唯一依据；未更换 QuickJS-NG + Go 音乐服务 + HTMLAudio 目标架构 |
+| 洛雪原生事件/action 协议 | 已完成源码核对 | request/inited/updateAlert、原生 musicUrl/lyric/pic 等能力与社区扩展 action 分开建模 |
+| QuickJS 宿主 API | 部分完成 | 已核对初始化、事件、HTTP request、取消、crypto、Buffer、zlib 的实现及对应确定性测试；尚未覆盖全部外部脚本真实调用形态 |
+| HelloWorld/HuanYin/XingLan 已有 fixture | 测试通过（当前 fixture 覆盖范围内） | mock 请求、初始化、协议动作、Buffer/crypto/zlib 等测试由 QuickJS 专项 CI 运行 |
+| FeiChangDao/XingHai 等外部真实脚本 | 外部阻塞 | 上游 pdone/lx-music-source 固定审计提交 07dca9589e3734b140ec4ef396ee29dfe63687a2 未提供 LICENSE；不能擅自将完整第三方脚本复制进仓库作为离线 fixture。需要用户提供授权副本或明确可再分发许可 |
+| 搜索/详情生产集成 | 待实现/待验证 | 现有生产 Search 仍走 Go LXSearchClient；社区 search/detail 扩展 action 尚未接入生产脚本导入和应用搜索主链路 |
+| 播放 URL/音质回退 | 部分完成 | URL 解析 facade 和 SourceManager 具备测试；但生产 SourceManager 尚未装载持久化导入脚本，播放队列实际加载路径仍未完成脚本 URL 解析整合 |
+| 歌词/封面生产集成 | 部分完成 | 现有 Go 原生歌词服务可测；社区 lyric/pic 扩展尚未完整接入统一生产服务 |
+| 请求头/加密/Buffer/zlib | 测试通过（当前 fixture/宿主 API 范围内） | 已有 header 验证、AES/RSA/MD5/randomBytes、Buffer encoding/raw bytes、zlib 压缩解压测试 |
+| 初始化/请求取消 | 测试通过（当前测试覆盖范围内） | 初始化握手、request callback、abort、timeout、重复完成等确定性测试 |
+| SSRF/DNS rebinding | 测试通过（已实现策略范围内） | DNS 答案校验、连接时重新解析并按已验证 IP 拨号、非标准数字 IPv4 拒绝、混合公私地址拒绝 |
+| 重定向/代理/TLS transport | 测试通过（已实现策略范围内） | 禁用代理与 CookieJar、清除 TLSNextProto/ForceAttemptHTTP2、自定义 RoundTripper 拒绝、逐跳重定向验证、降级与跨源敏感头限制 |
+| 请求资源限制 | 测试通过（已实现策略范围内） | URL/body/header/response/并发/超时限制；multipart 使用限额写入；JSON/form 预检 |
+| 脚本隔离/并发/资源释放 | 部分完成 | 每脚本独立 QuickJS runtime、堆栈/内存限制、请求并发预算和 Close 等已有实现与测试；真实多脚本导入生命周期及长时间 soak 尚未验收 |
+| HTMLAudio/WebView 实际播放 | 待验证/当前架构未接通 | 当前桌面播放主链路仍保留 LXPlaybackEngine 和 lxmusic:// 客户端连接配置；没有完成 HTMLAudio 播放、媒体 Range/headers/seek/错误恢复的端到端验证 |
+| 两小时内存稳定性 | 待设备验证 | CI 单测不能替代 Windows WebView 连续播放与 renderer/主进程内存 soak |
+
+#### 10.24.2 本轮新增修复
+
+- 脚本元数据 RawScript 必须与实际 QuickJS 执行源码逐字节一致，拒绝不匹配导入。
+- 请求 JSON/multipart/form 请求体在编码/分配阶段实施上限，避免先分配超大 body 再拒绝。
+- TLS transport 不再保留调用方 TLSNextProto/HTTP2 handler，统一走受控 DialContext；同时修正 Windows Go 默认 transport 预置 HTTP/2 handler 导致的误拒绝。
+- HTTP response raw bytes 改为 base64 传输到 QuickJS，再由 Buffer.from(..., 'base64') 还原，避免整数数组导致响应 JSON 内存放大。
+- MusicService 来源能力状态基于 SourceManager 是否实际含有导入脚本，不再因 runtime 对象非 nil 就错误报告 Resolve 可用。
+- QuickJS CI 增加仅限音乐 runtime 的 desktop 集成测试，不触发 Desktop validation 或桌面发布打包。
+
+#### 10.24.3 尚不能宣布完成的原因
+
+1. 生产脚本导入/持久化/管理尚未接入 production SourceManager；当前 production runtime 启动时创建空 SourceManager。
+2. 目标生态 FeiChangDao、XingHai 等脚本的离线真实脚本测试集受上游无明确 LICENSE 阻塞；需要用户提供有权使用的脚本副本或许可。
+3. HTMLAudio 最终媒体请求与 Wails WebView 播放链路尚未完成；需要后续按本方案继续实施。
+4. 真实 WebView 音频解码、Range/headers、seek、设备音频输出与两小时内存 soak 需要 Windows 设备验证。
+
+**本轮验收结论：** QuickJS runtime/music 确定性 CI 与定向 desktop 音乐接口测试通过；本轮代码级网络安全/资源边界修复已进入分支。完整真实脚本兼容性审计和音乐模块迁移仍未完成，不能标记整个音乐模块已验收。
