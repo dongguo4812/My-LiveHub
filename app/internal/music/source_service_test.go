@@ -94,6 +94,7 @@ func TestUnifiedSourceServicePreservesNativeProviderPlaybackMetadata(t *testing.
 		{
 			name: "Kuwo", source: "kw", songID: "kw-song-1", quality: "320k",
 			sourceData: map[string]string{"songmid": "kw-song-1", "album_id": "kw-album-1"},
+			qualityData: map[string]string{},
 			wantMusicFields: map[string]string{"albumId": "kw-album-1"},
 		},
 		{
@@ -121,7 +122,7 @@ func TestUnifiedSourceServicePreservesNativeProviderPlaybackMetadata(t *testing.
 			track := Track{
 				ID: tt.source + "_" + tt.songID, SourceID: tt.source, LXSourceKey: tt.source,
 				Title: "Song", Artist: "Singer", SourceData: tt.sourceData,
-				Qualities: []TrackQuality{{Type: tt.quality, SourceData: tt.qualityData}},
+				DurationMS: 180000, Qualities: []TrackQuality{{Type: tt.quality, Size: "4.12Mb", SourceData: tt.qualityData}},
 			}
 			resolver := &unifiedTestResolver{url: "https://cdn.example.test/" + tt.source + ".mp3"}
 			service := NewUnifiedSourceService(unifiedTestSearcher{}, resolver)
@@ -151,7 +152,8 @@ func TestUnifiedSourceServicePreservesNativeProviderPlaybackMetadata(t *testing.
 			if !ok || len(qualitys) != 1 { t.Fatalf("quality metadata = %#v", musicInfo["types"]) }
 			indexed, ok := musicInfo["_types"].(map[string]any)
 			if !ok || indexed[tt.quality] == nil { t.Fatalf("indexed quality metadata = %#v", musicInfo["_types"]) }
-			if musicInfo["typeUrl"] == nil || musicInfo["interval"] == nil || musicInfo["img"] == nil { t.Fatalf("missing LX legacy fields: %#v", musicInfo) }
+			if musicInfo["typeUrl"] == nil || musicInfo["interval"] != "03:00" || musicInfo["img"] == nil { t.Fatalf("missing or invalid LX legacy fields: %#v", musicInfo) }
+			if indexedQuality, ok := indexed[tt.quality].(map[string]any); !ok || indexedQuality["size"] != "4.12MB" { t.Errorf("_types[%s] = %#v, want normalized uppercase size", tt.quality, indexed[tt.quality]) }
 			for key, want := range tt.qualityData {
 				if qualitys[0][key] != want { t.Errorf("types[0].%s = %#v, want %q", key, qualitys[0][key], want) }
 			}
