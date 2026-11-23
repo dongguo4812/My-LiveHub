@@ -1064,4 +1064,4 @@ line 3: unexpected EOF while looking for matching single quote
 - 60 秒不是对任意脚本无限放行：超出预算仍中断并拒绝导入。真实混淆脚本若仍超时，必须继续定位其同步执行热点或兼容性问题，不能仅以增加超时宣称兼容。
 - 能力识别仍以真实执行后的 `inited.sources[*].actions` 为唯一依据，不通过静态扫描猜测能力；初始化失败仍明确拒绝导入。
 
-**真实样本验收：** 已将用户提供的 `https://gh-proxy.org/raw.githubusercontent.com/pdone/lx-music-source/main/fish/latest.js` 加入 opt-in Windows QuickJS CI 集成测试，覆盖代理下载、正式导入入口、自动启用、持久化注册及音源/action 识别。首次真实执行在 15 秒 Eval 上限被中断，证实 15 秒仍不足；当前改为 60 秒受限探测，等待下一轮 CI 给出结果。fixture 测试通过不能替代真实样本验收。
+**真实样本验收：** 用户提供的 `https://gh-proxy.org/raw.githubusercontent.com/pdone/lx-music-source/main/fish/latest.js` 已通过 Windows x64 QuickJS 隔离环境中的真实导入测试。CI 从代理下载 639 KB 脚本，真实初始化耗时 37.23 秒，在 60 秒单次 Eval/整体 deadline 预算内完成；正式 `ImportScript` 返回成功并自动启用，持久化后重新读取的音源和 action 与导入结果一致。实际握手结果：支持音源 `[kg, kw, mg, tx, wy]`；社区扩展 action `[]`；洛雪原生 action `[musicUrl]`。该脚本是原生播放地址解析脚本，不声明 `search/detail/lyric/pic`，因此不得伪装成社区扩展 action。仅 `musicUrl` 的脚本现已作为有效能力允许导入；既无受支持社区 action 也无受支持原生 action 的脚本仍明确拒绝。完整 Windows x64 CI Run [45180458376](https://github.com/dongguo4812/My-LiveHub/actions/runs/45180458376) 全部步骤成功，包括真实样本导入、前端构建、Windows 可执行文件构建、QuickJS runtime 发布及无 CGO 本地引导验证。
