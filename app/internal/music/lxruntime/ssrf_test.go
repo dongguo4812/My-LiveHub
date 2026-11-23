@@ -221,13 +221,17 @@ func TestLXCrossOriginRedirectStripsSensitiveHeaders(t *testing.T) {
 }
 
 
-func TestLXSafeHTTPClientRejectsCustomTLSProtocolHandlers(t *testing.T) {
+func TestLXSafeHTTPClientStripsCustomTLSProtocolHandlers(t *testing.T) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{
 		"h2": func(string, *tls.Conn) http.RoundTripper { return nil },
 	}
-	if _, err := lxSafeHTTPClient(&http.Client{Transport: transport}); err == nil || !strings.Contains(err.Error(), "custom TLS protocol") {
-		t.Fatalf("strict policy should reject custom TLS protocol handlers, got %v", err)
+	safe, err := lxSafeHTTPClient(&http.Client{Transport: transport})
+	if err != nil { t.Fatal(err) }
+	safeTransport, ok := safe.Transport.(*http.Transport)
+	if !ok { t.Fatalf("safe transport type = %T", safe.Transport) }
+	if len(safeTransport.TLSNextProto) != 0 || safeTransport.ForceAttemptHTTP2 {
+		t.Fatal("safe transport retained a custom TLS protocol handler or HTTP/2 override")
 	}
 }
 
@@ -242,7 +246,7 @@ func TestResolveLXHostRejectsNonCanonicalIPv4Literals(t *testing.T) {
 }
 
 
-func TestLXSafeHTTPClientRejectsCustomTLSHandlersOnDefaultTransport(t *testing.T) {
+func TestLXSafeHTTPClientStripsTLSHandlersFromReplacedDefaultTransport(t *testing.T) {
 	original := http.DefaultTransport
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{
@@ -250,7 +254,11 @@ func TestLXSafeHTTPClientRejectsCustomTLSHandlersOnDefaultTransport(t *testing.T
 	}
 	http.DefaultTransport = transport
 	defer func() { http.DefaultTransport = original }()
-	if _, err := lxSafeHTTPClient(&http.Client{Transport: http.DefaultTransport}); err == nil || !strings.Contains(err.Error(), "custom TLS protocol") {
-		t.Fatalf("strict policy must reject custom TLS protocol handlers even when installed as DefaultTransport, got %v", err)
+	safe, err := lxSafeHTTPClient(&http.Client{Transport: http.DefaultTransport})
+	if err != nil { t.Fatal(err) }
+	safeTransport, ok := safe.Transport.(*http.Transport)
+	if !ok { t.Fatalf("safe transport type = %T", safe.Transport) }
+	if len(safeTransport.TLSNextProto) != 0 || safeTransport.ForceAttemptHTTP2 {
+		t.Fatal("safe transport retained TLS handlers from a replaced DefaultTransport")
 	}
 }

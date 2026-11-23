@@ -43,10 +43,12 @@ func lxSafeHTTPClientWithResolver(client *http.Client, allowPrivate bool, resolv
 		if !allowPrivate && transport.TLSClientConfig != nil && transport.TLSClientConfig.InsecureSkipVerify {
 			return nil, errors.New("lx.request: insecure TLS verification is not allowed")
 		}
-		if !allowPrivate && len(transport.TLSNextProto) > 0 {
-			return nil, errors.New("lx.request: custom TLS protocol handlers are not allowed")
-		}
 		safeTransport := transport.Clone()
+		// Do not let caller-provided TLS protocol handlers install an alternate
+		// RoundTripper after the validated dial. Disable HTTP/2 handlers and
+		// force the standard HTTP/1.1 path through our pinned DialContext.
+		safeTransport.TLSNextProto = nil
+		safeTransport.ForceAttemptHTTP2 = false
 		// Do not let an ambient proxy bypass the address policy.
 		safeTransport.Proxy = nil
 		// Force HTTPS through the validated DialContext path as well.
