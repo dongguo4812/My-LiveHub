@@ -136,7 +136,8 @@ jobs:
           node ../../.github/scripts/music-htmlaudio-browser-smoke.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          go test -tags lxproduction -count=1 -v -run '^TestProductionLXFishSunnyDayPlaybackURL        uses: actions/setup-node@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: '26'
           cache: npm
