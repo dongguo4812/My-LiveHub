@@ -131,7 +131,7 @@ const lxHostBootstrap = `
               }
               sources[source] = {
                 type: 'music',
-                actions: supportActions[source].filter(action => userSource.actions.includes(action)),
+                actions: [...supportActions[source].filter(action => userSource.actions.includes(action)), ...['search', 'detail', 'lyric', 'pic'].filter(action => userSource.actions.includes(action))],
                 qualitys: supportQualitys[source].filter(quality => userQualitys.includes(quality))
               };
             }
