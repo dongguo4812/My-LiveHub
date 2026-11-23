@@ -117,6 +117,12 @@ func (r *productionMusicLXRuntime) rebuildLocked(ctx context.Context) error {
 	for i := range r.scripts {
 		script := &r.scripts[i]
 		if !script.Enabled { continue }
+		digest := sha256.Sum256([]byte(script.Source))
+		if script.ID != hex.EncodeToString(digest[:]) {
+			script.LastError = "stored script hash does not match executable source"
+			script.Enabled = false
+			continue
+		}
 		info := lxruntime.ScriptInfo{
 			Name: script.Name, Description: script.Description, Version: script.Version,
 			Author: script.Author, Homepage: script.Homepage, RawScript: script.Source,
@@ -234,6 +240,18 @@ func (r *productionMusicLXRuntime) SetScriptEnabled(ctx context.Context, id stri
 	for i := range r.scripts {
 		if r.scripts[i].ID != id { continue }
 		previous := r.scripts[i].Enabled
+		if enabled {
+			digest := sha256.Sum256([]byte(r.scripts[i].Source))
+			if r.scripts[i].ID != hex.EncodeToString(digest[:]) {
+				return errors.New("stored LX script hash does not match executable source")
+			}
+			probe, err := lxruntime.NewSourceManagerWithScripts(nil, []lxruntime.LXSourceScript{{
+				Info: lxruntime.ScriptInfo{Name: r.scripts[i].Name, Description: r.scripts[i].Description, Version: r.scripts[i].Version, Author: r.scripts[i].Author, Homepage: r.scripts[i].Homepage, RawScript: r.scripts[i].Source},
+				Source: r.scripts[i].Source, ExtensionActions: append([]string(nil), r.scripts[i].ExtensionActions...),
+			}})
+			if err != nil { return fmt.Errorf("cannot enable LX script: %w", err) }
+			_ = probe.Close()
+		}
 		r.scripts[i].Enabled = enabled
 		r.scripts[i].LastError = ""
 		if err := r.rebuildLocked(ctx); err != nil { r.scripts[i].Enabled = previous; return err }
