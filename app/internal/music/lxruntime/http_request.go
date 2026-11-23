@@ -125,7 +125,9 @@ func executeLXHTTPRequestWithPolicy(parent context.Context, descriptor lxRequest
 	}
 	resp, err := safeClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("lx.request: %w", err)
+		// Keep endpoint diagnostics useful without exposing signed query values,
+		// cookies, or request bodies in script error messages.
+		return nil, fmt.Errorf("lx.request %s %s: %w", method, parsed.Host+parsed.EscapedPath(), err)
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, lxMaxResponseBytes+1))
