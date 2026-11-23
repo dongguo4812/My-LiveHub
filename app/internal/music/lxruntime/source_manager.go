@@ -257,6 +257,15 @@ func (m *SourceManager) DispatchExtensionAction(ctx context.Context, source, act
 		}
 		value, err := m.dispatchScriptAction(ctx, script, source, action, info, client)
 		if err != nil {
+			// Cancellation and deadlines belong to the caller, not to an
+			// individual script. Do not turn them into an aggregate script
+			// failure or continue trying other scripts after the caller leaves.
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
+			}
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, err
+			}
 			failures = append(failures, script.info.Name+" "+action+" 失败："+err.Error())
 			continue
 		}
