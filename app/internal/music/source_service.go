@@ -109,9 +109,6 @@ func (s *UnifiedSourceService) ResolvePlaybackURL(ctx context.Context, track Tra
 	case "kg":
 		if value := track.SourceData["hash"]; value != "" { meta["hash"] = value }
 		if value := firstTrackValue(track.SourceData["album_audio_id"], track.SourceData["albumAudioId"]); value != "" { meta["albumAudioId"] = value }
-		for _, quality := range qualitys {
-			if quality["hash"] != nil { continue }
-		}
 	case "tx":
 		if value := firstTrackValue(track.SourceData["media_mid"], track.SourceData["strMediaMid"]); value != "" { meta["strMediaMid"] = value }
 		if value := track.SourceData["song_id"]; value != "" { meta["id"] = value }
