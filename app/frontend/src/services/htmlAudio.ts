@@ -50,10 +50,11 @@ audio.addEventListener('error', () => {
 async function execute(command: Command) {
   if (disposed || !command) return
   if (command.command === 'load') {
-    activeSession = command.session_id
+    activeSession = 0
     audio.pause()
     audio.removeAttribute('src')
     audio.load()
+    activeSession = command.session_id
     audio.src = command.resource.url
     audio.load()
     try {
