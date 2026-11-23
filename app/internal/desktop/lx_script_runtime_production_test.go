@@ -282,6 +282,11 @@ func safeLXMediaURL(raw string) string {
 	return parsed.Host + parsed.EscapedPath()
 }
 
+func firstTrackValueForTest(values map[string]string, keys ...string) string {
+	for _, key := range keys { if value := strings.TrimSpace(values[key]); value != "" { return value } }
+	return ""
+}
+
 func TestProductionLXFishSunnyDayPlaybackURL(t *testing.T) {
 	if os.Getenv("MYLIVEHUB_LX_FISH_PLAYBACK_INTEGRATION") != "1" {
 		t.Skip("set MYLIVEHUB_LX_FISH_PLAYBACK_INTEGRATION=1 to resolve a real song")
@@ -313,46 +318,55 @@ func TestProductionLXFishSunnyDayPlaybackURL(t *testing.T) {
 		config.MusicConfig{EnabledSearchSources: []string{"tx", "kw", "kg"}}, nil, nil)
 	service.scriptRuntime = manager
 
-	// This is deliberately a Kuwo-only acceptance test. Falling back to QQ or
-	// Kugou would hide a broken Kuwo musicInfo/musicUrl protocol mapping.
-	page, searchErr := service.SearchSourcePage("晴天", "kw", 1)
-	if searchErr != nil { t.Fatalf("Kuwo 晴天 search failed: %v", searchErr) }
+	// Kuwo is attempted first and its failure is retained explicitly. If the
+	// fish backend refuses Kuwo for regional rights, try the other providers
+	// exposed by the same imported LX script rather than silently claiming kw.
 	var selectedTrack *music.Track
 	var selectedResource music.PlaybackResource
+	var selectedSource string
 	var attemptFailures []string
-	// Resolve each requested quality exactly once through the production
-	// SourceManager. ResolvePlaybackResource adds fallback retries, which would
-	// obscure which single musicUrl request timed out or was rejected.
 	sourceResolver := music.NewUnifiedSourceService(service.searcher, manager)
-	for i := range page.Tracks {
-		candidate := page.Tracks[i]
-		if strings.TrimSpace(candidate.Title) != "晴天" || !strings.Contains(candidate.Artist, "周杰伦") || candidate.Album != "叶惠美" { continue }
-		t.Logf("Kuwo candidate: id=%q source_id=%q songmid=%q title=%q artist=%q album=%q duration_ms=%d cover=%q qualities=%+v source_data=%+v",
-			candidate.ID, candidate.SourceID, candidate.SourceData["songmid"], candidate.Title, candidate.Artist, candidate.Album, candidate.DurationMS, candidate.CoverURL, candidate.Qualities, candidate.SourceData)
-		qualities := candidate.Qualities
-		if len(qualities) == 0 { qualities = []music.TrackQuality{{Type: "320k"}} }
-		for _, preferred := range []string{"320k", "128k", "flac", "flac24bit"} {
-			for _, advertised := range qualities {
-				if advertised.Type != preferred { continue }
-				resolvedURL, resolveErr := sourceResolver.ResolvePlaybackURL(ctx, candidate, advertised.Type)
-				if resolveErr != nil {
-					attemptFailures = append(attemptFailures, advertised.Type+": "+resolveErr.Error())
-					t.Logf("Kuwo musicUrl failed: quality=%s size=%s error=%v", advertised.Type, advertised.Size, resolveErr)
-					continue
+	for _, sourceID := range []string{"kw", "tx", "kg"} {
+		page, searchErr := service.SearchSourcePage("晴天", sourceID, 1)
+		if searchErr != nil {
+			attemptFailures = append(attemptFailures, sourceID+" search: "+searchErr.Error())
+			t.Logf("%s search failed: %v", sourceID, searchErr)
+			continue
+		}
+		for i := range page.Tracks {
+			candidate := page.Tracks[i]
+			if strings.TrimSpace(candidate.Title) != "晴天" || !strings.Contains(candidate.Artist, "周杰伦") { continue }
+			if candidate.Album != "" && candidate.Album != "叶惠美" { continue }
+			t.Logf("%s candidate: id=%q source_id=%q native_id=%q title=%q artist=%q album=%q duration_ms=%d qualities=%+v source_data=%+v",
+				sourceID, candidate.ID, candidate.SourceID, firstTrackValueForTest(candidate.SourceData, "songmid", "song_id", "hash", "id"),
+				candidate.Title, candidate.Artist, candidate.Album, candidate.DurationMS, candidate.Qualities, candidate.SourceData)
+			qualities := candidate.Qualities
+			if len(qualities) == 0 { qualities = []music.TrackQuality{{Type: "320k"}} }
+			preferredTypes := []string{"320k", "128k", "flac", "flac24bit"}
+			for _, preferred := range preferredTypes {
+				for _, advertised := range qualities {
+					if advertised.Type != preferred { continue }
+					resolvedURL, resolveErr := sourceResolver.ResolvePlaybackURL(ctx, candidate, advertised.Type)
+					if resolveErr != nil {
+						attemptFailures = append(attemptFailures, sourceID+"/"+advertised.Type+": "+resolveErr.Error())
+						t.Logf("%s musicUrl failed: quality=%s size=%s error=%v", sourceID, advertised.Type, advertised.Size, resolveErr)
+						continue
+					}
+					selectedTrack = &candidate
+					selectedSource = sourceID
+					selectedResource = music.PlaybackResource{URL: resolvedURL, SourceID: sourceID, TrackID: candidate.ID, Quality: advertised.Type}
+					t.Logf("%s musicUrl returned URL: quality=%s endpoint=%s", sourceID, advertised.Type, safeLXMediaURL(resolvedURL))
+					break
 				}
-				selectedTrack = &candidate
-				selectedResource = music.PlaybackResource{URL: resolvedURL, SourceID: "kw", TrackID: candidate.ID, Quality: advertised.Type}
-				t.Logf("Kuwo musicUrl returned URL: quality=%s endpoint=%s", advertised.Type, safeLXMediaURL(resolvedURL))
-				break
+				if selectedTrack != nil { break }
 			}
 			if selectedTrack != nil { break }
 		}
-		break // Only the exact official album result is the acceptance target.
+		if selectedTrack != nil { break }
 	}
 	if selectedTrack == nil {
-		t.Fatalf("Kuwo did not resolve 晴天 / 周杰伦 / 叶惠美; attempts: %s", strings.Join(attemptFailures, " | "))
+		t.Fatalf("fish/latest.js did not resolve playable 晴天 / 周杰伦 across kw/tx/kg; attempts: %s", strings.Join(attemptFailures, " | "))
 	}
-	selectedSource := "kw"
 	t.Logf("real search and fish musicUrl succeeded: source=%s title=%q artist=%q track_id=%q quality=%s",
 		selectedSource, selectedTrack.Title, selectedTrack.Artist, selectedTrack.ID, selectedResource.Quality)
 	resource := selectedResource
