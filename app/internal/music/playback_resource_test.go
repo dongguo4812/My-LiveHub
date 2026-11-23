@@ -108,6 +108,7 @@ func TestPlaybackResourceCacheHonorsSourceExpiryAndCapacity(t *testing.T) {
 	a := Track{ID: "a", SourceID: "tx"}
 	b := Track{ID: "b", SourceID: "tx"}
 	c := Track{ID: "c", SourceID: "tx"}
+	d := Track{ID: "d", SourceID: "tx"}
 	makeResource := func(id string, expiry time.Time) PlaybackResource {
 		return PlaybackResource{URL: "https://media.example.test/" + id + ".mp3", SourceID: "tx", TrackID: id, Quality: "320k", ExpiresAt: expiry}
 	}
