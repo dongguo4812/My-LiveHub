@@ -223,3 +223,11 @@ func (r *productionMusicLXRuntime) Close() error {
 	if manager == nil { return nil }
 	return manager.Close()
 }
+
+func summarizeLXScript(script storedLXScript) LXScriptSummary {
+	return LXScriptSummary{
+		ID: script.ID, Name: script.Name, Enabled: script.Enabled,
+		ExtensionActions: append([]string(nil), script.ExtensionActions...),
+		LastError: script.LastError,
+	}
+}
