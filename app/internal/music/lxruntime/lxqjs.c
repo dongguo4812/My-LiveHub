@@ -1,4 +1,3 @@
-//go:build (lxquickjs || lxproduction) && cgo
 
 #include "lxqjs.h"
 
@@ -153,13 +152,34 @@ void lxqjs_string_free(char *value) {
 
 /* Synchronous Go-backed primitives. The callback executes on the QuickJS
  * owner thread; the exported Go function performs only bounded pure work. */
-extern char *lxqjsGoMD5(const char *data, size_t length);
-extern void *lxqjsGoRandomBytes(size_t length);
-extern void *lxqjsGoBufferFrom(const char *data, size_t data_len, const char *encoding, size_t *out_len);
-extern void *lxqjsGoBufferToString(const char *data, size_t data_len, const char *encoding, size_t *out_len);
-extern void *lxqjsGoRSAEncrypt(const char *data, size_t data_len, const char *key, size_t key_len, size_t *out_len);
-extern void *lxqjsGoAESEncrypt(const char *data, size_t data_len, const char *mode, const char *key, size_t key_len, const char *iv, size_t iv_len, size_t *out_len);
-extern void *lxqjsGoZlib(const char *data, size_t data_len, int inflate, size_t *out_len, char **error_out);
+
+typedef char *(*LXQJSMd5Fn)(const char *, size_t);
+typedef void *(*LXQJSRandomFn)(size_t);
+typedef void *(*LXQJSBufferFromFn)(const char *, size_t, const char *, size_t *);
+typedef void *(*LXQJSBufferToStringFn)(const char *, size_t, const char *, size_t *);
+typedef void *(*LXQJSRSAFn)(const char *, size_t, const char *, size_t, size_t *);
+typedef void *(*LXQJSAESFn)(const char *, size_t, const char *, const char *, size_t, const char *, size_t, size_t *);
+typedef void *(*LXQJSZlibFn)(const char *, size_t, int, size_t *, char **);
+static LXQJSMd5Fn g_lxqjs_md5;
+static LXQJSRandomFn g_lxqjs_random_bytes;
+static LXQJSBufferFromFn g_lxqjs_buffer_from;
+static LXQJSBufferToStringFn g_lxqjs_buffer_to_string;
+static LXQJSRSAFn g_lxqjs_rsa_encrypt;
+static LXQJSAESFn g_lxqjs_aes_encrypt;
+static LXQJSZlibFn g_lxqjs_zlib;
+
+void *lxqjs_alloc(size_t size) { return malloc(size ? size : 1); }
+void lxqjs_dealloc(void *value) { free(value); }
+void lxqjs_set_host_callbacks(void *md5, void *random_bytes, void *buffer_from,
+    void *buffer_to_string, void *rsa_encrypt, void *aes_encrypt, void *zlib) {
+    g_lxqjs_md5 = (LXQJSMd5Fn)md5;
+    g_lxqjs_random_bytes = (LXQJSRandomFn)random_bytes;
+    g_lxqjs_buffer_from = (LXQJSBufferFromFn)buffer_from;
+    g_lxqjs_buffer_to_string = (LXQJSBufferToStringFn)buffer_to_string;
+    g_lxqjs_rsa_encrypt = (LXQJSRSAFn)rsa_encrypt;
+    g_lxqjs_aes_encrypt = (LXQJSAESFn)aes_encrypt;
+    g_lxqjs_zlib = (LXQJSZlibFn)zlib;
+}
 
 // The official Electron host returns Node Buffers from crypto, buffer and
 // zlib helpers. QuickJS typed arrays are not Buffer instances, so all native
@@ -188,7 +208,7 @@ static JSValue lxqjs_md5_callback(JSContext *context, JSValueConst this_val,
     size_t length = 0;
     const char *input = JS_ToCStringLen(context, &length, argv[0]);
     if (input == NULL) return JS_EXCEPTION;
-    char *digest = lxqjsGoMD5(input, length);
+    char *digest = g_lxqjs_md5(input, length);
     JS_FreeCString(context, input);
     if (digest == NULL) return JS_ThrowInternalError(context, "md5 failed");
     JSValue result = JS_NewString(context, digest);
@@ -205,7 +225,7 @@ static JSValue lxqjs_random_bytes_callback(JSContext *context, JSValueConst this
     if (length > (1u << 20))
         return JS_ThrowRangeError(context, "randomBytes size exceeds 1 MiB");
     if (length == 0) return lxqjs_buffer_from_bytes(context, NULL, 0);
-    void *bytes = lxqjsGoRandomBytes((size_t)length);
+    void *bytes = g_lxqjs_random_bytes((size_t)length);
     if (bytes == NULL) return JS_ThrowInternalError(context, "randomBytes failed");
     JSValue result = lxqjs_buffer_from_bytes(context, (const uint8_t *)bytes, (size_t)length);
     free(bytes);
@@ -267,7 +287,7 @@ static JSValue lxqjs_rsa_encrypt_callback(JSContext *context, JSValueConst this_
         return JS_ThrowRangeError(context, "invalid RSA input or public key size");
     }
     size_t output_len = 0;
-    void *output = lxqjsGoRSAEncrypt((const char *)data, data_len,
+    void *output = g_lxqjs_rsa_encrypt((const char *)data, data_len,
                                      (const char *)key, key_len, &output_len);
     free(data); free(key);
     if (output == NULL) return JS_ThrowTypeError(context, "RSA encryption failed: invalid key or input");
@@ -292,7 +312,7 @@ static JSValue lxqjs_aes_encrypt_callback(JSContext *context, JSValueConst this_
         return JS_ThrowTypeError(context, "invalid AES input or input exceeds limit");
     }
     size_t output_len = 0;
-    void *output = lxqjsGoAESEncrypt((const char *)data, data_len, mode, (const char *)key, key_len,
+    void *output = g_lxqjs_aes_encrypt((const char *)data, data_len, mode, (const char *)key, key_len,
                                      (const char *)iv, iv_len, &output_len);
     free(data); free(key); free(iv); JS_FreeCString(context, mode);
     if (output == NULL) return JS_ThrowTypeError(context, "AES encryption failed or mode is unsupported");
@@ -346,7 +366,7 @@ static JSValue lxqjs_buffer_from_callback(JSContext *context, JSValueConst this_
         return JS_EXCEPTION;
     }
     size_t output_len = 0;
-    void *output = lxqjsGoBufferFrom((const char *)input, input_len, encoding, &output_len);
+    void *output = g_lxqjs_buffer_from((const char *)input, input_len, encoding, &output_len);
     if (owns_encoding) JS_FreeCString(context, encoding);
     free(input);
     if (output == NULL) return JS_ThrowTypeError(context, "unsupported buffer encoding or invalid input");
@@ -368,7 +388,7 @@ static JSValue lxqjs_buffer_to_string_callback(JSContext *context, JSValueConst 
         if (encoding == NULL) { free(input); return JS_EXCEPTION; }
     }
     size_t output_len = 0;
-    void *output = lxqjsGoBufferToString((const char *)input, input_len, encoding, &output_len);
+    void *output = g_lxqjs_buffer_to_string((const char *)input, input_len, encoding, &output_len);
     if (argc > 1 && !JS_IsUndefined(argv[1])) JS_FreeCString(context, encoding);
     free(input);
     if (output == NULL) return JS_ThrowTypeError(context, "unsupported buffer encoding");
@@ -402,7 +422,7 @@ static JSValue lxqjs_zlib_callback(JSContext *context, JSValueConst this_val,
         JS_Call(context, resolving[1], JS_UNDEFINED, 1, &reason);
         JS_FreeValue(context, reason);
     } else {
-        output = lxqjsGoZlib((const char *)input, input_len, inflate, &output_len, &host_error);
+        output = g_lxqjs_zlib((const char *)input, input_len, inflate, &output_len, &host_error);
         if (output == NULL) {
             JSValue reason = JS_NewError(context);
             JS_SetPropertyStr(context, reason, "message",
@@ -432,7 +452,7 @@ static JSValue lxqjs_zlib_deflate_callback(JSContext *context, JSValueConst this
 
 int lxqjs_install_crypto(LXQJSState *state, char **error_out) {
     if (error_out != NULL) *error_out = NULL;
-    if (state == NULL || state->context == NULL) {
+    if (state == NULL || state->context == NULL || g_lxqjs_md5 == NULL || g_lxqjs_random_bytes == NULL || g_lxqjs_buffer_from == NULL || g_lxqjs_buffer_to_string == NULL || g_lxqjs_rsa_encrypt == NULL || g_lxqjs_aes_encrypt == NULL || g_lxqjs_zlib == NULL) {
         lxqjs_set_error(error_out, "invalid QuickJS state for crypto installation");
         return -1;
     }
