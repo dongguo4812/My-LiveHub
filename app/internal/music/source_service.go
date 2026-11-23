@@ -55,77 +55,80 @@ func (s *UnifiedSourceService) ResolvePlaybackURL(ctx context.Context, track Tra
 	if s == nil || s.resolver == nil {
 		return "", errors.New("music playback URL resolver is unavailable")
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	if ctx == nil { ctx = context.Background() }
 	source := strings.TrimSpace(firstTrackValue(track.LXSourceKey, track.SourceID))
-	if source == "" {
-		return "", errors.New("track has no source identifier")
-	}
+	if source == "" { return "", errors.New("track has no source identifier") }
 
-	songID := firstTrackValue(
-		track.SourceData["songmid"], track.SourceData["song_id"],
-		track.SourceData["hash"], track.SourceData["id"],
-	)
+	songID := firstTrackValue(track.SourceData["songmid"], track.SourceData["song_id"], track.SourceData["hash"], track.SourceData["id"])
 	if songID == "" {
-		switch source {
-		case "kg":
-			// LX's Kugou track ID is normally AudioID_FileHash. The hash is
-			// the native identifier expected by the playback resolver; some
-			// imported/normalized tracks already carry only the hash as ID.
+		if source == "kg" {
 			songID = strings.TrimSpace(track.ID)
-			if separator := strings.LastIndex(songID, "_"); separator >= 0 {
-				songID = songID[separator+1:]
-			}
-		default:
+			if separator := strings.LastIndex(songID, "_"); separator >= 0 { songID = songID[separator+1:] }
+		} else {
 			songID = strings.TrimPrefix(track.ID, source+"_")
-			if songID == track.ID {
-				songID = ""
-			}
+			if songID == track.ID { songID = "" }
 		}
 	}
-	if songID == "" {
-		return "", errors.New("track has no native source song identifier")
-	}
+	if songID == "" { return "", errors.New("track has no native source song identifier") }
 
-	types := make([]map[string]any, 0, len(track.Qualities))
+	// LX musicUrl receives the desktop MusicInfo shape:
+	// { musicInfo: { id, name, singer, source, interval, meta: { songId,
+	// albumName, qualitys, _qualitys, ... } }, type }. The previous flattened
+	// songmid/types object was not the native LX contract and could make scripts
+	// request the wrong catalog item or report a misleading copyright error.
+	qualitys := make([]map[string]any, 0, len(track.Qualities))
+	_qualitys := make(map[string]any, len(track.Qualities))
 	for _, item := range track.Qualities {
-		if strings.TrimSpace(item.Type) == "" {
-			continue
+		kind := strings.TrimSpace(item.Type)
+		if kind == "" { continue }
+		entry := map[string]any{"type": kind, "size": item.Size}
+		for key, value := range item.SourceData { entry[key] = value }
+		qualitys = append(qualitys, entry)
+		indexed := map[string]any{"size": item.Size}
+		for key, value := range item.SourceData { indexed[key] = value }
+		_qualitys[kind] = indexed
+	}
+	if qualityType == "" { qualityType = strings.TrimSpace(track.SelectedQuality) }
+	if qualityType == "" && len(qualitys) > 0 { qualityType, _ = qualitys[0]["type"].(string) }
+	if qualityType == "" { qualityType = "320k" }
+
+	interval := ""
+	if track.DurationMS > 0 {
+		seconds := track.DurationMS / 1000
+		interval = fmt.Sprintf("%02d:%02d", seconds/60, seconds%60)
+	}
+	meta := map[string]any{
+		"songId": songID,
+		"albumName": track.Album,
+		"picUrl": track.CoverURL,
+		"qualitys": qualitys,
+		"_qualitys": _qualitys,
+	}
+	if value := firstTrackValue(track.SourceData["album_id"], track.SourceData["albumId"]); value != "" { meta["albumId"] = value }
+	switch source {
+	case "kg":
+		if value := track.SourceData["hash"]; value != "" { meta["hash"] = value }
+		if value := firstTrackValue(track.SourceData["album_audio_id"], track.SourceData["albumAudioId"]); value != "" { meta["albumAudioId"] = value }
+		for _, quality := range qualitys {
+			if quality["hash"] != nil { continue }
 		}
-		entry := map[string]any{"type": item.Type, "size": item.Size}
-		for key, value := range item.SourceData {
-			entry[key] = value
-		}
-		types = append(types, entry)
+	case "tx":
+		if value := firstTrackValue(track.SourceData["media_mid"], track.SourceData["strMediaMid"]); value != "" { meta["strMediaMid"] = value }
+		if value := track.SourceData["song_id"]; value != "" { meta["id"] = value }
+		if value := firstTrackValue(track.SourceData["album_mid"], track.SourceData["albumMid"]); value != "" { meta["albumMid"] = value }
+	case "mg":
+		if value := firstTrackValue(track.SourceData["copyright_id"], track.SourceData["copyrightId"]); value != "" { meta["copyrightId"] = value }
+		if value := firstTrackValue(track.SourceData["lrc_url"], track.SourceData["lrcUrl"]); value != "" { meta["lrcUrl"] = value }
+		if value := firstTrackValue(track.SourceData["mrc_url"], track.SourceData["mrcUrl"]); value != "" { meta["mrcUrl"] = value }
+		if value := firstTrackValue(track.SourceData["trc_url"], track.SourceData["trcUrl"]); value != "" { meta["trcUrl"] = value }
 	}
-	if qualityType == "" {
-		qualityType = strings.TrimSpace(track.SelectedQuality)
+	musicInfo := map[string]any{
+		"id": track.ID, "name": track.Title, "singer": track.Artist,
+		"source": source, "interval": interval, "meta": meta,
 	}
-	if qualityType == "" && len(track.Qualities) > 0 {
-		qualityType = track.Qualities[0].Type
-	}
-	if qualityType == "" {
-		qualityType = "320k"
-	}
-	info := map[string]any{
-		"musicInfo": map[string]any{
-			"songmid": songID, "name": track.Title, "singer": track.Artist,
-			"albumName": track.Album,
-			"albumId": firstTrackValue(track.SourceData["album_id"], track.SourceData["albumId"]),
-			"hash": track.SourceData["hash"],
-			"strMediaMid": firstTrackValue(track.SourceData["media_mid"], track.SourceData["strMediaMid"]),
-			"albumMid": firstTrackValue(track.SourceData["album_mid"], track.SourceData["albumMid"]),
-			"copyrightId": firstTrackValue(track.SourceData["copyright_id"], track.SourceData["copyrightId"]),
-			"lrcUrl": firstTrackValue(track.SourceData["lrc_url"], track.SourceData["lrcUrl"]),
-			"types": types,
-		},
-		"type": qualityType,
-	}
+	info := map[string]any{"musicInfo": musicInfo, "type": qualityType}
 	resolved, err := s.resolver.ResolvePlaybackURL(ctx, source, info)
-	if err != nil {
-		return "", fmt.Errorf("resolve %s track %q: %w", source, track.Title, err)
-	}
+	if err != nil { return "", fmt.Errorf("resolve %s track %q: %w", source, track.Title, err) }
 	resolved = strings.TrimSpace(resolved)
 	parsed, err := url.Parse(resolved)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
