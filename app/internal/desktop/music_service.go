@@ -1237,8 +1237,10 @@ func (s *MusicService) advanceAfterPlaybackEnd(snapshot music.PlaybackSnapshot, 
 	if len(s.queue.Snapshot().Items) > 0 {
 		return s.PlayNext()
 	}
-	// 洛雪 may already have started its own next song at the end boundary.
-	// Keep it playing instead of issuing a second skip-next.
+	// HTMLAudio owns only My-LiveHub's queue. An empty queue is a normal end,
+	// never a reason to call the legacy 洛雪 playlist API.
+	if _, htmlAudio := s.engine.(*htmlAudioPlaybackEngine); htmlAudio { return nil }
+	// A legacy 洛雪 engine may already have started its own next song at the end boundary.
 	if lxAlreadyAdvancedPastCurrent(finished, snapshot) { return nil }
 	nextTrack, ok := s.engine.(interface { NextTrack(context.Context) error })
 	if !ok {
