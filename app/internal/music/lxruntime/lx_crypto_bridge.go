@@ -28,8 +28,12 @@ func readNativeBytes(ptr, length uintptr, limit uintptr) ([]byte, error) {
 }
 func readNativeString(ptr uintptr, limit int) (string, error) {
 	if ptr == 0 { return "", nil }
-	data := unsafe.Slice((*byte)(unsafe.Pointer(ptr)), limit)
-	for i, b := range data { if b == 0 { return string(data[:i]), nil } }
+	data := make([]byte, 0, 64)
+	for i := 0; i < limit; i++ {
+		b := *(*byte)(unsafe.Pointer(ptr + uintptr(i)))
+		if b == 0 { return string(data), nil }
+		data = append(data, b)
+	}
 	return "", errors.New("native string is not terminated within limit")
 }
 func writeNativeLength(ptr uintptr, length int) bool {
