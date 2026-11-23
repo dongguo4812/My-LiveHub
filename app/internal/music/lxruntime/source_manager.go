@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"time"
 )
 
 type managedLXScript struct {
@@ -251,7 +250,7 @@ func (m *SourceManager) ResolvePlaybackURL(ctx context.Context, source string, i
 
 	// Closing the manager must interrupt initialization and in-flight network
 	// actions before Close waits for the serialized dispatch lock.
-	actionCtx, cancelAction := context.WithCancel(ctx)
+	actionCtx, cancelAction := context.WithTimeout(ctx, lxMaxRequestTimeout)
 	stopManagerCancel := context.AfterFunc(managerCtx, cancelAction)
 	defer func() {
 		stopManagerCancel()
