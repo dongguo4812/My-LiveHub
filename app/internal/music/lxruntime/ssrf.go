@@ -19,6 +19,11 @@ import (
 // address that was resolved and checked immediately before dialing, preventing
 // DNS rebinding between validation and connection.
 func lxSafeHTTPClient(client *http.Client) (*http.Client, error) {
+	return lxSafeHTTPClientWithPolicy(client, false)
+}
+
+// lxSafeHTTPClientWithPolicy allows private destinations only for isolated local HTTP tests.
+func lxSafeHTTPClientWithPolicy(client *http.Client, allowPrivate bool) (*http.Client, error) {
 	if client == nil {
 		client = http.DefaultClient
 	}
@@ -37,7 +42,7 @@ func lxSafeHTTPClient(client *http.Client) (*http.Client, error) {
 			if err != nil {
 				return nil, fmt.Errorf("lx.request: invalid destination: %w", err)
 			}
-			ips, err := resolvePublicLXHost(ctx, host)
+			ips, err := resolveLXHost(ctx, host, allowPrivate)
 			if err != nil {
 				return nil, err
 			}
@@ -59,7 +64,7 @@ func lxSafeHTTPClient(client *http.Client) (*http.Client, error) {
 	}
 	previousRedirect := client.CheckRedirect
 	clone.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if err := validateLXDestination(req.Context(), req.URL); err != nil {
+		if err := validateLXDestinationWithPolicy(req.Context(), req.URL, allowPrivate); err != nil {
 			return err
 		}
 		if previousRedirect != nil {
@@ -83,24 +88,32 @@ func (t lxLiteralIPPolicyTransport) RoundTrip(req *http.Request) (*http.Response
 }
 
 func validateLXDestination(ctx context.Context, target *url.URL) error {
+	return validateLXDestinationWithPolicy(ctx, target, false)
+}
+
+func validateLXDestinationWithPolicy(ctx context.Context, target *url.URL, allowPrivate bool) error {
 	if target == nil || (target.Scheme != "http" && target.Scheme != "https") || target.Hostname() == "" {
 		return errors.New("lx.request: only absolute HTTP(S) URLs are supported")
 	}
 	if target.User != nil {
 		return errors.New("lx.request: URL credentials are not allowed")
 	}
-	_, err := resolvePublicLXHost(ctx, target.Hostname())
+	_, err := resolveLXHost(ctx, target.Hostname(), allowPrivate)
 	return err
 }
 
 func resolvePublicLXHost(ctx context.Context, host string) ([]netip.Addr, error) {
+	return resolveLXHost(ctx, host, false)
+}
+
+func resolveLXHost(ctx context.Context, host string, allowPrivate bool) ([]netip.Addr, error) {
 	host = strings.TrimSuffix(strings.TrimSpace(host), ".")
 	if host == "" {
 		return nil, errors.New("lx.request: empty destination host")
 	}
 	if ip, err := netip.ParseAddr(host); err == nil {
 		ip = ip.Unmap()
-		if !isPublicLXIP(ip) {
+		if !allowPrivate && !isPublicLXIP(ip) {
 			return nil, fmt.Errorf("lx.request: destination address is not public: %s", ip)
 		}
 		return []netip.Addr{ip}, nil
@@ -119,7 +132,7 @@ func resolvePublicLXHost(ctx context.Context, host string) ([]netip.Addr, error)
 	checked := make([]netip.Addr, 0, len(ips))
 	for _, ip := range ips {
 		ip = ip.Unmap()
-		if !isPublicLXIP(ip) {
+		if !allowPrivate && !isPublicLXIP(ip) {
 			return nil, fmt.Errorf("lx.request: host resolves to a non-public address: %s", ip)
 		}
 		checked = append(checked, ip)
