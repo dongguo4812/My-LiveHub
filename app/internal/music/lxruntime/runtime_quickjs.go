@@ -3,10 +3,11 @@
 package lxruntime
 
 /*
-#cgo CFLAGS: -I${SRCDIR}/poc/native/include
+#cgo CFLAGS: -DLXQJS_CGO_BRIDGE -I${SRCDIR}/poc/native/include
 #cgo LDFLAGS: -L${SRCDIR}/poc/native/lib -lqjs
 #include <stdlib.h>
 #include "lxqjs.h"
+void lxqjs_register_cgo_callbacks(void);
 */
 import "C"
 
@@ -96,6 +97,7 @@ func (r *Runtime) loop(opts Options, ready chan<- error) {
 		return
 	}
 	defer C.lxqjs_free(state)
+	C.lxqjs_register_cgo_callbacks()
 	ready <- nil
 
 	for cmd := range r.commands {
