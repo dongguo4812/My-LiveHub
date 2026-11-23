@@ -110,12 +110,18 @@ func (r *productionMusicLXRuntime) rebuildLocked(ctx context.Context) error {
 	if r.started {
 		if err := next.Start(ctx); err != nil { _ = next.Close(); return fmt.Errorf("start imported LX scripts: %w", err) }
 	}
+	// Persist the new registry before swapping the live manager. A disk error
+	// must not leave the process running a script set that will disappear on restart.
+	if err := r.persistLocked(); err != nil {
+		_ = next.Close()
+		return err
+	}
 	old := r.manager
 	r.manager = next
 	if old != nil {
-		if err := old.Close(); err != nil { return fmt.Errorf("close previous LX source manager: %w", err) }
+		if err := old.Close(); err != nil { return fmt.Errorf("close previous LX source manager after registry swap: %w", err) }
 	}
-	return r.persistLocked()
+	return nil
 }
 
 func (r *productionMusicLXRuntime) Start(ctx context.Context) error {
