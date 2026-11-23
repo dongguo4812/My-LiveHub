@@ -5,7 +5,6 @@ package desktop
 import (
 	"context"
 	"errors"
-	"net/http"
 	"sync"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/music/lxruntime"
@@ -27,7 +26,7 @@ func (r *productionMusicLXRuntime) Start(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.manager == nil {
-		r.manager = lxruntime.NewSourceManager(&http.Client{})
+		r.manager = lxruntime.NewSourceManager(nil)
 	}
 	return r.manager.Start(ctx)
 }
