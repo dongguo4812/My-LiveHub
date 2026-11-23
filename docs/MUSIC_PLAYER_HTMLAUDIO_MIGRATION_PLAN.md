@@ -481,7 +481,7 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 |---|---|---|
 | 总体架构路线 | **可行** | 现有 QuickJS、Go 音乐服务和 Wails WebView 能作为实现基础 |
 | 洛雪 JS 完整运行时兼容 | **未验收** | 目前只有部分宿主能力，需 API 矩阵和真实脚本证据 |
-| 用户 JS 导入/管理 | **A 阶段已完成** | 已接入本地持久化、元信息/hash 校验、启停删除、损坏隔离、MusicService API 和设置页；搜索等 action 调度留在 B |
+| 用户 JS 导入/管理 | **A 阶段已完成** | 已接入本地持久化、元信息/hash 校验、启停删除、损坏隔离、MusicService API 和设置页；B 阶段 action 调度已在生产链路完成 |
 | JS 脚本搜索/详情/歌词/封面 | **B 阶段已完成** | 生产 search/detail/lyric/pic 入口、Track 映射、按音源路由、原生 musicUrl 分离、错误/取消和多脚本隔离均通过 CI Run #567 |
 | 结构化 PlaybackResource | **未完成** | 现有解析结果为 URL 字符串 |
 | HTMLAudio 目标 WebView 实播 | **未验证** | 无真实设备播放验收记录 |
