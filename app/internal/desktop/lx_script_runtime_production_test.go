@@ -101,6 +101,22 @@ func TestProductionLXScriptRuntimeIsolatesInvalidPersistedScript(t *testing.T) {
 	if !runtime.Available() { t.Fatal("valid script should keep runtime available") }
 }
 
+
+func TestMusicServiceLXScriptManagementAPI(t *testing.T) {
+	manager := testLXConfigManager(t)
+	service := NewMusicServiceWithDependencies(manager, config.MusicConfig{}, nil, nil)
+	added, err := service.ImportLXScript("service API fixture", "lx.send('inited', {});", nil)
+	if err != nil { t.Fatalf("MusicService.ImportLXScript: %v", err) }
+	if added.ID == "" || added.Name != "service API fixture" { t.Fatalf("import result = %#v", added) }
+	list := service.ListLXScripts()
+	if len(list) != 1 || list[0].ID != added.ID { t.Fatalf("MusicService.ListLXScripts = %#v", list) }
+	if err := service.SetLXScriptEnabled(added.ID, false); err != nil { t.Fatalf("MusicService.SetLXScriptEnabled: %v", err) }
+	if list = service.ListLXScripts(); len(list) != 1 || list[0].Enabled { t.Fatalf("disabled script listing = %#v", list) }
+	if err := service.DeleteLXScript(added.ID); err != nil { t.Fatalf("MusicService.DeleteLXScript: %v", err) }
+	if list = service.ListLXScripts(); len(list) != 0 { t.Fatalf("deleted script listing = %#v", list) }
+	if err := service.Shutdown(); err != nil { t.Fatalf("MusicService.Shutdown: %v", err) }
+}
+
 func TestLXScriptStoreSerializationIsStable(t *testing.T) {
 	data, err := json.Marshal([]storedLXScript{{ID:"id", Name:"fixture", Source:"lx.send('inited', {});", Enabled:true}})
 	if err != nil { t.Fatal(err) }
