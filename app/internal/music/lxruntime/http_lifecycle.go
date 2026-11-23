@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -22,6 +23,7 @@ type lxHTTPTasks struct {
 	client    *http.Client
 	active    map[uint64]context.CancelFunc
 	completed chan lxHTTPCompletion
+	wg        sync.WaitGroup
 }
 
 func newLXHTTPTasks(client *http.Client) *lxHTTPTasks {
@@ -42,10 +44,16 @@ func (t *lxHTTPTasks) start(parent context.Context, requests []lxRequestDescript
 		}
 		requestCtx, cancel := context.WithCancel(parent)
 		t.active[request.ID] = cancel
-		go func(request lxRequestDescriptor) {
+		t.wg.Add(1)
+		go func(request lxRequestDescriptor, requestCtx context.Context) {
+			defer t.wg.Done()
 			response, err := executeLXHTTPRequest(requestCtx, request, t.client)
-			t.completed <- lxHTTPCompletion{id: request.ID, response: response, err: err}
-		}(request)
+			select {
+			case t.completed <- lxHTTPCompletion{id: request.ID, response: response, err: err}:
+			case <-requestCtx.Done():
+				// An aborted request no longer needs to enqueue a completion.
+			}
+		}(request, requestCtx)
 	}
 	return nil
 }
@@ -54,6 +62,7 @@ func (t *lxHTTPTasks) abort(ids []uint64) {
 	for _, id := range ids {
 		if cancel := t.active[id]; cancel != nil {
 			cancel()
+			delete(t.active, id)
 		}
 	}
 }
@@ -71,6 +80,8 @@ func (t *lxHTTPTasks) cancelAll() {
 		cancel()
 		delete(t.active, id)
 	}
+	// Do not let a closed/expired script leave HTTP goroutines behind.
+	t.wg.Wait()
 }
 
 func (t *lxHTTPTasks) wait(ctx context.Context, nextTimerDelay int64) (*lxHTTPCompletion, error) {

@@ -67,3 +67,13 @@ func TestValidateLXDestinationRejectsCredentialsAndNonHTTP(t *testing.T) {
 		}
 	}
 }
+
+
+func TestLXHTTPTasksAbortDropsActiveRequest(t *testing.T) {
+	tasks := newLXHTTPTasks(nil)
+	cancelled := false
+	tasks.active[7] = func() { cancelled = true }
+	tasks.abort([]uint64{7})
+	if !cancelled { t.Fatal("abort did not cancel the request") }
+	if _, exists := tasks.active[7]; exists { t.Fatal("aborted request remains active") }
+}

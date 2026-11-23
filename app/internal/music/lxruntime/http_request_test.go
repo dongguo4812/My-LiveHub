@@ -198,3 +198,39 @@ func TestLXRequestResourceLimits(t *testing.T) {
 		t.Fatal("expected too many headers to be rejected")
 	}
 }
+
+
+func TestValidateLXRequestHeadersRejectsInvalidNamesAndControlBytes(t *testing.T) {
+	for _, headers := range []map[string]any{
+		{"Bad Header": "value"},
+		{"X-Test:Injected": "value"},
+		{"X-Test": "bad\x00value"},
+		{"X-Test": "bad\x7fvalue"},
+	} {
+		if err := validateLXRequestHeaders(headers); err == nil {
+			t.Errorf("invalid header accepted: %#v", headers)
+		}
+	}
+	if err := validateLXRequestHeaders(map[string]any{"X-Test": "tab\tallowed"}); err != nil {
+		t.Fatalf("horizontal tab should be accepted in a field value: %v", err)
+	}
+}
+
+func TestLXHTTPSRedirectCannotDowngradeToHTTP(t *testing.T) {
+	client := &http.Client{Transport: lxRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusFound,
+			Header: http.Header{"Location": []string{"http://1.1.1.1/downgrade"}},
+			Body: io.NopCloser(strings.NewReader("")),
+			Request: req,
+		}, nil
+	})}
+	safeClient, err := lxSafeHTTPClient(client)
+	if err != nil { t.Fatal(err) }
+	req, err := http.NewRequest(http.MethodGet, "https://1.1.1.1/start", nil)
+	if err != nil { t.Fatal(err) }
+	_, err = safeClient.Do(req)
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "downgrade") {
+		t.Fatalf("HTTPS-to-HTTP redirect should be rejected, got %v", err)
+	}
+}

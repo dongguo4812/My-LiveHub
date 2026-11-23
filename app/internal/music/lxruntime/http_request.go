@@ -79,14 +79,17 @@ func executeLXHTTPRequestWithPolicy(parent context.Context, descriptor lxRequest
 	timeout := lxRequestTimeout(descriptor.Timeout)
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
-	if err := validateLXDestinationWithPolicy(ctx, parsed, allowPrivate); err != nil {
-		return nil, err
-	}
+	// Acquire the global request budget before DNS resolution. Otherwise a
+	// burst of scripts can bypass the concurrency limit by fanning out DNS
+	// lookups before any request reaches the semaphore.
 	select {
 	case lxRequestSemaphore <- struct{}{}:
 		defer func() { <-lxRequestSemaphore }()
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	}
+	if err := validateLXDestinationWithPolicy(ctx, parsed, allowPrivate); err != nil {
+		return nil, err
 	}
 
 	body, contentType, err := buildLXRequestBody(descriptor)
@@ -150,8 +153,16 @@ func validateLXRequestHeaders(headers map[string]any) error {
 	for key, value := range headers {
 		valueText := fmt.Sprint(value)
 		total += len(key) + len(valueText)
-		if strings.ContainsAny(key, "\r\n") || strings.ContainsAny(valueText, "\r\n") {
-			return errors.New("lx.request: invalid request header")
+		if !validHTTPToken(key) {
+			return errors.New("lx.request: invalid request header name")
+		}
+		for i := 0; i < len(valueText); i++ {
+			b := valueText[i]
+			// HTTP field values permit horizontal tab and visible/obs-text
+			// bytes, but no other C0 controls or DEL.
+			if (b < 0x20 && b != '\t') || b == 0x7f {
+				return errors.New("lx.request: invalid request header value")
+			}
 		}
 	}
 	if total > lxMaxRequestHeaderBytes {
