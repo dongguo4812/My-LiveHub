@@ -95,10 +95,14 @@ const saving = ref(false)
 const error = ref('')
 const success = ref('')
 let statusTimer: ReturnType<typeof setInterval> | undefined
+let playbackClockTimer: ReturnType<typeof setInterval> | undefined
+let playbackPositionAnchor = 0
+let playbackPositionAnchorAt = 0
+const displayedPositionMs = ref(0)
 
 const progress = computed(() => {
   if (!playback.value || playback.value.duration_ms <= 0) return 0
-  return Math.min(100, Math.max(0, playback.value.position_ms / playback.value.duration_ms * 100))
+  return Math.min(100, Math.max(0, displayedPositionMs.value / playback.value.duration_ms * 100))
 })
 const searchErrorText = computed(() => Object.values(searchErrors.value).join('；'))
 function formatDuration(value?: number) {
@@ -108,9 +112,13 @@ function formatDuration(value?: number) {
   const seconds = Math.floor(numeric / 1000)
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 }
-function formatSeekTooltip(percent: number) {
-  const duration = playback.value?.duration_ms ?? 0
-  return formatDuration(Math.round(duration * Math.min(100, Math.max(0, percent)) / 100))
+function updatePlaybackClock() {
+  if (!playback.value) { displayedPositionMs.value = 0; return }
+  const position = playback.value.state === 'playing'
+    ? playbackPositionAnchor + Date.now() - playbackPositionAnchorAt
+    : playbackPositionAnchor
+  const duration = playback.value.duration_ms ?? 0
+  displayedPositionMs.value = duration > 0 ? Math.min(duration, position) : Math.max(0, position)
 }
 function sourceName(id?: string) {
   const names: Record<string, string> = { kw: '酷我音乐', kg: '酷狗音乐', tx: 'QQ 音乐', wy: '网易云音乐', mg: '咪咕音乐' }
@@ -189,6 +197,9 @@ async function refreshPlayback() {
   await refreshQueue()
   try {
     playback.value = await MusicService.GetCachedPlaybackStatus()
+    playbackPositionAnchor = playback.value.position_ms ?? 0
+    playbackPositionAnchorAt = Date.now()
+    updatePlaybackClock()
   } catch { /* Keep the last known playback snapshot if the cache is unavailable. */ }
 }
 async function saveConfig() {
@@ -294,9 +305,11 @@ onMounted(() => {
   void loadConfig()
   void refreshPlayback()
   statusTimer = setInterval(() => void refreshPlayback(), 1500)
+  playbackClockTimer = setInterval(updatePlaybackClock, 100)
 })
 onUnmounted(() => {
   if (statusTimer) clearInterval(statusTimer)
+  if (playbackClockTimer) clearInterval(playbackClockTimer)
 })
 </script>
 
@@ -337,7 +350,7 @@ onUnmounted(() => {
         </div>
       </div>
       <el-slider :model-value="progress" :min="0" :max="100" :step="0.1" :format-tooltip="formatSeekTooltip" :disabled="true" />
-      <div class="time-row"><span>{{ formatDuration(playback?.position_ms) }}</span><span>{{ formatDuration(playback?.duration_ms) }}</span></div>
+      <div class="time-row"><span>{{ formatDuration(displayedPositionMs) }}</span><span>{{ formatDuration(playback?.duration_ms) }}</span></div>
       <p class="hint">音量调节和播放进度定位暂不受洛雪开放 API 支持，请在洛雪客户端中操作。</p>
       <div class="player-controls">
         <el-button :disabled="playback?.state !== 'playing'" @click="pause">暂停</el-button>
