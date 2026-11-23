@@ -187,7 +187,7 @@ async function importLXScript() {
     if (!exists) throw new Error('后端返回导入成功，但刷新脚本列表后未找到该脚本，请检查本地脚本存储状态')
     lxScriptName.value = ''
     lxScriptSource.value = ''
-    success.value = `已导入并启用音源脚本：${added.name}；自动识别能力：${lxActionNames(added.extension_actions ?? [])}；支持音源：${(added.supported_sources ?? []).join('、')}`
+    success.value = `已导入并启用音源脚本：${added.name}；社区扩展 action：${lxActionNames(added.extension_actions ?? [])}；洛雪原生 action：${(added.native_actions ?? []).join('、') || '未声明'}；支持音源：${(added.supported_sources ?? []).join('、')}`
     lxScriptFeedback.value = success.value
   } catch (reason) {
     const message = reason instanceof Error ? reason.message : String(reason)
@@ -680,9 +680,9 @@ onUnmounted(() => {
             <strong>{{ script.name }}</strong>
             <span v-if="script.version || script.author">{{ [script.version, script.author].filter(Boolean).join(' · ') }}</span>
             <span v-if="script.description">{{ script.description }}</span>
-            <span>已识别能力：{{ lxActionNames(script.extension_actions ?? []) }}</span>
+            <span>社区扩展 action：{{ lxActionNames(script.extension_actions ?? []) }}</span>
+            <span>洛雪原生 action：{{ (script.native_actions ?? []).join('、') || '未声明' }}</span>
             <span v-if="script.supported_sources?.length">支持音源：{{ script.supported_sources.join('、') }}</span>
-            <span>播放地址 musicUrl：按洛雪原生 actions 声明处理</span>
             <span>SHA-256：{{ script.id }}</span>
             <el-text v-if="script.last_error" type="danger" size="small">{{ script.last_error }}</el-text>
           </div>
