@@ -1,4 +1,4 @@
-//go:build lxproduction && cgo
+//go:build lxproduction
 
 package lxruntime
 
