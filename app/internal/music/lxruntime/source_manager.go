@@ -49,7 +49,47 @@ type LXSourceScript struct {
 	ExtensionActions  []string
 }
 
-func newSourceManager(client *http.Client) *SourceManager {
+
+// DetectLXScriptExtensionActions initializes an imported script and derives the
+// My-LiveHub extension capabilities exclusively from its LX inited.sources
+// declaration. Native musicUrl is intentionally excluded from the returned
+// community actions.
+func DetectLXScriptExtensionActions(ctx context.Context, info ScriptInfo, source string, client *http.Client) ([]string, []string, error) {
+	if ctx == nil { ctx = context.Background() }
+	if err := ValidateLXScriptSource(source); err != nil { return nil, nil, err }
+	runtime, err := New(Options{})
+	if err != nil { return nil, nil, fmt.Errorf("create QuickJS capability probe: %w", err) }
+	defer runtime.Close()
+	if err := runtime.InitializeLXSource(ctx, info, source, client); err != nil {
+		return nil, nil, fmt.Errorf("initialize script to detect capabilities: %w", err)
+	}
+	text, err := runtime.Eval(ctx, `JSON.stringify((globalThis.__lxHostState && globalThis.__lxHostState.initInfo && globalThis.__lxHostState.initInfo.sources) || {})`, "lx-capability-detection.js")
+	if err != nil { return nil, nil, fmt.Errorf("read inited.sources capabilities: %w", err) }
+	var sources map[string]struct { Actions []string `json:"actions"` }
+	if err := json.Unmarshal([]byte(text), &sources); err != nil {
+		return nil, nil, fmt.Errorf("decode inited.sources capabilities: %w", err)
+	}
+	if len(sources) == 0 { return nil, nil, errors.New("脚本初始化成功，但没有在 inited.sources 中声明任何音源") }
+	actionsSet := map[string]struct{}{}
+	sourceSet := make([]string, 0, len(sources))
+	for sourceName, capability := range sources {
+		sourceName = strings.TrimSpace(sourceName)
+		if sourceName == "" { continue }
+		sourceSet = append(sourceSet, sourceName)
+		for _, action := range capability.Actions {
+			if isLXCommunityExtensionAction(strings.TrimSpace(action)) { actionsSet[strings.TrimSpace(action)] = struct{}{} }
+		}
+	}
+	actions := make([]string, 0, len(actionsSet))
+	for action := range actionsSet { actions = append(actions, action) }
+	sort.Strings(actions)
+	sort.Strings(sourceSet)
+	if len(actions) == 0 {
+		return nil, sourceSet, errors.New("脚本已初始化并声明音源，但没有声明 My-LiveHub 支持的社区扩展 action（search/detail/lyric/pic）；musicUrl 属于洛雪原生 action，不计入社区扩展能力")
+	}
+	return actions, sourceSet, nil
+}
+\nfunc newSourceManager(client *http.Client) *SourceManager {
 	if client == nil {
 		client = &http.Client{Timeout: lxMaxRequestTimeout}
 	}
