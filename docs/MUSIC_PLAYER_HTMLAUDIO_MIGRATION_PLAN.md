@@ -1047,4 +1047,8 @@ line 3: unexpected EOF while looking for matching single quote
 4. CI 发布 DLL 后，移除本地 DLL，再执行与 `task build` 相同的 PowerShell 引导流程；自动下载、SHA256 校验、安装 DLL 并完成 Wails 构建。
 5. Taskfile 的 `dev/build` 均不再要求本机 GCC；缺少/下载失败/校验失败时明确报错，不回退到空 runtime。
 
-**当前进度：** 已添加 purego 动态调用层、Go callback ABI、独立 CMake DLL target、无 CGO build tags、Taskfile 和自动下载脚本，并调整 QuickJS workflow 构建及发布流程。当前提交 `5118d8f9749fc2549f97bdee8d37fd1f1936d19a` 的 CI 尚未结束；DLL ABI、真实回调、无 CGO Wails 构建及发布后下载闭环均未验收。因此本节仍为实施中，不能宣称环境问题已解决。
+**验收结果：** 停止条件已满足。Windows x64 CI Run [45168447541](https://github.com/dongguo4812/My-LiveHub/actions/runs/45168447541) 的功能步骤全部成功：QuickJS DLL 构建与 C API smoke test、CGO_ENABLED=0 的 lxruntime/music 测试与 go vet、lxproduction 测试、desktop 集成测试、Wails Windows 构建，以及删除本地 DLL 后从 Release 自动下载、SHA256 校验并再次完成 Wails 构建。该 run 仅剩 GitHub Actions 的 post-job 清理步骤，不影响上述功能步骤结果。
+
+当前代码提交：`a2f184c5201090f41467cc503e8422c3c6c1c49b`。预编译运行时发布地址：[QuickJS-NG v0.18.0 / LX ABI 1](https://github.com/dongguo4812/My-LiveHub/releases/tag/quickjs-ng-v0.18.0-lxabi1)。
+
+**结论：** Windows 开发者执行 `task dev` / `task build` 不再需要本机安装 GCC、MSYS2 或 MinGW；Taskfile 自动准备预编译 DLL，Go 生产 runtime 在 CGO_ENABLED=0 下运行，未退化为空 runtime。CI 仍使用编译器生成 DLL，这是构建机依赖，不是开发者本机依赖。
