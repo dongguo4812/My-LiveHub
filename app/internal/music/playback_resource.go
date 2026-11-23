@@ -71,6 +71,10 @@ func (c *PlaybackResourceCache) Get(track Track, quality string) (PlaybackResour
 func (c *PlaybackResourceCache) Put(track Track, quality string, resource PlaybackResource) {
 	if c == nil { return }
 	if err := validatePlaybackResource(resource); err != nil { return }
+	if resource.SourceID != firstTrackValue(track.LXSourceKey, track.SourceID) ||
+		resource.TrackID != track.ID || resource.Quality != strings.TrimSpace(quality) {
+		return
+	}
 	now := c.now()
 	resource.ResolvedAt = now
 	expires := now.Add(c.ttl)
