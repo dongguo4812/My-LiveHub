@@ -18,7 +18,7 @@ func (s *MusicService) resolvePlaybackResource(ctx context.Context, track music.
 	s.mu.RLock()
 	searcher, resolver, cache := s.searcher, s.scriptRuntime, s.playbackResourceCache
 	s.mu.RUnlock()
-	if resolver == nil { return music.PlaybackResource{}, errors.New("production LX playback URL resolver is unavailable") }
+	if resolver == nil { return music.PlaybackResource{}, nil }
 	return music.NewUnifiedSourceService(searcher, resolver).ResolvePlaybackResource(ctx, track, track.SelectedQuality, cache)
 }
 
@@ -84,16 +84,19 @@ func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original m
 			}
 			// Keep the signed URL and media request context process-local. Track's
 			// JSON representation deliberately excludes this field.
-			candidate.PlaybackResource = &resource
+			if strings.TrimSpace(resource.URL) != "" { candidate.PlaybackResource = &resource }
 			var loadErr error
-			if resourceEngine, ok := s.engine.(interface {
-				LoadResource(context.Context, music.Track, music.PlaybackResource) error
-			}); ok {
-				loadErr = resourceEngine.LoadResource(ctx, candidate, resource)
+			if resource.URL != "" {
+				if resourceEngine, ok := s.engine.(interface {
+					LoadResource(context.Context, music.Track, music.PlaybackResource) error
+				}); ok {
+					loadErr = resourceEngine.LoadResource(ctx, candidate, resource)
+				} else {
+					// Compatibility seam for the legacy engine; D replaces this with
+					// the HTMLAudio resource consumer.
+					loadErr = s.engine.Load(ctx, candidate)
+				}
 			} else {
-				// Compatibility seam for the legacy engine; D replaces this with
-				// the HTMLAudio resource consumer. The resolved resource remains
-				// attached to the in-memory Track for resource-aware adapters.
 				loadErr = s.engine.Load(ctx, candidate)
 			}
 			if loadErr != nil {
