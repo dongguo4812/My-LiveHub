@@ -590,6 +590,8 @@ onUnmounted(() => {
         <div v-for="script in lxScripts" :key="script.id" class="lx-source-row">
           <div class="source-copy">
             <strong>{{ script.name }}</strong>
+            <span v-if="script.version || script.author">{{ [script.version, script.author].filter(Boolean).join(' · ') }}</span>
+            <span v-if="script.description">{{ script.description }}</span>
             <span>SHA-256：{{ script.id }}</span>
             <span v-if="script.extension_actions?.length">扩展能力：{{ script.extension_actions.join('、') }}</span>
             <el-text v-if="script.last_error" type="danger" size="small">{{ script.last_error }}</el-text>
