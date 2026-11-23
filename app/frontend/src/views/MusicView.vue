@@ -229,6 +229,7 @@ let playbackPositionAnchor = 0
 let playbackPositionAnchorAt = 0
 const displayedPositionMs = ref(0)
 const playbackVolume = ref(100)
+const lastAudibleVolume = ref(100)
 
 const progress = computed(() => {
   if (!playback.value || playback.value.duration_ms <= 0) return 0
@@ -439,9 +440,18 @@ function handleSeekChange(value: number | number[]) {
   void seekPlayback(percentage * (playback.value?.duration_ms ?? 0) / 100)
 }
 function handleVolumeChange(value: number | number[]) {
-  const numeric = Number(Array.isArray(value) ? value[0] : value)
+  const numeric = Math.min(100, Math.max(0, Number(Array.isArray(value) ? value[0] : value)))
   playbackVolume.value = numeric
+  if (numeric > 0) lastAudibleVolume.value = numeric
   void setPlaybackVolume(numeric)
+}
+function toggleMute() {
+  if (playbackVolume.value > 0) {
+    lastAudibleVolume.value = playbackVolume.value
+    handleVolumeChange(0)
+  } else {
+    handleVolumeChange(lastAudibleVolume.value > 0 ? lastAudibleVolume.value : 100)
+  }
 }
 onMounted(() => {
   void loadConfig()
@@ -493,7 +503,7 @@ onUnmounted(() => {
         </div>
       </div>
       <el-slider :model-value="progress" :min="0" :max="100" :step="0.1" :disabled="!playback?.track || (playback?.duration_ms ?? 0) <= 0" @change="handleSeekChange" />
-      <div class="volume-row"><span>音量</span><el-slider :model-value="playbackVolume" :min="0" :max="100" :step="1" style="max-width:220px" @change="handleVolumeChange" /></div>
+      <div class="volume-row"><span>音量</span><el-slider :model-value="playbackVolume" :min="0" :max="100" :step="1" style="max-width:220px" @input="handleVolumeChange" @change="handleVolumeChange" /><el-button size="small" @click="toggleMute">{{ playbackVolume === 0 ? "恢复声音" : "静音" }}</el-button></div>
       <div class="time-row"><span>{{ formatDuration(displayedPositionMs) }}</span><span>{{ formatDuration(playback?.duration_ms) }}</span></div>
       <p class="hint">播放进度和音量由 My-LiveHub 内置 HTMLAudio 控制。</p>
       <div class="player-controls">
