@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Headset, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import '../styles/player-center.css'
 import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
+import * as MusicLyricsWindowService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musiclyricswindowservice.js'
 
 type MusicConfig = Awaited<ReturnType<typeof MusicService.GetConfig>>
 type Track = Awaited<ReturnType<typeof MusicService.Search>>['tracks'][number]
@@ -283,6 +284,11 @@ async function previousTrack() {
   }
 }
 async function pause() { try { await MusicService.Pause(); await refreshPlayback() } catch (reason) { error.value = String(reason) } }
+async function openLyricsWindow() {
+  error.value = ''
+  try { await MusicLyricsWindowService.OpenWindow() }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+}
 async function resume() { try { await MusicService.Resume(); await refreshPlayback() } catch (reason) { error.value = String(reason) } }
 onMounted(() => {
   void loadConfig()
@@ -318,7 +324,7 @@ onUnmounted(() => {
     </nav>
 
     <el-card v-if="activeTab === 'now-playing'" class="player-card" shadow="never">
-      <template #header><div class="card-heading"><strong>正在播放</strong><el-tag :type="playback?.state === 'playing' ? 'success' : playback?.state === 'error' ? 'danger' : 'info'">{{ playback?.state === 'error' ? '播放失败' : playback?.state ?? '播放器未启动' }}</el-tag></div></template>
+      <template #header><div class="card-heading"><strong>正在播放</strong><div style="display:flex;align-items:center;gap:10px"><el-tag :type="playback?.state === 'playing' ? 'success' : playback?.state === 'error' ? 'danger' : 'info'">{{ playback?.state === 'error' ? '播放失败' : playback?.state ?? '播放器未启动' }}</el-tag><el-button size="small" :disabled="!playback?.track" @click="openLyricsWindow">桌面歌词</el-button></div></div></template>
       <div class="now-playing">
         <div class="track-cover">
           <img v-if="playback?.track?.cover_url" :src="playback.track.cover_url" alt="歌曲封面" />
