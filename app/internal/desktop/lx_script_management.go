@@ -14,12 +14,12 @@ type LXScriptSummary struct {
 	Author string `json:"author,omitempty"`
 	Homepage string `json:"homepage,omitempty"`
 	Enabled bool `json:"enabled"`
-	ExtensionActions []string `json:"extension_actions,omitempty"`
+	ExtensionActions []string `json:"extension_actions,omitempty"`\n\tSupportedSources []string `json:"supported_sources,omitempty"`
 	LastError string `json:"last_error,omitempty"`
 }
 
 type lxScriptManagement interface {
-	ImportScript(context.Context, string, string, []string) (LXScriptSummary, error)
+	ImportScript(context.Context, string, string) (LXScriptSummary, error)
 	ListScripts() []LXScriptSummary
 	SetScriptEnabled(context.Context, string, bool) error
 	DeleteScript(context.Context, string) error
@@ -27,7 +27,7 @@ type lxScriptManagement interface {
 
 // ImportLXScript imports and validates a user-provided LX JavaScript source.
 // Script text is persisted under config/local and is never embedded in the binary.
-func (s *MusicService) ImportLXScript(name, source string, extensionActions []string) (LXScriptSummary, error) {
+func (s *MusicService) ImportLXScript(name, source string) (LXScriptSummary, error) {
 	if s == nil { return LXScriptSummary{}, errors.New("music service is unavailable") }
 	if strings.TrimSpace(name) == "" { return LXScriptSummary{}, errors.New("LX script name is required") }
 	s.mu.RLock()
@@ -35,7 +35,7 @@ func (s *MusicService) ImportLXScript(name, source string, extensionActions []st
 	s.mu.RUnlock()
 	manager, ok := runtime.(lxScriptManagement)
 	if !ok { return LXScriptSummary{}, errors.New("LX script import is available only in lxproduction builds") }
-	return manager.ImportScript(context.Background(), name, source, extensionActions)
+	return manager.ImportScript(context.Background(), name, source)
 }
 
 // ListLXScripts returns script metadata only; executable source is never sent back to the UI.
