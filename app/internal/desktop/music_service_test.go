@@ -3,6 +3,8 @@ package desktop
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"encoding/json"
 	"sync/atomic"
 	"testing"
@@ -633,4 +635,31 @@ func TestMusicRequestCooldownUsesNameWhenUserIDUnavailable(t *testing.T) {
 	viewer := events.Event{UserName: " Viewer "}
 	service.recordRequestCooldown(viewer)
 	if got := service.requestCooldownRemaining(events.Event{UserName: "viewer"}); got <= 0 { t.Fatalf("username fallback should identify the same viewer, got %v", got) }
+}
+
+func TestSearchAndEnqueueUsesUnifiedSearchAndPlaybackQueue(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"code":0,"music.search.SearchCgiService":{"code":0,"data":{"body":{"song":{"list":[{"id":101,"mid":"TX101","title":"稻香","interval":223,"singer":[{"name":"周杰伦"}],"album":{"mid":"ALB101","name":"魔杰座"},"file":{"media_mid":"MEDIA101","size_128mp3":1000,"size_320mp3":2000}}]}},"meta":{"sum":1}}}}`))
+	}))
+	defer server.Close()
+
+	value := config.DefaultMusicConfig()
+	value.Enabled = true
+	value.EnabledSearchSources = []string{"tx"}
+	engine := &queueAdvanceTestEngine{}
+	service := NewMusicServiceWithDependencies(nil, value, nil, engine)
+	defer service.Shutdown()
+	service.searcher = music.NewLXSearchClientWithEndpoints(server.Client(), music.LXSearchEndpoints{QQ: server.URL})
+
+	item, matched, failures, err := service.SearchAndEnqueue(context.Background(), "稻香", "viewer")
+	if err != nil { t.Fatalf("SearchAndEnqueue returned error: %v", err) }
+	if !matched { t.Fatalf("song was not matched; provider failures: %#v", failures) }
+	if item.Track.SourceID != "tx" || item.Track.SourceData["songmid"] != "TX101" {
+		t.Fatalf("normalized native track was not preserved: %#v", item.Track)
+	}
+	snapshot := service.GetQueue()
+	if snapshot.Current == nil || snapshot.Current.ID != item.ID {
+		t.Fatalf("unified request did not schedule playback: %#v", snapshot)
+	}
+	if got := engine.loadCalls.Load(); got != 1 { t.Fatalf("playback engine Load calls = %d, want 1", got) }
 }
