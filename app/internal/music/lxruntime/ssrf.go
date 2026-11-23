@@ -64,14 +64,14 @@ func lxSafeHTTPClientWithPolicy(client *http.Client, allowPrivate bool) (*http.C
 	}
 	previousRedirect := client.CheckRedirect
 	clone.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 5 {
+			return errors.New("lx.request: too many redirects")
+		}
 		if err := validateLXDestinationWithPolicy(req.Context(), req.URL, allowPrivate); err != nil {
 			return err
 		}
 		if previousRedirect != nil {
 			return previousRedirect(req, via)
-		}
-		if len(via) >= 5 {
-			return errors.New("lx.request: too many redirects")
 		}
 		return nil
 	}
