@@ -88,7 +88,7 @@ func (c *PlaybackResourceCache) Put(track Track, quality string, resource Playba
 		oldestKey := ""
 		var oldest time.Time
 		for candidate, entry := range c.entries {
-			if oldestKey == "" || entry.expiresAt.Before(oldest) { oldestKey, oldest = candidate, entry.expiresAt }
+			if oldestKey == "" || entry.expiresAt.Before(oldest) || (entry.expiresAt.Equal(oldest) && candidate < oldestKey) { oldestKey, oldest = candidate, entry.expiresAt }
 		}
 		delete(c.entries, oldestKey)
 	}
