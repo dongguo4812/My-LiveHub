@@ -1,87 +1,144 @@
-//go:build (lxquickjs || lxproduction) && cgo
+//go:build lxquickjs || lxproduction
 
 package lxruntime
-
-/*
-#cgo CFLAGS: -DLXQJS_CGO_BRIDGE -I${SRCDIR}/poc/native/include
-#cgo LDFLAGS: -L${SRCDIR}/poc/native/lib -lqjs
-#include <stdlib.h>
-#include "lxqjs.h"
-void lxqjs_register_cgo_callbacks(void);
-*/
-import "C"
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
 	"unsafe"
+
+	"github.com/ebitengine/purego"
 )
 
 const (
 	defaultMemoryLimit = 32 << 20
-	defaultStackLimit  = 512 << 10
+	defaultStackLimit = 512 << 10
 	defaultEvalTimeout = 3 * time.Second
 )
 
 type Options struct {
 	MemoryLimitBytes int
-	StackLimitBytes  int
-	EvalTimeout      time.Duration
+	StackLimitBytes int
+	EvalTimeout time.Duration
 }
-
-type evalResult struct {
-	value string
-	err   error
-}
-
+type evalResult struct { value string; err error }
 type command struct {
-	ctx      context.Context
-	source   string
-	filename string
-	result   chan evalResult
-	close    bool
+	ctx context.Context
+	source, filename string
+	result chan evalResult
+	close bool
 	installCrypto bool
 }
-
 type Runtime struct {
 	commands chan command
-	done     chan struct{}
-	close    sync.Once
+	done chan struct{}
+	close sync.Once
 	dispatchMu sync.Mutex
 	initializeMu sync.Mutex
 	lifecycle context.Context
 	shutdown context.CancelFunc
 	allowPrivateNetworkForTests bool
+	api *quickJSAPI
+}
+
+type quickJSAPI struct {
+	newRuntime func(uintptr, uintptr, *uintptr) uintptr
+	freeRuntime func(uintptr)
+	setInterrupted func(uintptr, uintptr)
+	eval func(uintptr, uintptr, uintptr, *uintptr) uintptr
+	installCrypto func(uintptr, *uintptr) int32
+	freeString func(uintptr)
+	alloc func(uintptr) uintptr
+	dealloc func(uintptr)
+	setCallbacks func(uintptr, uintptr, uintptr, uintptr, uintptr, uintptr, uintptr, uintptr)
+}
+
+var (
+	quickJSLoadOnce sync.Once
+	quickJSLoaded *quickJSAPI
+	quickJSLoadErr error
+)
+
+func loadQuickJSAPI() (*quickJSAPI, error) {
+	quickJSLoadOnce.Do(func() {
+		quickJSLoaded, quickJSLoadErr = openQuickJSAPI()
+	})
+	return quickJSLoaded, quickJSLoadErr
+}
+
+func openQuickJSAPI() (*quickJSAPI, error) {
+	path, err := findQuickJSLibrary()
+	if err != nil { return nil, err }
+	lib, err := openNativeLibrary(path)
+	if err != nil { return nil, fmt.Errorf("load QuickJS native library %q: %w", path, err) }
+	api := &quickJSAPI{}
+	bind := func(target any, symbol string) error { return lib.bind(target, symbol) }
+	for _, item := range []struct{ target any; name string }{
+		{&api.newRuntime, "lxqjs_new"}, {&api.freeRuntime, "lxqjs_free"},
+		{&api.setInterrupted, "lxqjs_set_interrupted"}, {&api.eval, "lxqjs_eval"},
+		{&api.installCrypto, "lxqjs_install_crypto"}, {&api.freeString, "lxqjs_string_free"},
+		{&api.alloc, "lxqjs_alloc"}, {&api.dealloc, "lxqjs_dealloc"},
+		{&api.setCallbacks, "lxqjs_set_host_callbacks"},
+	} {
+		if err := bind(item.target, item.name); err != nil { return nil, fmt.Errorf("resolve QuickJS symbol %s: %w", item.name, err) }
+	}
+	setNativeAllocator(api.alloc)
+	api.setCallbacks(
+		purego.NewCallback(lxqjsGoMD5),
+		purego.NewCallback(lxqjsGoRandomBytes),
+		purego.NewCallback(lxqjsGoBufferFrom),
+		purego.NewCallback(lxqjsGoBufferToString),
+		purego.NewCallback(lxqjsGoRSAEncrypt),
+		purego.NewCallback(lxqjsGoAESEncrypt),
+		purego.NewCallback(lxqjsGoZlib),
+	)
+	return api, nil
+}
+
+func findQuickJSLibrary() (string, error) {
+	if configured := strings.TrimSpace(os.Getenv("MYLIVEHUB_QUICKJS_LIB")); configured != "" {
+		if _, err := os.Stat(configured); err == nil { return configured, nil }
+		return "", fmt.Errorf("MYLIVEHUB_QUICKJS_LIB points to a missing file: %s", configured)
+	}
+	name := "liblxqjs.so"
+	switch runtime.GOOS {
+	case "windows": name = "lxqjs.dll"
+	case "darwin": name = "liblxqjs.dylib"
+	}
+	executable, _ := os.Executable()
+	exeDir := filepath.Dir(executable)
+	cwd, _ := os.Getwd()
+	candidates := []string{
+		filepath.Join(exeDir, name),
+		filepath.Join(exeDir, "bin", name),
+		filepath.Join(cwd, name),
+		filepath.Join(cwd, "bin", name),
+		filepath.Join(cwd, "internal", "music", "lxruntime", "native", name),
+	}
+	for _, candidate := range candidates {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() { return candidate, nil }
+	}
+	return "", fmt.Errorf("QuickJS native runtime %s is missing; run task dev/build to provision the pinned runtime", name)
 }
 
 func New(opts Options) (*Runtime, error) {
-	if opts.MemoryLimitBytes <= 0 {
-		opts.MemoryLimitBytes = defaultMemoryLimit
-	}
-	if opts.StackLimitBytes <= 0 {
-		opts.StackLimitBytes = defaultStackLimit
-	}
-	if opts.EvalTimeout <= 0 {
-		opts.EvalTimeout = defaultEvalTimeout
-	}
-
+	if opts.MemoryLimitBytes <= 0 { opts.MemoryLimitBytes = defaultMemoryLimit }
+	if opts.StackLimitBytes <= 0 { opts.StackLimitBytes = defaultStackLimit }
+	if opts.EvalTimeout <= 0 { opts.EvalTimeout = defaultEvalTimeout }
+	api, err := loadQuickJSAPI()
+	if err != nil { return nil, err }
 	lifecycle, shutdown := context.WithCancel(context.Background())
-	r := &Runtime{
-		commands: make(chan command),
-		done:     make(chan struct{}),
-		lifecycle: lifecycle,
-		shutdown: shutdown,
-	}
+	r := &Runtime{commands: make(chan command), done: make(chan struct{}), lifecycle: lifecycle, shutdown: shutdown, api: api}
 	ready := make(chan error, 1)
 	go r.loop(opts, ready)
-	if err := <-ready; err != nil {
-		return nil, err
-	}
+	if err := <-ready; err != nil { return nil, err }
 	return r, nil
 }
 
@@ -89,164 +146,107 @@ func (r *Runtime) loop(opts Options, ready chan<- error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	defer close(r.done)
-
-	var cError *C.char
-	state := C.lxqjs_new(C.size_t(opts.MemoryLimitBytes), C.size_t(opts.StackLimitBytes), &cError)
-	if state == nil {
-		ready <- takeError(cError, "QuickJS runtime initialization failed")
-		return
-	}
-	defer C.lxqjs_free(state)
-	C.lxqjs_register_cgo_callbacks()
+	var nativeError uintptr
+	state := r.api.newRuntime(uintptr(opts.MemoryLimitBytes), uintptr(opts.StackLimitBytes), &nativeError)
+	if state == 0 { ready <- r.takeError(nativeError, "QuickJS runtime initialization failed"); return }
+	defer r.api.freeRuntime(state)
 	ready <- nil
-
 	for cmd := range r.commands {
-		if cmd.close {
-			return
-		}
+		if cmd.close { return }
 		if cmd.installCrypto {
-			var installError *C.char
-			if C.lxqjs_install_crypto(state, &installError) != 0 {
-				cmd.result <- evalResult{err: takeError(installError, "QuickJS crypto installation failed")}
-			} else {
-				cmd.result <- evalResult{}
-			}
+			var installError uintptr
+			if r.api.installCrypto(state, &installError) != 0 {
+				cmd.result <- evalResult{err:r.takeError(installError, "QuickJS crypto installation failed")}
+			} else { cmd.result <- evalResult{} }
 			continue
 		}
-		if err := cmd.ctx.Err(); err != nil {
-			cmd.result <- evalResult{err: err}
-			continue
-		}
-
+		if err := cmd.ctx.Err(); err != nil { cmd.result <- evalResult{err:err}; continue }
 		timeout := opts.EvalTimeout
-		if deadline, ok := cmd.ctx.Deadline(); ok {
-			if remaining := time.Until(deadline); remaining < timeout {
-				timeout = remaining
-			}
-		}
-		if timeout <= 0 {
-			cmd.result <- evalResult{err: context.DeadlineExceeded}
-			continue
-		}
-
-		C.lxqjs_set_interrupted(state, 0)
+		if deadline, ok := cmd.ctx.Deadline(); ok { if remaining := time.Until(deadline); remaining < timeout { timeout = remaining } }
+		if timeout <= 0 { cmd.result <- evalResult{err:context.DeadlineExceeded}; continue }
+		r.api.setInterrupted(state, 0)
 		stopWatch := make(chan struct{})
 		watchDone := make(chan struct{})
 		go func() {
 			defer close(watchDone)
-			select {
-			case <-cmd.ctx.Done():
-				C.lxqjs_set_interrupted(state, 1)
-			case <-stopWatch:
-			}
+			select { case <-cmd.ctx.Done(): r.api.setInterrupted(state, 1); case <-stopWatch: }
 		}()
-
 		timerDone := make(chan struct{})
-		timer := time.AfterFunc(timeout, func() {
-			C.lxqjs_set_interrupted(state, 1)
-			close(timerDone)
-		})
-
-		cSource := C.CString(cmd.source)
-		cFilename := C.CString(cmd.filename)
-		var cEvalError *C.char
-		value := C.lxqjs_eval(state, cSource, cFilename, &cEvalError)
-		C.free(unsafe.Pointer(cSource))
-		C.free(unsafe.Pointer(cFilename))
-
+		timer := time.AfterFunc(timeout, func() { r.api.setInterrupted(state, 1); close(timerDone) })
+		sourcePtr := r.allocCString(cmd.source)
+		filenamePtr := r.allocCString(cmd.filename)
+		var evalError uintptr
+		value := r.api.eval(state, sourcePtr, filenamePtr, &evalError)
+		r.api.dealloc(sourcePtr)
+		r.api.dealloc(filenamePtr)
 		close(stopWatch)
 		<-watchDone
-		if !timer.Stop() {
-			<-timerDone
-		}
+		if !timer.Stop() { <-timerDone }
 		interrupted := cmd.ctx.Err()
-		C.lxqjs_set_interrupted(state, 0)
-
-		if value == nil {
-			err := takeError(cEvalError, "JavaScript evaluation failed")
-			if interrupted != nil {
-				err = interrupted
-			} else if strings.Contains(strings.ToLower(err.Error()), "interrupted") {
-				err = fmt.Errorf("JavaScript execution exceeded %s: %w", timeout, err)
-			}
-			cmd.result <- evalResult{err: err}
+		r.api.setInterrupted(state, 0)
+		if value == 0 {
+			err := r.takeError(evalError, "JavaScript evaluation failed")
+			if interrupted != nil { err = interrupted } else if strings.Contains(strings.ToLower(err.Error()), "interrupted") { err = fmt.Errorf("JavaScript execution exceeded %s: %w", timeout, err) }
+			cmd.result <- evalResult{err:err}
 			continue
 		}
-		resultText := C.GoString(value)
-		C.lxqjs_string_free(value)
-		cmd.result <- evalResult{value: resultText}
+		resultText := nativeCString(value, 8<<20)
+		r.api.freeString(value)
+		cmd.result <- evalResult{value:resultText}
 	}
 }
 
-func takeError(value *C.char, fallback string) error {
-	if value == nil {
-		return errors.New(fallback)
-	}
-	defer C.lxqjs_string_free(value)
-	return errors.New(C.GoString(value))
+func (r *Runtime) allocCString(value string) uintptr {
+	ptr := r.api.alloc(uintptr(len(value)+1))
+	if ptr == 0 { return 0 }
+	dst := unsafe.Slice((*byte)(unsafe.Pointer(ptr)), len(value)+1)
+	copy(dst, value); dst[len(value)] = 0
+	return ptr
+}
+func (r *Runtime) takeError(ptr uintptr, fallback string) error {
+	if ptr == 0 { return errors.New(fallback) }
+	value := nativeCString(ptr, 1<<20)
+	r.api.freeString(ptr)
+	return errors.New(value)
+}
+func nativeCString(ptr uintptr, limit int) string {
+	if ptr == 0 { return "" }
+	data := unsafe.Slice((*byte)(unsafe.Pointer(ptr)), limit)
+	end := 0
+	for end < len(data) && data[end] != 0 { end++ }
+	return string(data[:end])
 }
 
 func (r *Runtime) Eval(ctx context.Context, source, filename string) (string, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	if ctx == nil { ctx = context.Background() }
 	evalCtx, cancelEval := context.WithCancel(ctx)
 	stopShutdown := context.AfterFunc(r.lifecycle, cancelEval)
-	defer func() {
-		stopShutdown()
-		cancelEval()
-	}()
+	defer func(){ stopShutdown(); cancelEval() }()
 	result := make(chan evalResult, 1)
-	cmd := command{ctx: evalCtx, source: source, filename: filename, result: result}
+	cmd := command{ctx:evalCtx, source:source, filename:filename, result:result}
 	select {
-	case <-r.done:
-		return "", errors.New("QuickJS runtime is closed")
-	case <-ctx.Done():
-		return "", ctx.Err()
+	case <-r.done: return "", errors.New("QuickJS runtime is closed")
+	case <-ctx.Done(): return "", ctx.Err()
 	case r.commands <- cmd:
 	}
 	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	case <-r.done:
-		return "", errors.New("QuickJS runtime is closed")
-	case value := <-result:
-		return value.value, value.err
+	case <-ctx.Done(): return "", ctx.Err()
+	case <-r.done: return "", errors.New("QuickJS runtime is closed")
+	case value := <-result: return value.value, value.err
 	}
 }
-
 func (r *Runtime) Close() error {
-	if r == nil {
-		return nil
-	}
+	if r == nil { return nil }
 	r.close.Do(func() {
-		if r.shutdown != nil {
-			r.shutdown()
-		}
-		select {
-		case <-r.done:
-		case r.commands <- command{close: true}:
-			<-r.done
-		}
+		if r.shutdown != nil { r.shutdown() }
+		select { case <-r.done: case r.commands <- command{close:true}: <-r.done }
 	})
 	return nil
 }
-
-
-// installLXCryptoNative installs synchronous native functions while executing
-// on the QuickJS owner goroutine. It must not be called from a C callback.
 func (r *Runtime) installLXCryptoNative(ctx context.Context) error {
 	if ctx == nil { ctx = context.Background() }
 	result := make(chan evalResult, 1)
-	cmd := command{ctx: ctx, installCrypto: true, result: result}
-	select {
-	case <-r.done: return errors.New("QuickJS runtime is closed")
-	case <-ctx.Done(): return ctx.Err()
-	case r.commands <- cmd:
-	}
-	select {
-	case <-ctx.Done(): return ctx.Err()
-	case <-r.done: return errors.New("QuickJS runtime is closed")
-	case value := <-result: return value.err
-	}
+	cmd := command{ctx:ctx, installCrypto:true, result:result}
+	select { case <-r.done: return errors.New("QuickJS runtime is closed"); case <-ctx.Done(): return ctx.Err(); case r.commands <- cmd: }
+	select { case <-ctx.Done(): return ctx.Err(); case <-r.done: return errors.New("QuickJS runtime is closed"); case value := <-result: return value.err }
 }
