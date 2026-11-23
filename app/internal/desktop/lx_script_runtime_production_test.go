@@ -74,6 +74,26 @@ func TestProductionLXScriptRuntimeQuarantinesMalformedStore(t *testing.T) {
 	if err := runtime.Close(); err != nil { t.Fatal(err) }
 }
 
+
+func TestProductionLXScriptRuntimeIsolatesInvalidPersistedScript(t *testing.T) {
+	manager := testLXConfigManager(t)
+	records := []storedLXScript{
+		{ID:"broken", Name:"broken source", Source:"  ", Enabled:true},
+		{ID:"valid", Name:"valid source", Source:"lx.send('inited', {});", Enabled:true},
+	}
+	data, err := json.Marshal(records)
+	if err != nil { t.Fatal(err) }
+	if err := manager.WriteLocalJSON(lxScriptStoreFile, data, lxScriptStoreLimit); err != nil { t.Fatal(err) }
+	runtime := newLXScriptRuntime(manager).(*productionMusicLXRuntime)
+	if err := runtime.Start(context.Background()); err != nil { t.Fatalf("start with one damaged script: %v", err) }
+	defer runtime.Close()
+	scripts := runtime.ListScripts()
+	if len(scripts) != 2 { t.Fatalf("restored script count = %d, want 2: %#v", len(scripts), scripts) }
+	if scripts[0].Enabled || scripts[0].LastError == "" { t.Fatalf("damaged script was not isolated: %#v", scripts[0]) }
+	if !scripts[1].Enabled || scripts[1].LastError != "" { t.Fatalf("valid script was affected by damaged peer: %#v", scripts[1]) }
+	if !runtime.Available() { t.Fatal("valid script should keep runtime available") }
+}
+
 func TestLXScriptStoreSerializationIsStable(t *testing.T) {
 	data, err := json.Marshal([]storedLXScript{{ID:"id", Name:"fixture", Source:"lx.send('inited', {});", Enabled:true}})
 	if err != nil { t.Fatal(err) }
