@@ -48,7 +48,7 @@ lx.send(lx.EVENT_NAMES.inited, {
   sources: { kw: { type: 'music', actions: ['musicUrl'], qualitys: ['128k'] } }
 });
 `
-	if _, err := runtime.ImportScript(context.Background(), "fixture", source, nil); err != nil { t.Fatalf("import script: %v", err) }
+	if _, err := runtime.ImportScript(context.Background(), "fixture", source); err != nil { t.Fatalf("import script: %v", err) }
 	list := runtime.ListScripts()
 	if len(list) != 1 || !list[0].Enabled || list[0].Name != "Fixture Source" || list[0].Version != "1.2.3" || list[0].Author != "My-LiveHub tests" || list[0].Homepage != "https://example.test/source" { t.Fatalf("imported script metadata = %#v", list) }
 	id := list[0].ID
@@ -107,7 +107,7 @@ func TestProductionLXScriptRuntimeIsolatesInvalidPersistedScript(t *testing.T) {
 func TestMusicServiceLXScriptManagementAPI(t *testing.T) {
 	manager := testLXConfigManager(t)
 	service := NewMusicServiceWithDependencies(manager, config.MusicConfig{}, nil, nil)
-	added, err := service.ImportLXScript("service API fixture", "lx.send('inited', {});", nil)
+	added, err := service.ImportLXScript("service API fixture", "lx.on(lx.EVENT_NAMES.request, () => []); lx.send(lx.EVENT_NAMES.inited, {sources:{kw:{type:'music',actions:['search']}}});")
 	if err != nil { t.Fatalf("MusicService.ImportLXScript: %v", err) }
 	if added.ID == "" || added.Name != "service API fixture" { t.Fatalf("import result = %#v", added) }
 	list := service.ListLXScripts()
@@ -142,9 +142,9 @@ lx.on(lx.EVENT_NAMES.request, async ({source,action,info}) => {
  if(action==='pic') return 'https://1.1.1.1/fixture-cover.jpg';
  throw new Error('unsupported action '+action);
 });
-lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl'],qualitys:['128k']}}});
+lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl','search'],qualitys:['128k']}}});
 `
- if _,err:=runtime.ImportScript(context.Background(),"community-action-fixture",source,[]string{"search","detail","lyric","pic"});err!=nil{t.Fatal(err)}
+ if _,err:=runtime.ImportScript(context.Background(),"community-action-fixture",source);err!=nil{t.Fatal(err)}
  if err:=runtime.Start(context.Background());err!=nil{t.Fatal(err)}
  defer service.Shutdown()
  if !runtime.HasExtensionAction("kw", "search")||!runtime.HasExtensionAction("kw", "detail")||!runtime.HasExtensionAction("kw", "lyric")||!runtime.HasExtensionAction("kw", "pic"){t.Fatal("declared community actions were not exposed")}
@@ -163,10 +163,10 @@ lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl'],qu
 
 func TestProductionLXCommunityActionIsolatesFailingScript(t *testing.T) {
  runtime:=newLXScriptRuntime(testLXConfigManager(t)).(*productionMusicLXRuntime)
- bad:=`lx.on(lx.EVENT_NAMES.request,()=>{throw new Error('fixture failure')});lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl']}}});`
+ bad:=`lx.on(lx.EVENT_NAMES.request,()=>{throw new Error('fixture failure')});lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl','search','detail','lyric','pic']}}});`
  good:=`lx.on(lx.EVENT_NAMES.request,()=>({album:'second script'}));lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl']}}});`
- if _,err:=runtime.ImportScript(context.Background(),"failing fixture",bad,[]string{"detail"});err!=nil{t.Fatal(err)}
- if _,err:=runtime.ImportScript(context.Background(),"healthy fixture",good,[]string{"detail"});err!=nil{t.Fatal(err)}
+ if _,err:=runtime.ImportScript(context.Background(),"failing fixture",bad);err!=nil{t.Fatal(err)}
+ if _,err:=runtime.ImportScript(context.Background(),"healthy fixture",good);err!=nil{t.Fatal(err)}
  if err:=runtime.Start(context.Background());err!=nil{t.Fatal(err)}
  defer runtime.Close()
  value,err:=runtime.DispatchExtensionAction(context.Background(),"kw","detail",map[string]any{})
@@ -177,7 +177,7 @@ func TestProductionLXCommunityActionIsolatesFailingScript(t *testing.T) {
 func TestProductionLXCommunityActionHonorsContextCancellation(t *testing.T) {
  runtime:=newLXScriptRuntime(testLXConfigManager(t)).(*productionMusicLXRuntime)
  source:=`lx.on(lx.EVENT_NAMES.request,async ({info})=>info.slow?new Promise(resolve=>setTimeout(()=>resolve('late'),1000)):'ok');lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl']}}});`
- if _,err:=runtime.ImportScript(context.Background(),"slow action fixture",source,[]string{"detail"});err!=nil{t.Fatal(err)}
+ if _,err:=runtime.ImportScript(context.Background(),"slow action fixture",source);err!=nil{t.Fatal(err)}
  if err:=runtime.Start(context.Background());err!=nil{t.Fatal(err)}
  defer runtime.Close()
  ctx,cancel:=context.WithTimeout(context.Background(),50*time.Millisecond);defer cancel()
