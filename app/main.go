@@ -158,6 +158,7 @@ func main() {
 	bilibiliEvents := eventstream.NewBuffer(eventBus)
 	requestNoticeBroker := desktop.NewRequestNoticeBroker()
 	musicService := desktop.NewMusicServiceWithFanMedalChecker(configManager, musicConfig, fanMedalChecker, bilibiliEvents)
+	musicService.UseHTMLAudioPlayback()
 	musicLyricsWindowService := desktop.NewMusicLyricsWindowService(musicService)
 	bilibiliVideoResolver, err := bilibili.NewVideoResolver(bilibiliAuth, nil)
 	if err != nil { log.Fatalf("initialize Bilibili video resolver: %v", err) }
@@ -338,6 +339,10 @@ func main() {
 	})
 
 	wailsApp = app
+	musicService.SetHTMLAudioEventEmitter(func(name string, data any) {
+		if wailsApp == nil { return }
+		if window, ok := wailsApp.Window.GetByName("main-window"); ok { window.EmitEvent(name, data) }
+	})
 	desktop.AttachApplication(platformService, app, appConfig.Appearance.Theme == "light")
 	desktop.AttachDanmakuDisplayApplication(danmakuDisplayService, app)
 	desktop.AttachMusicLyricsWindowApplication(musicLyricsWindowService, app)

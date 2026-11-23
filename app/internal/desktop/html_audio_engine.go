@@ -120,6 +120,9 @@ func (e *htmlAudioPlaybackEngine) Report(sessionID uint64, event string, positio
 		e.snapshot.Error = strings.TrimSpace(message)
 		e.mu.Unlock()
 		if canRetry && refresh != nil {
+			e.mu.Lock()
+			if sessionID == e.sessionID { e.retried = true }
+			e.mu.Unlock()
 			refreshed, err := refresh(track, failed)
 			if err == nil && refreshed.URL != "" && refreshed.URL != failed.URL {
 				e.mu.Lock()

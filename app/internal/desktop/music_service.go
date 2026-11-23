@@ -102,6 +102,52 @@ func NewMusicServiceWithDependencies(manager *config.Manager, value config.Music
 	return service
 }
 
+
+// UseHTMLAudioPlayback switches the production playback port to the single
+// WebView-owned HTMLAudio instance. It is called before the MusicModule starts.
+func (s *MusicService) UseHTMLAudioPlayback() {
+	if s == nil { return }
+	s.mu.Lock()
+	s.engine = newHTMLAudioPlaybackEngine(s.HandlePlaybackResourceFailure)
+	s.mu.Unlock()
+}
+
+// SetHTMLAudioEventEmitter connects Go playback commands to the main Wails window.
+func (s *MusicService) SetHTMLAudioEventEmitter(emit func(string, any)) {
+	if s == nil { return }
+	s.mu.RLock()
+	engine := s.engine
+	s.mu.RUnlock()
+	if bridge, ok := engine.(*htmlAudioPlaybackEngine); ok { bridge.setEmitter(emit) }
+}
+
+// ReportHTMLAudioEvent receives state from the one frontend Audio instance.
+func (s *MusicService) ReportHTMLAudioEvent(sessionID uint64, event string, positionMS, durationMS int64, message string) error {
+	if s == nil { return errors.New("music service is unavailable") }
+	s.mu.RLock()
+	engine := s.engine
+	s.mu.RUnlock()
+	bridge, ok := engine.(*htmlAudioPlaybackEngine)
+	if !ok { return errors.New("HTMLAudio playback is not active") }
+	return bridge.Report(sessionID, event, positionMS, durationMS, message)
+}
+
+func (s *MusicService) Seek(positionMS int64) error {
+	if s == nil { return music.ErrPlaybackEngineUnavailable }
+	s.mu.RLock(); engine := s.engine; s.mu.RUnlock()
+	bridge, ok := engine.(*htmlAudioPlaybackEngine)
+	if !ok { return errors.New("当前播放引擎不支持进度定位") }
+	return bridge.Seek(positionMS)
+}
+
+func (s *MusicService) SetVolume(volume float64) error {
+	if s == nil { return music.ErrPlaybackEngineUnavailable }
+	s.mu.RLock(); engine := s.engine; s.mu.RUnlock()
+	bridge, ok := engine.(*htmlAudioPlaybackEngine)
+	if !ok { return errors.New("当前播放引擎不支持音量调节") }
+	return bridge.SetVolume(volume)
+}
+
 func (s *MusicService) start(ctx context.Context) error {
 	if s == nil || ctx == nil { return errors.New("music service and startup context are required") }
 	if s.buffer == nil { return errors.New("music event buffer is required") }
