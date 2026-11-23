@@ -274,6 +274,14 @@ func TestProductionLXFishLatestRealImportAndEnable(t *testing.T) {
 // TestProductionLXFishSunnyDayPlaybackURL resolves an actual "晴天" track
 // through a native provider, invokes fish/latest.js musicUrl, verifies the
 // returned media endpoint, and exports the signed URL for the Chromium smoke test.
+
+// safeLXMediaURL deliberately strips signed query parameters from test logs.
+func safeLXMediaURL(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil { return "<invalid-url>" }
+	return parsed.Host + parsed.EscapedPath()
+}
+
 func TestProductionLXFishSunnyDayPlaybackURL(t *testing.T) {
 	if os.Getenv("MYLIVEHUB_LX_FISH_PLAYBACK_INTEGRATION") != "1" {
 		t.Skip("set MYLIVEHUB_LX_FISH_PLAYBACK_INTEGRATION=1 to resolve a real song")
@@ -305,31 +313,37 @@ func TestProductionLXFishSunnyDayPlaybackURL(t *testing.T) {
 		config.MusicConfig{EnabledSearchSources: []string{"tx", "kw", "kg"}}, nil, nil)
 	service.scriptRuntime = manager
 
+	// This is deliberately a Kuwo-only acceptance test. Falling back to QQ or
+	// Kugou would hide a broken Kuwo musicInfo/musicUrl protocol mapping.
+	page, searchErr := service.SearchSourcePage("晴天", "kw", 1)
+	if searchErr != nil { t.Fatalf("Kuwo 晴天 search failed: %v", searchErr) }
 	var selectedTrack *music.Track
-	var selectedSource string
 	var selectedResource music.PlaybackResource
 	var attemptFailures []string
-	for _, sourceID := range []string{"tx", "kw", "kg"} {
-		page, searchErr := service.SearchSourcePage("晴天", sourceID, 1)
-		if searchErr != nil { attemptFailures = append(attemptFailures, sourceID+" search: "+searchErr.Error()); continue }
-		for i := range page.Tracks {
-			candidate := page.Tracks[i]
-			if strings.TrimSpace(candidate.Title) != "晴天" || !strings.Contains(candidate.Artist, "周杰伦") { continue }
-			// Start with the provider's first advertised quality. Region- or
-			// copyright-blocked catalog entries must not prevent trying another source.
-			if len(candidate.Qualities) > 1 { candidate.Qualities = candidate.Qualities[:1] }
-			quality := ""
-			if len(candidate.Qualities) > 0 { quality = candidate.Qualities[0].Type }
-			resource, resolveErr := service.ResolvePlaybackResource(candidate, quality)
-			if resolveErr != nil { attemptFailures = append(attemptFailures, sourceID+" musicUrl: "+resolveErr.Error()); continue }
-			selectedTrack, selectedSource, selectedResource = &candidate, sourceID, resource
+	for i := range page.Tracks {
+		candidate := page.Tracks[i]
+		if strings.TrimSpace(candidate.Title) != "晴天" || !strings.Contains(candidate.Artist, "周杰伦") { continue }
+		t.Logf("Kuwo candidate: id=%q source_id=%q songmid=%q title=%q artist=%q album=%q qualities=%+v source_data=%+v",
+			candidate.ID, candidate.SourceID, candidate.SourceData["songmid"], candidate.Title, candidate.Artist, candidate.Album, candidate.Qualities, candidate.SourceData)
+		qualities := candidate.Qualities
+		if len(qualities) == 0 { qualities = []music.TrackQuality{{Type: "320k"}} }
+		for _, advertised := range qualities {
+			resource, resolveErr := service.ResolvePlaybackResource(candidate, advertised.Type)
+			if resolveErr != nil {
+				attemptFailures = append(attemptFailures, advertised.Type+": "+resolveErr.Error())
+				t.Logf("Kuwo musicUrl failed: quality=%s size=%s error=%v", advertised.Type, advertised.Size, resolveErr)
+				continue
+			}
+			selectedTrack, selectedResource = &candidate, resource
+			t.Logf("Kuwo musicUrl returned URL: quality=%s host=%s path=%s", advertised.Type, safeLXMediaURL(resource.URL))
 			break
 		}
 		if selectedTrack != nil { break }
 	}
 	if selectedTrack == nil {
-		t.Fatalf("no playable exact 晴天 / 周杰伦 result across tx/kw/kg; attempts: %s", strings.Join(attemptFailures, " | "))
+		t.Fatalf("Kuwo did not resolve playable exact 晴天 / 周杰伦 at any advertised quality; attempts: %s", strings.Join(attemptFailures, " | "))
 	}
+	selectedSource := "kw"
 	t.Logf("real search and fish musicUrl succeeded: source=%s title=%q artist=%q track_id=%q quality=%s",
 		selectedSource, selectedTrack.Title, selectedTrack.Artist, selectedTrack.ID, selectedResource.Quality)
 	resource := selectedResource
