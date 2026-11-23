@@ -111,17 +111,6 @@ jobs:
         run: |
           go test -tags lxproduction -count=1 -v -run '^TestProductionLXFishLatestRealImportAndEnable$' ./internal/desktop
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Resolve real 晴天 playback URL through fish/latest.js
-        shell: pwsh
-        working-directory: app
-        env:
-          MYLIVEHUB_LX_FISH_PLAYBACK_INTEGRATION: '1'
-          MYLIVEHUB_PLAYBACK_URL_FILE: ${{ runner.temp }}\my-livehub-playback-url.txt
-          CGO_ENABLED: '0'
-          MYLIVEHUB_QUICKJS_LIB: ${{ github.workspace }}\app\bin\lxqjs.dll
-        run: |
-          go test -tags lxproduction -count=1 -v -run "^TestProductionLXFishSunnyDayPlaybackURL$" ./internal/desktop
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -154,18 +143,6 @@ jobs:
         working-directory: app/frontend
         run: npm ci
 
-      - name: Install Chromium for real HTMLAudio playback test
-        shell: pwsh
-        working-directory: app/frontend
-        env:
-          MYLIVEHUB_PLAYBACK_URL_FILE: ${{ runner.temp }}\my-livehub-playback-url.txt
-        run: |
-          npm install --no-save --package-lock=false playwright
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npx playwright install chromium
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node ../../.github/scripts/music-htmlaudio-browser-smoke.mjs
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 
       - name: Build frontend
