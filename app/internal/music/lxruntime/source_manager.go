@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 )
 
 type managedLXScript struct {
@@ -40,6 +41,7 @@ type SourceManager struct {
 }
 
 const (
+	lxCapabilityProbeEvalTimeout = 15 * time.Second
 	maxLXImportedScripts        = 32
 	maxLXTotalScriptSourceBytes = 16 << 20
 )
