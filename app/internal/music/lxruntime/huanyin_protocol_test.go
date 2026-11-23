@@ -1,4 +1,4 @@
-//go:build lxquickjs && cgo
+//go:build lxquickjs
 
 package lxruntime
 
