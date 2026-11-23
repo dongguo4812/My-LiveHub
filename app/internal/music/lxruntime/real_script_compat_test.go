@@ -61,7 +61,7 @@ func TestRealLXSourceFixturesInitializeAndNegotiateNativeActions(t *testing.T) {
 	}
 }
 
-func TestRealHuanyinSearchIsNotLXNativeRemoteAction(t *testing.T) {
+func TestRealHuanyinCommunitySearchActionIsNegotiated(t *testing.T) {
 	rt := newTestRuntime(t, 5*time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -78,8 +78,8 @@ func TestRealHuanyinSearchIsNotLXNativeRemoteAction(t *testing.T) {
 	if err := json.Unmarshal([]byte(result), &actions); err != nil {
 		t.Fatal(err)
 	}
-	if containsLXTestString(actions, "search") {
-		t.Fatalf("custom search action was incorrectly accepted as LX native: %v", actions)
+	if !containsLXTestString(actions, "search") {
+		t.Fatalf("community search action was not preserved for automatic capability detection: %v", actions)
 	}
 	if !containsLXTestString(actions, "musicUrl") {
 		t.Fatalf("native musicUrl action missing: %v", actions)
