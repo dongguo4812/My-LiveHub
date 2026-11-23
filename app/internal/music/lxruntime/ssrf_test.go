@@ -5,6 +5,9 @@ package lxruntime
 import (
 	"context"
 	"net/netip"
+	"sync"
+	"errors"
+	"strings"
 	"net/url"
 	"testing"
 )
@@ -80,19 +83,43 @@ func TestLXHTTPTasksAbortDropsActiveRequest(t *testing.T) {
 
 
 func TestLXDestinationRejectsMixedPublicAndPrivateDNSAnswers(t *testing.T) {
-	answers := []netip.Addr{
-		netip.MustParseAddr("1.1.1.1"),
-		netip.MustParseAddr("127.0.0.1"),
+	answers := []netip.Addr{netip.MustParseAddr("1.1.1.1"), netip.MustParseAddr("127.0.0.1")}
+	if _, err := validateLXIPAnswers("mixed.example", answers, false); err == nil {
+		t.Fatal("mixed public/private DNS answer set must be rejected as a whole")
 	}
-	for _, ip := range answers {
-		if !isPublicLXIP(ip) {
-			if ip.String() != "127.0.0.1" {
-				t.Fatalf("unexpected blocked address in test: %s", ip)
-			}
-			return
-		}
+}
+
+type lxSequenceResolver struct {
+	mu sync.Mutex
+	answers [][]netip.Addr
+}
+
+func (r *lxSequenceResolver) LookupNetIP(context.Context, string, string) ([]netip.Addr, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.answers) == 0 { return nil, errors.New("unexpected extra DNS lookup") }
+	answer := r.answers[0]
+	r.answers = r.answers[1:]
+	return answer, nil
+}
+
+func TestLXDNSRebindingBetweenValidationAndDialIsBlocked(t *testing.T) {
+	resolver := &lxSequenceResolver{answers: [][]netip.Addr{
+		{netip.MustParseAddr("1.1.1.1")},
+		{netip.MustParseAddr("127.0.0.1")},
+	}}
+	safe, err := lxSafeHTTPClientWithResolver(&http.Client{}, false, resolver)
+	if err != nil { t.Fatal(err) }
+	request, err := http.NewRequest(http.MethodGet, "http://rebind.example.test/audio", nil)
+	if err != nil { t.Fatal(err) }
+	_, err = safe.Do(request)
+	if err == nil || !strings.Contains(err.Error(), "non-public address") {
+		t.Fatalf("DNS rebinding from public to loopback should be rejected, got %v", err)
 	}
-	t.Fatal("test setup did not include a blocked DNS answer")
+	resolver.mu.Lock()
+	remaining := len(resolver.answers)
+	resolver.mu.Unlock()
+	if remaining != 0 { t.Fatalf("expected validation and dial to perform two independent lookups; %d answers remain", remaining) }
 }
 
 func TestLXSafeHTTPClientDisablesAmbientProxy(t *testing.T) {

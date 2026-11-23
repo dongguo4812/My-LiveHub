@@ -22,6 +22,8 @@ func TestExecuteLXHTTPRequestJSONAndHeaders(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		if string(body) != `{"song":"demo"}` { t.Errorf("request body = %s", body) }
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Add("X-LX-Multi", "first")
+		w.Header().Add("X-LX-Multi", "second")
 		_, _ = io.WriteString(w, `{"code":200,"url":"https://cdn.example/test.mp3"}`)
 	}))
 	defer server.Close()
@@ -31,7 +33,10 @@ func TestExecuteLXHTTPRequestJSONAndHeaders(t *testing.T) {
 		Body: json.RawMessage(`{"song":"demo"}`),
 	}, server.Client(), true)
 	if err != nil { t.Fatal(err) }
-	if response.StatusCode != http.StatusOK || response.Bytes == 0 { t.Fatalf("unexpected response metadata: %+v", response) }
+	if response.StatusCode != http.StatusOK || response.StatusMessage != "OK" || response.Bytes == 0 { t.Fatalf("unexpected response metadata: %+v", response) }
+	if response.Headers["content-type"] != "application/json" || response.Headers["x-lx-multi"] != "first, second" {
+		t.Fatalf("response headers do not match Node/Needle shape: %#v", response.Headers)
+	}
 	body, ok := response.Body.(map[string]any)
 	if !ok || body["code"] != float64(200) { t.Fatalf("JSON body not decoded: %#v", response.Body) }
 	if string(response.Raw) != `{"code":200,"url":"https://cdn.example/test.mp3"}` { t.Fatalf("raw body = %q", response.Raw) }

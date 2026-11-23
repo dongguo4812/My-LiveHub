@@ -24,6 +24,7 @@ func TestLXHostBufferMatchesPinnedSourceUsage(t *testing.T) {
 const payload = JSON.stringify({ source: 'tx', title: '音乐' });
 const payloadBytes = lx.utils.buffer.from(payload, 'utf-8');
 const payloadBase64 = lx.utils.buffer.bufToString(payloadBytes, 'base64');
+const lxBufferFromIsBuffer = Buffer.isBuffer(payloadBytes);
 
 const responseBytes = Buffer.from('{"ok":true,"title":"音乐"}', 'utf-8');
 const responseText = Buffer.from(responseBytes).toString('utf-8');
@@ -44,6 +45,7 @@ const allocatedEmptyPatternHex = Buffer.alloc(4, '').toString('hex');
 const concatenated = Buffer.concat([Buffer.from('LX'), Buffer.from('-Host')]).toString();
 JSON.stringify({
   payloadBase64,
+  lxBufferFromIsBuffer,
   responseText,
   responseIsBuffer: Buffer.isBuffer(responseBytes),
   typedArrayIsBuffer: Buffer.isBuffer(new Uint8Array([1, 2])),
@@ -67,6 +69,7 @@ JSON.stringify({
 
 	var got struct {
 		PayloadBase64    string `json:"payloadBase64"`
+		LXBufferFromIsBuffer bool `json:"lxBufferFromIsBuffer"`
 		ResponseText     string `json:"responseText"`
 		ResponseIsBuffer bool   `json:"responseIsBuffer"`
 		TypedArrayIsBuffer bool `json:"typedArrayIsBuffer"`
@@ -87,6 +90,7 @@ JSON.stringify({
 		t.Fatalf("decode Buffer contract result %q: %v", value, err)
 	}
 	payload, _ := json.Marshal(map[string]string{"source": "tx", "title": "音乐"})
+	if !got.LXBufferFromIsBuffer { t.Fatal("lx.utils.buffer.from must return a Node-compatible Buffer") }
 	if got.PayloadBase64 != base64.StdEncoding.EncodeToString(payload) {
 		t.Fatalf("lx.utils.buffer base64 = %q, want encoding of %s", got.PayloadBase64, payload)
 	}

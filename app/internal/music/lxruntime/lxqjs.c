@@ -161,6 +161,26 @@ extern void *lxqjsGoRSAEncrypt(const char *data, size_t data_len, const char *ke
 extern void *lxqjsGoAESEncrypt(const char *data, size_t data_len, const char *mode, const char *key, size_t key_len, const char *iv, size_t iv_len, size_t *out_len);
 extern void *lxqjsGoZlib(const char *data, size_t data_len, int inflate, size_t *out_len, char **error_out);
 
+// The official Electron host returns Node Buffers from crypto, buffer and
+// zlib helpers. QuickJS typed arrays are not Buffer instances, so all native
+// byte-producing helpers must wrap their result through the JS Buffer shim.
+static JSValue lxqjs_buffer_from_bytes(JSContext *context, const uint8_t *data, size_t length) {
+    JSValue global = JS_GetGlobalObject(context);
+    JSValue constructor = JS_GetPropertyStr(context, global, "Buffer");
+    JSValue from = JS_GetPropertyStr(context, constructor, "from");
+    JSValue argument = JS_NewUint8ArrayCopy(context, data, length);
+    JSValue result = JS_EXCEPTION;
+    if (!JS_IsException(constructor) && !JS_IsException(from) && !JS_IsException(argument) &&
+        !JS_IsUndefined(from)) {
+        result = JS_Call(context, from, JS_UNDEFINED, 1, &argument);
+    }
+    JS_FreeValue(context, argument);
+    JS_FreeValue(context, from);
+    JS_FreeValue(context, constructor);
+    JS_FreeValue(context, global);
+    return result;
+}
+
 static JSValue lxqjs_md5_callback(JSContext *context, JSValueConst this_val,
                                   int argc, JSValueConst *argv) {
     (void)this_val;
@@ -184,10 +204,10 @@ static JSValue lxqjs_random_bytes_callback(JSContext *context, JSValueConst this
         return JS_ThrowTypeError(context, "randomBytes requires a valid size");
     if (length > (1u << 20))
         return JS_ThrowRangeError(context, "randomBytes size exceeds 1 MiB");
-    if (length == 0) return JS_NewUint8ArrayCopy(context, NULL, 0);
+    if (length == 0) return lxqjs_buffer_from_bytes(context, NULL, 0);
     void *bytes = lxqjsGoRandomBytes((size_t)length);
     if (bytes == NULL) return JS_ThrowInternalError(context, "randomBytes failed");
-    JSValue result = JS_NewUint8ArrayCopy(context, (const uint8_t *)bytes, (size_t)length);
+    JSValue result = lxqjs_buffer_from_bytes(context, (const uint8_t *)bytes, (size_t)length);
     free(bytes);
     return result;
 }
@@ -251,7 +271,7 @@ static JSValue lxqjs_rsa_encrypt_callback(JSContext *context, JSValueConst this_
                                      (const char *)key, key_len, &output_len);
     free(data); free(key);
     if (output == NULL) return JS_ThrowTypeError(context, "RSA encryption failed: invalid key or input");
-    JSValue result = JS_NewUint8ArrayCopy(context, (const uint8_t *)output, output_len);
+    JSValue result = lxqjs_buffer_from_bytes(context, (const uint8_t *)output, output_len);
     free(output);
     return result;
 }
@@ -276,7 +296,7 @@ static JSValue lxqjs_aes_encrypt_callback(JSContext *context, JSValueConst this_
                                      (const char *)iv, iv_len, &output_len);
     free(data); free(key); free(iv); JS_FreeCString(context, mode);
     if (output == NULL) return JS_ThrowTypeError(context, "AES encryption failed or mode is unsupported");
-    JSValue result = JS_NewUint8ArrayCopy(context, (const uint8_t *)output, output_len);
+    JSValue result = lxqjs_buffer_from_bytes(context, (const uint8_t *)output, output_len);
     free(output);
     return result;
 }
@@ -330,7 +350,7 @@ static JSValue lxqjs_buffer_from_callback(JSContext *context, JSValueConst this_
     if (owns_encoding) JS_FreeCString(context, encoding);
     free(input);
     if (output == NULL) return JS_ThrowTypeError(context, "unsupported buffer encoding or invalid input");
-    JSValue result = JS_NewUint8ArrayCopy(context, (const uint8_t *)output, output_len);
+    JSValue result = lxqjs_buffer_from_bytes(context, (const uint8_t *)output, output_len);
     free(output);
     return result;
 }
@@ -390,7 +410,7 @@ static JSValue lxqjs_zlib_callback(JSContext *context, JSValueConst this_val,
             JS_Call(context, resolving[1], JS_UNDEFINED, 1, &reason);
             JS_FreeValue(context, reason);
         } else {
-            JSValue result = JS_NewUint8ArrayCopy(context, (const uint8_t *)output, output_len);
+            JSValue result = lxqjs_buffer_from_bytes(context, (const uint8_t *)output, output_len);
             JS_Call(context, resolving[0], JS_UNDEFINED, 1, &result);
             JS_FreeValue(context, result);
         }

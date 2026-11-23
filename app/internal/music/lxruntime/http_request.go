@@ -43,7 +43,7 @@ type lxRequestDescriptor struct {
 type lxHTTPResponse struct {
 	StatusCode    int                 `json:"statusCode"`
 	StatusMessage string              `json:"statusMessage"`
-	Headers       map[string][]string `json:"headers"`
+	Headers       map[string]any `json:"headers"`
 	Bytes         int                 `json:"bytes"`
 	Raw           []byte              `json:"raw"`
 	Body          any                 `json:"body"`
@@ -139,9 +139,19 @@ func executeLXHTTPRequestWithPolicy(parent context.Context, descriptor lxRequest
 	if err := json.Unmarshal(raw, &parsedBody); err != nil {
 		parsedBody = string(raw)
 	}
+	headers := make(map[string]any, len(resp.Header))
+	for key, values := range resp.Header {
+		lowerKey := strings.ToLower(key)
+		if lowerKey == "set-cookie" {
+			headers[lowerKey] = append([]string(nil), values...)
+		} else {
+			headers[lowerKey] = strings.Join(values, ", ")
+		}
+	}
+	statusMessage := strings.TrimPrefix(resp.Status, fmt.Sprintf("%d ", resp.StatusCode))
 	return &lxHTTPResponse{
-		StatusCode: resp.StatusCode, StatusMessage: resp.Status,
-		Headers: resp.Header.Clone(), Bytes: len(raw), Raw: raw, Body: parsedBody,
+		StatusCode: resp.StatusCode, StatusMessage: statusMessage,
+		Headers: headers, Bytes: len(raw), Raw: raw, Body: parsedBody,
 	}, nil
 }
 
