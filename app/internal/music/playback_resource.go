@@ -79,7 +79,7 @@ func (c *PlaybackResourceCache) Put(track Track, quality string, resource Playba
 	key := playbackResourceCacheKey(track, quality)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(c.entries) >= c.maxEntries {
+	if _, exists := c.entries[key]; !exists && len(c.entries) >= c.maxEntries {
 		// Deterministically evict the entry with the earliest expiry.
 		oldestKey := ""
 		var oldest time.Time
@@ -116,16 +116,28 @@ func clonePlaybackResource(resource PlaybackResource) PlaybackResource {
 
 func validatePlaybackResource(resource PlaybackResource) error {
 	parsed, err := url.Parse(strings.TrimSpace(resource.URL))
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-		return errors.New("playback resource must contain a valid HTTP(S) URL")
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" {
+		return errors.New("playback resource must contain a valid credential-free HTTP(S) URL without a fragment")
 	}
 	if strings.TrimSpace(resource.SourceID) == "" || strings.TrimSpace(resource.TrackID) == "" {
 		return errors.New("playback resource source and track identifiers are required")
 	}
+	if len(resource.Headers) > 100 {
+		return errors.New("playback resource contains too many media headers")
+	}
+	headerBytes := 0
 	for key, value := range resource.Headers {
 		if strings.TrimSpace(key) == "" || strings.ContainsAny(key+value, "\r\n") {
 			return fmt.Errorf("playback resource contains an invalid media header")
 		}
+		for _, r := range key {
+			if !isHTTPTokenRune(r) { return errors.New("playback resource contains an invalid media header name") }
+		}
+		for _, r := range value {
+			if (r < 0x20 && r != '\t') || r == 0x7f { return errors.New("playback resource contains an invalid media header value") }
+		}
+		headerBytes += len(key) + len(value)
+		if headerBytes > 64<<10 { return errors.New("playback resource media headers exceed 64 KiB") }
 	}
 	return nil
 }
@@ -176,4 +188,14 @@ func (s *UnifiedSourceService) ResolvePlaybackResource(ctx context.Context, trac
 func (s *UnifiedSourceService) RefreshPlaybackResource(ctx context.Context, track Track, failed PlaybackResource, cache *PlaybackResourceCache) (PlaybackResource, error) {
 	if cache != nil { cache.Invalidate(track, failed.Quality) }
 	return s.ResolvePlaybackResource(ctx, track, failed.Quality, cache)
+}
+
+func isHTTPTokenRune(r rune) bool {
+	if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' { return true }
+	switch r {
+	case '!', '#', '$', '%', '&', 39, '*', '+', '-', '.', '^', '_', '`', '|', '~':
+		return true
+	default:
+		return false
+	}
 }
