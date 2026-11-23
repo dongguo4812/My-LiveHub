@@ -43,7 +43,7 @@ func (r *unifiedTestResolver) ResolvePlaybackURL(_ context.Context, source strin
 
 func TestUnifiedSourceServiceSearchAndResolveAcrossProviders(t *testing.T) {
 	tracks := map[string]Track{
-		"tx": {ID:"tx_101", SourceID:"tx", LXSourceKey:"tx", Title:"Song", Artist:"Singer", SourceData:map[string]string{"songmid":"101","media_mid":"MEDIA101"}, Qualities:[]TrackQuality{{Type:"320k",Size:"5 MiB"}}},
+		"tx": {ID:"tx_101", SourceID:"tx", LXSourceKey:"tx", Title:"Song", Artist:"Singer", SelectedQuality:"128k", SourceData:map[string]string{"songmid":"101","media_mid":"MEDIA101"}, Qualities:[]TrackQuality{{Type:"320k",Size:"5 MiB"}}},
 		"kg": {ID:"HASH202", SourceID:"kg", LXSourceKey:"kg", Title:"Song", Artist:"Singer", SourceData:map[string]string{"hash":"HASH202"}, Qualities:[]TrackQuality{{Type:"flac",Size:"8 MiB"}}},
 		"mg": {ID:"mg_303", SourceID:"mg", LXSourceKey:"mg", Title:"Song", Artist:"Singer", SourceData:map[string]string{"songmid":"303","copyright_id":"COPY303"}, Qualities:[]TrackQuality{{Type:"flac24bit",Size:"12 MiB"}}},
 	}
@@ -60,6 +60,7 @@ func TestUnifiedSourceServiceSearchAndResolveAcrossProviders(t *testing.T) {
 	if len(resolver.calls) != 3 { t.Fatalf("resolver calls = %d, want 3", len(resolver.calls)) }
 	for _, call := range resolver.calls {
 		if call.info["type"] == nil { t.Errorf("%s missing selected quality", call.source) }
+		if call.source == "tx" && call.info["type"] != "128k" { t.Errorf("selected track quality = %v, want 128k", call.info["type"]) }
 		musicInfo, _ := call.info["musicInfo"].(map[string]any)
 		if musicInfo == nil || musicInfo["songmid"] == "" { t.Errorf("%s missing native song identity: %#v", call.source, call.info) }
 	}
