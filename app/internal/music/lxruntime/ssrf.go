@@ -151,6 +151,9 @@ func isPublicLXIP(ip netip.Addr) bool {
 	if !ip.IsValid() || !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
 		return false
 	}
+	if ip.Is6() && !netip.MustParsePrefix("2000::/3").Contains(ip) {
+		return false
+	}
 	// Also deny shared address space, benchmarking and special-use ranges
 	// that are not consistently classified as private by all Go versions.
 	blocked := []netip.Prefix{
@@ -164,7 +167,9 @@ func isPublicLXIP(ip netip.Addr) bool {
 		netip.MustParsePrefix("203.0.113.0/24"),
 		netip.MustParsePrefix("224.0.0.0/4"),
 		netip.MustParsePrefix("240.0.0.0/4"),
+		netip.MustParsePrefix("64:ff9b::/96"),
 		netip.MustParsePrefix("64:ff9b:1::/48"),
+		netip.MustParsePrefix("::/96"),
 		netip.MustParsePrefix("100::/64"),
 		netip.MustParsePrefix("2001::/23"),
 		netip.MustParsePrefix("2001:db8::/32"),
