@@ -175,3 +175,13 @@ jobs:
             app/bin/lxqjs-windows-amd64.zip.sha256
           overwrite_files: true
           make_latest: false
+
+      - name: Verify local no-CGO bootstrap from published runtime
+        shell: pwsh
+        working-directory: app
+        run: |
+          Remove-Item -LiteralPath bin/lxqjs.dll -Force
+          $env:CGO_ENABLED = '0'
+          $env:GOFLAGS = '-tags=lxproduction'
+          ./scripts/lxproduction.ps1 -Mode build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
