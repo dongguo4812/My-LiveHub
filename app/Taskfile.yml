@@ -5,21 +5,19 @@ vars:
 
 tasks:
   dev:
-    summary: 使用生产 QuickJS 运行时生成绑定并启动 My-LiveHub 桌面开发环境
+    summary: 使用生产 QuickJS 运行时启动 My-LiveHub 桌面开发环境（Windows 需要 MinGW-w64 GCC）
     env:
       GOFLAGS: -tags=lxproduction
       CGO_ENABLED: "1"
     cmds:
-      - powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/dev-preflight.ps1 -Port {{.VITE_PORT}}
-      - wails3 generate bindings -ts
-      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+      - powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/lxproduction.ps1 -Mode dev -Port {{.VITE_PORT}}
   build:
-    summary: 使用生产 QuickJS 运行时构建 My-LiveHub 桌面应用
+    summary: 使用生产 QuickJS 运行时构建 My-LiveHub 桌面应用（Windows 需要 MinGW-w64 GCC）
     env:
       GOFLAGS: -tags=lxproduction
       CGO_ENABLED: "1"
     cmds:
-      - wails3 build
+      - powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/lxproduction.ps1 -Mode build
   frontend:install:
     summary: 安装管理端前端依赖
     cmds:
