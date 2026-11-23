@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Headset, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import '../styles/player-center.css'
+import '../../services/htmlAudio'
 import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
 import * as MusicLyricsWindowService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musiclyricswindowservice.js'
 
@@ -381,6 +382,8 @@ async function openLyricsWindow() {
   catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
 }
 async function resume() { try { await MusicService.Resume(); await refreshPlayback() } catch (reason) { error.value = String(reason) } }
+async function seekPlayback(value: number | number[]) { try { await MusicService.Seek(Number(Array.isArray(value) ? value[0] : value)); } catch (reason) { error.value = String(reason) } }
+async function setPlaybackVolume(value: number | number[]) { try { await MusicService.SetVolume(Number(Array.isArray(value) ? value[0] : value) / 100); } catch (reason) { error.value = String(reason) } }
 onMounted(() => {
   void loadConfig()
   void refreshLXScripts()
@@ -430,16 +433,17 @@ onUnmounted(() => {
           <el-tag v-else-if="queue?.current && queue.current.requested_by !== '__my_livehub_search_play__'" type="warning" size="small">观众点播</el-tag>
         </div>
       </div>
-      <el-slider :model-value="progress" :min="0" :max="100" :step="0.1" :disabled="true" />
+      <el-slider :model-value="progress" :min="0" :max="100" :step="0.1" :disabled="!playback?.track || (playback?.duration_ms ?? 0) <= 0" @change="value => seekPlayback(Number(value) * (playback?.duration_ms ?? 0) / 100)" />
+      <div class="volume-row"><span>音量</span><el-slider :model-value="100" :min="0" :max="100" :step="1" style="max-width:220px" @change="setPlaybackVolume" /></div>
       <div class="time-row"><span>{{ formatDuration(displayedPositionMs) }}</span><span>{{ formatDuration(playback?.duration_ms) }}</span></div>
-      <p class="hint">音量调节和播放进度定位暂不受洛雪开放 API 支持，请在洛雪客户端中操作。</p>
+      <p class="hint">播放进度和音量由 My-LiveHub 内置 HTMLAudio 控制。</p>
       <div class="player-controls">
         <el-button :disabled="playback?.state !== 'playing'" @click="pause">暂停</el-button>
         <el-button :disabled="playback?.state !== 'paused'" @click="resume">继续</el-button>
         <el-button @click="previousTrack">上一首</el-button>
         <el-button @click="nextTrack">下一首</el-button>
       </div>
-      <p class="hint">播放由本机洛雪客户端负责。请先启动洛雪，并在配置页填写其本地 API 地址。</p>
+      <p class="hint">播放由 My-LiveHub 内置 HTMLAudio 负责，无需启动外部播放器。</p>
     </el-card>
 
     <el-card v-if="activeTab === 'search'" class="player-card" shadow="never">

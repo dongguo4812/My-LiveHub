@@ -107,6 +107,7 @@ func (e *htmlAudioPlaybackEngine) Report(sessionID uint64, event string, positio
 	if positionMS < 0 { positionMS = 0 }; if durationMS < 0 { durationMS = 0 }
 	switch event {
 	case "loadstart": e.snapshot.State = music.PlaybackLoading
+	case "autoplayblocked": e.snapshot.State = music.PlaybackPaused; e.snapshot.Error = strings.TrimSpace(message)
 	case "playing": e.snapshot.State = music.PlaybackPlaying
 	case "pause": if e.snapshot.State != music.PlaybackStopped { e.snapshot.State = music.PlaybackPaused }
 	case "timeupdate", "durationchange", "waiting", "stalled":
