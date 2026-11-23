@@ -342,7 +342,7 @@ func (s *MusicService) searchSongRequestTrack(parent context.Context, keyword, r
 		s.mu.RLock()
 		searcher, resolver := s.searcher, s.scriptRuntime
 		s.mu.RUnlock()
-		result, err := music.NewUnifiedSourceService(searcher, resolver).SearchSource(ctx, source, keyword, 1)
+		result, err := music.NewUnifiedSourceService(scriptAwareSourceSearcher{base: searcher, service: s}, resolver).SearchSource(ctx, source, keyword, 1)
 		if err != nil { return nil, err }
 		return result.Tracks, nil
 	}, requestedTitle, requestedArtist)
@@ -596,7 +596,7 @@ func (s *MusicService) SearchSourcePage(keyword, source string, page int) (Music
 	s.mu.RLock()
 	searcher, resolver := s.searcher, s.scriptRuntime
 	s.mu.RUnlock()
-	result, err := music.NewUnifiedSourceService(searcher, resolver).SearchSource(ctx, source, keyword, page)
+	result, err := music.NewUnifiedSourceService(scriptAwareSourceSearcher{base: searcher, service: s}, resolver).SearchSource(ctx, source, keyword, page)
 	if err != nil {
 		return MusicSearchResponse{}, err
 	}
@@ -642,7 +642,7 @@ func (s *MusicService) searchPage(parent context.Context, keyword string, page i
 	s.mu.RLock()
 	searcher, resolver := s.searcher, s.scriptRuntime
 	s.mu.RUnlock()
-	result, sourceErrors, err := music.NewUnifiedSourceService(searcher, resolver).Search(ctx, keyword, page, sourceIDs)
+	result, sourceErrors, err := music.NewUnifiedSourceService(scriptAwareSourceSearcher{base: searcher, service: s}, resolver).Search(ctx, keyword, page, sourceIDs)
 	response := MusicSearchResponse{
 		Tracks: result.Tracks, Errors: sourceErrors, Page: result.Page,
 		PageSize: result.PageSize, Total: result.Total, MaxPage: result.MaxPage,
@@ -861,7 +861,14 @@ func (s *MusicService) Stop() error {
 }
 
 func (s *MusicService) GetLyrics(track music.Track) (string, error) {
-	if s == nil || s.engine == nil { return "", errors.New("music lyrics service is unavailable") }
+	if s == nil { return "", errors.New("music lyrics service is unavailable") }
+	if value, handled, err := s.dispatchLXExtension(context.Background(), firstNonEmpty(track.LXSourceKey, track.SourceID), "lyric", map[string]any{"musicInfo":track, "track":track}); handled {
+		if err != nil { return "", err }
+		lyrics, ok := value.(string)
+		if !ok { return "", errors.New("LX lyric action must return a string") }
+		return lyrics, nil
+	}
+	if s.engine == nil { return "", errors.New("music lyrics service is unavailable") }
 	provider, ok := s.engine.(interface {
 		GetCurrentLyrics(context.Context) (string, error)
 	})

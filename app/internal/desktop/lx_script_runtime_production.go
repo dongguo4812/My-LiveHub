@@ -298,3 +298,21 @@ func (r *productionMusicLXRuntime) Close() error {
 	if manager == nil { return nil }
 	return manager.Close()
 }
+
+
+// HasExtensionAction reports whether an enabled imported script explicitly
+// opted into a My-LiveHub community extension action.
+func (r *productionMusicLXRuntime) HasExtensionAction(action string) bool {
+ if r==nil { return false }
+ r.mu.Lock(); manager:=r.manager; r.mu.Unlock()
+ return manager!=nil && manager.HasExtensionAction(action)
+}
+
+// DispatchExtensionAction dispatches only community extension actions. The
+// native 洛雪 musicUrl action remains on ResolvePlaybackURL.
+func (r *productionMusicLXRuntime) DispatchExtensionAction(ctx context.Context, source, action string, info any) (any,error) {
+ if r==nil { return nil,errors.New("production LX source runtime is unavailable") }
+ r.mu.Lock(); manager:=r.manager; r.mu.Unlock()
+ if manager==nil { return nil,errors.New("production LX source runtime has not started") }
+ return manager.DispatchExtensionAction(ctx,source,action,info)
+}

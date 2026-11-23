@@ -58,6 +58,15 @@ func NewSourceManager(client *http.Client) *SourceManager {
 	return newSourceManager(client)
 }
 
+// HasExtensionAction reports an explicitly enabled community action.
+func (m *SourceManager) HasExtensionAction(action string) bool {
+ if m==nil || !isLXCommunityExtensionAction(action) { return false }
+ m.mu.Lock(); defer m.mu.Unlock()
+ if m.closed || !m.started { return false }
+ for _, script:=range m.scripts { if _,ok:=script.extensionActions[action]; ok { return true } }
+ return false
+}
+
 func (m *SourceManager) HasScripts() bool {
 	if m == nil { return false }
 	m.mu.Lock()
