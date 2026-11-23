@@ -37,6 +37,7 @@ try {
       </script>
     </body></html>
   `)
+  await page.locator('#audio').evaluate((audio, src) => { audio.src = src; audio.load() }, mediaURL)
   await page.locator('#start').click()
   await page.waitForFunction(() => {
     const audio = window.testAudio
