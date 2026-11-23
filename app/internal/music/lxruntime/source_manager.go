@@ -57,14 +57,16 @@ type LXSourceScript struct {
 // community actions.
 func DetectLXScriptExtensionActions(ctx context.Context, info ScriptInfo, source string, client *http.Client) ([]string, []string, error) {
 	if ctx == nil { ctx = context.Background() }
+	probeCtx, cancel := context.WithTimeout(ctx, lxMaxRequestTimeout)
+	defer cancel()
 	if err := ValidateLXScriptSource(source); err != nil { return nil, nil, err }
 	runtime, err := New(Options{})
 	if err != nil { return nil, nil, fmt.Errorf("create QuickJS capability probe: %w", err) }
 	defer runtime.Close()
-	if err := runtime.InitializeLXSource(ctx, info, source, client); err != nil {
+	if err := runtime.InitializeLXSource(probeCtx, info, source, client); err != nil {
 		return nil, nil, fmt.Errorf("initialize script to detect capabilities: %w", err)
 	}
-	text, err := runtime.Eval(ctx, `JSON.stringify((globalThis.__lxHostState && globalThis.__lxHostState.initInfo && globalThis.__lxHostState.initInfo.sources) || {})`, "lx-capability-detection.js")
+	text, err := runtime.Eval(probeCtx, `JSON.stringify((globalThis.__lxHostState && globalThis.__lxHostState.initInfo && globalThis.__lxHostState.initInfo.sources) || {})`, "lx-capability-detection.js")
 	if err != nil { return nil, nil, fmt.Errorf("read inited.sources capabilities: %w", err) }
 	var sources map[string]struct { Actions []string `json:"actions"` }
 	if err := json.Unmarshal([]byte(text), &sources); err != nil {
