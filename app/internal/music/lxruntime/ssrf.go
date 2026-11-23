@@ -70,6 +70,9 @@ func lxSafeHTTPClientWithPolicy(client *http.Client, allowPrivate bool) (*http.C
 		if len(via) >= 5 {
 			return errors.New("lx.request: too many redirects")
 		}
+		if len(via) > 0 && via[len(via)-1].URL.Scheme == "https" && req.URL.Scheme != "https" {
+			return errors.New("lx.request: HTTPS redirect downgrade is not allowed")
+		}
 		if err := validateLXDestinationWithPolicy(req.Context(), req.URL, allowPrivate); err != nil {
 			return err
 		}

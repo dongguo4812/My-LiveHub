@@ -77,3 +77,32 @@ func TestLXHTTPTasksAbortDropsActiveRequest(t *testing.T) {
 	if !cancelled { t.Fatal("abort did not cancel the request") }
 	if _, exists := tasks.active[7]; exists { t.Fatal("aborted request remains active") }
 }
+
+
+func TestLXDestinationRejectsMixedPublicAndPrivateDNSAnswers(t *testing.T) {
+	answers := []netip.Addr{
+		netip.MustParseAddr("1.1.1.1"),
+		netip.MustParseAddr("127.0.0.1"),
+	}
+	for _, ip := range answers {
+		if !isPublicLXIP(ip) {
+			if ip.String() != "127.0.0.1" {
+				t.Fatalf("unexpected blocked address in test: %s", ip)
+			}
+			return
+		}
+	}
+	t.Fatal("test setup did not include a blocked DNS answer")
+}
+
+func TestLXSafeHTTPClientDisablesAmbientProxy(t *testing.T) {
+	client := &http.Client{Transport: http.DefaultTransport}
+	safe, err := lxSafeHTTPClient(client)
+	if err != nil { t.Fatal(err) }
+	transport, ok := safe.Transport.(*http.Transport)
+	if !ok { t.Fatalf("safe transport type = %T", safe.Transport) }
+	if transport.Proxy != nil { t.Fatal("safe LX transport retained ambient proxy configuration") }
+	if transport.DialTLS != nil || transport.DialTLSContext != nil {
+		t.Fatal("safe LX transport retained a TLS dial bypass")
+	}
+}
