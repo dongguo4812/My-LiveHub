@@ -75,13 +75,13 @@ func (s *MusicService) ResolvePlaybackURL(ctx context.Context, track music.Track
 	}
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
-	url, err := runtime.ResolvePlaybackURL(ctx, source, info)
+	resolvedURL, err := runtime.ResolvePlaybackURL(ctx, source, info)
 	if err != nil {
 		return "", fmt.Errorf("resolve %s track %q: %w", source, track.Title, err)
 	}
-	parsed, parseErr := url.Parse(strings.TrimSpace(url))
+	parsed, parseErr := url.Parse(strings.TrimSpace(resolvedURL))
 	if parseErr != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
 		return "", fmt.Errorf("LX source returned an invalid HTTP(S) playback URL")
 	}
-	return url, nil
+	return resolvedURL, nil
 }
