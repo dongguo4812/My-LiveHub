@@ -85,6 +85,8 @@ jobs:
           export CGO_LDFLAGS="-L$TEMP_DIR/lx-quickjs-host-build/lib -lqjs"
           go test -tags lxquickjs -count=3 -run '^TestLXSourceRConfigLiveHandshake$' ./internal/music/lxruntime
           go test -tags lxquickjs -count=1 -v ./internal/music/lxruntime
+          # Exercise the production build tag through the full desktop dependency graph.
+          go test -tags lxproduction ./...
 
       - name: Measure QuickJS runtime lifecycle and binary footprint
         shell: msys2 {0}
