@@ -39,6 +39,30 @@ jobs:
           cache: npm
           cache-dependency-path: app/frontend/package-lock.json
 
+      - name: Add Go bin to PATH
+        shell: pwsh
+        run: |
+          "$(go env GOPATH)\\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Cache Wails CLI
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin/wails3.exe
+          key: wails3-${{ runner.os }}-go1.27-v3.1.0
+
+      - name: Install Wails CLI
+        shell: pwsh
+        run: |
+          $wails = Join-Path (go env GOPATH) 'bin/wails3.exe'
+          if (!(Test-Path $wails)) {
+            go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
+          }
+
+      - name: Generate frontend bindings
+        shell: pwsh
+        working-directory: app
+        run: wails3 generate bindings -ts
+
       - name: Build frontend assets required by production Go embed
         working-directory: app/frontend
         run: |
