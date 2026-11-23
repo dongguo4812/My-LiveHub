@@ -81,11 +81,17 @@ func (r *productionMusicLXRuntime) rebuildLocked(ctx context.Context) error {
 	for i := range r.scripts {
 		script := &r.scripts[i]
 		if !script.Enabled { continue }
-		if err := lxruntime.ValidateLXScriptSource(script.Source); err != nil {
-			script.LastError = err.Error()
+		probe, validationErr := lxruntime.NewSourceManagerWithScripts(nil, []lxruntime.LXSourceScript{{
+			Info: lxruntime.ScriptInfo{Name: script.Name, RawScript: script.Source},
+			Source: script.Source,
+			ExtensionActions: append([]string(nil), script.ExtensionActions...),
+		}})
+		if validationErr != nil {
+			script.LastError = validationErr.Error()
 			script.Enabled = false
 			continue
 		}
+		_ = probe.Close()
 		total += len(script.Source)
 		if total > 16<<20 {
 			script.LastError = "enabled LX scripts exceed the aggregate 16 MiB source limit"
