@@ -94,6 +94,78 @@ let searchRequestID = 0
 const saving = ref(false)
 const error = ref('')
 const success = ref('')
+
+type LXScriptSummary = Awaited<ReturnType<typeof MusicService.ListLXScripts>>[number]
+const lxScripts = ref<LXScriptSummary[]>([])
+const lxScriptName = ref('')
+const lxScriptSource = ref('')
+const lxScriptFileInput = ref<HTMLInputElement | null>(null)
+const lxScriptBusy = ref(false)
+
+async function refreshLXScripts() {
+  try { lxScripts.value = await MusicService.ListLXScripts() }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+}
+function chooseLXScriptFile() { lxScriptFileInput.value?.click() }
+async function readLXScriptFile(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  try {
+    lxScriptSource.value = await file.text()
+    if (!lxScriptName.value.trim()) lxScriptName.value = file.name
+    success.value = `已读取脚本文件：${file.name}`
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  } finally {
+    ;(event.target as HTMLInputElement).value = ''
+  }
+}
+async function importLXScript() {
+  if (!lxScriptName.value.trim() || !lxScriptSource.value.trim()) {
+    error.value = '请填写脚本名称并选择或粘贴 JavaScript 源码'
+    return
+  }
+  lxScriptBusy.value = true
+  error.value = ''
+  success.value = ''
+  try {
+    const added = await MusicService.ImportLXScript(lxScriptName.value.trim(), lxScriptSource.value, [])
+    lxScriptName.value = ''
+    lxScriptSource.value = ''
+    await refreshLXScripts()
+    success.value = `已导入音源脚本：${added.name}`
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  } finally {
+    lxScriptBusy.value = false
+  }
+}
+async function toggleLXScript(script: LXScriptSummary, enabled: boolean) {
+  lxScriptBusy.value = true
+  error.value = ''
+  try {
+    await MusicService.SetLXScriptEnabled(script.id, enabled)
+    await refreshLXScripts()
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  } finally {
+    lxScriptBusy.value = false
+  }
+}
+async function deleteLXScript(script: LXScriptSummary) {
+  if (!window.confirm(`确定删除音源脚本“${script.name}”吗？此操作不可撤销。`)) return
+  lxScriptBusy.value = true
+  error.value = ''
+  try {
+    await MusicService.DeleteLXScript(script.id)
+    await refreshLXScripts()
+    success.value = `已删除音源脚本：${script.name}`
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  } finally {
+    lxScriptBusy.value = false
+  }
+}
 let statusTimer: ReturnType<typeof setInterval> | undefined
 let playbackClockTimer: ReturnType<typeof setInterval> | undefined
 let playbackPositionAnchor = 0
@@ -303,6 +375,7 @@ async function openLyricsWindow() {
 async function resume() { try { await MusicService.Resume(); await refreshPlayback() } catch (reason) { error.value = String(reason) } }
 onMounted(() => {
   void loadConfig()
+  void refreshLXScripts()
   void refreshPlayback()
   statusTimer = setInterval(() => void refreshPlayback(), 1500)
   playbackClockTimer = setInterval(updatePlaybackClock, 100)
@@ -490,6 +563,45 @@ onUnmounted(() => {
         </div>
       </div>
       <div class="card-actions"><el-button type="primary" :loading="saving" :disabled="!config" @click="saveConfig">保存音乐配置</el-button></div>
+    </el-card>
+
+    <el-card v-if="activeTab === 'settings'" class="player-card player-settings-card" shadow="never">
+      <template #header><div class="card-heading"><strong>JS 音源脚本管理</strong><el-tag effect="plain">{{ lxScripts.length }} 个脚本</el-tag></div></template>
+      <p class="section-description">导入洛雪 JavaScript 音源脚本。脚本源码保存在本机 config/local，重启后自动恢复；脚本执行受 QuickJS 宿主能力和网络安全策略限制。</p>
+      <div class="setting-list">
+        <div class="setting-row">
+          <div><strong>脚本名称</strong><p>用于脚本列表显示，可填写来源或版本说明。</p></div>
+          <el-input v-model="lxScriptName" placeholder="例如：我的音乐音源" style="max-width:360px" />
+        </div>
+        <div class="setting-row">
+          <div><strong>选择 JS 文件</strong><p>支持 .js 文件，也可以直接粘贴源码。</p></div>
+          <div class="lx-import-row">
+            <input ref="lxScriptFileInput" class="hidden-file-input" type="file" accept=".js,text/javascript,application/javascript" @change="readLXScriptFile" />
+            <el-button plain @click="chooseLXScriptFile">选择脚本文件</el-button>
+          </div>
+        </div>
+        <el-input v-model="lxScriptSource" type="textarea" :rows="8" resize="vertical" placeholder="粘贴完整的洛雪 JS 音源脚本源码……" />
+        <div class="card-actions">
+          <el-button type="primary" :loading="lxScriptBusy" :disabled="!lxScriptName.trim() || !lxScriptSource.trim()" @click="importLXScript">导入并启用脚本</el-button>
+        </div>
+      </div>
+      <el-divider />
+      <div v-if="lxScripts.length" class="lx-source-list">
+        <div v-for="script in lxScripts" :key="script.id" class="lx-source-row">
+          <div class="source-copy">
+            <strong>{{ script.name }}</strong>
+            <span>SHA-256：{{ script.id }}</span>
+            <span v-if="script.extension_actions?.length">扩展能力：{{ script.extension_actions.join('、') }}</span>
+            <el-text v-if="script.last_error" type="danger" size="small">{{ script.last_error }}</el-text>
+          </div>
+          <div class="lx-source-actions">
+            <el-switch :model-value="script.enabled" :disabled="lxScriptBusy" active-text="启用" inactive-text="停用" @change="toggleLXScript(script, Boolean($event))" />
+            <el-button link type="danger" :disabled="lxScriptBusy" @click="deleteLXScript(script)">删除</el-button>
+          </div>
+        </div>
+      </div>
+      <el-empty v-else description="尚未导入 JS 音源脚本" :image-size="64" />
+      <p class="hint">安全提示：只导入可信来源的脚本。脚本会在 QuickJS 隔离运行时中执行，但其允许的网络请求仍受宿主安全策略约束。</p>
     </el-card>
 
     <div v-if="activeTab === 'search' || activeTab === 'visitor-requests'" class="mini-player">
