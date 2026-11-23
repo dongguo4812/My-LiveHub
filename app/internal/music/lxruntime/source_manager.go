@@ -49,9 +49,9 @@ func NewSourceManager(client *http.Client) *SourceManager {
 	return &SourceManager{
 		client: client,
 		scripts: []*managedLXScript{
-			{info: ScriptInfo{Name: "Xinglan production source", Version: "4.0.2"}, source: string(productionXinglanSource)},
-			{info: ScriptInfo{Name: "HelloWorld production source", Version: "1.0.0"}, source: string(productionHelloWorldSource)},
-			{info: ScriptInfo{Name: "Huanyin production source", Version: "1.0.0"}, source: string(productionHuanyinSource)},
+			{info: ScriptInfo{Name: "Xinglan production source", Version: "4.0.2", RawScript: string(productionXinglanSource)}, source: string(productionXinglanSource)},
+			{info: ScriptInfo{Name: "HelloWorld production source", Version: "1.0.0", RawScript: string(productionHelloWorldSource)}, source: string(productionHelloWorldSource)},
+			{info: ScriptInfo{Name: "Huanyin production source", Version: "1.0.0", RawScript: string(productionHuanyinSource)}, source: string(productionHuanyinSource)},
 		},
 	}
 }
