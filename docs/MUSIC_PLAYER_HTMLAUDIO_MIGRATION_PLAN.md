@@ -698,3 +698,45 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 - 收集并运行至少一组目标生态真实脚本（不只是官方最小示例），确认用户最终希望导入的脚本格式和兼容范围。
 
 在这两项完成前，阶段 0 仍不得标记全部完成，也不得进入阶段 1 实现。
+
+
+### 10.11 My-LiveHub QuickJS / host / dispatch 实现差异矩阵（第三批审计）
+
+核对当前分支源码：`app/internal/music/lxruntime/{host_contract.go,runtime_quickjs.go,initialize.go,dispatch.go,http_request.go,source_manager.go}`、对应测试，以及 `app/internal/desktop/lx_script_runtime*.go`、`app/internal/music/{source_service.go,search_lx.go,lyrics_lx.go}`。
+
+| 能力 | 官方 LX 行为 | My-LiveHub 当前实现 | 审计判断 |
+|---|---|---|---|
+| JS 引擎 | Electron Chromium/V8 renderer | QuickJS-NG CGo，单独 owner goroutine / OS thread | 引擎不同，必须按脚本 API 兼容而非引擎等价验收 |
+| 内存/栈/执行时限 | 由 BrowserWindow/Chromium 管理，源码未见相同硬配额 | 默认 32 MiB、512 KiB、Eval 3 秒，可配置 | 已有基础限制；还需检查长生命周期累计分配与脚本隔离 |
+| 生命周期 | 每个用户源独立 BrowserWindow，切源关闭旧窗口 | 每个 managed script 独立 QuickJS Runtime；SourceManager 固定脚本 | 有隔离上下文，但尚无导入/切换/删除 API |
+| 初始化 | preload 注入 lx，执行脚本，request handler 注册后 inited 握手 | InstallLXHost + Eval，泵 timer/HTTP 请求直至 initialized | 有协议骨架；需补齐异常初始化状态与完整生命周期 |
+| source/action/quality | 官方白名单过滤 | 同样使用 kw/kg/tx/wy/mg/local 和 action/quality 白名单 | 基本对齐；local 缺省 qualitys 处理需用官方样本回归 |
+| request action | requestKey 主侧队列，20 秒超时/取消 | QuickJS handler Promise dispatch，context cancel；HTTP task 有取消队列 | 核心路径存在；尚需并发/取消竞态与多请求压测 |
+| lx.request | Needle，60 秒上限，代理、method/headers/body/form/formData，回调含 raw/bytes/body | Go net/http，60 秒上限，8 MiB响应上限，JSON parse 或 string，支持表单和 multipart | API 形状接近；Needle 原始响应、编码、代理和重定向行为并不等价 |
+| HTTP 安全 | 官方窗口权限有限，但源码未展示 SSRF 防护 | 当前只校验绝对 HTTP(S) URL；默认 net/http redirect 行为；未见 DNS 解析后 IP 校验 | **安全 blocker**：本地/私网/链路本地/云元数据地址、DNS rebinding、重定向逐跳检查尚无证据 |
+| Buffer | Buffer.from / bufToString | host bootstrap 将 buffer 方法标为 unavailable | **兼容缺口** |
+| zlib | inflate / deflate Promise | host bootstrap 将 zlib 方法标为 unavailable | **兼容缺口** |
+| crypto | AES、RSA_NO_PADDING、randomBytes、MD5 | InstallLXHost 安装 native crypto；需对照模式、编码、padding、返回 Buffer 的一致性 | 部分实现，不能只看符号存在即判定兼容 |
+| browser globals | Chromium Web APIs、globalThis、定时器等 | console、timers、queueMicrotask、部分 browser bootstrap | **部分模拟**；DOM/fetch/URL/Blob/编码等需按真实脚本依赖逐项验证 |
+| 脚本导入 | 元数据解析、压缩存储、去重、列表/删除/更新提示 | SourceManager 三个 go:embed 脚本 | **未实现用户脚本导入管理** |
+| 搜索 | LX desktop 内置 SDK 的平台 search 模块 | Go 原生五平台 provider | **与用户确认的 JS 搜索目标不一致**，但尚不能用自定义源原生 action 替代 |
+| 歌词 | 平台 SDK 自行获取/解码；自定义源 local lyric 是另一机制 | Go 原生歌词（已核对 QQ/KG 等实现） | **未由导入 JS provider 统一承担** |
+| URL 返回 | 原生 musicUrl 返回 HTTP(S) 字符串 | 返回 string，统一服务构造旧式 musicInfo | 基本 action 结果兼容；缺少结构化媒体请求上下文 |
+| 播放主链 | LX desktop 内部播放器 | 旧 PlaybackEngine 仍为默认；脚本 resolver 独立接口 | HTMLAudio/Wails 播放闭环未验收 |
+
+**安全审计具体发现：** `executeLXHTTPRequest` 只解析并限制 URL scheme/host；没有在发起请求前解析 DNS 并拒绝 loopback/private/link-local/multicast/reserved 地址，也没有为每次 redirect 重新校验目标地址。Go client 的默认 redirect policy 可继续跟随跳转。仅靠 QuickJS 不暴露 OS API 无法防止脚本借 `lx.request` 访问本机或内网服务。这是用户脚本导入前必须解决的安全 blocker。
+
+**运行时并发发现：** `Runtime` 以单一 command channel 和单一 QuickJS owner thread 执行；`dispatchMu` 保证同一 runtime 的 action dispatch 串行。SourceManager 另有全局 `dispatchMu`，因此当前所有脚本 action 实际串行，且脚本初始化/请求时的锁持有范围需要并发压测，不能承诺多源并发执行。
+
+**测试覆盖已核实：** 当前已有 host 初始化/能力过滤、SCRIPT_MD5、HTTP method/body/form/multipart、超时、URL scheme、响应体大小上限、timeout clamp、truthy body 语义等测试。测试使用 lxquickjs && cgo build tag；生产 runtime 使用 lxproduction && cgo。尚未见完整第三方脚本兼容套件、SSRF/DNS/redirect 防护测试、并发隔离/压力测试、Windows Wails WebView 真实播放验收。测试存在不等于生产构建或全平台 CI 已通过。
+
+### 10.12 阶段 0 审计交付判定
+
+当前已形成三层源码证据：
+1. 洛雪官方自定义源规范与桌面端 preload/IPC/导入生命周期；
+2. 洛雪内置 Music SDK 搜索、跨源匹配、平台数据模型和播放调度；
+3. My-LiveHub 当前 QuickJS/host/request/dispatch/Go provider/播放接入实现。
+
+本轮审计已足以确定原方案中的关键误区与实现差距，但**不能诚实地把阶段 0 宣告为全部完成**：还缺少用户指定脚本生态的真实脚本样本和逐脚本执行验证，以及 Windows Wails WebView HTMLAudio PoC。前者决定“JS 搜索脚本”究竟兼容哪一种脚本格式；后者决定最终播放链路可行性。二者均不能由静态源码审计代替。
+
+因此当前审计结论为：**官方源码静态审计主干已完成；目标脚本生态兼容验证和播放 PoC 属于审计收尾的实测 gate，阶段 0 暂不关闭。** 下一步不扩展功能开发，而是先从仓库现有真实脚本/用户明确指定的脚本生态取得可复现样本，建立 fixture 和逐 API 兼容测试；同时修订主方案中的安全 blocker 和 HTMLAudio 验收门槛。
