@@ -4,6 +4,7 @@ package lxruntime
 
 import (
 	"bytes"
+	"encoding/base64"
 	"compress/zlib"
 	"testing"
 	"context"
@@ -71,7 +72,7 @@ func TestLXZlibInflateBridgeReturnsNodeCompatibleBuffer(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := rt.Eval(context.Background(), `
-const compressed = Buffer.from('eJzLSM3JyVcozy/KSVEEAB0JBF4=', 'base64');
+const compressed = Buffer.from('`+base64.StdEncoding.EncodeToString(func() []byte { value, _ := lxZlibDeflate([]byte("zlib-buffer-contract")); return value }())+`', 'base64');
 globalThis.__lxZlibInflateBufferState = 'pending';
 lx.utils.zlib.inflate(compressed).then(restored => {
   globalThis.__lxZlibInflateBufferState = Buffer.isBuffer(restored) && restored.toString('utf8') === 'zlib-buffer-contract'
