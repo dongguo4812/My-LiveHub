@@ -50,3 +50,28 @@ func TestHTMLAudioPlaybackEngineRefreshesFailedMediaAtMostOnce(t *testing.T) {
 	if err := engine.Report(session, "error", 0, 10000, "retry failed"); err != nil { t.Fatal(err) }
 	if refreshCalls != 1 { t.Fatalf("refresh repeated after retry: %d", refreshCalls) }
 }
+
+func TestHTMLAudioPlaybackEngineKeepsWatcherLoadingDuringRefresh(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	engine := newHTMLAudioPlaybackEngine(func(track music.Track, failed music.PlaybackResource) (music.PlaybackResource, error) {
+		close(started)
+		<-release
+		return music.PlaybackResource{URL:"https://media.example/new.mp3", SourceID:failed.SourceID, TrackID:failed.TrackID, Quality:failed.Quality}, nil
+	})
+	var commands []htmlAudioCommand
+	engine.setEmitter(func(_ string, payload any) { commands = append(commands, payload.(htmlAudioCommand)) })
+	track := music.Track{ID:"track-1", SourceID:"tx"}
+	resource := music.PlaybackResource{URL:"https://media.example/old.mp3", SourceID:"tx", TrackID:"track-1", Quality:"128k"}
+	if err := engine.LoadResource(context.Background(), track, resource); err != nil { t.Fatal(err) }
+	session := commands[0].SessionID
+	done := make(chan error, 1)
+	go func() { done <- engine.Report(session, "error", 0, 10000, "expired") }()
+	<-started
+	snapshot, _ := engine.Snapshot(context.Background())
+	if snapshot.State != music.PlaybackLoading { t.Fatalf("watcher must not see terminal error during refresh: %s", snapshot.State) }
+	if err := engine.Report(session, "error", 0, 10000, "duplicate"); err != nil { t.Fatal(err) }
+	close(release)
+	if err := <-done; err != nil { t.Fatal(err) }
+	if len(commands) != 2 || commands[1].Resource.URL != "https://media.example/new.mp3" { t.Fatalf("refreshed URL was not loaded: %#v", commands) }
+}
