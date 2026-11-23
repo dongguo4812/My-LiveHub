@@ -26,6 +26,8 @@ func TestIsPublicLXIP(t *testing.T) {
 		{"240.1.2.3", false},
 		{"2002::1", false},
 		{"2001::1", false},
+		{"::192.0.2.1", false},
+		{"64:ff9b::a00:1", false},
 		{"198.18.0.1", false},
 		{"::1", false},
 		{"fc00::1", false},
