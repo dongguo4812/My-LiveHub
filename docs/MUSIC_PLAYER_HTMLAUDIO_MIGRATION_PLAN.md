@@ -988,7 +988,7 @@ line 3: unexpected EOF while looking for matching single quote
 - `scriptAwareSourceSearcher` 接入单音源搜索、全局多源搜索和弹幕点歌搜索；支持并发来源请求、来源错误独立记录、搜索结果归一化为 `music.Track`。
 - `GetLyrics` 优先使用已声明的 `lyric` 扩展 action；另提供 `GetLXTrackDetail/GetLXTrackCover` 服务入口。
 > **历史状态快照，已被下方 10.27 最终验收记录取代。** 当时记录的 CI Run #550 尚未结束、B 尚未验收；后续已完成 detail Track 映射、按音源路由、错误/取消及多脚本隔离，并由 CI Run #567 全量通过。当前状态以第 4 节、第 7 节及 10.27 最终验收记录为准。
-- 音乐设置页导入时可显式选择 `search/detail/lyric/pic`；`musicUrl` 不可作为社区扩展 action 声明。
+- 原历史实现曾要求用户手动选择 `search/detail/lyric/pic`；该交互已废弃。当前导入流程应由 QuickJS 初始化脚本并读取 `inited.sources[*].actions` 自动识别社区扩展能力，`musicUrl` 始终只走洛雪原生 action。
 - 自建 production fixture 已覆盖 search/detail/musicUrl/lyric/pic 的真实 QuickJS → SourceManager → MusicService 调用。
 
 ### 10.27 B 阶段最终验收记录（2026-11-23）
@@ -1016,3 +1016,13 @@ line 3: unexpected EOF while looking for matching single quote
 - Workflow/方案记录提交：`c067e03a472ac6b5b9a24a6e91bc2fa3f1bf637f`；CI Run `45150651612` 成功，额外完成 Windows `lxproduction` 可执行文件构建和 artifact 上传。Artifact：`My-LiveHub-HTMLAudio-D-PoC`，ID `14806154129`，约 17.9 MB，保留至 2026-11-30。
 - 目标设备验收包可从 [GitHub Actions Run 45150651612](https://github.com/dongguo4812/My-LiveHub/actions/runs/45150651612) 的 Artifacts 下载；在目标 Windows/WebView 设备验证真实来源播放、暂停/恢复、seek、volume、stop、切歌、错误恢复，并记录 WebView 版本和媒体格式。
 - **当前验收状态：D 尚未达到整体停止条件。** 自动化代码/CI 子门已通过；真实 Windows WebView 可听播放及设备控制验收仍待目标设备执行。未取得该证据前不得勾选 D 完成门或进入 E。
+
+
+### 10.29 社区扩展 action 自动识别与导入反馈（2026-11-23）
+
+- 移除 JS 音源导入页的社区扩展 action 手动勾选项；用户只需选择在线/本地脚本并点击导入。
+- 导入前通过独立 QuickJS capability probe 执行脚本初始化，读取洛雪握手数据 `inited.sources[*].actions`，自动识别 `search/detail/lyric/pic`，并将识别出的能力写入脚本存储和导入结果。
+- `musicUrl` 不进入社区扩展能力集合，继续由洛雪原生 action resolver 处理。
+- 没有 `inited.sources`、没有有效音源声明、或未声明任何支持的社区扩展 action 时，导入明确失败并返回原因；不得静默保存为无社区能力脚本。
+- 导入成功后展示识别出的社区能力和支持音源；脚本列表持续展示已识别能力、音源范围及 musicUrl 原生处理说明。
+- 自动识别使用初始化握手声明作为能力依据，不通过源码字符串搜索猜测函数存在；该识别仍需由真实脚本兼容性测试验证。CI 尚未完成前不得将本节标记为验收通过。
