@@ -128,7 +128,9 @@ onMounted(() => {
   refreshTimer = setInterval(() => void refreshPlayback(), 500)
   lyricClockTimer = setInterval(() => {
     if (!playback.value) return
-    lyricPosition.value = lyricPositionAnchor + (playback.value.state === 'playing' ? Date.now() - lyricPositionAnchorAt : 0)
+    const position = lyricPositionAnchor + (playback.value.state === 'playing' ? Date.now() - lyricPositionAnchorAt : 0)
+    const duration = playback.value.duration_ms ?? 0
+    lyricPosition.value = duration > 0 ? Math.min(duration, Math.max(0, position)) : Math.max(0, position)
   }, 30)
 })
 onUnmounted(() => {
@@ -182,7 +184,7 @@ onUnmounted(() => {
     </section>
     <footer class="lyrics-footer">
       <span>{{ playbackLabel }}</span>
-      <span v-if="playback?.duration_ms">{{ Math.floor((playback.position_ms ?? 0) / 1000 / 60) }}:{{ String(Math.floor((playback.position_ms ?? 0) / 1000) % 60).padStart(2, '0') }}</span>
+      <span v-if="playback?.duration_ms">{{ Math.floor(lyricPosition / 1000 / 60) }}:{{ String(Math.floor(lyricPosition / 1000) % 60).padStart(2, '0') }}</span>
     </footer>
   </main>
 </template>
