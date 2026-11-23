@@ -159,7 +159,7 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 
 ### D. HTMLAudio PoC 与正式播放桥接
 
-**当前代码状态：未完成。** 当前生产播放链路仍依赖旧 LXPlaybackEngine；尚无完整 HTMLAudio 单例和端到端播放事件链。
+**当前代码状态：实施中，尚未达到完成门。** 生产构造路径已切换到 session-aware HTMLAudio PlaybackEngine；Vue/Wails 单例 Audio 桥已实现，但仍需 CI 结果和 Windows 目标 WebView 的真实音源可听播放证据。
 
 **工作内容**
 - 在现有 Wails WebView/Vue 页面创建唯一、可复用的 HTMLAudio 实例，使用 C 阶段真实脚本解析资源验证可听见播放。
@@ -972,12 +972,12 @@ line 3: unexpected EOF while looking for matching single quote
 | QuickJS-NG 基础 runtime | 基础实现已有，专项 CI 覆盖 native smoke 与确定性 runtime/music 测试 |
 | 洛雪宿主 API | 部分实现；不能据此宣称全量洛雪兼容 |
 | HTTP 安全边界 | SSRF、DNS 校验/连接 pinning、redirect、代理/TLS 收敛及资源限制已有实现和测试 |
-| SourceManager/播放 URL facade | 生产用户脚本导入、持久化恢复和管理已完成；B 阶段已完成 action 按音源路由；C 阶段队列播放闭环未完成 |
+| SourceManager/播放 URL facade | A/B/C 已完成；D 正在接入 HTMLAudio 实际消费 C 阶段结构化资源 |
 | 搜索/详情/歌词/封面 action | B 阶段已完成；生产 search/detail/lyric/pic 入口、Track 模型接线及原生 musicUrl 隔离通过 CI Run #567 |
-| HTMLAudio 与播放桥接 | 未完成；旧播放引擎仍在生产路径 |
+| HTMLAudio 与播放桥接 | D 实施中；生产构造路径已切换到 HTMLAudio 单例桥，CI/Windows 实播待验收 |
 | 媒体代理与特殊请求头 | 未完成端到端验收 |
 | Windows 实播、两小时内存稳定性 | 待目标设备验收 |
-| 当前执行项 | A、B、C 已完成；下一阶段为 D（本轮未启动 D） |
+| 当前执行项 | A、B、C 已完成；D 实施中，尚未达到完成门 |
 
 历史 CI 记录应以对应 GitHub workflow 的最终 conclusion 为准；workflow 尚在运行时不得记录为成功。
 
@@ -1001,3 +1001,13 @@ line 3: unexpected EOF while looking for matching single quote
 - CI Run #567（45134122112）最终 success：QuickJS-NG native build、deterministic runtime/music tests、lxproduction tests、desktop music integration、Wails bindings、frontend dependency install、frontend build 全部通过。
 - CI #565/#566 暴露的两处测试问题（测试文件漏导入 errors、kg fixture 未返回自身 musicUrl）均已修复；没有删除或放宽验收测试。
 - **B 阶段完成。下一阶段唯一为 C：播放 URL、音质回退与缓存闭环。** 本记录只证明 B 的 action/Track 调度范围，不代表 HTMLAudio 实播、完整洛雪宿主兼容或整个音乐模块改造完成。
+
+### 10.28 D 阶段 HTMLAudio PoC 与正式播放桥接（2026-11-23）
+
+- 开始基线：`9bb9de8d1dae49ca8ebf4d0c660f7f9ca9ad610e`；开发分支保持 `feat/lx-js-runtime-quickjs-poc`。
+- 新增 `html_audio_engine.go`：实现资源感知 `LoadResource`、唯一 session ID、Go → WebView 命令、前端事件回报、seek/volume，以及媒体 error 后通过 `HandlePlaybackResourceFailure` 做一次刷新并重试。资源身份不匹配会拒绝加载；旧 session 事件会被丢弃。
+- 新增 `frontend/src/services/htmlAudio.ts`：模块级单例 `Audio`，监听 Wails `music:html-audio:command`，处理 load/play/pause/stop/seek/volume；将 loadstart/playing/pause/timeupdate/durationchange/waiting/stalled/ended/error/autoplayblocked 回传 MusicService。timeupdate 限频至 250ms。
+- MusicService 增加 `UseHTMLAudioPlayback/SetHTMLAudioEventEmitter/ReportHTMLAudioEvent/Seek/SetVolume`；`main.go` 将生产服务接到主窗口事件。MusicView 已接入模块级桥和进度/音量控件。
+- 新增 HTMLAudio 资源桥接、会话隔离、资源身份拒绝和单次失败刷新测试，并将测试加入 QuickJS Windows workflow 的 desktop 定向测试表达式。
+- 代码提交序列：`11efb76` → `81bb62f` → `4f98fa8` → `3cdf1b2` → `201ce32` → `5122c40` → workflow/document follow-up（以当前分支 HEAD 为准）。
+- 当前验收状态：D 尚未完成。专项 CI 必须覆盖新 Go tests、Wails bindings 生成及前端构建；Windows 目标 WebView 的真实音源可听播放、暂停/恢复/跳转/音量/停止和 WebView 版本记录必须在目标设备执行。未取得该证据前不得勾选 D 完成门或进入 E。
