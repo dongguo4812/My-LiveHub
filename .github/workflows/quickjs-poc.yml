@@ -99,3 +99,38 @@ jobs:
           export CGO_ENABLED=1
           export CC=gcc
           go test -tags lxproduction -run 'TestMusicServiceGetSourcesReportsActualRuntimeAvailability|TestProductionLXScriptRuntimeAvailabilityRequiresImportedScripts|TestProductionLXScriptRuntimeImportRestoreEnableDelete|TestProductionLXScriptRuntimeQuarantinesMalformedStore|TestProductionLXScriptRuntimeIsolatesInvalidPersistedScript|TestMusicServiceLXScriptManagementAPI|TestLXScriptStoreSerializationIsStable' ./internal/desktop
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: npm
+          cache-dependency-path: app/frontend/package-lock.json
+
+      - name: Add Go bin to PATH
+        shell: pwsh
+        run: |
+          "$(go env GOPATH)\\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install Wails CLI
+        shell: pwsh
+        run: |
+          $wails = Join-Path (go env GOPATH) 'bin/wails3.exe'
+          if (!(Test-Path $wails)) {
+            go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
+          }
+
+      - name: Generate frontend bindings
+        shell: pwsh
+        working-directory: app
+        run: |
+          wails3 generate bindings -ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Install frontend dependencies
+        working-directory: app/frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: app/frontend
+        run: npm run build
