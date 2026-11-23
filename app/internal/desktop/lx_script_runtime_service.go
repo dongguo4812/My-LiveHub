@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -16,6 +17,9 @@ import (
 func (s *MusicService) ResolvePlaybackURL(ctx context.Context, track music.Track, quality string) (string, error) {
 	if s == nil {
 		return "", errors.New("music service is unavailable")
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	s.mu.RLock()
 	runtime := s.scriptRuntime
@@ -75,8 +79,9 @@ func (s *MusicService) ResolvePlaybackURL(ctx context.Context, track music.Track
 	if err != nil {
 		return "", fmt.Errorf("resolve %s track %q: %w", source, track.Title, err)
 	}
-	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-		return "", fmt.Errorf("LX source returned a non-HTTP playback URL")
+	parsed, parseErr := url.Parse(strings.TrimSpace(url))
+	if parseErr != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return "", fmt.Errorf("LX source returned an invalid HTTP(S) playback URL")
 	}
 	return url, nil
 }
