@@ -66,6 +66,9 @@ func executeLXHTTPRequestWithPolicy(parent context.Context, descriptor lxRequest
 	timeout := lxRequestTimeout(descriptor.Timeout)
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
+	if err := validateLXDestinationWithPolicy(ctx, parsed, allowPrivate); err != nil {
+		return nil, err
+	}
 
 	body, contentType, err := buildLXRequestBody(descriptor)
 	if err != nil {
