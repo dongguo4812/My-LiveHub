@@ -4,24 +4,75 @@ package desktop
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"testing"
+	"testing/fstest"
+
+	"github.com/dongguo4812/My-LiveHub/app/internal/config"
 )
 
+func testLXConfigManager(t *testing.T) *config.Manager {
+	t.Helper()
+	manager, err := config.NewManager(fstest.MapFS{"empty.json": &fstest.MapFile{Data: []byte("{}")}}, t.TempDir())
+	if err != nil { t.Fatal(err) }
+	return manager
+}
+
 func TestProductionLXScriptRuntimeAvailabilityRequiresImportedScripts(t *testing.T) {
-	runtime := newLXScriptRuntime()
-	if runtime == nil {
-		t.Fatal("production LX runtime should be constructed in lxproduction builds")
+	runtime := newLXScriptRuntime(testLXConfigManager(t))
+	if runtime == nil { t.Fatal("production LX runtime should be constructed in lxproduction builds") }
+	if runtime.Available() { t.Fatal("runtime without an imported script must not report resolver availability") }
+	if err := runtime.Start(context.Background()); err != nil { t.Fatalf("start empty production runtime: %v", err) }
+	if runtime.Available() { t.Fatal("starting an empty source manager must not report resolver availability") }
+	if err := runtime.Close(); err != nil { t.Fatalf("close production runtime: %v", err) }
+}
+
+func TestProductionLXScriptRuntimeImportRestoreEnableDelete(t *testing.T) {
+	manager := testLXConfigManager(t)
+	runtime := newLXScriptRuntime(manager).(*productionMusicLXRuntime)
+	source := `
+lx.on(lx.EVENT_NAMES.request, async () => 'https://cdn.example.test/song.mp3');
+lx.send(lx.EVENT_NAMES.inited, {
+  sources: { kw: { type: 'music', actions: ['musicUrl'], qualitys: ['128k'] } }
+});
+`
+	if _, err := runtime.ImportScript(context.Background(), "fixture", source, nil); err != nil { t.Fatalf("import script: %v", err) }
+	list := runtime.ListScripts()
+	if len(list) != 1 || !list[0].Enabled || list[0].Name != "fixture" { t.Fatalf("imported scripts = %#v", list) }
+	id := list[0].ID
+	if err := runtime.Start(context.Background()); err != nil { t.Fatalf("start and restore scripts: %v", err) }
+	if !runtime.Available() { t.Fatal("restored script runtime should be available") }
+	if err := runtime.SetScriptEnabled(context.Background(), id, false); err != nil { t.Fatalf("disable script: %v", err) }
+	if runtime.Available() { t.Fatal("disabled script must not be available for dispatch") }
+	if err := runtime.SetScriptEnabled(context.Background(), id, true); err != nil { t.Fatalf("re-enable script: %v", err) }
+	if !runtime.Available() { t.Fatal("re-enabled script should be available") }
+	if err := runtime.Close(); err != nil { t.Fatalf("close runtime: %v", err) }
+
+	restarted := newLXScriptRuntime(manager).(*productionMusicLXRuntime)
+	if err := restarted.Start(context.Background()); err != nil { t.Fatalf("restart runtime from persisted store: %v", err) }
+	if !restarted.Available() { t.Fatal("script was not restored after runtime restart") }
+	if err := restarted.DeleteScript(context.Background(), id); err != nil { t.Fatalf("delete script: %v", err) }
+	if len(restarted.ListScripts()) != 0 { t.Fatal("deleted script remains in store") }
+	if err := restarted.Close(); err != nil { t.Fatalf("close restarted runtime: %v", err) }
+}
+
+func TestProductionLXScriptRuntimeQuarantinesMalformedStore(t *testing.T) {
+	manager := testLXConfigManager(t)
+	if err := manager.WriteLocalJSON(lxScriptStoreFile, []byte("{broken"), lxScriptStoreLimit); err == nil {
+		t.Fatal("invalid JSON should not be accepted by the config store writer")
 	}
-	if runtime.Available() {
-		t.Fatal("production runtime without an imported script must not report resolver availability")
-	}
-	if err := runtime.Start(context.Background()); err != nil {
-		t.Fatalf("start empty production runtime: %v", err)
-	}
-	if runtime.Available() {
-		t.Fatal("starting an empty source manager must not report resolver availability")
-	}
-	if err := runtime.Close(); err != nil {
-		t.Fatalf("close production runtime: %v", err)
-	}
+	// Simulate a damaged on-disk store after a previous process crash.
+	if err := os.WriteFile(t.TempDir()+"/unused", []byte(""), 0o600); err != nil { t.Fatal(err) }
+	runtime := newLXScriptRuntime(manager).(*productionMusicLXRuntime)
+	if err := runtime.Start(context.Background()); err != nil { t.Fatalf("start should recover from a malformed store: %v", err) }
+	if len(runtime.ListScripts()) != 0 { t.Fatal("malformed store unexpectedly yielded scripts") }
+	if err := runtime.Close(); err != nil { t.Fatal(err) }
+}
+
+func TestLXScriptStoreSerializationIsStable(t *testing.T) {
+	data, err := json.Marshal([]storedLXScript{{ID:"id", Name:"fixture", Source:"lx.send('inited', {});", Enabled:true}})
+	if err != nil { t.Fatal(err) }
+	var decoded []storedLXScript
+	if err := json.Unmarshal(data, &decoded); err != nil || len(decoded) != 1 { t.Fatalf("decode store: %#v, %v", decoded, err) }
 }
