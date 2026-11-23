@@ -982,9 +982,9 @@ line 3: unexpected EOF while looking for matching single quote
 - `MusicService` 通过生产 runtime 的 `HasExtensionAction/DispatchExtensionAction` 检查并调度社区扩展 action；原生 `musicUrl` 仍由原生 resolver 处理。
 - `scriptAwareSourceSearcher` 接入单音源搜索、全局多源搜索和弹幕点歌搜索；支持并发来源请求、来源错误独立记录、搜索结果归一化为 `music.Track`。
 - `GetLyrics` 优先使用已声明的 `lyric` 扩展 action；另提供 `GetLXTrackDetail/GetLXTrackCover` 服务入口。
+> **历史状态快照，已被下方 10.27 最终验收记录取代。** 当时记录的 CI Run #550 尚未结束、B 尚未验收；后续已完成 detail Track 映射、按音源路由、错误/取消及多脚本隔离，并由 CI Run #567 全量通过。当前状态以第 4 节、第 7 节及 10.27 最终验收记录为准。
 - 音乐设置页导入时可显式选择 `search/detail/lyric/pic`；`musicUrl` 不可作为社区扩展 action 声明。
-- 自建 production fixture 已覆盖 search/detail/musicUrl/lyric/pic 的真实 QuickJS → SourceManager → MusicService 调用；CI Run #550 中 Go/runtime、production tag 和 desktop 定向测试通过。Wails bindings/前端构建仍在运行，故 B 暂不标记完成。
-- 后续 B 剩余项：运行并通过包含新增 detail Track 映射、timeout/cancel 分类、脚本隔离和取消测试的 CI；完成前不得进入 C。
+- 自建 production fixture 已覆盖 search/detail/musicUrl/lyric/pic 的真实 QuickJS → SourceManager → MusicService 调用。
 
 ### 10.27 B 阶段最终验收记录（2026-11-23）
 
