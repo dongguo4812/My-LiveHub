@@ -91,3 +91,11 @@ jobs:
         run: |
           go test -tags lxproduction ./internal/music/lxruntime ./internal/music
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test desktop music runtime integration only
+        shell: msys2 {0}
+        working-directory: app
+        run: |
+          export CGO_ENABLED=1
+          export CC=gcc
+          go test -tags lxproduction -run '^(TestMusicServiceGetSourcesReportsActualRuntimeAvailability|TestProductionLXScriptRuntimeAvailabilityRequiresImportedScripts) ./internal/desktop

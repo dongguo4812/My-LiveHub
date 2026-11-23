@@ -974,3 +974,10 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 - 上述可用性修复目前是待提交变更，需在下一次 QuickJS 专项 CI 通过后才能标记测试通过。
 
 当前 HEAD（本节开始时）：73c2296438dce0211bf4e0de29458257cfebb3c1。该提交的专项 CI 全绿；本节追加的可用性修复尚待提交与 CI。
+
+
+### 10.22 音乐服务生产集成的定向验证门（2026-11-23）
+
+- 新增生产 runtime 可用性测试，确认 lxproduction 构建下没有导入脚本时，runtime 在 Start 前后均不得报告可解析能力。
+- QuickJS 专项 workflow 增加仅针对音乐 runtime 集成的 desktop package 测试，运行两个定向用例：MusicService 来源能力状态，以及 production LX runtime 空脚本状态。该步骤不是 Desktop validation workflow，不执行前端全量构建、安装包、portable ZIP 或 release。
+- 该步骤是为了验证此前只运行 lxruntime/music package tests 未覆盖的 desktop 接口变更。待最新 workflow 通过后记录结果。
