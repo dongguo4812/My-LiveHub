@@ -71,25 +71,15 @@ func (m *SourceManager) Start(ctx context.Context) error {
 	if m.started {
 		return nil
 	}
-	created := make([]*Runtime, 0, len(m.scripts))
-	for _, script := range m.scripts {
-		runtime, err := New(Options{})
-		if err != nil {
-			for _, previous := range created {
-				_ = previous.Close()
-			}
-			return fmt.Errorf("create production QuickJS runtime for %s: %w", script.info.Name, err)
-		}
-		if err := ctx.Err(); err != nil {
-			_ = runtime.Close()
-			for _, previous := range created {
-				_ = previous.Close()
-			}
-			return err
-		}
-		script.runtime = runtime
-		created = append(created, runtime)
+	runtime, err := New(Options{})
+	if err != nil {
+		return fmt.Errorf("create production QuickJS runtime for %s: %w", m.scripts[0].info.Name, err)
 	}
+	if err := ctx.Err(); err != nil {
+		_ = runtime.Close()
+		return err
+	}
+	m.scripts[0].runtime = runtime
 	m.started = true
 	return nil
 }
@@ -123,12 +113,23 @@ func (m *SourceManager) ResolvePlaybackURL(ctx context.Context, source string, i
 			return nil, err
 		}
 		m.mu.Lock()
+		if script.runtime == nil {
+			runtime, err := New(Options{})
+			if err != nil {
+				failures = append(failures, script.info.Name+" Runtime 创建失败："+err.Error())
+				m.mu.Unlock()
+				continue
+			}
+			script.runtime = runtime
+		}
 		if !script.initialized {
 			initCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
 			err := script.runtime.InitializeLXSource(initCtx, script.info, script.source, client)
 			cancel()
 			if err != nil {
 				failures = append(failures, script.info.Name+" 初始化失败："+err.Error())
+				_ = script.runtime.Close()
+				script.runtime = nil
 				m.mu.Unlock()
 				continue
 			}
