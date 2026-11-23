@@ -111,6 +111,114 @@ jobs:
         run: |
           go test -tags lxproduction -count=1 -v -run '^TestProductionLXFishLatestRealImportAndEnable$' ./internal/desktop
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Resolve real 晴天 playback URL through fish/latest.js
+        shell: pwsh
+        working-directory: app
+        env:
+          MYLIVEHUB_LX_FISH_PLAYBACK_INTEGRATION: '1'
+          MYLIVEHUB_PLAYBACK_URL_FILE: ${{ runner.temp }}\\my-livehub-playback-url.txt
+          CGO_ENABLED: '0'
+          MYLIVEHUB_QUICKJS_LIB: ${{ github.workspace }}\\app\\bin\\lxqjs.dll
+        run: |
+          go test -tags lxproduction -count=1 -v -run '^TestProductionLXFishSunnyDayPlaybackURL        uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: npm
+          cache-dependency-path: app/frontend/package-lock.json
+
+      - name: Add Go bin to PATH
+        shell: pwsh
+        run: |
+          "$(go env GOPATH)\\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install Wails CLI
+        shell: pwsh
+        run: |
+          $wails = Join-Path (go env GOPATH) 'bin/wails3.exe'
+          if (!(Test-Path $wails)) {
+            go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
+          }
+
+      - name: Generate frontend bindings
+        shell: pwsh
+        working-directory: app
+        run: |
+          wails3 generate bindings -ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Install frontend dependencies
+        working-directory: app/frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: app/frontend
+        run: npm run build
+
+      - name: Build Windows HTMLAudio D PoC executable
+        shell: pwsh
+        working-directory: app
+        run: |
+          New-Item -ItemType Directory -Force bin | Out-Null
+          $env:CGO_ENABLED = '0'
+          go build -tags lxproduction -ldflags "-H=windowsgui" -o bin/My-LiveHub.exe .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload Windows HTMLAudio D PoC executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: My-LiveHub-HTMLAudio-D-PoC
+          path: |
+            app/bin/My-LiveHub.exe
+            app/bin/lxqjs.dll
+          if-no-files-found: error
+          retention-days: 7
+
+
+      - name: Package pinned QuickJS-NG runtime for local development
+        shell: pwsh
+        run: |
+          Compress-Archive -LiteralPath app/bin/lxqjs.dll -DestinationPath app/bin/lxqjs-windows-amd64.zip -Force
+          $hash = (Get-FileHash app/bin/lxqjs-windows-amd64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  lxqjs-windows-amd64.zip" | Set-Content -Path app/bin/lxqjs-windows-amd64.zip.sha256 -NoNewline
+
+      - name: Publish prebuilt QuickJS-NG runtime
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: quickjs-ng-v0.18.0-lxabi1
+          name: QuickJS-NG v0.18.0 runtime (LX ABI 1)
+          body: Prebuilt Windows x64 QuickJS-NG runtime for My-LiveHub. Built from the pinned QuickJS-NG v0.18.0 source and the repository LX host ABI.
+          files: |
+            app/bin/lxqjs-windows-amd64.zip
+            app/bin/lxqjs-windows-amd64.zip.sha256
+          overwrite_files: true
+          make_latest: false
+
+      - name: Verify local no-CGO bootstrap from published runtime
+        shell: pwsh
+        working-directory: app
+        run: |
+          Remove-Item -LiteralPath bin/lxqjs.dll -Force
+          $env:CGO_ENABLED = '0'
+          $env:GOFLAGS = '-tags=lxproduction'
+          ./scripts/lxproduction.ps1 -Mode build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+ ./internal/desktop
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Install Chromium for real HTMLAudio playback test
+        shell: pwsh
+        working-directory: app/frontend
+        env:
+          MYLIVEHUB_PLAYBACK_URL_FILE: ${{ runner.temp }}\\my-livehub-playback-url.txt
+        run: |
+          npm install --no-save --package-lock=false playwright
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npx playwright install chromium
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node ../../.github/scripts/music-htmlaudio-browser-smoke.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
