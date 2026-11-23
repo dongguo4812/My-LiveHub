@@ -120,3 +120,47 @@ func TestBuildLXRequestBodyUsesJavaScriptTruthySemantics(t *testing.T) {
 		}
 	}
 }
+
+
+func TestExecuteLXHTTPRequestBlocksPrivateDestinations(t *testing.T) {
+	for _, target := range []string{
+		"http://127.0.0.1:23330/",
+		"http://10.0.0.1/admin",
+		"http://169.254.169.254/latest/meta-data/",
+		"http://[::1]/",
+	} {
+		_, err := executeLXHTTPRequest(context.Background(), lxRequestDescriptor{URL: target}, nil)
+		if err == nil {
+			t.Errorf("private destination %q was not blocked", target)
+		}
+	}
+}
+
+type lxRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn lxRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
+}
+
+func TestLXHTTPRedirectCannotReachLoopback(t *testing.T) {
+	client := &http.Client{Transport: lxRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusFound,
+			Header: http.Header{"Location": []string{"http://127.0.0.1:23330/private"}},
+			Body: io.NopCloser(strings.NewReader("")),
+			Request: req,
+		}, nil
+	})}
+	safeClient, err := lxSafeHTTPClient(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodGet, "http://1.1.1.1/start", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = safeClient.Do(req)
+	if err == nil || !strings.Contains(err.Error(), "not public") {
+		t.Fatalf("redirect to loopback should be rejected, got %v", err)
+	}
+}
