@@ -434,14 +434,14 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 - Wails v3.1.0 与前端运行时具备事件/绑定通信能力，Go 协调器与单例 HTMLAudio 的边界在技术上成立。
 
 限制与结论：
-- 现有实现已具备部分洛雪运行时和通用用户脚本导入/生命周期管理，但仍不是完整洛雪 JS 运行时；生产搜索/详情/歌词 action 调度尚未接通。
-- 当前脚本 action 入口主要验证了 musicUrl；不能据此认定搜索、详情、歌词都已由洛雪 JS 脚本执行。
-- 当前五个平台搜索由 Go 原生 provider 提供；这与“搜索由洛雪 JS 执行”的目标存在明确差距。
-- URL resolver 返回字符串，无法完整表达媒体请求 headers、Cookie/Referer、MIME、过期和刷新策略。
-- URL resolver 尚未接入旧播放器主播放链路；HTMLAudio 也没有目标 Windows WebView 的真实实播证据。
-- 用户脚本导入、持久化、启停/删除、损坏隔离和运行时释放已通过 A 阶段验收；完整 action 权限和调度仍按后续阶段推进。
+- 现有实现已接入生产用户脚本导入/生命周期和 B 阶段 search/detail/lyric/pic action 调度，但仍不是完整洛雪 JS 运行时；未覆盖的宿主 API 继续按兼容矩阵推进。
+- 原生洛雪 musicUrl 与 My-LiveHub 扩展 action 已明确分离；搜索/详情/歌词/封面在脚本声明相应扩展能力时由 QuickJS 执行，否则按既有 Go provider 规则回退。
+- 原生 musicUrl 目前返回 URL 字符串；统一 resolver 将其包装为 PlaybackResource，但不会伪造媒体 headers、Cookie/Referer、MIME/codec 或 proxy 元数据。
+- C 结构化资源已接入生产 HTMLAudio 主播放链路；浏览器错误事件可触发幂等 URL 刷新。媒体 headers、Range、redirect/DNS pinning 仍需 E 阶段受控传输处理。
+- D 的生产桥接、Go 自动化测试、Wails bindings、前端构建和 Windows PoC 可执行文件构建均已通过 CI；目标 Windows/WebView 的真实音源可听播放和设备控制仍未取得实测证据。
+- A/B/C 已完成；D 代码/CI 子门已完成，当前唯一执行阶段仍为 D，停止条件是目标设备实播及控制验收。不得进入 E。
 
-因此：**架构方向通过可行性审查；A 阶段的生产脚本导入与生命周期已完成，剩余协议、兼容性和 action 调度缺口按第 4 节唯一顺序进入 B。当前 B 是下一阶段但尚未开始。**
+因此：**架构方向通过可行性审查；A/B/C 已完成，D 已接通生产 HTMLAudio 并通过自动化 CI，当前仍等待目标 Windows/WebView 实播验收。**
 
 ### 9.2 关键缺口及处理决定
 
