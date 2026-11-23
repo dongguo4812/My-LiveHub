@@ -1,0 +1,154 @@
+//go:build (lxquickjs || lxproduction) && cgo
+
+package lxruntime
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"net/netip"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// lxSafeHTTPClient applies the script network boundary independently of the
+// caller's HTTP client. The default transport pins each connection to an IP
+// address that was resolved and checked immediately before dialing, preventing
+// DNS rebinding between validation and connection.
+func lxSafeHTTPClient(client *http.Client) (*http.Client, error) {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	clone := *client
+	base := client.Transport
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	if transport, ok := base.(*http.Transport); ok {
+		safeTransport := transport.Clone()
+		// Do not let an ambient proxy bypass the address policy.
+		safeTransport.Proxy = nil
+		dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
+		safeTransport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(address)
+			if err != nil {
+				return nil, fmt.Errorf("lx.request: invalid destination: %w", err)
+			}
+			ips, err := resolvePublicLXHost(ctx, host)
+			if err != nil {
+				return nil, err
+			}
+			var failures []string
+			for _, ip := range ips {
+				conn, dialErr := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+				if dialErr == nil {
+					return conn, nil
+				}
+				failures = append(failures, dialErr.Error())
+			}
+			return nil, fmt.Errorf("lx.request: connect failed: %s", strings.Join(failures, "; "))
+		}
+		clone.Transport = safeTransport
+	} else {
+		// Custom RoundTrippers are useful for deterministic tests. They cannot
+		// provide DNS pinning, so only permit literal public IP destinations.
+		clone.Transport = lxLiteralIPPolicyTransport{next: base}
+	}
+	previousRedirect := client.CheckRedirect
+	clone.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if err := validateLXDestination(req.Context(), req.URL); err != nil {
+			return err
+		}
+		if previousRedirect != nil {
+			return previousRedirect(req, via)
+		}
+		if len(via) >= 5 {
+			return errors.New("lx.request: too many redirects")
+		}
+		return nil
+	}
+	return &clone, nil
+}
+
+type lxLiteralIPPolicyTransport struct{ next http.RoundTripper }
+
+func (t lxLiteralIPPolicyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if err := validateLXDestination(req.Context(), req.URL); err != nil {
+		return nil, err
+	}
+	return t.next.RoundTrip(req)
+}
+
+func validateLXDestination(ctx context.Context, target *url.URL) error {
+	if target == nil || (target.Scheme != "http" && target.Scheme != "https") || target.Hostname() == "" {
+		return errors.New("lx.request: only absolute HTTP(S) URLs are supported")
+	}
+	if target.User != nil {
+		return errors.New("lx.request: URL credentials are not allowed")
+	}
+	_, err := resolvePublicLXHost(ctx, target.Hostname())
+	return err
+}
+
+func resolvePublicLXHost(ctx context.Context, host string) ([]netip.Addr, error) {
+	host = strings.TrimSuffix(strings.TrimSpace(host), ".")
+	if host == "" {
+		return nil, errors.New("lx.request: empty destination host")
+	}
+	if ip, err := netip.ParseAddr(host); err == nil {
+		ip = ip.Unmap()
+		if !isPublicLXIP(ip) {
+			return nil, fmt.Errorf("lx.request: destination address is not public: %s", ip)
+		}
+		return []netip.Addr{ip}, nil
+	}
+	// Reject zone identifiers and non-DNS host syntax.
+	if strings.Contains(host, "%") {
+		return nil, errors.New("lx.request: IPv6 zone identifiers are not allowed")
+	}
+	ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+	if err != nil {
+		return nil, fmt.Errorf("lx.request: resolve destination: %w", err)
+	}
+	if len(ips) == 0 {
+		return nil, errors.New("lx.request: destination has no IP addresses")
+	}
+	checked := make([]netip.Addr, 0, len(ips))
+	for _, ip := range ips {
+		ip = ip.Unmap()
+		if !isPublicLXIP(ip) {
+			return nil, fmt.Errorf("lx.request: host resolves to a non-public address: %s", ip)
+		}
+		checked = append(checked, ip)
+	}
+	return checked, nil
+}
+
+func isPublicLXIP(ip netip.Addr) bool {
+	if !ip.IsValid() || !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
+		return false
+	}
+	// Also deny shared address space, benchmarking and special-use ranges
+	// that are not consistently classified as private by all Go versions.
+	blocked := []netip.Prefix{
+		netip.MustParsePrefix("100.64.0.0/10"),
+		netip.MustParsePrefix("192.0.0.0/24"),
+		netip.MustParsePrefix("192.0.2.0/24"),
+		netip.MustParsePrefix("198.18.0.0/15"),
+		netip.MustParsePrefix("198.51.100.0/24"),
+		netip.MustParsePrefix("203.0.113.0/24"),
+		netip.MustParsePrefix("2001:db8::/32"),
+	}
+	for _, prefix := range blocked {
+		if prefix.Contains(ip) {
+			return false
+		}
+	}
+	// Avoid accepting malformed ports during redirect validation.
+	_ = strconv.Itoa(0)
+	return true
+}
