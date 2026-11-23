@@ -773,3 +773,34 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 - 搜索、播放 URL、歌词、请求头、AES/RSA/MD5、Buffer/zlib、二进制响应、请求取消和质量回退应分别形成可重复 fixture 测试；真实线上 endpoint 采样需记录时间、状态码、响应类型及脱敏后的请求元数据，不保存令牌、Cookie 或签名 URL。
 
 阶段 0 继续保持进行中；本轮只落地网络安全第一轮实现并完善真实样本审计，不进入阶段 1 功能开发。
+
+
+### 10.14 真实脚本兼容测试集第一版与验证状态
+
+已新增 `app/internal/music/lxruntime/real_script_compat_test.go`，直接通过 `go:embed` 加载仓库现有三份完整脚本，不再以手写的最小 JS 片段替代真实样本。当前第一版测试覆盖：
+- 三份真实脚本能否在 QuickJS 中完成桌面 LX host 初始化握手；
+- source/action/quality 能力经过 host 白名单协商后的实际结果；
+- 幻音脚本虽然实现了 `search` handler 并声明 mg search，但 host 只接受官方远程 `musicUrl` action，测试明确锁定此协议边界。
+
+新增 SSRF 测试覆盖：
+- 公网、私网、loopback、link-local、共享地址、benchmark、文档保留地址及部分 IPv6 特殊用途地址分类；
+- URL credentials、非 HTTP(S) scheme、私网 IP 目标拒绝；
+- 通过 fake RoundTripper 验证重定向到 loopback 会在发起第二跳前被拒绝；
+- 本地 httptest 仅通过显式测试 helper 放行，不改变生产入口的默认拒绝策略。
+
+**当前仍未覆盖、不得宣称通过的兼容项：**
+1. 星澜真实 musicUrl 的端到端 URL 解析（需对脚本实际访问的多个 endpoint 做可控 mock/录制回放，不能调用未知第三方接口冒充可重复测试）。
+2. HelloWorld 的多后端质量回退、动态请求 headers/body 和 URL 失效回退。
+3. 歌词/封面真实返回格式；三份当前脚本没有共同的远程 lyric action，local lyric/pic 需单独测试。
+4. 最终媒体 URL 所需的 Referer/Cookie/User-Agent、Range、重定向及有效期；必须与脚本 API 请求头分开采样。
+5. AES 模式/填充/编码、MD5、RSA、Buffer 二进制往返、zlib 压缩解压与官方 Electron preload 行为的一致性。
+6. DNS rebinding 的可控 resolver 测试、DNS 多地址混合结果拒绝、代理绕过、请求取消、并发隔离和超时竞态。
+7. 用户明确指定的目标生态外部真实脚本。当前三份是仓库现有脚本，尚不能代表外部脚本生态的覆盖率。
+
+**提交与验证记录：**
+- SSRF 实现及测试、真实脚本初始化测试和本节主方案更新均已提交至 `feat/lx-js-runtime-quickjs-poc`。
+- 最新代码提交：`1fe93c1a031cf75c91892a763a9dd225e8c76dea`（真实脚本兼容测试集第一版）。
+- 本轮查询未返回该提交的 GitHub status checks 或 workflow runs；且本执行环境没有直接检出仓库运行 `go test` 的能力。因此所有新增测试状态均为**已编写、待 CI/本地实际执行**，不能标记通过。
+- 目前 SSRF blocker 的状态应记录为“严格网络策略代码已落地，自动化测试待执行和补齐”，不是“安全审计完成”。
+
+阶段 0 仍保持进行中。下一轮优先完成 DNS/redirect 安全测试和真实脚本 API 依赖验证，再取得目标生态独立脚本；不提前进入阶段 1，也不把仓库自带脚本误当成用户最终指定的全部目标。
