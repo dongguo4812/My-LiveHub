@@ -94,6 +94,7 @@ const lxScriptFileInput = ref<HTMLInputElement | null>(null)
 const lxScriptImportMode = ref<'online' | 'local'>('online')
 const lxScriptURL = ref('')
 const lxScriptBusy = ref(false)
+const lxScriptFeedback = ref('')
 
 async function refreshLXScripts() {
   try { lxScripts.value = await MusicService.ListLXScripts() }
@@ -167,22 +168,34 @@ async function readLXScriptFile(event: Event) {
   }
 }
 async function importLXScript() {
+  if (lxScriptBusy.value) return
   if (!lxScriptName.value.trim() || !lxScriptSource.value.trim()) {
-    error.value = '请填写脚本名称并选择或粘贴 JavaScript 源码'
+    const message = '请填写脚本名称并选择或粘贴 JavaScript 源码'
+    error.value = message
+    lxScriptFeedback.value = `导入未开始：${message}`
     return
   }
   lxScriptBusy.value = true
   error.value = ''
   success.value = ''
+  lxScriptFeedback.value = '正在调用桌面端 QuickJS 导入接口，请稍候……'
   try {
+    if (typeof MusicService.ImportLXScript !== 'function') {
+      throw new Error('当前程序未生成 ImportLXScript 前端绑定，请重新生成 Wails bindings 并重新构建')
+    }
     const added = await MusicService.ImportLXScript(lxScriptName.value.trim(), lxScriptSource.value, [...lxScriptExtensionActions.value])
+    await refreshLXScripts()
+    const exists = lxScripts.value.some(script => script.id === added.id)
+    if (!exists) throw new Error('后端返回导入成功，但刷新脚本列表后未找到该脚本，请检查本地脚本存储状态')
     lxScriptName.value = ''
     lxScriptSource.value = ''
     lxScriptExtensionActions.value = []
-    await refreshLXScripts()
-    success.value = `已导入音源脚本：${added.name}`
+    success.value = `已导入并启用音源脚本：${added.name}`
+    lxScriptFeedback.value = success.value
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
+    const message = reason instanceof Error ? reason.message : String(reason)
+    error.value = message
+    lxScriptFeedback.value = `导入失败：${message}`
   } finally {
     lxScriptBusy.value = false
   }
@@ -666,6 +679,7 @@ onUnmounted(() => {
         <div class="card-actions">
           <el-button type="primary" :loading="lxScriptBusy" :disabled="!lxScriptName.trim() || !lxScriptSource.trim()" @click="importLXScript">导入并启用脚本</el-button>
         </div>
+        <el-alert v-if="lxScriptFeedback" :title="lxScriptFeedback" :type="lxScriptFeedback.startsWith('导入失败') || lxScriptFeedback.startsWith('导入未开始') ? 'error' : lxScriptFeedback.startsWith('正在') ? 'info' : 'success'" :closable="false" show-icon />
       </div>
       <el-divider />
       <div v-if="lxScripts.length" class="lx-source-list">
