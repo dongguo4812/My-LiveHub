@@ -15,6 +15,8 @@ import (
 // initialization-time timers and lx.request calls until the source registers
 // its request handler and sends the inited event.
 func (r *Runtime) InitializeLXSource(ctx context.Context, info ScriptInfo, source string, client *http.Client) error {
+	r.initializeMu.Lock()
+	defer r.initializeMu.Unlock()
 	if r == nil {
 		return errors.New("LX initialization: runtime is nil")
 	}
