@@ -186,10 +186,12 @@ func (r *productionMusicLXRuntime) ImportScript(ctx context.Context, name, sourc
 	if name == "" { return LXScriptSummary{}, errors.New("LX script name is required") }
 	if len([]rune(name)) > 128 { return LXScriptSummary{}, errors.New("LX script name exceeds 128 characters") }
 	if err := lxruntime.ValidateLXScriptSource(source); err != nil { return LXScriptSummary{}, err }
-	if len(extensionActions) > 4 { return LXScriptSummary{}, errors.New("at most four community extension actions may be declared") }
 	info := parseImportedLXScriptInfo(name, source)
+	if ctx == nil { ctx = context.Background() }
+	actions, supportedSources, err := lxruntime.DetectLXScriptExtensionActions(ctx, info, source, nil)
+	if err != nil { return LXScriptSummary{}, fmt.Errorf("无法识别脚本能力：%w", err) }
 	probe, err := lxruntime.NewSourceManagerWithScripts(nil, []lxruntime.LXSourceScript{{
-		Info: info, Source: source, ExtensionActions: extensionActions,
+		Info: info, Source: source, ExtensionActions: actions,
 	}})
 	if err != nil { return LXScriptSummary{}, fmt.Errorf("validate imported LX script: %w", err) }
 	_ = probe.Close()
