@@ -7,6 +7,7 @@ import "github.com/wailsapp/wails/v3/pkg/application"
 // binding generator never attempts to expose a Go callback parameter.
 func AttachHTMLAudioPlayback(service *MusicService, app *application.App) {
 	if service == nil { return }
+	service.useHTMLAudioPlayback()
 	service.setHTMLAudioEventEmitter(func(name string, data any) {
 		if app == nil { return }
 		if window, ok := app.Window.GetByName("main-window"); ok {

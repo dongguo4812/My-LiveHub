@@ -107,7 +107,7 @@ func NewMusicServiceWithDependencies(manager *config.Manager, value config.Music
 
 // UseHTMLAudioPlayback switches the production playback port to the single
 // WebView-owned HTMLAudio instance. It is called before the MusicModule starts.
-func (s *MusicService) UseHTMLAudioPlayback() {
+func (s *MusicService) useHTMLAudioPlayback() {
 	if s == nil { return }
 	s.mu.Lock()
 	s.engine = newHTMLAudioPlaybackEngine(s.HandlePlaybackResourceFailure)

@@ -158,7 +158,6 @@ func main() {
 	bilibiliEvents := eventstream.NewBuffer(eventBus)
 	requestNoticeBroker := desktop.NewRequestNoticeBroker()
 	musicService := desktop.NewMusicServiceWithFanMedalChecker(configManager, musicConfig, fanMedalChecker, bilibiliEvents)
-	musicService.UseHTMLAudioPlayback()
 	musicLyricsWindowService := desktop.NewMusicLyricsWindowService(musicService)
 	bilibiliVideoResolver, err := bilibili.NewVideoResolver(bilibiliAuth, nil)
 	if err != nil { log.Fatalf("initialize Bilibili video resolver: %v", err) }
