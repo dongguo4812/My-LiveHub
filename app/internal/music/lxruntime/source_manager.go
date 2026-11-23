@@ -58,50 +58,73 @@ type LXSourceScript struct {
 // My-LiveHub extension capabilities exclusively from its LX inited.sources
 // declaration. Native musicUrl is intentionally excluded from the returned
 // community actions.
-func DetectLXScriptExtensionActions(ctx context.Context, info ScriptInfo, source string, client *http.Client) ([]string, []string, error) {
+type LXScriptCapabilities struct {
+	SupportedSources []string
+	ExtensionActions []string
+	NativeActions []string
+}
+
+// DetectLXScriptCapabilities executes the real LX initialization handshake and
+// separates My-LiveHub community actions from native LX actions.
+func DetectLXScriptCapabilities(ctx context.Context, info ScriptInfo, source string, client *http.Client) (LXScriptCapabilities, error) {
 	if ctx == nil { ctx = context.Background() }
 	probeCtx, cancel := context.WithTimeout(ctx, lxMaxRequestTimeout)
 	defer cancel()
-	if err := ValidateLXScriptSource(source); err != nil { return nil, nil, err }
+	if err := ValidateLXScriptSource(source); err != nil { return LXScriptCapabilities{}, err }
 	if client == nil { client = &http.Client{Timeout: lxMaxRequestTimeout} }
 	runtime, err := New(Options{EvalTimeout: lxCapabilityProbeEvalTimeout})
-	if err != nil { return nil, nil, fmt.Errorf("create QuickJS capability probe: %w", err) }
+	if err != nil { return LXScriptCapabilities{}, fmt.Errorf("create QuickJS capability probe: %w", err) }
 	defer runtime.Close()
 	if err := runtime.InitializeLXSource(probeCtx, info, source, client); err != nil {
-		return nil, nil, fmt.Errorf("initialize script to detect capabilities: %w", err)
+		return LXScriptCapabilities{}, fmt.Errorf("initialize script to detect capabilities: %w", err)
 	}
 	text, err := runtime.Eval(probeCtx, `JSON.stringify((globalThis.__lxHostState && globalThis.__lxHostState.initInfo && globalThis.__lxHostState.initInfo.sources) || {})`, "lx-capability-detection.js")
-	if err != nil { return nil, nil, fmt.Errorf("read inited.sources capabilities: %w", err) }
+	if err != nil { return LXScriptCapabilities{}, fmt.Errorf("read inited.sources capabilities: %w", err) }
 	var sources map[string]struct { Actions []string `json:"actions"` }
 	if err := json.Unmarshal([]byte(text), &sources); err != nil {
-		return nil, nil, fmt.Errorf("decode inited.sources capabilities: %w", err)
+		return LXScriptCapabilities{}, fmt.Errorf("decode inited.sources capabilities: %w", err)
 	}
-	if len(sources) == 0 { return nil, nil, errors.New("脚本初始化成功，但没有在 inited.sources 中声明任何音源") }
-	actionsSet := map[string]struct{}{}
-	sourceSet := make([]string, 0, len(sources))
-	for sourceName, capability := range sources {
+	if len(sources) == 0 { return LXScriptCapabilities{}, errors.New("脚本初始化成功，但没有在 inited.sources 中声明任何音源") }
+	capabilities := LXScriptCapabilities{}
+	communitySet, nativeSet := map[string]struct{}{}, map[string]struct{}{}
+	for sourceName, declaration := range sources {
 		sourceName = strings.TrimSpace(sourceName)
 		if sourceName == "" { continue }
-		sourceSet = append(sourceSet, sourceName)
-		for _, action := range capability.Actions {
-			if isLXCommunityExtensionAction(strings.TrimSpace(action)) { actionsSet[strings.TrimSpace(action)] = struct{}{} }
+		capabilities.SupportedSources = append(capabilities.SupportedSources, sourceName)
+		for _, rawAction := range declaration.Actions {
+			action := strings.TrimSpace(rawAction)
+			switch {
+			case isLXCommunityExtensionAction(action):
+				communitySet[action] = struct{}{}
+			case action == "musicUrl":
+				nativeSet[action] = struct{}{}
+			}
 		}
 	}
-	actions := make([]string, 0, len(actionsSet))
-	for action := range actionsSet { actions = append(actions, action) }
-	sort.Strings(actions)
-	sort.Strings(sourceSet)
-	if len(actions) == 0 {
-		declarations := make([]string, 0, len(sourceSet))
-		for sourceName, capability := range sources {
-			declared := append([]string(nil), capability.Actions...)
+	for action := range communitySet { capabilities.ExtensionActions = append(capabilities.ExtensionActions, action) }
+	for action := range nativeSet { capabilities.NativeActions = append(capabilities.NativeActions, action) }
+	sort.Strings(capabilities.ExtensionActions)
+	sort.Strings(capabilities.NativeActions)
+	sort.Strings(capabilities.SupportedSources)
+	if len(capabilities.ExtensionActions) == 0 && len(capabilities.NativeActions) == 0 {
+		declarations := make([]string, 0, len(sources))
+		for sourceName, declaration := range sources {
+			declared := append([]string(nil), declaration.Actions...)
 			sort.Strings(declared)
 			declarations = append(declarations, fmt.Sprintf("%s=[%s]", sourceName, strings.Join(declared, ",")))
 		}
 		sort.Strings(declarations)
-		return nil, sourceSet, fmt.Errorf("脚本已初始化并声明音源，但没有声明 My-LiveHub 支持的社区扩展 action（search/detail/lyric/pic）；实际握手声明：%s；musicUrl 属于洛雪原生 action，不计入社区扩展能力", strings.Join(declarations, "; "))
+		return LXScriptCapabilities{}, fmt.Errorf("脚本已初始化并声明音源，但没有声明可支持的 action；实际握手声明：%s；支持的社区扩展 action：search/detail/lyric/pic；支持的洛雪原生 action：musicUrl", strings.Join(declarations, "; "))
 	}
-	return actions, sourceSet, nil
+	return capabilities, nil
+}
+
+// DetectLXScriptExtensionActions is retained for callers that only need the
+// community extension subset. Native musicUrl is validated separately.
+func DetectLXScriptExtensionActions(ctx context.Context, info ScriptInfo, source string, client *http.Client) ([]string, []string, error) {
+	capabilities, err := DetectLXScriptCapabilities(ctx, info, source, client)
+	if err != nil { return nil, nil, err }
+	return capabilities.ExtensionActions, capabilities.SupportedSources, nil
 }
 
 func newSourceManager(client *http.Client) *SourceManager {
