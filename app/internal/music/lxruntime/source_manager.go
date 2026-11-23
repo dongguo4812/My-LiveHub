@@ -71,6 +71,8 @@ func (m *SourceManager) ResolvePlaybackURL(ctx context.Context, source string, i
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	m.dispatchMu.Lock()
+	defer m.dispatchMu.Unlock()
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
@@ -97,8 +99,6 @@ func (m *SourceManager) ResolvePlaybackURL(ctx context.Context, source string, i
 	}
 	m.mu.Unlock()
 
-	m.dispatchMu.Lock()
-	defer m.dispatchMu.Unlock()
 	dispatchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	value, err := runtime.DispatchLXRequest(dispatchCtx, source, "musicUrl", info)
@@ -115,6 +115,8 @@ func (m *SourceManager) Close() error {
 	if m == nil {
 		return nil
 	}
+	m.dispatchMu.Lock()
+	defer m.dispatchMu.Unlock()
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
