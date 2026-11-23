@@ -28,3 +28,31 @@ func TestMusicServiceResolvePlaybackResourceUsesSharedCache(t *testing.T) {
 	if err!=nil { t.Fatal(err) }
 	if first.URL!=second.URL || runtime.calls!=1 { t.Fatalf("cache failed: first=%#v second=%#v calls=%d",first,second,runtime.calls) }
 }
+
+
+func TestMusicServiceMediaFailureRefreshIsIdempotent(t *testing.T) {
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, &nextTrackTestEngine{})
+	runtime := &playbackResourceTestRuntime{}
+	service.scriptRuntime = runtime
+	track := music.Track{ID: "tx_failure", SourceID: "tx", LXSourceKey: "tx", Title: "Song", SourceData: map[string]string{"songmid": "failure-song"}, Qualities: []music.TrackQuality{{Type: "320k"}}}
+	failed, err := service.ResolvePlaybackResource(track, "320k")
+	if err != nil { t.Fatal(err) }
+	first, err := service.HandlePlaybackResourceFailure(track, failed)
+	if err != nil { t.Fatal(err) }
+	second, err := service.HandlePlaybackResourceFailure(track, failed)
+	if err != nil { t.Fatal(err) }
+	if runtime.calls != 2 { t.Fatalf("resolver calls=%d, want initial resolve + one refresh", runtime.calls) }
+	if first.URL != second.URL || first.ResolvedAt != second.ResolvedAt {
+		t.Fatalf("repeated media error did not reuse the same refresh result: first=%#v second=%#v", first, second)
+	}
+}
+
+func TestMusicServiceMediaFailureRefreshRejectsMismatchedResource(t *testing.T) {
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, &nextTrackTestEngine{})
+	service.scriptRuntime = &playbackResourceTestRuntime{}
+	track := music.Track{ID: "tx_expected", SourceID: "tx", LXSourceKey: "tx", Title: "Song"}
+	failed := music.PlaybackResource{URL: "https://media.example.test/fail.mp3", SourceID: "kg", TrackID: track.ID, Quality: "320k"}
+	if _, err := service.HandlePlaybackResourceFailure(track, failed); err == nil {
+		t.Fatal("mismatched source resource was accepted for refresh")
+	}
+}
