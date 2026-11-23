@@ -776,6 +776,7 @@ func (s *MusicService) PlayTrackNow(track music.Track) error {
 	s.cancelPlaybackWatcher()
 	if _, err := s.queue.SetCurrentTrack(track, searchPlayMarker); err != nil { return err }
 	if err := s.PlayNext(); err != nil {
+		if errors.Is(err, context.Canceled) { return err }
 		s.queue.FinishCurrent()
 		if current != nil {
 			_ = s.queue.SetCurrent(*current)
