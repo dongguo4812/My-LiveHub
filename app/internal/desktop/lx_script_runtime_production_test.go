@@ -7,7 +7,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
- "errors"
+	"errors"
+	"io"
+	"net/http"
+	"os"
 	"testing"
 	"testing/fstest"
  "time"
@@ -198,3 +201,65 @@ func TestProductionLXScriptImportRejectsScriptsWithoutCommunityActions(t *testin
 	}
 }
 
+
+
+// TestProductionLXFishLatestRealImportAndEnable exercises the user-provided
+// upstream fish/latest.js through the same import path used by the desktop UI.
+// It is opt-in because it executes third-party source and depends on upstream
+// availability; QuickJS exposes no Node, filesystem, or shell host APIs.
+func TestProductionLXFishLatestRealImportAndEnable(t *testing.T) {
+	if os.Getenv("MYLIVEHUB_LX_FISH_INTEGRATION") != "1" {
+		t.Skip("set MYLIVEHUB_LX_FISH_INTEGRATION=1 to run the real fish/latest.js integration")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		"https://gh-proxy.org/raw.githubusercontent.com/pdone/lx-music-source/main/fish/latest.js", nil)
+	if err != nil { t.Fatal(err) }
+	response, err := (&http.Client{Timeout: 30 * time.Second}).Do(request)
+	if err != nil { t.Fatalf("download user-provided fish/latest.js URL: %v", err) }
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("fish/latest.js download status = %s", response.Status)
+	}
+	source, err := io.ReadAll(io.LimitReader(response.Body, (2<<20)+1))
+	if err != nil { t.Fatalf("read fish/latest.js: %v", err) }
+	if len(source) == 0 || len(source) > 2<<20 {
+		t.Fatalf("fish/latest.js size = %d bytes; expected 1..%d", len(source), 2<<20)
+	}
+
+	runtime := newLXScriptRuntime(testLXConfigManager(t)).(*productionMusicLXRuntime)
+	if err := runtime.Start(ctx); err != nil { t.Fatalf("start production LX runtime: %v", err) }
+	defer runtime.Close()
+
+	imported, err := runtime.ImportScript(ctx, "fish/latest.js", string(source))
+	if err != nil { t.Fatalf("import and auto-enable fish/latest.js: %v", err) }
+	if !imported.Enabled { t.Fatalf("imported script is not enabled: %#v", imported) }
+	if len(imported.SupportedSources) == 0 {
+		t.Fatalf("fish/latest.js initialized but declared no supported sources: %#v", imported)
+	}
+	if len(imported.ExtensionActions) == 0 {
+		t.Fatalf("fish/latest.js declared no supported My-LiveHub extension actions: %#v", imported)
+	}
+	for _, action := range imported.ExtensionActions {
+		switch action {
+		case "search", "detail", "lyric", "pic":
+		default:
+			t.Fatalf("unexpected community extension action %q", action)
+		}
+	}
+	if runtime.manager == nil || !runtime.manager.HasScripts() || !runtime.Available() {
+		t.Fatal("imported fish/latest.js was not installed in the started production source manager")
+	}
+	for _, sourceName := range imported.SupportedSources {
+		recognized := false
+		for _, action := range imported.ExtensionActions {
+			if runtime.HasExtensionAction(sourceName, action) { recognized = true; break }
+		}
+		if !recognized {
+			t.Errorf("source %q has no enabled recognized community extension action", sourceName)
+		}
+	}
+	t.Logf("fish/latest.js import enabled: sources=%v community_actions=%v", imported.SupportedSources, imported.ExtensionActions)
+}
