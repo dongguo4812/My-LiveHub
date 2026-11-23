@@ -307,27 +307,32 @@ func TestProductionLXFishSunnyDayPlaybackURL(t *testing.T) {
 
 	var selectedTrack *music.Track
 	var selectedSource string
-	var searchFailures []string
+	var selectedResource music.PlaybackResource
+	var attemptFailures []string
 	for _, sourceID := range []string{"tx", "kw", "kg"} {
 		page, searchErr := service.SearchSourcePage("晴天", sourceID, 1)
-		if searchErr != nil { searchFailures = append(searchFailures, sourceID+": "+searchErr.Error()); continue }
+		if searchErr != nil { attemptFailures = append(attemptFailures, sourceID+" search: "+searchErr.Error()); continue }
 		for i := range page.Tracks {
-			track := page.Tracks[i]
-			if strings.TrimSpace(track.Title) == "晴天" && strings.Contains(track.Artist, "周杰伦") {
-				selectedTrack, selectedSource = &track, sourceID
-				break
-			}
+			candidate := page.Tracks[i]
+			if strings.TrimSpace(candidate.Title) != "晴天" || !strings.Contains(candidate.Artist, "周杰伦") { continue }
+			// Start with the provider's first advertised quality. Region- or
+			// copyright-blocked catalog entries must not prevent trying another source.
+			if len(candidate.Qualities) > 1 { candidate.Qualities = candidate.Qualities[:1] }
+			quality := ""
+			if len(candidate.Qualities) > 0 { quality = candidate.Qualities[0].Type }
+			resource, resolveErr := service.ResolvePlaybackResource(candidate, quality)
+			if resolveErr != nil { attemptFailures = append(attemptFailures, sourceID+" musicUrl: "+resolveErr.Error()); continue }
+			selectedTrack, selectedSource, selectedResource = &candidate, sourceID, resource
+			break
 		}
 		if selectedTrack != nil { break }
 	}
 	if selectedTrack == nil {
-		t.Fatalf("native providers did not return an exact 晴天 / 周杰伦 track; provider errors: %s", strings.Join(searchFailures, " | "))
+		t.Fatalf("no playable exact 晴天 / 周杰伦 result across tx/kw/kg; attempts: %s", strings.Join(attemptFailures, " | "))
 	}
-	t.Logf("real search selected source=%s title=%q artist=%q track_id=%q qualities=%v",
-		selectedSource, selectedTrack.Title, selectedTrack.Artist, selectedTrack.ID, selectedTrack.Qualities)
-
-	resource, err := service.ResolvePlaybackResource(*selectedTrack, "")
-	if err != nil { t.Fatalf("fish/latest.js musicUrl failed for real 晴天 track: %v", err) }
+	t.Logf("real search and fish musicUrl succeeded: source=%s title=%q artist=%q track_id=%q quality=%s",
+		selectedSource, selectedTrack.Title, selectedTrack.Artist, selectedTrack.ID, selectedResource.Quality)
+	resource := selectedResource
 	parsed, err := url.Parse(resource.URL)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
 		t.Fatalf("fish musicUrl returned invalid media URL")
