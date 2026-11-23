@@ -5,71 +5,48 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$runtimeDirectory = Join-Path $PSScriptRoot '..\bin'
+$runtimePath = Join-Path $runtimeDirectory 'lxqjs.dll'
+$releaseTag = 'quickjs-ng-v0.18.0-lxabi1'
+$assetBase = "https://github.com/dongguo4812/My-LiveHub/releases/download/$releaseTag"
+$archivePath = Join-Path $runtimeDirectory 'lxqjs-windows-amd64.zip'
+$checksumPath = "$archivePath.sha256"
 
-function Resolve-LXProductionCompiler {
-    $configured = @()
-    if (-not [string]::IsNullOrWhiteSpace($env:CC)) {
-        $configured += $env:CC.Trim('"')
+function Ensure-LXQuickJSRuntime {
+    New-Item -ItemType Directory -Force -Path $runtimeDirectory | Out-Null
+    if (Test-Path -LiteralPath $runtimePath -PathType Leaf) {
+        Write-Host "Using bundled QuickJS-NG runtime: $runtimePath" -ForegroundColor Green
+        return
     }
 
-    $gccCommand = Get-Command gcc.exe -ErrorAction SilentlyContinue
-    if ($null -ne $gccCommand) {
-        $configured += $gccCommand.Source
+    Write-Host 'Preparing the pinned QuickJS-NG runtime (no local C compiler required)...' -ForegroundColor Cyan
+    try {
+        Invoke-WebRequest -Uri "$assetBase/lxqjs-windows-amd64.zip" -OutFile $archivePath -UseBasicParsing
+        Invoke-WebRequest -Uri "$assetBase/lxqjs-windows-amd64.zip.sha256" -OutFile $checksumPath -UseBasicParsing
+    } catch {
+        throw "Unable to download the prebuilt QuickJS-NG runtime. Ensure the repository QuickJS-NG workflow has published release $releaseTag. Details: $($_.Exception.Message)"
     }
 
-    $candidateDirectories = @(
-        'C:\msys64\ucrt64\bin',
-        'C:\msys64\mingw64\bin',
-        'C:\tools\msys64\ucrt64\bin',
-        'C:\mingw64\bin',
-        'C:\tools\mingw64\bin'
-    )
-    if (-not [string]::IsNullOrWhiteSpace($env:MSYS2_ROOT)) {
-        $candidateDirectories += (Join-Path $env:MSYS2_ROOT 'ucrt64\bin')
-        $candidateDirectories += (Join-Path $env:MSYS2_ROOT 'mingw64\bin')
+    $expected = ((Get-Content -LiteralPath $checksumPath -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+    $actual = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($expected -notmatch '^[0-9a-f]{64}$' -or $actual -ne $expected) {
+        Remove-Item -LiteralPath $archivePath, $checksumPath -Force -ErrorAction SilentlyContinue
+        throw 'QuickJS-NG runtime archive SHA256 verification failed.'
     }
 
-    foreach ($directory in $candidateDirectories) {
-        $configured += (Join-Path $directory 'gcc.exe')
-    }
-
-    foreach ($candidate in ($configured | Select-Object -Unique)) {
-        if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
-
-        $resolved = $null
-        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-            $resolved = (Resolve-Path -LiteralPath $candidate).Path
-        } else {
-            $command = Get-Command $candidate -ErrorAction SilentlyContinue
-            if ($null -ne $command) { $resolved = $command.Source }
-        }
-        if ($null -eq $resolved) { continue }
-
-        $directory = Split-Path -Parent $resolved
-        if (($env:PATH -split ';') -notcontains $directory) {
-            $env:PATH = "$directory;$env:PATH"
-        }
-        $env:CC = $resolved
-
-        & $resolved --version *> $null
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "Using CGO C compiler: $resolved" -ForegroundColor Green
-            return
-        }
-    }
-
-    Write-Host ''
-    Write-Host 'My-LiveHub production LX runtime requires CGO and a Windows GCC toolchain.' -ForegroundColor Red
-    Write-Host 'No usable gcc.exe was found. Install MSYS2 and its UCRT64 GCC package:' -ForegroundColor Yellow
-    Write-Host '  1. winget install --id MSYS2.MSYS2 -e'
-    Write-Host '  2. Open "MSYS2 UCRT64" from the Start menu and run:'
-    Write-Host '     pacman -S --needed mingw-w64-ucrt-x86_64-gcc'
-    Write-Host '  3. Restart PowerShell and run: task dev'
-    Write-Host 'If GCC is installed elsewhere, add its bin directory to PATH or set CC to the full gcc.exe path.'
-    throw 'Missing CGO C compiler (gcc.exe); Wails was not started.'
+    $extractDirectory = Join-Path $runtimeDirectory 'quickjs-extract'
+    Remove-Item -LiteralPath $extractDirectory -Recurse -Force -ErrorAction SilentlyContinue
+    Expand-Archive -LiteralPath $archivePath -DestinationPath $extractDirectory -Force
+    $dll = Get-ChildItem -LiteralPath $extractDirectory -Filter 'lxqjs.dll' -File -Recurse | Select-Object -First 1
+    if ($null -eq $dll) { throw 'Downloaded QuickJS-NG package does not contain lxqjs.dll.' }
+    Copy-Item -LiteralPath $dll.FullName -Destination $runtimePath -Force
+    Remove-Item -LiteralPath $extractDirectory -Recurse -Force
+    Write-Host "QuickJS-NG runtime ready: $runtimePath" -ForegroundColor Green
 }
 
-Resolve-LXProductionCompiler
+Ensure-LXQuickJSRuntime
+$env:MYLIVEHUB_QUICKJS_LIB = (Resolve-Path -LiteralPath $runtimePath).Path
+$env:CGO_ENABLED = '0'
 
 if ($Mode -eq 'dev') {
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'dev-preflight.ps1') -Port $Port
@@ -83,4 +60,9 @@ if ($Mode -eq 'dev') {
 }
 
 & wails3 build
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$builtExecutable = Join-Path (Get-Location) 'bin\My-LiveHub.exe'
+if (Test-Path -LiteralPath $builtExecutable) {
+    Copy-Item -LiteralPath $runtimePath -Destination (Split-Path -Parent $builtExecutable) -Force
+}
 exit $LASTEXITCODE
