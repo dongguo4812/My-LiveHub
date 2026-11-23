@@ -82,3 +82,75 @@ func TestUnifiedSourceServiceRequiresNativeSongIdentity(t *testing.T) {
 	_, err := service.ResolvePlaybackURL(context.Background(), Track{ID:"tx_",SourceID:"tx",Title:"Song"}, "320k")
 	if err == nil { t.Fatal("expected missing native identity to fail") }
 }
+
+
+func TestUnifiedSourceServicePreservesNativeProviderPlaybackMetadata(t *testing.T) {
+	tests := []struct {
+		name, source, songID, quality string
+		sourceData map[string]string
+		qualityData map[string]string
+		wantMusicFields map[string]string
+	}{
+		{
+			name: "QQ", source: "tx", songID: "qq-song-1", quality: "320k",
+			sourceData: map[string]string{"songmid": "qq-song-1", "media_mid": "qq-media-1", "album_mid": "qq-album-1"},
+			qualityData: map[string]string{"file": "qq-file-320"},
+			wantMusicFields: map[string]string{"strMediaMid": "qq-media-1", "albumMid": "qq-album-1"},
+		},
+		{
+			name: "Kugou", source: "kg", songID: "kg-file-hash", quality: "flac",
+			sourceData: map[string]string{"hash": "kg-file-hash"},
+			qualityData: map[string]string{"hash": "kg-file-hash"},
+			wantMusicFields: map[string]string{"hash": "kg-file-hash"},
+		},
+		{
+			name: "Migu", source: "mg", songID: "mg-song-1", quality: "flac24bit",
+			sourceData: map[string]string{"songmid": "mg-song-1", "copyright_id": "mg-copy-1"},
+			qualityData: map[string]string{"copyrightId": "mg-copy-1"},
+			wantMusicFields: map[string]string{"copyrightId": "mg-copy-1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			track := Track{
+				ID: tt.source + "_" + tt.songID, SourceID: tt.source, LXSourceKey: tt.source,
+				Title: "Song", Artist: "Singer", SourceData: tt.sourceData,
+				Qualities: []TrackQuality{{Type: tt.quality, SourceData: tt.qualityData}},
+			}
+			resolver := &unifiedTestResolver{url: "https://cdn.example.test/" + tt.source + ".mp3"}
+			service := NewUnifiedSourceService(unifiedTestSearcher{}, resolver)
+			if _, err := service.ResolvePlaybackURL(context.Background(), track, ""); err != nil {
+				t.Fatal(err)
+			}
+			if len(resolver.calls) != 1 {
+				t.Fatalf("resolver calls = %d, want 1", len(resolver.calls))
+			}
+			info := resolver.calls[0].info
+			if info["type"] != tt.quality {
+				t.Errorf("selected quality = %#v, want %q", info["type"], tt.quality)
+			}
+			musicInfo, ok := info["musicInfo"].(map[string]any)
+			if !ok {
+				t.Fatalf("musicInfo = %#v", info["musicInfo"])
+			}
+			if musicInfo["songmid"] != tt.songID {
+				t.Errorf("native song ID = %#v, want %q", musicInfo["songmid"], tt.songID)
+			}
+			for key, want := range tt.wantMusicFields {
+				if musicInfo[key] != want {
+					t.Errorf("musicInfo.%s = %#v, want %q", key, musicInfo[key], want)
+				}
+			}
+			types, ok := musicInfo["types"].([]map[string]any)
+			if !ok || len(types) != 1 {
+				t.Fatalf("quality metadata = %#v", musicInfo["types"])
+			}
+			for key, want := range tt.qualityData {
+				if types[0][key] != want {
+					t.Errorf("types[0].%s = %#v, want %q", key, types[0][key], want)
+				}
+			}
+		})
+	}
+}
