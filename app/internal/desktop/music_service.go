@@ -113,7 +113,7 @@ func (s *MusicService) UseHTMLAudioPlayback() {
 }
 
 // SetHTMLAudioEventEmitter connects Go playback commands to the main Wails window.
-func (s *MusicService) SetHTMLAudioEventEmitter(emit func(string, any)) {
+func (s *MusicService) setHTMLAudioEventEmitter(emit func(string, any)) {
 	if s == nil { return }
 	s.mu.RLock()
 	engine := s.engine

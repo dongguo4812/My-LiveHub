@@ -339,10 +339,7 @@ func main() {
 	})
 
 	wailsApp = app
-	musicService.SetHTMLAudioEventEmitter(func(name string, data any) {
-		if wailsApp == nil { return }
-		if window, ok := wailsApp.Window.GetByName("main-window"); ok { window.EmitEvent(name, data) }
-	})
+	desktop.AttachHTMLAudioPlayback(musicService, app)
 	desktop.AttachApplication(platformService, app, appConfig.Appearance.Theme == "light")
 	desktop.AttachDanmakuDisplayApplication(danmakuDisplayService, app)
 	desktop.AttachMusicLyricsWindowApplication(musicLyricsWindowService, app)
