@@ -2,8 +2,6 @@ package desktop
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 			"errors"
 	"fmt"
 	"sort"
