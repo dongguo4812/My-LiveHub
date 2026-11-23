@@ -29,6 +29,7 @@ type storedLXScript struct {
 	Homepage         string   `json:"homepage,omitempty"`
 	Source           string   `json:"source"`
 	ExtensionActions []string `json:"extension_actions,omitempty"`
+	SupportedSources []string `json:"supported_sources,omitempty"`
 	Enabled          bool     `json:"enabled"`
 	LastError        string   `json:"last_error,omitempty"`
 }
@@ -72,7 +73,7 @@ func summarizeLXScript(script storedLXScript) LXScriptSummary {
 		ID: script.ID, Name: script.Name, Description: script.Description,
 		Version: script.Version, Author: script.Author, Homepage: script.Homepage,
 		Enabled: script.Enabled, ExtensionActions: append([]string(nil), script.ExtensionActions...),
-		LastError: script.LastError,
+		SupportedSources: append([]string(nil), script.SupportedSources...), LastError: script.LastError,
 	}
 }
 
@@ -215,7 +216,7 @@ func (r *productionMusicLXRuntime) ImportScript(ctx context.Context, name, sourc
 	r.scripts = append(r.scripts, storedLXScript{
 		ID: id, Name: info.Name, Description: info.Description, Version: info.Version,
 		Author: info.Author, Homepage: info.Homepage, Source: source,
-		ExtensionActions: append([]string(nil), extensionActions...), Enabled: true,
+		ExtensionActions: append([]string(nil), actions...), SupportedSources: append([]string(nil), supportedSources...), Enabled: true,
 	})
 	if err := r.rebuildLocked(ctx); err != nil {
 		r.scripts = r.scripts[:len(r.scripts)-1]
