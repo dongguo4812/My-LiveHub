@@ -184,7 +184,7 @@ func (r *Runtime) loop(opts Options, ready chan<- error) {
 		if !timer.Stop() { <-timerDone }
 		interrupted := cmd.ctx.Err()
 		r.api.setInterrupted(state, 0)
-		if value == 0 {
+		if value == nil {
 			err := r.takeError(evalError, "JavaScript evaluation failed")
 			if interrupted != nil { err = interrupted } else if strings.Contains(strings.ToLower(err.Error()), "interrupted") { err = fmt.Errorf("JavaScript execution exceeded %s: %w", timeout, err) }
 			cmd.result <- evalResult{err:err}
