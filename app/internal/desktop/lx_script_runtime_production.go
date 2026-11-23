@@ -140,7 +140,9 @@ func (r *productionMusicLXRuntime) ImportScript(ctx context.Context, name, sourc
 	if r == nil { return LXScriptSummary{}, errors.New("production LX source runtime is unavailable") }
 	name = strings.TrimSpace(name)
 	if name == "" { return LXScriptSummary{}, errors.New("LX script name is required") }
+	if len([]rune(name)) > 128 { return LXScriptSummary{}, errors.New("LX script name exceeds 128 characters") }
 	if err := lxruntime.ValidateLXScriptSource(source); err != nil { return LXScriptSummary{}, err }
+	if len(extensionActions) > 4 { return LXScriptSummary{}, errors.New("at most four community extension actions may be declared") }
 	info := lxruntime.ScriptInfo{Name: name, RawScript: source}
 	probe, err := lxruntime.NewSourceManagerWithScripts(nil, []lxruntime.LXSourceScript{{Info: info, Source: source, ExtensionActions: extensionActions}})
 	if err != nil { return LXScriptSummary{}, fmt.Errorf("validate imported LX script: %w", err) }
@@ -157,6 +159,11 @@ func (r *productionMusicLXRuntime) ImportScript(ctx context.Context, name, sourc
 		if existing.ID == id { return LXScriptSummary{}, fmt.Errorf("LX script %q is already imported", name) }
 	}
 	if len(r.scripts) >= 32 { return LXScriptSummary{}, errors.New("maximum of 32 imported LX scripts reached") }
+	totalEnabledBytes := len(source)
+	for _, existing := range r.scripts {
+		if existing.Enabled { totalEnabledBytes += len(existing.Source) }
+	}
+	if totalEnabledBytes > 16<<20 { return LXScriptSummary{}, errors.New("enabled LX scripts would exceed the aggregate 16 MiB source limit") }
 	r.scripts = append(r.scripts, storedLXScript{ID:id, Name:name, Source:source, ExtensionActions:append([]string(nil), extensionActions...), Enabled:true})
 	if err := r.rebuildLocked(ctx); err != nil {
 		r.scripts = r.scripts[:len(r.scripts)-1]
