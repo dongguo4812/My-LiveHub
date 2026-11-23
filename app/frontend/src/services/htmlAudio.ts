@@ -13,7 +13,7 @@ type Command = {
 
 const audio = new Audio()
 audio.preload = 'none'
-let activeSession = 0
+let activeSession = 0\nlet activeURL = ''
 let lastTimeUpdate = 0
 let disposed = false
 
