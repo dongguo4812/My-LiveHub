@@ -49,7 +49,10 @@ func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original m
 		} else {
 			query := strings.TrimSpace(original.Title + " " + original.Artist)
 			searchCtx, searchCancel := context.WithTimeout(ctx, 15*time.Second)
-			page, searchErr := s.searcher.SearchProvider(searchCtx, source, query, 1)
+			s.mu.RLock()
+			searcher, resolver := s.searcher, s.scriptRuntime
+			s.mu.RUnlock()
+			page, searchErr := music.NewUnifiedSourceService(searcher, resolver).SearchSource(searchCtx, source, query, 1)
 			searchCancel()
 			if searchErr != nil {
 				failures = append(failures, source+": 搜索失败："+searchErr.Error())
