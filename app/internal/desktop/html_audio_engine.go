@@ -44,7 +44,9 @@ func (e *htmlAudioPlaybackEngine) setEmitter(emit func(string, any)) {
 
 func (e *htmlAudioPlaybackEngine) commandLocked(command string, position int64, volume float64) error {
 	if e.emit == nil { return errors.New("HTMLAudio bridge is not attached to the Wails window") }
-	payload := htmlAudioCommand{Command:command, SessionID:e.sessionID, PositionMS:position, Volume:volume}\n\tif command == "load" { payload.Track, payload.Resource = e.track, e.resource }\n\te.emit(musicHTMLAudioCommandEvent, payload)
+	payload := htmlAudioCommand{Command:command, SessionID:e.sessionID, PositionMS:position, Volume:volume}
+	if command == "load" { payload.Track, payload.Resource = e.track, e.resource }
+	e.emit(musicHTMLAudioCommandEvent, payload)
 	return nil
 }
 
