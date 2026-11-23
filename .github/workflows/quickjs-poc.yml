@@ -32,6 +32,19 @@ jobs:
           cache: true
           cache-dependency-path: app/go.sum
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: npm
+          cache-dependency-path: app/frontend/package-lock.json
+
+      - name: Build frontend assets required by production Go embed
+        working-directory: app/frontend
+        run: |
+          npm ci
+          npm run build
+
       - name: Set up MSYS2 UCRT64 toolchain
         uses: msys2/setup-msys2@v2
         with:
