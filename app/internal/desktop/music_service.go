@@ -64,6 +64,7 @@ type MusicService struct {
 	playbackSnapshotValid bool
 	playGeneration uint64
 	searcher *music.LXSearchClient
+	scriptRuntime lxScriptRuntime
 	lyricsMu sync.Mutex
 	lyricsCache map[string]string
 	fanMedalChecker interface { Check(context.Context, int, int) (bool, int, error) }
@@ -102,6 +103,7 @@ func (s *MusicService) start(ctx context.Context) error {
 	if s == nil || ctx == nil { return errors.New("music service and startup context are required") }
 	if s.buffer == nil { return errors.New("music event buffer is required") }
 	if lifecycle, ok := s.engine.(music.PlaybackEngineLifecycle); ok { if err := lifecycle.Start(ctx); err != nil { return fmt.Errorf("启动音乐播放服务失败：%w", err) } }
+	if s.scriptRuntime != nil { if err := s.scriptRuntime.Start(ctx); err != nil { return fmt.Errorf("启动 LX JavaScript Runtime 失败：%w", err) } }
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()
 	s.mu.Lock()
@@ -925,9 +927,10 @@ func (s *MusicService) Shutdown() error {
 	if s == nil { return nil }
 	s.cancelPlaybackWatcher()
 	s.cancelExternalPlaybackWatcher()
-	if s.engine == nil { return nil }
-	if lifecycle, ok := s.engine.(music.PlaybackEngineLifecycle); ok { return lifecycle.Close() }
-	return nil
+	var failures []error
+	if s.scriptRuntime != nil { if err := s.scriptRuntime.Close(); err != nil { failures = append(failures, fmt.Errorf("关闭 LX JavaScript Runtime：%w", err)) } }
+	if lifecycle, ok := s.engine.(music.PlaybackEngineLifecycle); ok { if err := lifecycle.Close(); err != nil { failures = append(failures, err) } }
+	return errors.Join(failures...)
 }
 
 func (s *MusicService) setLastError(err error) {
