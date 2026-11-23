@@ -17,7 +17,7 @@ func (r *qualityResolver) ResolvePlaybackURL(_ context.Context, _ string, raw an
 }
 
 func TestResolvePlaybackResourceFallsBackAcrossQualities(t *testing.T) {
-	track := Track{ID:"song-1",SourceID:"tx",LXSourceKey:"tx",Title:"Song",Qualities:[]TrackQuality{{Type:"flac"},{Type:"320k"},{Type:"128k"}}}
+	track := Track{ID:"song-1",SourceID:"tx",LXSourceKey:"tx",SourceData:map[string]string{"songmid":"native-song-1"},Title:"Song",Qualities:[]TrackQuality{{Type:"flac"},{Type:"320k"},{Type:"128k"}}}
 	resolver := &qualityResolver{failures:map[string]bool{"flac":true,"320k":true}}
 	service := NewUnifiedSourceService(nil,resolver)
 	resource, err := service.ResolvePlaybackResource(context.Background(),track,"",NewPlaybackResourceCache(time.Minute,8))
