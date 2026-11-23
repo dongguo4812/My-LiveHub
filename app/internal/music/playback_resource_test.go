@@ -135,3 +135,24 @@ func TestRefreshPlaybackResourceResolvesOnlyOnceAfterInvalidation(t *testing.T) 
 	if len(resolver.calls) != 2 { t.Fatalf("resolver called %d times, want initial + exactly one refresh", len(resolver.calls)) }
 	if refreshed.URL != first.URL { t.Fatalf("unexpected fixture URL change: %q != %q", refreshed.URL, first.URL) }
 }
+
+
+func TestPlaybackResourceCacheRejectsIdentityMismatch(t *testing.T) {
+	cache := NewPlaybackResourceCache(time.Minute, 4)
+	track := Track{ID: "expected-track", SourceID: "tx", LXSourceKey: "tx"}
+	cases := []struct {
+		name string
+		resource PlaybackResource
+		quality string
+	}{
+		{name: "source", quality: "320k", resource: PlaybackResource{URL: "https://media.example.test/a.mp3", SourceID: "kg", TrackID: "expected-track", Quality: "320k"}},
+		{name: "track", quality: "320k", resource: PlaybackResource{URL: "https://media.example.test/a.mp3", SourceID: "tx", TrackID: "other-track", Quality: "320k"}},
+		{name: "quality", quality: "320k", resource: PlaybackResource{URL: "https://media.example.test/a.mp3", SourceID: "tx", TrackID: "expected-track", Quality: "128k"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cache.Put(track, tc.quality, tc.resource)
+			if _, ok := cache.Get(track, tc.quality); ok { t.Fatal("mismatched playback resource was cached") }
+		})
+	}
+}
