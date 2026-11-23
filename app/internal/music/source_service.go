@@ -78,7 +78,9 @@ func (s *UnifiedSourceService) ResolvePlaybackURL(ctx context.Context, track Tra
 		kind := strings.TrimSpace(item.Type)
 		if kind == "" { continue }
 		entry := map[string]any{"type": kind, "size": item.Size}
-		indexed := map[string]any{"size": item.Size}
+		indexedSize := item.Size
+		if source == "kw" { indexedSize = strings.ToUpper(indexedSize) }
+		indexed := map[string]any{"size": indexedSize}
 		for key, value := range item.SourceData { entry[key] = value; indexed[key] = value }
 		types = append(types, entry)
 		_types[kind] = indexed
