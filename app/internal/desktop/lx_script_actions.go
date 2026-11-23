@@ -14,7 +14,7 @@ import (
 )
 
 type lxScriptActionRuntime interface {
- HasExtensionAction(string) bool
+ HasExtensionAction(string, string) bool
  DispatchExtensionAction(context.Context, string, string, any) (any, error)
 }
 
@@ -32,11 +32,13 @@ func (s *MusicService) dispatchLXExtension(ctx context.Context, source, action s
  if s == nil { return nil, false, errors.New("music service is unavailable") }
  s.mu.RLock(); runtime := s.scriptRuntime; s.mu.RUnlock()
  dispatcher, ok := runtime.(lxScriptActionRuntime)
- if !ok || !dispatcher.HasExtensionAction(action) { return nil, false, nil }
+ if !ok || !dispatcher.HasExtensionAction(source, action) { return nil, false, nil }
  if ctx == nil { ctx = context.Background() }
  callCtx, cancel := context.WithTimeout(ctx, 18*time.Second); defer cancel()
  value, err := dispatcher.DispatchExtensionAction(callCtx, source, action, info)
  if err != nil {
+  var unsupported interface { LXExtensionSourceUnsupported() bool }
+  if errors.As(err, &unsupported) && unsupported.LXExtensionSourceUnsupported() { return nil, false, nil }
   kind := "execution"
   if errors.Is(err, context.DeadlineExceeded) { kind = "timeout" } else if errors.Is(err, context.Canceled) { kind = "cancelled" }
   return nil, true, &LXScriptActionError{Source:source,Action:action,Kind:kind,Err:err}
