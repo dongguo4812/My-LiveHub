@@ -80,6 +80,8 @@ jobs:
           cmake --build "$TEMP_DIR/lx-quickjs-host-build" --config Release
           mkdir -p "$WORKSPACE/app/internal/music/lxruntime/poc/native/lib"
           cp "$TEMP_DIR/lx-quickjs-host-build/lib/libqjs.a" "$WORKSPACE/app/internal/music/lxruntime/poc/native/lib/libqjs.a"
+          GITHUB_ENV_PATH="$(cygpath -u "$GITHUB_ENV")"
+          printf 'CGO_ENABLED=1\nCC=gcc\n' >> "$GITHUB_ENV_PATH"
           host="$(find "$TEMP_DIR/lx-quickjs-host-build" -type f -iname 'lx_quickjs_host_smoke.exe' -print -quit)"
           test -n "$host"
           test -f "$TEMP_DIR/lx-quickjs-host-build/lib/libqjs.a"
@@ -99,10 +101,16 @@ jobs:
           export CC=gcc
           go test -tags lxquickjs -count=3 -run '^TestLXSourceRConfigLiveHandshake$' ./internal/music/lxruntime
           go test -tags lxquickjs -count=1 -v ./internal/music/lxruntime
-          # Exercise the production build tag through the full desktop dependency graph.
+
+      - name: Validate production QuickJS tag and desktop binary from PowerShell
+        shell: pwsh
+        working-directory: app
+        run: |
           go test -tags lxproduction ./...
-          go build -tags lxproduction -ldflags "-H=windowsgui" -o "$TEMP_DIR/My-LiveHub-production.exe" .
-          ls -lh "$TEMP_DIR/My-LiveHub-production.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -tags lxproduction -ldflags "-H=windowsgui" -o "$env:RUNNER_TEMP\\My-LiveHub-production.exe" .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-Item "$env:RUNNER_TEMP\\My-LiveHub-production.exe" | Select-Object Name, Length
 
       - name: Measure QuickJS runtime lifecycle and binary footprint
         shell: msys2 {0}
