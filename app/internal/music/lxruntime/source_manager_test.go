@@ -313,7 +313,7 @@ lx.send(lx.EVENT_NAMES.inited, { sources: { kw: { type: 'music', actions: [], qu
 func TestSourceManagerAllowsAsyncHTTPResponseCallbackBeyondDefaultEvalTimeout(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"url":"https://cdn.example.test/async-callback.mp3"}`))
+		_, _ = w.Write([]byte(`{"url":"https://1.1.1.1/async-callback.mp3"}`))
 	}))
 	defer server.Close()
 
@@ -353,7 +353,7 @@ lx.send(lx.EVENT_NAMES.inited, {
 		"type": "320k",
 	})
 	if err != nil { t.Fatalf("async response callback was interrupted by the default 3s eval watchdog: %v", err) }
-	if value != "https://cdn.example.test/async-callback.mp3" {
+	if value != "https://1.1.1.1/async-callback.mp3" {
 		t.Fatalf("musicUrl result = %#v", value)
 	}
 }
