@@ -136,7 +136,7 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 
 ### C. 播放 URL、音质回退与缓存闭环
 
-**当前代码状态：部分完成。** SourceManager/播放 URL facade 和安全 URL 校验已有基础实现与测试，但生产持久化脚本尚未装载，队列实际播放路径未完整接入脚本解析。
+**当前代码状态：部分完成。** A 阶段已将持久化用户脚本装载到 production SourceManager，并验证 `musicUrl` resolver 可执行；队列选曲到实际播放的生产链路、结构化 PlaybackResource、音质回退和缓存闭环仍未完成。
 
 **工作内容**
 - 将生产队列选中歌曲到 SourceManager URL 解析接通，复用已有 resolver/facade。
