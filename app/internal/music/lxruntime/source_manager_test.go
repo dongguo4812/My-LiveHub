@@ -319,7 +319,7 @@ func TestSourceManagerAllowsAsyncHTTPResponseCallbackBeyondDefaultEvalTimeout(t 
 
 	source := `
 lx.on(lx.EVENT_NAMES.request, async ({ info }) => await new Promise((resolve, reject) => {
-  lx.request(info.url, {}, (error, response) => {
+  lx.request(` + string(mustJSONQuote(server.URL)) + `, {}, (error, response) => {
     if (error) return reject(error);
     const started = Date.now();
     while (Date.now() - started < 3500) {}
