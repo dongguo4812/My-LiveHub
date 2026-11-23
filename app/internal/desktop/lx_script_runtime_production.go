@@ -302,10 +302,10 @@ func (r *productionMusicLXRuntime) Close() error {
 
 // HasExtensionAction reports whether an enabled imported script explicitly
 // opted into a My-LiveHub community extension action.
-func (r *productionMusicLXRuntime) HasExtensionAction(action string) bool {
+func (r *productionMusicLXRuntime) HasExtensionAction(source, action string) bool {
  if r==nil { return false }
  r.mu.Lock(); manager:=r.manager; r.mu.Unlock()
- return manager!=nil && manager.HasExtensionAction(action)
+ return manager!=nil && manager.HasExtensionAction(source, action)
 }
 
 // DispatchExtensionAction dispatches only community extension actions. The
