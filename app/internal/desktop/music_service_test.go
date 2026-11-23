@@ -663,3 +663,15 @@ func TestSearchAndEnqueueUsesUnifiedSearchAndPlaybackQueue(t *testing.T) {
 	}
 	if got := engine.loadCalls.Load(); got != 1 { t.Fatalf("playback engine Load calls = %d, want 1", got) }
 }
+
+func TestMusicServiceSourceCapabilitiesShareSearchAndPlaybackResolver(t *testing.T) {
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, nil)
+	service.scriptRuntime = &fakeLXScriptRuntime{}
+	sources := service.GetSources()
+	if len(sources) != 5 { t.Fatalf("source count = %d, want 5", len(sources)) }
+	for _, source := range sources {
+		if !source.Capabilities.Search || !source.Capabilities.Resolve {
+			t.Errorf("source %s does not expose both unified capabilities: %#v", source.ID, source.Capabilities)
+		}
+	}
+}
