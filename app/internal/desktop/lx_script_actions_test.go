@@ -25,7 +25,7 @@ func (f fakeLXActionRuntime) Available() bool { return f.available }
 func (f fakeLXActionRuntime) Start(context.Context) error { return nil }
 func (f fakeLXActionRuntime) ResolvePlaybackURL(context.Context,string,any)(string,error) { return "",nil }
 func (f fakeLXActionRuntime) Close() error { return nil }
-func (f fakeLXActionRuntime) HasExtensionAction(string) bool { return f.available }
+func (f fakeLXActionRuntime) HasExtensionAction(string, string) bool { return f.available }
 func (f fakeLXActionRuntime) DispatchExtensionAction(context.Context,string,string,any)(any,error) { return f.value,f.err }
 
 func TestDispatchLXExtensionClassifiesTimeout(t *testing.T) {
