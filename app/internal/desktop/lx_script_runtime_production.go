@@ -9,9 +9,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
-	"regexp"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
 	"github.com/dongguo4812/My-LiveHub/app/internal/music/lxruntime"
@@ -104,7 +104,7 @@ func (r *productionMusicLXRuntime) rebuildLocked(ctx context.Context) error {
 			continue
 		}
 		definitions = append(definitions, lxruntime.LXSourceScript{
-			Info: lxruntime.ScriptInfo{Name: script.Name, RawScript: script.Source},
+			Info: lxruntime.ScriptInfo{Name: script.Name, Description: script.Description, Version: script.Version, Author: script.Author, Homepage: script.Homepage, RawScript: script.Source},
 			Source: script.Source,
 			ExtensionActions: append([]string(nil), script.ExtensionActions...),
 		})
@@ -486,7 +486,6 @@ func (r *productionMusicLXRuntime) Close() error {
 	return manager.Close()
 }
 
-)
 
 func parseImportedLXScriptInfo(fallbackName, source string) lxruntime.ScriptInfo {
 	info := lxruntime.ScriptInfo{Name: fallbackName, RawScript: source}
