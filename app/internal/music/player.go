@@ -22,6 +22,8 @@ type Track struct {
 	Album      string `json:"album,omitempty"`
 	DurationMS int64  `json:"duration_ms,omitempty"`
 	CoverURL   string `json:"cover_url,omitempty"`
+	// PlaybackResource is process-local and intentionally excluded from JSON.
+	PlaybackResource *PlaybackResource `json:"-"`
 }
 
 type Source interface { ID() string; Name() string; Capabilities() SourceCapabilities }
