@@ -858,3 +858,6 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 - 默认 HTTP 超时/最大超时仍为 60 秒；请求任务总数仍由 dispatch/init 的上限约束。
 
 已新增 `TestLXRequestResourceLimits` 覆盖超大 URL、超大 body、header injection 和 header 数量限制。当前测试代码仍待 CI/本地实际运行。上述配额是 My-LiveHub 的安全策略，不宣称与洛雪 Needle 对任意超大请求完全等价；真实脚本兼容性若受限，应以明确错误和可配置的安全上限处理，不得移除安全边界。
+
+
+**10.16 补充记录：** 生产 transport 还会清除调用方可能预设的 `DialTLS` / `DialTLSContext`，强制 HTTPS 握手走已校验并 pin IP 的 `DialContext` 路径，防止自定义 TLS dialer 绕过 SSRF 校验。对应代码提交：`8f7a521b787e29293f3dbad1f3e1eb88572f0fed`。CI status/workflow 查询仍为空，全部测试继续标记为待实际运行。
