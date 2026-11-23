@@ -1,5 +1,10 @@
 import fs from 'node:fs'
-import { chromium } from 'playwright'
+import { createRequire } from 'node:module'
+import { resolve } from 'node:path'
+
+// Resolve from app/frontend, where the workflow installs Playwright.
+const require = createRequire(resolve(process.cwd(), 'package.json'))
+const { chromium } = require('playwright')
 
 const urlFile = process.env.MYLIVEHUB_PLAYBACK_URL_FILE
 if (!urlFile || !fs.existsSync(urlFile)) throw new Error('real playback URL handoff file is missing')
