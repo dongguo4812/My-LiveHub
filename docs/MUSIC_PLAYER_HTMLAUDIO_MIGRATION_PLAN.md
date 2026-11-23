@@ -9,7 +9,7 @@
 > - 当前分支：`feat/lx-js-runtime-quickjs-poc`；本方案仍是唯一开发依据。
 > - A 阶段生产脚本导入、持久化、启停/删除、损坏脚本隔离及 QuickJS production runtime 生命周期已完成并通过 CI Run #544。
 > - B 阶段统一 action 调度与歌曲模型接线已完成并通过 CI Run #567：生产搜索/详情/歌词/封面扩展 action 已接线；按脚本 inited.sources 做音源范围路由；原生 musicUrl 仅按原生声明执行，不与社区扩展 action 混用；Track 映射、错误分类、多脚本隔离及生产 fixture 已通过测试。
-> - 尚未完成的产品链路：C 阶段队列选曲到播放的 URL 解析、结构化 PlaybackResource、音质回退与缓存；D 阶段 HTMLAudio 单例与 Go 播放桥接；后续媒体请求头/Range 适配、旧播放器依赖移除及目标 WebView 实播验收。
+> - C 阶段 Go 侧播放资源解析、音质回退、TTL 缓存、资源身份校验、资源感知引擎端口和幂等媒体失败刷新已完成，并由 CI Run 45142573201 全量通过。D 阶段 HTMLAudio 单例与 Go 播放桥接尚未开始；后续仍需完成媒体请求头/Range 适配、旧播放器依赖移除及目标 WebView 实播验收。
 > - 当前唯一下一阶段为 C；继续按第 4 节 A→G 顺序执行，不得跳阶段。测试证据只覆盖明确列出的契约，不扩大为“完全兼容洛雪”。
 
 ## 1. 项目目标与最终边界
@@ -97,7 +97,7 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 **本节是音乐模块改造唯一有效的开发顺序和验收依据。** 开发必须严格按 A→B→C→D→E→F→G 推进；本文其他章节只能记录架构约束、审计证据、代码状态和历史结果，不得另行定义阶段、改变先后顺序或增加平行路线。若其他章节与本节冲突，以本节为准。
 
 执行规则：
-- **A：生产脚本导入与生命周期已完成并通过验收。B：统一 action 调度与歌曲模型接线正在执行。** 当前不得进入 C，必须先达到 B 的全部完成门。
+- **A：生产脚本导入与生命周期、B：统一 action 调度与歌曲模型接线、C：播放 URL/音质回退/缓存闭环均已完成对应阶段完成门。** 当前唯一下一阶段为 D；本轮 C 完成后不自动启动 D。
 - 测试随功能开发同步编写；每项完成时集中运行该项测试及相关回归测试。CI 运行期间可继续不冲突的工作，但完成门必须取得对应 CI 结果。
 - CI 失败必须读取具体日志、修复根因并重跑；提交成功或 CI 启动不等于验收完成。
 - 不因单个边缘测试无限拆分开发；同类问题集中修复。第三方脚本许可只限制复制/分发对应脚本，不阻塞自建 fixture、兼容层和合法脚本导入流程。
@@ -138,24 +138,24 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 
 ### C. 播放 URL、音质回退与缓存闭环
 
-**当前代码状态：实施中（未达到完成门）。** A/B 已完成。C 已新增结构化 `PlaybackResource`（URL/source/track/quality、媒体 headers、MIME/codec、过期/刷新及代理标志），并将其作为进程内字段挂接到队列 Track（`json:"-"`，不进入普通队列 JSON）；统一 resolver 已支持所选音质优先、按音源质量列表顺序回退、TTL 缓存、到期淘汰、显式失效和一次刷新解析。MusicService 队列选曲路径现会调用统一资源 resolver；资源感知引擎可通过 `LoadResource` 消费结构化资源，旧引擎仍保留兼容回退。新增确定性质量回退、缓存命中/过期/失效、URL/header 安全校验测试。**当前尚不能标记 C 完成**：生产旧引擎尚不实现 `LoadResource`，因此结构化资源尚未由最终 HTMLAudio 播放器消费；当前脚本 `musicUrl` 协议只返回 URL 字符串，媒体 GET headers/Cookie/Referer、MIME/codec、ExpiresAt 和代理需求没有真实来源数据，不能伪造；真实媒体失败事件触发刷新仍需资源感知播放器桥接。
+**当前代码状态：Go 侧阶段完成门已通过。** 已新增结构化 `PlaybackResource`（URL/source/track/quality、媒体 headers、MIME/codec、过期/刷新及代理标志），作为进程内字段挂接队列 Track（`json:"-"`）；统一 resolver 支持显式音质优先、已选音质次之、音源质量列表顺序回退，以及 TTL 缓存、源过期时间上限、失效和单次刷新。队列路径将结构化资源交给 `LoadResource` 资源感知引擎端口；确定性集成测试确认资源确实到达该端口，旧引擎 `Load` 兼容回退不计入完成。Go 侧 `HandlePlaybackResourceFailure` 校验 source/track/quality，并对同一失效 URL 幂等刷新。URL-only 原生 `musicUrl` 不伪造媒体 headers、MIME/codec、ExpiresAt 或代理需求。以上由 CI Run 45142573201（20/20 步骤）通过。**HTMLAudio 实际消费资源和将浏览器 `error` 事件接到该回调属于后续 D 阶段，不在本轮提前实施。**
 
 **工作内容**
-- [进行中] 将生产队列选中歌曲接入统一播放资源 resolver；复用现有 SourceManager 原生 `musicUrl`，按音源范围路由，不调用社区扩展 action 冒充原生解析。
-- [已实现待CI] 统一音质顺序：显式请求音质优先，其次 Track.SelectedQuality，再按音源返回的 Track.Qualities 顺序逐级尝试；失败后继续下一质量。
-- [已实现待CI] 增加有上限的进程内 TTL 缓存、源过期时间上限、命中、过期淘汰、显式失效和单次刷新解析；缓存键按 source/track/quality 隔离。
-- [已实现待CI] 定义结构化 PlaybackResource，表达 URL、source/track/quality、媒体 headers、MIME/编码提示、过期/刷新信息和代理需求；资源字段不进入 Track 普通 JSON，避免签名 URL 意外出现在队列事件/状态中。
-- [C 侧已建立接口、待 CI] Go 队列路径优先向实现 `LoadResource` 的资源感知引擎传递结构化资源；旧引擎 `Load` 仅为迁移期兼容，不计入 C 完成。Go 侧新增 `HandlePlaybackResourceFailure`，按失效资源身份幂等刷新，同一失效 URL 的重复媒体错误只执行一次重新解析。
+- [x] 将队列选中歌曲接入统一播放资源 resolver；复用现有 SourceManager 原生 `musicUrl`，按音源范围路由，不调用社区扩展 action 冒充原生解析。
+- [x] 统一音质顺序：显式请求音质优先，其次 Track.SelectedQuality，再按音源返回的 Track.Qualities 顺序逐级尝试；失败后继续下一质量。
+- [x] 增加有上限的进程内 TTL 缓存、源过期时间上限、命中、过期淘汰、显式失效和单次刷新解析；缓存键按 source/track/quality 隔离。
+- [x] 定义结构化 PlaybackResource，表达 URL、source/track/quality、媒体 headers、MIME/编码提示、过期/刷新信息和代理需求；资源字段不进入 Track 普通 JSON，避免签名 URL 意外出现在队列事件/状态中。
+- [x] Go 队列路径优先向实现 `LoadResource` 的资源感知引擎传递结构化资源；旧引擎 `Load` 仅为迁移期兼容，不计入 C 完成。Go 侧 `HandlePlaybackResourceFailure` 按失效资源身份幂等刷新，同一失效 URL 的重复媒体错误只执行一次重新解析。
 - 原生洛雪 `musicUrl` action 的协议返回值仍是 URL 字符串；不得擅自把原生 action 改成 object，也不得把 `lx.request` 的 API headers 复制成媒体 GET headers。当前无显式媒体上下文来源时，`PlaybackResource.Headers` 保持为空，MIME/codec/ExpiresAt/proxy 等未知字段不伪造。
 - D 阶段 HTMLAudio 必须消费 C 的 `PlaybackResource`，并把真实 `error` 事件携带当前 track/resource 交给 `HandlePlaybackResourceFailure`；D 负责浏览器事件映射和真实 WebView 播放验证，不得把这部分提前宣称已完成。
 - 生产 URL 和请求继续受安全策略约束；媒体最终连接的 DNS pinning/redirect 由后续受控媒体传输保证。
 
 **完成门**
-- [进行中] Go 队列路径解析并持有结构化资源；资源感知引擎端口必须在确定性集成测试中实际收到该资源。旧引擎兼容回退不算通过。
-- [进行中] 音质回退、缓存命中、TTL 到期、显式失效、单次刷新解析、身份隔离、headers 深拷贝及 URL/header 安全拒绝测试通过最新完整 CI。
-- [进行中] Go 媒体失败回调必须校验 track/source/quality 身份，并对同一失效 URL 幂等刷新；真实 HTMLAudio `error` 事件到该回调的连接与 WebView 实播由 D 阶段验收。
-- [进行中] 媒体上下文契约明确区分脚本 API headers 与媒体 GET headers；只有显式、可信的媒体上下文提供方可填充媒体 headers，当前原生 `musicUrl` 字符串协议不提供这些字段。
-- C 仅在上述 Go 侧资源解析、资源感知端口、幂等失败刷新、上下文边界测试及全部 CI 通过后标记完成；D 仍须按顺序接入 HTMLAudio 消费和实际事件。
+- [x] Go 队列路径解析并持有结构化资源；资源感知引擎端口在确定性集成测试中实际收到该资源。旧引擎兼容回退不算通过。
+- [x] 音质回退、缓存命中、TTL 到期、显式失效、单次刷新解析、身份隔离、headers 深拷贝、确定性容量淘汰及 URL/header 安全拒绝测试通过 CI Run 45142573201。
+- [x] Go 媒体失败回调校验 track/source/quality 身份，并对同一失效 URL 幂等刷新；真实 HTMLAudio `error` 事件到该回调的连接与 WebView 实播由 D 阶段验收。
+- [x] 媒体上下文契约明确区分脚本 API headers 与媒体 GET headers；当前原生 `musicUrl` 字符串协议不提供媒体 headers，URL-only 资源不会伪造 headers/MIME/codec/过期/代理信息。
+- [x] C Go 侧资源解析、资源感知端口、幂等失败刷新、上下文边界测试及全部 CI 通过（Run 45142573201，20/20）。D 仍须按唯一顺序接入 HTMLAudio 消费和实际事件。
 
 ### D. HTMLAudio PoC 与正式播放桥接
 
@@ -977,7 +977,7 @@ line 3: unexpected EOF while looking for matching single quote
 | HTMLAudio 与播放桥接 | 未完成；旧播放引擎仍在生产路径 |
 | 媒体代理与特殊请求头 | 未完成端到端验收 |
 | Windows 实播、两小时内存稳定性 | 待目标设备验收 |
-| 当前执行项 | A、B 已完成；C：播放 URL、音质回退与缓存闭环 |
+| 当前执行项 | A、B、C 已完成；下一阶段为 D（本轮未启动 D） |
 
 历史 CI 记录应以对应 GitHub workflow 的最终 conclusion 为准；workflow 尚在运行时不得记录为成功。
 
