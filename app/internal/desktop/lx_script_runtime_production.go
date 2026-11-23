@@ -44,7 +44,7 @@ func (r *productionMusicLXRuntime) Available() bool {
 	if r == nil { return false }
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.manager != nil && r.manager.HasScripts()
+	return r.started && r.manager != nil && r.manager.HasScripts()
 }
 
 func (r *productionMusicLXRuntime) loadStoreLocked() error {
