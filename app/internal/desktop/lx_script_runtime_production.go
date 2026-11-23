@@ -17,7 +17,7 @@ import (
 )
 
 const lxScriptStoreFile = "lx_sources.json"
-const lxScriptStoreLimit = 20 << 20
+const lxScriptStoreLimit = 40 << 20
 
 type storedLXScript struct {
 	ID string `json:"id"`
