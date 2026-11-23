@@ -2,6 +2,8 @@ package desktop
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 			"errors"
 	"fmt"
 	"sort"
@@ -68,6 +70,8 @@ type MusicService struct {
 	lyricsMu sync.Mutex
 	lyricsCache map[string]string
 	playbackResourceCache *music.PlaybackResourceCache
+	playbackRefreshMu sync.Mutex
+	playbackRefreshResults map[string]music.PlaybackResource
 	fanMedalChecker interface { Check(context.Context, int, int) (bool, int, error) }
 	notices *RequestNoticeBroker
 }
@@ -92,7 +96,7 @@ func NewMusicServiceWithDependencies(manager *config.Manager, value config.Music
 	service := &MusicService{
 		manager: manager, buffer: buffer, value: cloneMusicConfig(value),
 		sources: sources, engine: engine, queue: music.NewQueue(value.QueueCapacity),
-		searcher: music.NewLXSearchClient(nil), scriptRuntime: newLXScriptRuntime(manager), lyricsCache: make(map[string]string), playbackResourceCache: music.NewPlaybackResourceCache(2*time.Minute, 512), requestCooldowns: make(map[string]time.Time),
+		searcher: music.NewLXSearchClient(nil), scriptRuntime: newLXScriptRuntime(manager), lyricsCache: make(map[string]string), playbackResourceCache: music.NewPlaybackResourceCache(2*time.Minute, 512), playbackRefreshResults: make(map[string]music.PlaybackResource), requestCooldowns: make(map[string]time.Time),
 	}
 	// Keep the lightweight command listener alive while the module is stopped,
 	// matching the video module so users still receive an explicit failure notice.
