@@ -19,6 +19,14 @@ func newLXScriptRuntime() lxScriptRuntime {
 	return &productionMusicLXRuntime{}
 }
 
+func (r *productionMusicLXRuntime) Available() bool {
+	if r == nil { return false }
+	r.mu.Lock()
+	manager := r.manager
+	r.mu.Unlock()
+	return manager != nil && manager.HasScripts()
+}
+
 func (r *productionMusicLXRuntime) Start(ctx context.Context) error {
 	if r == nil {
 		return errors.New("production LX source runtime is unavailable")

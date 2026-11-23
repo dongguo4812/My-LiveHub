@@ -13,10 +13,12 @@ import (
 type fakeLXScriptRuntime struct {
 	started bool
 	closed bool
+	available bool
 	source string
 	info any
 }
 
+func (r *fakeLXScriptRuntime) Available() bool { return r.available }
 func (r *fakeLXScriptRuntime) Start(context.Context) error { r.started = true; return nil }
 func (r *fakeLXScriptRuntime) Close() error { r.closed = true; return nil }
 func (r *fakeLXScriptRuntime) ResolvePlaybackURL(_ context.Context, source string, info any) (string, error) {
@@ -161,5 +163,23 @@ func TestMusicServiceResolvesNativePlaybackMetadataForThreeSources(t *testing.T)
 				}
 			}
 		})
+	}
+}
+
+
+func TestMusicServiceGetSourcesReportsActualRuntimeAvailability(t *testing.T) {
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, nil)
+	runtime := &fakeLXScriptRuntime{}
+	service.scriptRuntime = runtime
+	for _, source := range service.GetSources() {
+		if source.Capabilities.Resolve {
+			t.Fatalf("source %s reported playback resolution without imported scripts", source.ID)
+		}
+	}
+	runtime.available = true
+	for _, source := range service.GetSources() {
+		if !source.Capabilities.Resolve {
+			t.Fatalf("source %s did not report the available script runtime", source.ID)
+		}
 	}
 }

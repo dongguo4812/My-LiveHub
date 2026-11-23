@@ -182,3 +182,15 @@ func TestProductionSourceManagerRejectsMismatchedRawScriptMetadata(t *testing.T)
 		t.Fatalf("mismatched RawScript metadata must be rejected, got %v", err)
 	}
 }
+
+
+func TestProductionSourceManagerAvailabilityReflectsImportedScripts(t *testing.T) {
+	empty := NewSourceManager(nil)
+	if empty.HasScripts() { t.Fatal("empty source manager reported imported scripts") }
+	_ = empty.Close()
+
+	manager := newTestSourceManager(t, []LXSourceScript{{Info: ScriptInfo{Name: "available"}, Source: "lx.send('inited', {});"}})
+	if !manager.HasScripts() { t.Fatal("source manager did not report its imported script") }
+	if err := manager.Close(); err != nil { t.Fatal(err) }
+	if manager.HasScripts() { t.Fatal("closed source manager reported available scripts") }
+}

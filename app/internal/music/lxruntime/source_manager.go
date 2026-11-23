@@ -58,6 +58,13 @@ func NewSourceManager(client *http.Client) *SourceManager {
 	return newSourceManager(client)
 }
 
+func (m *SourceManager) HasScripts() bool {
+	if m == nil { return false }
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return !m.closed && len(m.scripts) > 0
+}
+
 func NewSourceManagerWithScripts(client *http.Client, scripts []LXSourceScript) (*SourceManager, error) {
 	if len(scripts) > maxLXImportedScripts {
 		return nil, fmt.Errorf("too many imported LX scripts: %d exceeds limit %d", len(scripts), maxLXImportedScripts)

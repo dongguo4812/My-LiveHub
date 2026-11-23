@@ -965,3 +965,12 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 - URL-encoded Form 参数增加累计保守尺寸预检，避免大量小字段在最终 Encode 后才发现超限。
 
 验证记录：上一轮提交 eb0635925546bb1545d1420bab4d75102db12078 的 QuickJS 专项 CI Run 45119572262 已全部成功（Windows x64 QuickJS native build、lxquickjs tests/vet、lxproduction tests）。本节新增修复尚未提交/验证。
+
+
+### 10.21 最新专项 CI 结果与运行时可用性状态修正（2026-11-23）
+
+- 修正 10.20 的 TLS 策略后，提交 73c2296438dce0211bf4e0de29458257cfebb3c1 对应 QuickJS-NG Windows x64 专项 CI Run 45120352557 **全部成功**：QuickJS native C API smoke、lxquickjs runtime/music tests、go vet、lxproduction runtime/music tests 均通过。
+- 继续审查生产集成时发现 MusicService.GetSources() 仅以 scriptRuntime 非 nil 标记 Resolve 能力；但生产构造函数返回非 nil runtime，即使 SourceManager 为空也会错误报告可解析。新增 lxScriptRuntime.Available()、SourceManager.HasScripts()，将来源能力状态改为真实已导入脚本数量，并增加 desktop/source-manager 测试。该修复不代表用户脚本导入管理已完成；当前生产 SourceManager 仍未接入持久化导入数据。
+- 上述可用性修复目前是待提交变更，需在下一次 QuickJS 专项 CI 通过后才能标记测试通过。
+
+当前 HEAD（本节开始时）：73c2296438dce0211bf4e0de29458257cfebb3c1。该提交的专项 CI 全绿；本节追加的可用性修复尚待提交与 CI。
