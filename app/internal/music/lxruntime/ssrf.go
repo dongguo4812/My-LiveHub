@@ -119,16 +119,15 @@ func resolveLXHost(ctx context.Context, host string, allowPrivate bool) ([]netip
 	if host == "" {
 		return nil, errors.New("lx.request: empty destination host")
 	}
+	if strings.Contains(host, "%") {
+		return nil, errors.New("lx.request: IPv6 zone identifiers are not allowed")
+	}
 	if ip, err := netip.ParseAddr(host); err == nil {
 		ip = ip.Unmap()
 		if !allowPrivate && !isPublicLXIP(ip) {
 			return nil, fmt.Errorf("lx.request: destination address is not public: %s", ip)
 		}
 		return []netip.Addr{ip}, nil
-	}
-	// Reject zone identifiers and non-DNS host syntax.
-	if strings.Contains(host, "%") {
-		return nil, errors.New("lx.request: IPv6 zone identifiers are not allowed")
 	}
 	ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
 	if err != nil {
