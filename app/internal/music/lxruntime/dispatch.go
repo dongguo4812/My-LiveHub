@@ -20,6 +20,8 @@ func (r *Runtime) DispatchLXRequest(ctx context.Context, source, action string, 
 
 // dispatchLXRequest accepts an HTTP client for deterministic source integration tests.
 func (r *Runtime) dispatchLXRequest(ctx context.Context, source, action string, info any, client *http.Client) (any, error) {
+	r.dispatchMu.Lock()
+	defer r.dispatchMu.Unlock()
 	if r == nil {
 		return nil, errors.New("LX dispatch: runtime is nil")
 	}
