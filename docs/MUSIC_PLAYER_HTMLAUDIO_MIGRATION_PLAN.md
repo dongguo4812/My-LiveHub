@@ -272,7 +272,7 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 
 | 阶段 | 状态 | 证据/备注 |
 |---|---|---|
-| 阶段 0：现状盘点与接口设计 | 进行中 | 已确认 playNext→resolveAndStartLXTrack→engine.Load、500ms Go watcher、外部 NextTrack 回退、歌词依赖 LX API、前端 500ms 状态轮询；接口边界初步拟定。待核对 QuickJS musicUrl 实际代码入口、真实音源格式/请求约束和 Wails 桥接实现 |
+| 阶段 0：现状盘点与接口设计 | 进行中 | 已确认现有 ResolvePlaybackURL/QuickJS SourceManager 三脚本链、五个平台搜索、musicUrl 仅返回 URL 字符串、媒体请求 headers 未透传、Go/Vue Wails v3 Events 候选协议；真实媒体响应与 Windows WebView 播放验证待做 |
 | 阶段 1：HTMLAudio 最小 PoC | 未开始 | 尚无真实 WebView 播放验收记录 |
 | 阶段 2：统一播放控制与 Go 服务桥接 | 未开始 | |
 | 阶段 3：现有 Go 音乐业务层整合 | 未开始 | |
@@ -314,3 +314,66 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 - 歌词由音源服务按 Track 获取，歌词位置以 HTMLAudio currentTime 为准。
 
 **尚未完成的阶段 0 项目**：逐个确认当前 QuickJS-NG/用户源运行时代码中 `musicUrl` action 的真实调用入口、结果结构和请求头处理；采集目标三音源的真实 URL/格式/请求约束；确认 Wails 当前版本下可靠的前端命令/事件桥接方式。因此阶段 0 仍保持“进行中”，不能开始声称阶段 1 已验收。
+
+
+### 阶段 0 第二轮审查：QuickJS 解析契约、音源脚本与 Wails 通信（2026-11-23）
+
+#### A. QuickJS-NG 已有的真实解析链
+
+已确认当前分支不是“只有 QuickJS PoC”：
+
+- `MusicService.ResolvePlaybackURL(track, quality)` 已存在，调用 `music.NewUnifiedSourceService(searcher, runtime).ResolvePlaybackURL(...)`。
+- `UnifiedSourceService` 将统一 Track 转换为 LX 脚本所需的 `{ musicInfo, type }`，保留 songmid/hash/media_mid/album_mid 等平台原生字段。
+- `lxScriptRuntime` 接口已经有 `ResolvePlaybackURL(ctx, source, info) (string, error)`。
+- `lxruntime.SourceManager.ResolvePlaybackURL` 按三个内置脚本（星澜、HelloWorld、幻音）依次初始化/调用，某个脚本失败后尝试下一个脚本；每个脚本拥有独立持久 QuickJS Runtime。
+- 三个脚本的动作入口均为 `musicUrl`。当前 SourceManager 最终只接受非空 HTTP(S) **字符串**，并校验 scheme/host。
+- `lx.request` 宿主请求已支持 method、timeout、headers、body、form/formData、取消和响应头；这些 headers 用于 QuickJS 脚本向 API 请求数据，不会自动附加到最终 HTMLAudio 对播放 URL 的 GET 请求。
+- `productionMusicLXRuntime` 只在 `lxproduction && cgo` 构建标签下启用；其他构建返回 nil。生产构建链必须保留该约束并在阶段 4 真实验证。
+
+#### B. 三个内置脚本与平台覆盖的准确含义
+
+当前 SourceManager 内置的三个脚本是三个**脚本包/解析后端**，不是三个音乐平台：
+
+- 星澜脚本：聚合 QQ、网易云、酷我、酷狗、咪咕及汽水等平台，并有多后端 URL 回退、质量映射、缓存；脚本中可配置 QQ/网易 Cookie，部分 API 请求使用 Referer/User-Agent 等请求头。
+- HelloWorld 脚本：基于配置的 API 源和质量回退解析 URL。
+- 幻音脚本：实现 QQ、酷我、网易云、咪咕等平台的 URL 解析入口。
+- Go 搜索适配器当前有五个平台：`tx/kw/kg/wy/mg`。不要把“五个平台”“三个内置脚本”混为一谈，也不要把脚本内置的多个 API 后端当成独立音源平台。
+
+目前三个脚本返回的是 URL 字符串；仓库尚无对这三个脚本、五个平台在目标 Windows WebView 上的完整真实 URL、MIME/编码、Range、重定向、Cookie/Referer 播放要求矩阵。因此不能宣称已完成真实格式兼容性验证。
+
+#### C. 已发现的关键架构缺口
+
+1. **解析服务已有，但尚未接入播放主链路。** `MusicService.ResolvePlaybackURL` 可供调用；当前 `playNext → resolveAndStartLXTrack → engine.Load` 仍把 Track 交给 `LXPlaybackEngine`，并没有先调用这个 URL resolver。阶段 3 必须复用现有 resolver，不应另写一套 QuickJS 调用。
+2. **播放 URL 资源模型过窄。** 目前 resolver 返回 `string`，丢失媒体响应所需的 headers、MIME/编码提示、过期信息及来源信息。脚本的 API 请求 headers 与媒体 GET headers 是两个不同概念。阶段 0/1 应先定义 `PlaybackResource`，默认不携带可写入日志的敏感 Cookie/签名参数。
+3. **HTMLAudio 请求头限制需要实测。** 如果最终媒体 GET 必须携带 Referer/Cookie/自定义 header，单纯把 URL 赋给 Audio.src 可能无法播放。阶段 4 需要依据真实响应决定直连、音源降级或 Go 流代理；代理必须支持 Range、取消、Content-Type、Content-Length/分块传输和重定向语义。
+4. **当前歌词确实被旧播放器绑定。** `GetLyrics` 依赖 `PlaybackEngine.GetCurrentLyrics` 和 Snapshot 前后核对；歌词独立于播放执行器的按 Track 获取接口尚未存在。
+5. **自动换源与第三方队列深度耦合。** `PlayNext` 的队列空分支和 `Next/Previous` 都会回退到 `LXPlaybackEngine.NextTrack`；新播放器必须让 My-LiveHub 自己的队列成为唯一队列，队列为空时进入 idle，不再推进洛雪客户端队列。
+
+#### D. Wails v3 前后端通信方案
+
+仓库使用 `github.com/wailsapp/wails/v3 v3.1.0`，前端已导入 `@wailsio/runtime`，Go 侧通过 `application.New(...)` 注册 `MusicService` 绑定。
+
+Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发事件、前端 `Events.On(name, callback)` 订阅并返回清理函数；前端到 Go 的业务调用继续使用已生成的 Service Bindings。参考：
+- https://v3.wails.io/reference/events/
+- https://wails.io/reference/frontend-runtime/
+
+据此建议 PoC 验证以下最小通信协议（事件名称是拟定契约，不代表已实现）：
+
+- Go → WebView：`music:playback-command`，payload 含 `session_id`、`command`、`resource`、`track`；command 为 load/play/pause/resume/seek/set_volume/stop。
+- WebView → Go：通过绑定方法 `ReportPlaybackEvent(event)` 回报媒体事件；事件含 `session_id`、`event_type`、`current_time_ms`、`duration_ms`、`error`。
+- Go → WebView：`music:playback-state` 广播权威快照，供主音乐页、桌面歌词窗和其他 UI 视图共享。
+- Vue 的 HTMLAudio adapter 单例监听 Go 命令，所有事件回报带 session ID；旧 session 的事件一律忽略。
+- HTMLAudio 的 `ended` 由 Go 会话协调器幂等处理并推进 My-LiveHub 队列；不能由多个前端窗口分别推进队列。
+- 需在阶段 1 用真实 Wails 窗口验证窗口创建/运行时就绪后事件订阅、事件广播和窗口重建行为；不能只用普通浏览器 mock 代替。
+
+#### E. 阶段 0 当前结论
+
+已完成：主链路、现有 QuickJS URL resolver、三个脚本动作入口和返回值、平台/脚本数量边界、Wails v3 事件通信候选方案、旧歌词/队列耦合点。
+
+仍未完成（必须有仓库/运行证据）：
+- 从三个内置脚本分别为五个平台获取可复现的真实播放资源，并记录 URL 脱敏后的 host/path 特征、HTTP 状态、Content-Type、Accept-Ranges、Content-Length/Transfer-Encoding、重定向和播放请求头要求。
+- 在目标 Windows WebView 中用至少一条真实资源验证是否能播放，以及必要请求头是否造成阻断。
+- 以 Wails v3.1.0 实际构建验证 Events API 的 Go 初始化入口、事件订阅与清理，确认主窗口和歌词窗口都能收到同一播放状态。
+- 根据真实媒体请求约束定稿 `PlaybackResource` 字段，以及是否需要 Go 流代理。
+
+因此阶段 0 仍为进行中；上述剩余项完成后才能通过阶段 0 验收并进入阶段 1 PoC。
