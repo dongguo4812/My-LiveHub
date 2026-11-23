@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/music"
 )
@@ -68,7 +69,7 @@ func (s *MusicService) ResolvePlaybackURL(ctx context.Context, track music.Track
 		},
 		"type": quality,
 	}
-	ctx, cancel := context.WithTimeout(ctx, 45_000_000_000)
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 	url, err := runtime.ResolvePlaybackURL(ctx, source, info)
 	if err != nil {
