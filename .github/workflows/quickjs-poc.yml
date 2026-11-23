@@ -134,3 +134,20 @@ jobs:
       - name: Build frontend
         working-directory: app/frontend
         run: npm run build
+
+      - name: Build Windows HTMLAudio D PoC executable
+        shell: pwsh
+        working-directory: app
+        run: |
+          New-Item -ItemType Directory -Force bin | Out-Null
+          go build -tags lxproduction -ldflags "-H=windowsgui" -o bin/My-LiveHub.exe .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload Windows HTMLAudio D PoC executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: My-LiveHub-HTMLAudio-D-PoC
+          path: app/bin/My-LiveHub.exe
+          if-no-files-found: error
+          retention-days: 7
+
