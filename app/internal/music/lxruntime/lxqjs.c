@@ -181,6 +181,21 @@ void lxqjs_set_host_callbacks(void *md5, void *random_bytes, void *buffer_from,
     g_lxqjs_zlib = (LXQJSZlibFn)zlib;
 }
 
+#ifdef LXQJS_CGO_BRIDGE
+extern char *lxqjsGoMD5(const char *, size_t);
+extern void *lxqjsGoRandomBytes(size_t);
+extern void *lxqjsGoBufferFrom(const char *, size_t, const char *, size_t *);
+extern void *lxqjsGoBufferToString(const char *, size_t, const char *, size_t *);
+extern void *lxqjsGoRSAEncrypt(const char *, size_t, const char *, size_t, size_t *);
+extern void *lxqjsGoAESEncrypt(const char *, size_t, const char *, const char *, size_t, const char *, size_t, size_t *);
+extern void *lxqjsGoZlib(const char *, size_t, int, size_t *, char **);
+void lxqjs_register_cgo_callbacks(void) {
+    lxqjs_set_host_callbacks((void *)lxqjsGoMD5, (void *)lxqjsGoRandomBytes,
+        (void *)lxqjsGoBufferFrom, (void *)lxqjsGoBufferToString,
+        (void *)lxqjsGoRSAEncrypt, (void *)lxqjsGoAESEncrypt, (void *)lxqjsGoZlib);
+}
+#endif
+
 // The official Electron host returns Node Buffers from crypto, buffer and
 // zlib helpers. QuickJS typed arrays are not Buffer instances, so all native
 // byte-producing helpers must wrap their result through the JS Buffer shim.
