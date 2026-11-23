@@ -9,8 +9,8 @@
 > - 当前分支：`feat/lx-js-runtime-quickjs-poc`；本方案仍是唯一开发依据。
 > - A 阶段生产脚本导入、持久化、启停/删除、损坏脚本隔离及 QuickJS production runtime 生命周期已完成并通过 CI Run #544。
 > - B 阶段统一 action 调度与歌曲模型接线已完成并通过 CI Run #567：生产搜索/详情/歌词/封面扩展 action 已接线；按脚本 inited.sources 做音源范围路由；原生 musicUrl 仅按原生声明执行，不与社区扩展 action 混用；Track 映射、错误分类、多脚本隔离及生产 fixture 已通过测试。
-> - C 阶段 Go 侧播放资源解析、音质回退、TTL 缓存、资源身份校验、资源感知引擎端口和幂等媒体失败刷新已完成，并由 CI Run 45142573201 全量通过。D 阶段 HTMLAudio 单例与 Go 播放桥接尚未开始；后续仍需完成媒体请求头/Range 适配、旧播放器依赖移除及目标 WebView 实播验收。
-> - A/B/C 均已达到第 4 节各自完成门；当前唯一下一阶段为 D。C 的 Go 侧阶段验收由 CI Run 45142573201 证明，HTMLAudio 消费和 WebView 实播仍属于未开始的 D。测试证据只覆盖明确列出的契约，不扩大为“完全兼容洛雪”。
+> - C 阶段 Go 侧播放资源解析、音质回退、TTL 缓存、资源身份校验、资源感知端口和幂等媒体失败刷新已完成（CI Run 45142573201）。D 已接通生产 HTMLAudio PlaybackEngine、Wails 命令/事件桥、应用级单例 Audio、播放控制、错误回传、一次 URL 失效刷新重试和切歌取消；CI Run 45149682218 的 Go/desktop、bindings、frontend 全部通过。Windows 可执行文件已由 CI Run 45150651612 构建并作为 artifact 发布；目标 WebView 真实来源可听播放仍待设备实测。
+> - A/B/C 均已达到第 4 节各自完成门；当前唯一执行阶段为 D。D 的代码、自动化 CI 和 Windows PoC 构建子门已通过，目标设备实播验收未完成前不得进入 E。测试证据只覆盖明确列出的契约，不扩大为“完全兼容洛雪”。
 
 ## 1. 项目目标与最终边界
 
@@ -56,7 +56,7 @@ My-LiveHub 自己完成音乐搜索、音源脚本运行、播放 URL 解析、�
 - `app/frontend/src/views/MusicView.vue` 已有音乐页面、搜索、队列和播放交互，可在此基础上接入统一 HTMLAudio 播放器，不另造整套页面。
 - `app/internal/music/lifecycle.go` 定义了播放引擎生命周期接口。
 
-以上是代码结构事实，不代表 HTMLAudio 播放能力已经实现。当前阶段状态：**现状已初步核对；HTMLAudio PoC 尚未完成；外部播放器依赖尚未移除。**
+以上是代码结构事实。当前阶段状态：**D 的生产 HTMLAudio 桥接与自动化测试已实现；Windows PoC 可执行文件已构建；真实目标 WebView 可听播放尚未验证。**
 
 ## 3. 目标架构与播放数据流
 
@@ -138,7 +138,7 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 
 ### C. 播放 URL、音质回退与缓存闭环
 
-**当前代码状态：Go 侧阶段完成门已通过。** 已新增结构化 `PlaybackResource`（URL/source/track/quality、媒体 headers、MIME/codec、过期/刷新及代理标志），作为进程内字段挂接队列 Track（`json:"-"`）；统一 resolver 支持显式音质优先、已选音质次之、音源质量列表顺序回退，以及 TTL 缓存、源过期时间上限、失效和单次刷新。队列路径将结构化资源交给 `LoadResource` 资源感知引擎端口；确定性集成测试确认资源确实到达该端口，旧引擎 `Load` 兼容回退不计入完成。Go 侧 `HandlePlaybackResourceFailure` 校验 source/track/quality，并对同一失效 URL 幂等刷新。URL-only 原生 `musicUrl` 不伪造媒体 headers、MIME/codec、ExpiresAt 或代理需求。以上由 CI Run 45142573201（20/20 步骤）通过。**HTMLAudio 实际消费资源和将浏览器 `error` 事件接到该回调属于后续 D 阶段，不在本轮提前实施。**
+**当前代码状态：Go 侧阶段完成门已通过。** 已新增结构化 `PlaybackResource`（URL/source/track/quality、媒体 headers、MIME/codec、过期/刷新及代理标志），作为进程内字段挂接队列 Track（`json:"-"`）；统一 resolver 支持显式音质优先、已选音质次之、音源质量列表顺序回退，以及 TTL 缓存、源过期时间上限、失效和单次刷新。队列路径将结构化资源交给 `LoadResource` 资源感知引擎端口；确定性集成测试确认资源确实到达该端口，旧引擎 `Load` 兼容回退不计入完成。Go 侧 `HandlePlaybackResourceFailure` 校验 source/track/quality，并对同一失效 URL 幂等刷新。URL-only 原生 `musicUrl` 不伪造媒体 headers、MIME/codec、ExpiresAt 或代理需求。以上由 CI Run 45142573201（20/20 步骤）通过。D 已将结构化资源交给生产 HTMLAudio，并将浏览器 `error` 事件接到该回调；自动化测试已通过，真实目标 WebView 播放仍待设备验收。
 
 **工作内容**
 - [x] 将队列选中歌曲接入统一播放资源 resolver；复用现有 SourceManager 原生 `musicUrl`，按音源范围路由，不调用社区扩展 action 冒充原生解析。
@@ -147,13 +147,13 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 - [x] 定义结构化 PlaybackResource，表达 URL、source/track/quality、媒体 headers、MIME/编码提示、过期/刷新信息和代理需求；资源字段不进入 Track 普通 JSON，避免签名 URL 意外出现在队列事件/状态中。
 - [x] Go 队列路径优先向实现 `LoadResource` 的资源感知引擎传递结构化资源；旧引擎 `Load` 仅为迁移期兼容，不计入 C 完成。Go 侧 `HandlePlaybackResourceFailure` 按失效资源身份幂等刷新，同一失效 URL 的重复媒体错误只执行一次重新解析。
 - 原生洛雪 `musicUrl` action 的协议返回值仍是 URL 字符串；不得擅自把原生 action 改成 object，也不得把 `lx.request` 的 API headers 复制成媒体 GET headers。当前无显式媒体上下文来源时，`PlaybackResource.Headers` 保持为空，MIME/codec/ExpiresAt/proxy 等未知字段不伪造。
-- D 阶段 HTMLAudio 必须消费 C 的 `PlaybackResource`，并把真实 `error` 事件携带当前 track/resource 交给 `HandlePlaybackResourceFailure`；D 负责浏览器事件映射和真实 WebView 播放验证，不得把这部分提前宣称已完成。
+- D 已实现 HTMLAudio 消费 C 的 `PlaybackResource`，并将浏览器 `error` 事件携带当前 track/resource 交给 `HandlePlaybackResourceFailure`；剩余验收是目标 WebView 的真实播放与设备控制验证。
 - 生产 URL 和请求继续受安全策略约束；媒体最终连接的 DNS pinning/redirect 由后续受控媒体传输保证。
 
 **完成门**
 - [x] Go 队列路径解析并持有结构化资源；资源感知引擎端口在确定性集成测试中实际收到该资源。旧引擎兼容回退不算通过。
 - [x] 音质回退、缓存命中、TTL 到期、显式失效、单次刷新解析、身份隔离、headers 深拷贝、确定性容量淘汰及 URL/header 安全拒绝测试通过 CI Run 45142573201。
-- [x] Go 媒体失败回调校验 track/source/quality 身份，并对同一失效 URL 幂等刷新；真实 HTMLAudio `error` 事件到该回调的连接与 WebView 实播由 D 阶段验收。
+- [x] Go 媒体失败回调校验 track/source/quality 身份，并对同一失效 URL 幂等刷新；HTMLAudio `error` 事件已接入回调并通过自动化测试，真实 WebView 实播由 D 阶段设备验收。
 - [x] 媒体上下文契约明确区分脚本 API headers 与媒体 GET headers；当前原生 `musicUrl` 字符串协议不提供媒体 headers，URL-only 资源不会伪造 headers/MIME/codec/过期/代理信息。
 - [x] C Go 侧资源解析、资源感知端口、幂等失败刷新、上下文边界测试及全部 CI 通过（Run 45142573201，20/20）。D 仍须按唯一顺序接入 HTMLAudio 消费和实际事件。
 
@@ -175,7 +175,7 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 
 ### E. 媒体传输适配与旧引擎替换
 
-**当前代码状态：未完成。** 生产主窗口已切换到 HTMLAudio，但旧 `LXPlaybackEngine` 实现和兼容构造仍留在代码库；媒体 headers、Range、redirect、seek 和最终连接安全尚未端到端验收。
+**当前代码状态：未完成。** 生产主窗口已切换到 HTMLAudio；旧 `LXPlaybackEngine` 实现仍保留在代码库及测试/兼容构造中。媒体 headers、Range、redirect、seek 和最终连接安全尚未端到端验收。
 
 **工作内容**
 - 实测 HTMLAudio 直连对 CORS、媒体请求头、Range、重定向、seek 和跨域的支持情况。
@@ -256,8 +256,8 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 | A. 生产脚本导入与生命周期 | **已完成** | 已接入 `config/local/lx_sources.json`、production SourceManager、MusicService 管理 API 和音乐设置页；QuickJS/desktop/Wails bindings/前端构建 CI Run #544 成功 |
 | B. 统一 action 调度与歌曲模型接线 | **已完成** | 生产 search/detail/lyric/pic 调度、按脚本音源范围路由、原生 musicUrl 声明校验、Track 映射/合并、缺失能力回退、错误/取消分类、多脚本隔离均已实现；CI Run #567 全部通过 |
 | C. 播放 URL、音质回退与缓存闭环 | 部分完成 | resolver 与安全校验有基础；生产脚本装载及队列播放链路未闭环 |
-| D. HTMLAudio PoC 与正式播放桥接 | 未开始 | 无目标 WebView 真实播放验收 |
-| E. 媒体传输适配与旧引擎替换 | 未开始 | 旧 LXPlaybackEngine 仍在生产路径 |
+| D. HTMLAudio PoC 与正式播放桥接 | 代码/CI/Windows PoC 构建通过；目标设备实播待验收 | 无目标 WebView 真实播放验收 |
+| E. 媒体传输适配与旧引擎替换 | 未开始 | 旧引擎代码/兼容构造仍保留；媒体代理尚未完成 |
 | F. 歌词、封面、队列与多视图整合 | 部分完成 | Go 侧已有基础；脚本扩展 action 和 HTMLAudio 时钟未接通 |
 | G. 安全、稳定性、性能与最终验收 | 部分完成 | HTTP/SSRF 等已有测试；真实媒体连接、长时间播放及设备内存数据未验收 |
 
@@ -491,11 +491,11 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 | 结构化 PlaybackResource | **C 阶段 Go 侧已完成** | 结构化资源、质量回退、缓存、资源感知端口、幂等失败刷新及 URL-only 上下文边界通过 CI Run 45142573201；HTMLAudio 实际消费在 D |
 | HTMLAudio 目标 WebView 实播 | **未验证** | 无真实设备播放验收记录 |
 | SSRF/脚本资源隔离 | **已有实现与专项测试，仍需后续实测** | DNS/连接 pinning、redirect、代理/TLS 收敛、请求资源限制已有测试；真实外部脚本长时间运行与 soak 尚未验收 |
-| 当前执行项 | **A、B、C 已完成；下一阶段为 D（尚未启动）** | C 的 Go 侧完成门由 CI Run 45142573201 全部通过；按第 4 节唯一顺序等待进入 D |
+| 当前执行项 | **A/B/C 已完成；D 代码与 CI 通过，目标设备实播待验收** | CI Run 45149682218 全部通过；Windows PoC artifact 由 Run 45150651612 构建 |
 
 ### 9.7 开发顺序与当前执行项
 
-本节识别的协议、兼容性和 action 调度缺口，全部按第 4 节唯一开发顺序处理，不再设置阶段 0A—0F 等前置子路线。A、B、C 已完成；当前唯一下一阶段为 **D：HTMLAudio PoC 与正式播放桥接**（本轮未启动）。
+本节识别的协议、兼容性和 action 调度缺口，全部按第 4 节唯一开发顺序处理，不再设置阶段 0A—0F 等前置子路线。A、B、C 已完成；当前唯一执行阶段为 **D：HTMLAudio PoC 与正式播放桥接**，代码和 CI 子门已通过，目标设备实播仍待验收。
 
 
 
@@ -643,7 +643,7 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 | 搜索 | LX desktop 内置 SDK 的平台 search 模块 | Go 原生五平台 provider | **与用户确认的 JS 搜索目标不一致**，但尚不能用自定义源原生 action 替代 |
 | 歌词 | 平台 SDK 自行获取/解码；自定义源 local lyric 是另一机制 | Go 原生歌词（已核对 QQ/KG 等实现） | **未由导入 JS provider 统一承担** |
 | URL 返回 | 原生 musicUrl 返回 HTTP(S) 字符串 | 返回 string，统一服务构造旧式 musicInfo | 基本 action 结果兼容；缺少结构化媒体请求上下文 |
-| 播放主链 | LX desktop 内部播放器 | 旧 PlaybackEngine 仍为默认；脚本 resolver 独立接口 | HTMLAudio/Wails 播放闭环未验收 |
+| 播放主链 | HTMLAudio/Wails 主窗口桥 | `main.go` 生产入口通过 `AttachHTMLAudioPlayback` 使用资源感知引擎；默认测试构造仍保留旧 engine | 真实目标 WebView 实播待验收 |
 
 **安全审计具体发现：** `executeLXHTTPRequest` 只解析并限制 URL scheme/host；没有在发起请求前解析 DNS 并拒绝 loopback/private/link-local/multicast/reserved 地址，也没有为每次 redirect 重新校验目标地址。Go client 的默认 redirect policy 可继续跟随跳转。仅靠 QuickJS 不暴露 OS API 无法防止脚本借 `lx.request` 访问本机或内网服务。这是用户脚本导入前必须解决的安全 blocker。
 
@@ -859,12 +859,12 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 | SourceManager 关闭与资源释放 | 测试通过（当前覆盖范围） | cancellation/waitgroup 测试；持续播放 soak 未做 |
 | 用户脚本导入/持久化/授权/刷新 | 未完成 | NewSourceManagerWithScripts 已提供入口，尚未接入现有 UI/config/store |
 | QuickJS 运行时接入实际播放链路 | 未完成 | PlayTrackNow 仍走旧 LXPlaybackEngine.Load，不是 QuickJS 解析结果 |
-| HTMLAudio 最终播放 | 未完成 | 当前 MusicView.vue 没有 HTMLAudio 播放元素/事件链；仍依赖旧播放引擎 |
+| HTMLAudio 最终播放 | 已接入，实播待验证 | 应用级单例 Audio 与 Wails 命令/事件链已接通；目标设备真实来源可听播放待验收 |
 | 媒体 headers/Range/redirect 代理 | 未完成 | 目前只处理脚本 API 请求，不支持 HTMLAudio 受控媒体代理 |
 | 内存目标/2 小时稳定性 | 待验证 | 尚无实际 WebView/主进程增量与 soak 数据 |
 | 可选 live /rconfig | 外部阻塞 | 之前三次 HTTP status 0，没有 HTTP 响应；required CI 已改为 deterministic mock |
 
-**当前阶段结论：** QuickJS 运行时与 Go Host API 的一组关键兼容性/网络安全测试已通过；但 My-LiveHub 音乐模块迁移整体不能验收完成。搜索/详情/歌词/封面扩展 action、导入脚本接入、真实外部脚本 mock 执行、QuickJS 播放链路接入、HTMLAudio、媒体代理和内存/长时间稳定性仍未完成。不得把 QuickJS PoC CI 通过写成独立音乐播放器迁移完成。
+**历史阶段结论（D 开始前）：** QuickJS 运行时与 Go Host API 的兼容性测试通过，但当时 HTMLAudio/媒体代理未完成。当前 D 已接通生产 HTMLAudio 桥并通过自动化 CI；音乐模块整体仍不能验收完成，真实 WebView 播放、受控媒体代理、歌词时钟和长时间稳定性仍待后续阶段。不得把 D 的 CI 通过写成整个音乐模块完成。
 
 
 ### 10.18 复核后补充：导入元数据一致性与请求体预分配上限（2026-11-23）
@@ -941,7 +941,7 @@ line 3: unexpected EOF while looking for matching single quote
 | 重定向/代理/TLS transport | 测试通过（已实现策略范围内） | 禁用代理与 CookieJar、清除 TLSNextProto/ForceAttemptHTTP2、自定义 RoundTripper 拒绝、逐跳重定向验证、降级与跨源敏感头限制 |
 | 请求资源限制 | 测试通过（已实现策略范围内） | URL/body/header/response/并发/超时限制；multipart 使用限额写入；JSON/form 预检 |
 | 脚本隔离/并发/资源释放 | 部分完成 | 每脚本独立 QuickJS runtime、堆栈/内存限制、请求并发预算和 Close 等已有实现与测试；真实多脚本导入生命周期及长时间 soak 尚未验收 |
-| HTMLAudio/WebView 实际播放 | 待验证/当前架构未接通 | 当前桌面播放主链路仍保留 LXPlaybackEngine 和 lxmusic:// 客户端连接配置；没有完成 HTMLAudio 播放、媒体 Range/headers/seek/错误恢复的端到端验证 |
+| HTMLAudio/WebView 实际播放 | 桥接已接通，目标设备待验证 | 生产主窗口使用 HTMLAudio；媒体 Range/headers/受控 redirect/seek 和真实设备播放仍未完成 |
 | 两小时内存稳定性 | 待设备验证 | CI 单测不能替代 Windows WebView 连续播放与 renderer/主进程内存 soak |
 
 #### 10.24.2 本轮新增修复
@@ -957,7 +957,7 @@ line 3: unexpected EOF while looking for matching single quote
 
 1. 生产脚本导入/持久化/管理尚未接入 production SourceManager；当前 production runtime 启动时创建空 SourceManager。
 2. 目标生态 FeiChangDao、XingHai 等脚本的离线真实脚本测试集受上游无明确 LICENSE 阻塞；需要用户提供有权使用的脚本副本或许可。
-3. HTMLAudio 最终媒体请求与 Wails WebView 播放链路尚未完成；需要后续按本方案继续实施。
+3. HTMLAudio 与 Wails WebView 的 Go 命令/事件桥已实现；目标设备真实播放及最终媒体请求（headers/Range/redirect/代理）仍需按本方案继续验收。
 4. 真实 WebView 音频解码、Range/headers、seek、设备音频输出与两小时内存 soak 需要 Windows 设备验证。
 
 **本轮验收结论：** QuickJS runtime/music 确定性 CI 与定向 desktop 音乐接口测试通过；本轮代码级网络安全/资源边界修复已进入分支。完整真实脚本兼容性审计和音乐模块迁移仍未完成，不能标记整个音乐模块已验收。
@@ -977,7 +977,7 @@ line 3: unexpected EOF while looking for matching single quote
 | HTMLAudio 与播放桥接 | D 实施中；生产构造路径已切换到 HTMLAudio 单例桥，CI/Windows 实播待验收 |
 | 媒体代理与特殊请求头 | 未完成端到端验收 |
 | Windows 实播、两小时内存稳定性 | 待目标设备验收 |
-| 当前执行项 | A、B、C 已完成；D 实施中，尚未达到完成门 |
+| 当前执行项 | A/B/C 完成；D 代码、CI 与 Windows PoC 构建通过，目标设备实播待验收 |
 
 历史 CI 记录应以对应 GitHub workflow 的最终 conclusion 为准；workflow 尚在运行时不得记录为成功。
 
@@ -1013,5 +1013,6 @@ line 3: unexpected EOF while looking for matching single quote
 - 新增测试：资源感知队列加载、资源身份拒绝、媒体 headers/proxy fail-closed、单次 URL 刷新、刷新期间不提前推进队列、过期 session 事件丢弃、快速切歌取消旧 URL 解析、HTMLAudio 空队列正常结束。所有新测试已加入 QuickJS Windows workflow 定向测试表达式。
 - CI 修复记录：先修复 HTMLAudio 空队列仍调用旧洛雪 `NextTrack` 的失败；随后修复 TypeScript 模块声明的换行转义，以及 MusicView 两个 slider handler 的隐式 any。没有删除或放宽测试。
 - 最终代码提交：`3d8f65960deea3e85863ef700242a216f0431861`；CI Run `45149682218` 成功，QuickJS-NG native build、deterministic runtime/music tests、production QuickJS tests、desktop HTMLAudio tests、Wails bindings generation、npm ci、Vue TypeScript 检查及 Vite build 全部通过。
-- 为目标设备验收新增 Windows 可执行文件构建与 7 天 artifact 上传步骤；构建成功后从本次 GitHub Actions Run 下载 `My-LiveHub-HTMLAudio-D-PoC`，在目标 Windows/WebView 设备验证真实来源播放、暂停/恢复、seek、volume、stop、切歌、错误恢复，并记录 WebView 版本和媒体格式。
+- Workflow/方案记录提交：`c067e03a472ac6b5b9a24a6e91bc2fa3f1bf637f`；CI Run `45150651612` 成功，额外完成 Windows `lxproduction` 可执行文件构建和 artifact 上传。Artifact：`My-LiveHub-HTMLAudio-D-PoC`，ID `14806154129`，约 17.9 MB，保留至 2026-11-30。
+- 目标设备验收包可从 [GitHub Actions Run 45150651612](https://github.com/dongguo4812/My-LiveHub/actions/runs/45150651612) 的 Artifacts 下载；在目标 Windows/WebView 设备验证真实来源播放、暂停/恢复、seek、volume、stop、切歌、错误恢复，并记录 WebView 版本和媒体格式。
 - **当前验收状态：D 尚未达到整体停止条件。** 自动化代码/CI 子门已通过；真实 Windows WebView 可听播放及设备控制验收仍待目标设备执行。未取得该证据前不得勾选 D 完成门或进入 E。
