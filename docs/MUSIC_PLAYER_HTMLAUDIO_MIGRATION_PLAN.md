@@ -1065,3 +1065,17 @@ line 3: unexpected EOF while looking for matching single quote
 - 能力识别仍以真实执行后的 `inited.sources[*].actions` 为唯一依据，不通过静态扫描猜测能力；初始化失败仍明确拒绝导入。
 
 **真实样本验收：** 用户提供的 `https://gh-proxy.org/raw.githubusercontent.com/pdone/lx-music-source/main/fish/latest.js` 已通过 Windows x64 QuickJS 隔离环境中的真实导入测试。CI 从代理下载 639 KB 脚本，真实初始化耗时 37.23 秒，在 60 秒单次 Eval/整体 deadline 预算内完成；正式 `ImportScript` 返回成功并自动启用，持久化后重新读取的音源和 action 与导入结果一致。实际握手结果：支持音源 `[kg, kw, mg, tx, wy]`；社区扩展 action `[]`；洛雪原生 action `[musicUrl]`。该脚本是原生播放地址解析脚本，不声明 `search/detail/lyric/pic`，因此不得伪装成社区扩展 action。仅 `musicUrl` 的脚本现已作为有效能力允许导入；既无受支持社区 action 也无受支持原生 action 的脚本仍明确拒绝。完整 Windows x64 CI Run [45180458376](https://github.com/dongguo4812/My-LiveHub/actions/runs/45180458376) 全部步骤成功，包括真实样本导入、前端构建、Windows 可执行文件构建、QuickJS runtime 发布及无 CGO 本地引导验证。
+
+## 10.32 生产 musicUrl 首次调用初始化 Eval 超时修复（2026-11-23）
+
+**用户实测故障：** 真实导入并自动启用 `fish_music` 后，搜索可返回歌曲，但点击播放时，`kg/kw/tx` 的 `musicUrl` 首次调用均报告 `LX initialization: evaluate source: JavaScript execution exceeded 3s`。各音质 `128k/320k/flac` 均失败，证明音质回退无法绕过脚本初始化超时。
+
+**根因：** 10.31 只把导入阶段的能力探测 Eval 上限提高到 60 秒；生产 `SourceManager.dispatchScriptAction` 首次执行时仍通过 `New(Options{})` 创建默认 3 秒 Runtime，而 `InitializeLXSource` 对完整 639 KB 混淆脚本调用普通 `Eval`。因此导入成功不代表生产首次 action 初始化也能完成。
+
+**修复：**
+- QuickJS 新增单次 `EvalWithTimeout`，仅覆盖调用方明确指定的单次同步 Eval；Runtime 默认 3 秒 Eval watchdog 不变。
+- `InitializeLXSource` 对源脚本首次求值使用有界 60 秒 Eval，上层初始化 context deadline 仍是硬上限；初始化后的 timers/poll、能力读取、action 执行继续使用普通 3 秒 Eval。
+- 保持 QuickJS 32 MiB 默认内存限制、512 KiB 栈限制、HTTP 请求限制和现有安全边界，不通过全局放宽超时掩盖其他问题。
+- 新增回归测试：单次显式 5 秒 Eval 可完成超过默认 3 秒的初始化代码，随后普通 Eval 仍会被 3 秒 watchdog 中断。
+
+**验收状态：** 代码已提交，等待 Windows x64 完整 CI 验证。CI 通过后需重新构建并安装最新 My-LiveHub，再以真实 `fish_music` 对 kg/kw/tx 分别请求 `musicUrl`；只有获得真实 HTTP(S) 播放地址并由 HTMLAudio 成功播放，才能认定播放链路通过。wy 的“未找到歌名和歌手均匹配”属于独立匹配问题，须在初始化超时修复后单独复测。
