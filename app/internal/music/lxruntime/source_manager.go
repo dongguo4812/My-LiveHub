@@ -35,32 +35,54 @@ type SourceManager struct {
 	closed     bool
 }
 
+const (
+	maxLXImportedScripts        = 32
+	maxLXTotalScriptSourceBytes = 16 << 20
+)
+
 type LXSourceScript struct {
 	Info             ScriptInfo
 	Source            string
 	ExtensionActions  []string
 }
 
-func NewSourceManager(client *http.Client) *SourceManager {
-	return NewSourceManagerWithScripts(client, nil)
-}
-
-func NewSourceManagerWithScripts(client *http.Client, scripts []LXSourceScript) *SourceManager {
+func newSourceManager(client *http.Client) *SourceManager {
 	if client == nil {
 		client = &http.Client{Timeout: lxMaxRequestTimeout}
 	}
 	managerCtx, cancel := context.WithCancel(context.Background())
-	manager := &SourceManager{
-		ctx: managerCtx,
-		cancel: cancel,
-		client: client,
-		scripts: make([]*managedLXScript, 0, len(scripts)),
+	return &SourceManager{ctx: managerCtx, cancel: cancel, client: client}
+}
+
+func NewSourceManager(client *http.Client) *SourceManager {
+	return newSourceManager(client)
+}
+
+func NewSourceManagerWithScripts(client *http.Client, scripts []LXSourceScript) (*SourceManager, error) {
+	if len(scripts) > maxLXImportedScripts {
+		return nil, fmt.Errorf("too many imported LX scripts: %d exceeds limit %d", len(scripts), maxLXImportedScripts)
 	}
+	manager := newSourceManager(client)
+	manager.scripts = make([]*managedLXScript, 0, len(scripts))
+	totalBytes := 0
 	for i, definition := range scripts {
-		if strings.TrimSpace(definition.Source) == "" {
-			continue
+		if err := ValidateLXScriptSource(definition.Source); err != nil {
+			_ = manager.Close()
+			return nil, fmt.Errorf("LX script %d: %w", i+1, err)
 		}
 		info := definition.Info
+		if len(info.RawScript) > maxLXScriptSourceBytes {
+			_ = manager.Close()
+			return nil, fmt.Errorf("LX script %d metadata exceeds %d-byte limit", i+1, maxLXScriptSourceBytes)
+		}
+		totalBytes += len(definition.Source)
+		if info.RawScript != "" && info.RawScript != definition.Source {
+			totalBytes += len(info.RawScript)
+		}
+		if totalBytes > maxLXTotalScriptSourceBytes {
+			_ = manager.Close()
+			return nil, fmt.Errorf("total imported LX script source exceeds %d-byte limit", maxLXTotalScriptSourceBytes)
+		}
 		if strings.TrimSpace(info.Name) == "" {
 			info.Name = fmt.Sprintf("LX script %d", i+1)
 		}
@@ -70,13 +92,15 @@ func NewSourceManagerWithScripts(client *http.Client, scripts []LXSourceScript) 
 		extensions := make(map[string]struct{})
 		for _, action := range definition.ExtensionActions {
 			action = strings.TrimSpace(action)
-			if isLXCommunityExtensionAction(action) {
-				extensions[action] = struct{}{}
+			if !isLXCommunityExtensionAction(action) {
+				_ = manager.Close()
+				return nil, fmt.Errorf("LX script %q declares unsupported community extension action %q", info.Name, action)
 			}
+			extensions[action] = struct{}{}
 		}
 		manager.scripts = append(manager.scripts, &managedLXScript{info: info, source: definition.Source, extensionActions: extensions})
 	}
-	return manager
+	return manager, nil
 }
 
 func (m *SourceManager) Start(ctx context.Context) error {

@@ -216,6 +216,9 @@ func resolveLXHostWithResolver(ctx context.Context, host string, allowPrivate bo
 		}
 		return []netip.Addr{ip}, nil
 	}
+	if isNonCanonicalIPv4Host(host) {
+		return nil, fmt.Errorf("lx.request: non-canonical numeric IPv4 host is not allowed: %s", host)
+	}
 	ips, err := resolver.LookupNetIP(ctx, "ip", host)
 	if err != nil {
 		return nil, fmt.Errorf("lx.request: resolve destination: %w", err)
@@ -224,6 +227,43 @@ func resolveLXHostWithResolver(ctx context.Context, host string, allowPrivate bo
 		return nil, errors.New("lx.request: destination has no IP addresses")
 	}
 	return validateLXIPAnswers(host, ips, allowPrivate)
+}
+
+func isNonCanonicalIPv4Host(host string) bool {
+	parts := strings.Split(host, ".")
+	if len(parts) == 0 {
+		return false
+	}
+	for _, part := range parts {
+		if part == "" {
+			return false
+		}
+		allDigits := true
+		for _, char := range part {
+			if char < '0' || char > '9' {
+				allDigits = false
+				break
+			}
+		}
+		if allDigits {
+			continue
+		}
+		lower := strings.ToLower(part)
+		if strings.HasPrefix(lower, "0x") && len(lower) > 2 {
+			allHex := true
+			for _, char := range lower[2:] {
+				if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f')) {
+					allHex = false
+					break
+				}
+			}
+			if allHex {
+				continue
+			}
+		}
+		return false
+	}
+	return true
 }
 
 func validateLXIPAnswers(host string, ips []netip.Addr, allowPrivate bool) ([]netip.Addr, error) {

@@ -230,3 +230,13 @@ func TestLXSafeHTTPClientRejectsCustomTLSProtocolHandlers(t *testing.T) {
 		t.Fatalf("strict policy should reject custom TLS protocol handlers, got %v", err)
 	}
 }
+
+
+func TestResolveLXHostRejectsNonCanonicalIPv4Literals(t *testing.T) {
+	for _, host := range []string{"127.1", "2130706433", "0177.0.0.1", "0x7f000001", "0x7f.0.0.1", "1.2.3.4.5"} {
+		_, err := resolveLXHostWithResolver(context.Background(), host, false, &lxSequenceResolver{})
+		if err == nil || !strings.Contains(err.Error(), "non-canonical numeric IPv4") {
+			t.Errorf("resolveLXHostWithResolver(%q) = %v, want non-canonical numeric IPv4 rejection", host, err)
+		}
+	}
+}

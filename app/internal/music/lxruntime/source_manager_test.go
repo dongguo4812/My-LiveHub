@@ -9,8 +9,15 @@ import (
 	"time"
 )
 
+func newTestSourceManager(t *testing.T, scripts []LXSourceScript) *SourceManager {
+	t.Helper()
+	manager, err := NewSourceManagerWithScripts(nil, scripts)
+	if err != nil { t.Fatal(err) }
+	return manager
+}
+
 func TestProductionSourceManagerLifecycleGuards(t *testing.T) {
-	manager := NewSourceManagerWithScripts(nil, []LXSourceScript{
+	manager := newTestSourceManager(t, []LXSourceScript{
 		{Info: ScriptInfo{Name: "fixture-one"}, Source: "lx.on('request', () => 'https://1.1.1.1/a.mp3');"},
 		{Info: ScriptInfo{Name: "fixture-two"}, Source: "lx.on('request', () => 'https://1.1.1.1/b.mp3');"},
 	})
@@ -66,7 +73,7 @@ setTimeout(() => lx.send(lx.EVENT_NAMES.inited, {
   sources: { kw: { type: 'music', actions: ['musicUrl'], qualitys: ['128k'] } }
 }), 30000);
 `
-	manager := NewSourceManagerWithScripts(nil, []LXSourceScript{{Info: ScriptInfo{Name: "shutdown-cancel-fixture", RawScript: source}, Source: source}})
+	manager := newTestSourceManager(t, []LXSourceScript{{Info: ScriptInfo{Name: "shutdown-cancel-fixture", RawScript: source}, Source: source}})
 	if err := manager.Start(context.Background()); err != nil { t.Fatal(err) }
 
 	done := make(chan error, 1)
@@ -140,5 +147,21 @@ lx.send(lx.EVENT_NAMES.inited, {
 	defer manager.Close()
 	if _, err := manager.DispatchExtensionAction(context.Background(), "kw", "search", nil); err == nil || !strings.Contains(err.Error(), "explicitly enabled") {
 		t.Fatalf("undeclared community extension should be rejected, got %v", err)
+	}
+}
+
+
+func TestProductionSourceManagerEnforcesScriptResourceLimits(t *testing.T) {
+	if _, err := NewSourceManagerWithScripts(nil, []LXSourceScript{{Source: strings.Repeat("x", maxLXScriptSourceBytes+1)}}); err == nil || !strings.Contains(err.Error(), "byte limit") {
+		t.Fatalf("oversized script should be rejected, got %v", err)
+	}
+	tooMany := make([]LXSourceScript, maxLXImportedScripts+1)
+	for i := range tooMany { tooMany[i].Source = "lx.send('inited', {});" }
+	if _, err := NewSourceManagerWithScripts(nil, tooMany); err == nil || !strings.Contains(err.Error(), "too many imported") {
+		t.Fatalf("excessive script count should be rejected, got %v", err)
+	}
+	invalidExtension := []LXSourceScript{{Source: "lx.send('inited', {});", ExtensionActions: []string{"shell"}}}
+	if _, err := NewSourceManagerWithScripts(nil, invalidExtension); err == nil || !strings.Contains(err.Error(), "unsupported community extension") {
+		t.Fatalf("unknown extension capability should be rejected, got %v", err)
 	}
 }

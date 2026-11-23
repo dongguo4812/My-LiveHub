@@ -11,6 +11,18 @@ import (
 	"strings"
 )
 
+const maxLXScriptSourceBytes = 2 << 20
+
+func ValidateLXScriptSource(source string) error {
+	if strings.TrimSpace(source) == "" {
+		return errors.New("LX script source is empty")
+	}
+	if len(source) > maxLXScriptSourceBytes {
+		return fmt.Errorf("LX script source exceeds %d-byte limit", maxLXScriptSourceBytes)
+	}
+	return nil
+}
+
 // InitializeLXSource installs the desktop host, evaluates a source, and pumps
 // initialization-time timers and lx.request calls until the source registers
 // its request handler and sends the inited event.
@@ -23,8 +35,11 @@ func (r *Runtime) InitializeLXSource(ctx context.Context, info ScriptInfo, sourc
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if strings.TrimSpace(source) == "" {
-		return errors.New("LX initialization: source script is empty")
+	if err := ValidateLXScriptSource(source); err != nil {
+		return fmt.Errorf("LX initialization: %w", err)
+	}
+	if len(info.RawScript) > maxLXScriptSourceBytes {
+		return fmt.Errorf("LX initialization: script metadata exceeds %d-byte limit", maxLXScriptSourceBytes)
 	}
 	if client == nil {
 		client = http.DefaultClient
