@@ -157,3 +157,22 @@ func TestPlaybackResourceCacheRejectsIdentityMismatch(t *testing.T) {
 		})
 	}
 }
+
+
+func TestPlaybackResourceCacheClonesMediaHeadersOnWriteAndRead(t *testing.T) {
+	cache := NewPlaybackResourceCache(time.Minute, 4)
+	track := Track{ID: "header-clone", SourceID: "tx"}
+	resource := PlaybackResource{
+		URL: "https://media.example.test/header-clone.mp3", SourceID: "tx",
+		TrackID: track.ID, Quality: "320k", Headers: map[string]string{"Referer": "https://source.example/"},
+	}
+	cache.Put(track, "320k", resource)
+	resource.Headers["Referer"] = "https://mutated-before-read.example/"
+	first, ok := cache.Get(track, "320k")
+	if !ok { t.Fatal("expected cached resource") }
+	if first.Headers["Referer"] != "https://source.example/" { t.Fatalf("cache retained caller's mutable header map: %#v", first.Headers) }
+	first.Headers["Referer"] = "https://mutated-after-read.example/"
+	second, ok := cache.Get(track, "320k")
+	if !ok { t.Fatal("expected cached resource after read mutation") }
+	if second.Headers["Referer"] != "https://source.example/" { t.Fatalf("read result mutated cached headers: %#v", second.Headers) }
+}
