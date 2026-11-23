@@ -981,3 +981,10 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 - 新增生产 runtime 可用性测试，确认 lxproduction 构建下没有导入脚本时，runtime 在 Start 前后均不得报告可解析能力。
 - QuickJS 专项 workflow 增加仅针对音乐 runtime 集成的 desktop package 测试，运行两个定向用例：MusicService 来源能力状态，以及 production LX runtime 空脚本状态。该步骤不是 Desktop validation workflow，不执行前端全量构建、安装包、portable ZIP 或 release。
 - 该步骤是为了验证此前只运行 lxruntime/music package tests 未覆盖的 desktop 接口变更。待最新 workflow 通过后记录结果。
+
+
+### 10.23 定向 desktop 音乐集成步骤的 shell 引号修复（2026-11-23）
+
+提交 28e1005cbb5d9fcd3bec5461c6318cb7fefd125a 的 QuickJS CI 中，新增的 desktop music integration step 在 bash 命令中缺少 -run 正则的闭合单引号，导致：
+line 3: unexpected EOF while looking for matching single quote
+这属于 workflow 命令转义错误，不是 Go 编译或测试失败。已移除不必要的行尾锚点并补齐闭合引号。该提交的 lxquickjs、go vet、lxproduction music/runtime 测试均通过；desktop 定向测试因 shell 语法未实际启动，修正后重新执行。
