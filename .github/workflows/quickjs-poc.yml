@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   quickjs-windows-x64:
-    name: QuickJS-NG Windows x64 CGo and LX runtime
+    name: QuickJS-NG Windows x64 CGO-free LX runtime
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -144,7 +144,6 @@ jobs:
           $env:CGO_ENABLED = '0'
           go build -tags lxproduction -ldflags "-H=windowsgui" -o bin/My-LiveHub.exe .
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Copy-Item -LiteralPath bin/lxqjs.dll -Destination bin/My-LiveHub-runtime.dll -ErrorAction SilentlyContinue
 
       - name: Upload Windows HTMLAudio D PoC executable
         uses: actions/upload-artifact@v4
@@ -165,6 +164,7 @@ jobs:
           "$hash  lxqjs-windows-amd64.zip" | Set-Content -Path app/bin/lxqjs-windows-amd64.zip.sha256 -NoNewline
 
       - name: Publish prebuilt QuickJS-NG runtime
+        if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: quickjs-ng-v0.18.0-lxabi1
