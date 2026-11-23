@@ -10,6 +10,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"reflect"
 	"testing"
@@ -18,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
+	"github.com/dongguo4812/My-LiveHub/app/internal/music"
 )
 
 func testLXConfigManager(t *testing.T) *config.Manager {
