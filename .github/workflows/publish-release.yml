@@ -57,9 +57,10 @@ jobs:
           git clone --depth 1 --branch v0.18.0 https://github.com/quickjs-ng/quickjs.git "$TEMP_DIR/quickjs-ng"
           cmake -S "$WORKSPACE/app/internal/music/lxruntime/poc/native" -B "$TEMP_DIR/lx-quickjs-production-build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DQUICKJS_NG_SOURCE_DIR="$TEMP_DIR/quickjs-ng"
           cmake --build "$TEMP_DIR/lx-quickjs-production-build" --config Release
-          WIN_LIB_DIR="$(cygpath -m "$TEMP_DIR/lx-quickjs-production-build/lib")"
+          mkdir -p "$WORKSPACE/app/internal/music/lxruntime/poc/native/lib"
+          cp "$TEMP_DIR/lx-quickjs-production-build/lib/libqjs.a" "$WORKSPACE/app/internal/music/lxruntime/poc/native/lib/libqjs.a"
           GITHUB_ENV_PATH="$(cygpath -u "$GITHUB_ENV")"
-          printf 'CGO_ENABLED=1\nCC=gcc\nCGO_LDFLAGS=-L%s -lqjs\n' "$WIN_LIB_DIR" >> "$GITHUB_ENV_PATH"
+          printf 'CGO_ENABLED=1\nCC=gcc\n' >> "$GITHUB_ENV_PATH"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
