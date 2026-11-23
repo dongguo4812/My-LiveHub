@@ -49,7 +49,7 @@ lx.send(lx.EVENT_NAMES.inited, {
 	capabilities, err := DetectLXScriptCapabilities(context.Background(), ScriptInfo{Name: "native-music-url-only"}, source, nil)
 	if err != nil { t.Fatalf("native musicUrl-only source should be recognized: %v", err) }
 	if len(capabilities.SupportedSources) != 1 || capabilities.SupportedSources[0] != "kw" {
-		t.Fatalf("supported sources = %#v, want [fish]", capabilities.SupportedSources)
+		t.Fatalf("supported sources = %#v, want [kw]", capabilities.SupportedSources)
 	}
 	if len(capabilities.NativeActions) != 1 || capabilities.NativeActions[0] != "musicUrl" {
 		t.Fatalf("native actions = %#v, want [musicUrl]", capabilities.NativeActions)
