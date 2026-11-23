@@ -71,8 +71,13 @@ func TestLXZlibInflateBridgeReturnsNodeCompatibleBuffer(t *testing.T) {
 	if err := rt.InstallLXHost(context.Background(), ScriptInfo{Name: "zlib-inflate-buffer-contract"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := rt.Eval(context.Background(), `
-const compressed = Buffer.from('`+base64.StdEncoding.EncodeToString(func() []byte { value, _ := lxZlibDeflate([]byte("zlib-buffer-contract")); return value }())+`', 'base64');
+	compressed, err := lxZlibDeflate([]byte("zlib-buffer-contract"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded := base64.StdEncoding.EncodeToString(compressed)
+	script := `
+const compressed = Buffer.from('` + encoded + `', 'base64');
 globalThis.__lxZlibInflateBufferState = 'pending';
 lx.utils.zlib.inflate(compressed).then(restored => {
   globalThis.__lxZlibInflateBufferState = Buffer.isBuffer(restored) && restored.toString('utf8') === 'zlib-buffer-contract'
@@ -80,7 +85,8 @@ lx.utils.zlib.inflate(compressed).then(restored => {
     : 'invalid';
 });
 'started';
-`, "lx-zlib-inflate-buffer-contract.js"); err != nil {
+`
+	if _, err := rt.Eval(context.Background(), script, "lx-zlib-inflate-buffer-contract.js"); err != nil {
 		t.Fatal(err)
 	}
 	value, err := rt.Eval(context.Background(), "String(globalThis.__lxZlibInflateBufferState)", "lx-zlib-inflate-buffer-result.js")
