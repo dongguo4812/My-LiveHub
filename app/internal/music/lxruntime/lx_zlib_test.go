@@ -63,3 +63,30 @@ lx.utils.zlib.deflate(Buffer.from('zlib-buffer-contract')).then(compressed => {
 	if err != nil { t.Fatal(err) }
 	if value != "buffer" { t.Fatalf("zlib.deflate must resolve a Node-compatible Buffer, got %q", value) }
 }
+
+
+func TestLXZlibInflateBridgeReturnsNodeCompatibleBuffer(t *testing.T) {
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{Name: "zlib-inflate-buffer-contract"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.Eval(context.Background(), `
+const compressed = Buffer.from('eJzLSM3JyVcozy/KSVEEAB0JBF4=', 'base64');
+globalThis.__lxZlibInflateBufferState = 'pending';
+lx.utils.zlib.inflate(compressed).then(restored => {
+  globalThis.__lxZlibInflateBufferState = Buffer.isBuffer(restored) && restored.toString('utf8') === 'zlib-buffer-contract'
+    ? 'buffer'
+    : 'invalid';
+});
+'started';
+`, "lx-zlib-inflate-buffer-contract.js"); err != nil {
+		t.Fatal(err)
+	}
+	value, err := rt.Eval(context.Background(), "String(globalThis.__lxZlibInflateBufferState)", "lx-zlib-inflate-buffer-result.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != "buffer" {
+		t.Fatalf("zlib.inflate must resolve a Node-compatible Buffer with original bytes, got %q", value)
+	}
+}
