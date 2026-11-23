@@ -1026,3 +1026,25 @@ line 3: unexpected EOF while looking for matching single quote
 - 没有 `inited.sources`、没有有效音源声明、或未声明任何支持的社区扩展 action 时，导入明确失败并返回原因；不得静默保存为无社区能力脚本。
 - 导入成功后展示识别出的社区能力和支持音源；脚本列表持续展示已识别能力、音源范围及 musicUrl 原生处理说明。
 - 自动识别使用初始化握手声明作为能力依据，不通过源码字符串搜索猜测函数存在；该识别仍需由真实脚本兼容性测试验证。CI 尚未完成前不得将本节标记为验收通过。
+
+### 10.30 Windows QuickJS 环境依赖去 CGO 化（2026-11-23，实施中）
+
+**目标：** Windows 开发者执行 `task dev` / `task build` 不需要自行安装 MSYS2、MinGW-w64 或 GCC，同时不能关闭生产 LX runtime、不能退化为 `lx_script_runtime_other.go` 的空实现，也不能丢失 QuickJS 的 Go Host API。
+
+**实施架构：**
+
+- QuickJS-NG 仍固定为 v0.18.0；C shim 与 QuickJS 静态链接成独立 `lxqjs.dll`，由 CI 的 MSYS2 UCRT64 工具链构建。
+- Go 侧使用 `github.com/ebitengine/purego` 动态加载 DLL 并绑定 C ABI，生产构建不再使用 `import "C"`。
+- 原有 Go 回调改为显式函数指针注册，保留 MD5、AES、RSA、随机数、Buffer、zlib；跨边界内存由 DLL 自己的 allocator 分配和释放，避免不同 CRT allocator 混用。
+- QuickJS DLL 由 CI 发布为固定 ABI 版本的 Release asset；Windows PowerShell 开发入口自动下载、校验 SHA256 并放入 `app/bin`。
+- Taskfile 的 `dev/build` 均设置 `CGO_ENABLED=0`。本机不需要 C 编译器；CI 仍使用编译器生成预编译 DLL。
+
+**停止条件（必须全部满足）：**
+
+1. Windows x64 `CGO_ENABLED=0` 下，QuickJS native shared library 构建成功，导出符号可被 Go 动态绑定。
+2. QuickJS runtime/music 全量确定性测试、`lxproduction` 测试和 desktop 音乐集成测试通过；回调覆盖 MD5/AES/RSA/random/Buffer/zlib。
+3. Windows Wails 生产可执行文件在无 CGO 条件下构建成功，运行时 DLL 与应用正确配套。
+4. CI 发布 DLL 后，移除本地 DLL，再执行与 `task build` 相同的 PowerShell 引导流程；自动下载、SHA256 校验、安装 DLL 并完成 Wails 构建。
+5. Taskfile 的 `dev/build` 均不再要求本机 GCC；缺少/下载失败/校验失败时明确报错，不回退到空 runtime。
+
+**当前进度：** 已添加 purego 动态调用层、Go callback ABI、独立 CMake DLL target、无 CGO build tags、Taskfile 和自动下载脚本，并调整 QuickJS workflow 构建及发布流程。当前提交 `5118d8f9749fc2549f97bdee8d37fd1f1936d19a` 的 CI 尚未结束；DLL ABI、真实回调、无 CGO Wails 构建及发布后下载闭环均未验收。因此本节仍为实施中，不能宣称环境问题已解决。
