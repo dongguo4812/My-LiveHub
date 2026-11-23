@@ -4,6 +4,7 @@ package lxruntime
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
