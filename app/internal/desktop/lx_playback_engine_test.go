@@ -185,3 +185,41 @@ func TestLXPlaybackEngineEnsuresAPIOnlyWhenPlaybackRequested(t *testing.T) {
 		t.Fatal("playback request did not launch 洛雪 after the status API was unavailable")
 	}
 }
+
+
+func TestBuildLXPlayURIUsesKugouFileHashFromCompositeID(t *testing.T) {
+	track := music.Track{
+		ID: "12345_AABBCCDDEEFF00112233445566778899",
+		SourceID: "kg",
+		LXSourceKey: "kg",
+		Title: "测试歌曲",
+		Artist: "测试歌手",
+	}
+	uri, err := buildLXPlayURI(track)
+	if err != nil { t.Fatal(err) }
+	parsed, err := url.Parse(uri)
+	if err != nil { t.Fatal(err) }
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(parsed.Query().Get("data")), &payload); err != nil { t.Fatal(err) }
+	if got := payload["songmid"]; got != "AABBCCDDEEFF00112233445566778899" {
+		t.Fatalf("Kugou songmid = %#v, want FileHash", got)
+	}
+}
+
+func TestBuildLXPlayURIUsesKugouHashWhenIDIsHashOnly(t *testing.T) {
+	track := music.Track{
+		ID: "AABBCCDDEEFF00112233445566778899",
+		SourceID: "kg",
+		Title: "测试歌曲",
+		Artist: "测试歌手",
+	}
+	uri, err := buildLXPlayURI(track)
+	if err != nil { t.Fatal(err) }
+	parsed, err := url.Parse(uri)
+	if err != nil { t.Fatal(err) }
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(parsed.Query().Get("data")), &payload); err != nil { t.Fatal(err) }
+	if got := payload["songmid"]; got != track.ID {
+		t.Fatalf("Kugou songmid = %#v, want %q", got, track.ID)
+	}
+}
