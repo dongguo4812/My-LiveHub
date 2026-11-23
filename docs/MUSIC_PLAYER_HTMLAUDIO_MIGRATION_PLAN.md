@@ -740,3 +740,36 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 本轮审计已足以确定原方案中的关键误区与实现差距，但**不能诚实地把阶段 0 宣告为全部完成**：还缺少用户指定脚本生态的真实脚本样本和逐脚本执行验证，以及 Windows Wails WebView HTMLAudio PoC。前者决定“JS 搜索脚本”究竟兼容哪一种脚本格式；后者决定最终播放链路可行性。二者均不能由静态源码审计代替。
 
 因此当前审计结论为：**官方源码静态审计主干已完成；目标脚本生态兼容验证和播放 PoC 属于审计收尾的实测 gate，阶段 0 暂不关闭。** 下一步不扩展功能开发，而是先从仓库现有真实脚本/用户明确指定的脚本生态取得可复现样本，建立 fixture 和逐 API 兼容测试；同时修订主方案中的安全 blocker 和 HTMLAudio 验收门槛。
+
+
+### 10.13 真实脚本样本盘点与 SSRF 第一轮修复
+
+本轮从当前分支实际嵌入的脚本目录读取并分析以下样本（不是根据文件名推测）：
+
+| 样本 | 文件 | 观察到的实际依赖/行为 | 当前兼容结论 |
+|---|---|---|---|
+| 星澜聚合音源 v4.0.2 | `app/internal/music/lxruntime/testdata/sources/xinglan.js` | 约 71.9 KB / 1651 行；使用 `globalThis.lx`、`currentScriptInfo`、`lx.request`、`utils.crypto.md5/aesEncrypt`、`utils.buffer.bufToString`；含多平台 musicUrl 后端、请求头、Cookie 配置和音质映射 | 有价值的真实复杂脚本样本；当前 action handler 只分发 musicUrl，必须验证 Buffer/crypto/响应体和真实请求链 |
+| HelloWorld 音源 | `app/internal/music/lxruntime/testdata/sources/helloworld.js` | 约 21.6 KB / 557 行；使用 `lx.request`、动态 API 配置、headers/body、Buffer/base64 token 生成；声明远程 musicUrl 和 local musicUrl/lyric/pic | 可验证请求参数、请求头、Buffer/base64、动态配置及 local action；不代表搜索 action |
+| 幻音音源 | `app/internal/music/lxruntime/testdata/sources/huanyin.js` | 约 8.3 KB / 353 行；实现 musicUrl，并额外注册 mg search handler；使用 URL、Map、Promise、定时器和 lx.request | 暴露协议边界问题：脚本 handler 有 search 分支且 inited 声明 mg search，但官方桌面 preload 的远程 action 白名单会过滤 search；不能据此宣称它是洛雪原生 search action |
+
+**样本审计结论：**
+- 当前三个嵌入脚本均不能自动代表“完整洛雪 JS 搜索生态”。星澜和 HelloWorld 的真实 handler 主体是 musicUrl；幻音的 search 是脚本自定义行为，与官方远程自定义源 action 白名单不一致。
+- 真实兼容测试必须把原生桌面自定义源协议测试与“完整 JS provider 搜索”测试分开。后者必须明确目标生态/脚本约定，并对真实脚本执行，不得把自定义 action 伪装成官方原生能力。
+- 星澜脚本直接依赖 AES/MD5/Buffer，并从 HTTP response body 读取 JSON 或 Buffer-like 数据；当前测试集必须覆盖实际加密模式、编码、二进制转换、请求头、请求取消及多请求并发。
+- 现有脚本配置含外部 API endpoint，样本文件中出现明文访问凭据/卡密的风险；这些样本只用于兼容性分析，不应在日志、测试报告或新增文档中复制密钥。后续应对仓库中的敏感值做单独清理审计。
+
+**本轮已落地的 SSRF 代码修复：**
+- 新增 `app/internal/music/lxruntime/ssrf.go`，对脚本 HTTP 请求执行目标主机校验。
+- 默认 `http.Transport` 使用独立安全 transport；禁用环境代理绕过安全策略，解析 DNS 后逐个校验地址，并将连接固定到已校验 IP，避免 DNS rebinding 的校验/连接竞态。
+- 拒绝 URL userinfo、非 HTTP(S)、loopback、私网、link-local、multicast、unspecified、共享地址、基准测试网段及已知特殊用途 IPv4/IPv6 地址。
+- 每次 HTTP redirect 都重新验证目标；默认最多允许 5 跳。自定义 RoundTripper 若无法保证 DNS pinning，在生产策略下对域名请求 fail closed。
+- `executeLXHTTPRequest` 的生产入口始终使用严格策略；只有测试专用的 `executeLXHTTPRequestWithPolicy(..., true)` 可以访问 httptest loopback，避免为测试放宽生产边界。
+- 新增 `ssrf_test.go` 覆盖公有/私有/保留地址分类、私网 IP 拒绝、URL credentials 与 scheme 校验；原有 HTTP 桥接测试改为显式使用测试专用本地策略。
+
+**当前证据状态与限制：**
+- SSRF 修复代码已提交到目标分支，但本轮尚未执行 Go 测试、生产 build 或 CI；因此只能称为“代码已落地、待测试验证”，不能称为安全 blocker 已完全关闭。
+- 仍需补充 DNS 解析混合结果、DNS rebinding、重定向跳转到私网、IPv4-mapped IPv6、代理绕过、自定义 transport、取消与超时的测试。
+- 尚未取得并运行用户明确指定的目标生态外部真实脚本集合；当前三份是仓库已嵌入样本。需先以这些样本建立 baseline，再扩充至少一份来自目标生态的独立真实脚本，避免只验证项目自带样本。
+- 搜索、播放 URL、歌词、请求头、AES/RSA/MD5、Buffer/zlib、二进制响应、请求取消和质量回退应分别形成可重复 fixture 测试；真实线上 endpoint 采样需记录时间、状态码、响应类型及脱敏后的请求元数据，不保存令牌、Cookie 或签名 URL。
+
+阶段 0 继续保持进行中；本轮只落地网络安全第一轮实现并完善真实样本审计，不进入阶段 1 功能开发。
