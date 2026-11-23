@@ -17,7 +17,7 @@ target_link_libraries(lxqjs PRIVATE qjs)
 if(MINGW)
     target_link_options(lxqjs PRIVATE -static -static-libgcc -static-libstdc++)
 endif()
-set_target_properties(lxqjs PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON
+set_target_properties(lxqjs PROPERTIES PREFIX "" OUTPUT_NAME "lxqjs" WINDOWS_EXPORT_ALL_SYMBOLS ON
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/runtime"
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/runtime")
 
