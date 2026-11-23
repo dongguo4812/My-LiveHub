@@ -14,7 +14,8 @@ type LXScriptSummary struct {
 	Author string `json:"author,omitempty"`
 	Homepage string `json:"homepage,omitempty"`
 	Enabled bool `json:"enabled"`
-	ExtensionActions []string `json:"extension_actions,omitempty"`\n\tSupportedSources []string `json:"supported_sources,omitempty"`
+	ExtensionActions []string `json:"extension_actions,omitempty"`
+	SupportedSources []string `json:"supported_sources,omitempty"`
 	LastError string `json:"last_error,omitempty"`
 }
 
