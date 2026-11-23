@@ -50,6 +50,8 @@ type Runtime struct {
 	commands chan command
 	done     chan struct{}
 	close    sync.Once
+	dispatchMu sync.Mutex
+	initializeMu sync.Mutex
 	lifecycle context.Context
 	shutdown context.CancelFunc
 }
