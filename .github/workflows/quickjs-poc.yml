@@ -98,4 +98,4 @@ jobs:
         run: |
           export CGO_ENABLED=1
           export CC=gcc
-          go test -tags lxproduction -run 'TestMusicServiceGetSourcesReportsActualRuntimeAvailability|TestProductionLXScriptRuntimeAvailabilityRequiresImportedScripts|TestProductionLXScriptRuntimeImportRestoreEnableDelete|TestProductionLXScriptRuntimeQuarantinesMalformedStore|TestLXScriptStoreSerializationIsStable' ./internal/desktop
+          go test -tags lxproduction -run 'TestMusicServiceGetSourcesReportsActualRuntimeAvailability|TestProductionLXScriptRuntimeAvailabilityRequiresImportedScripts|TestProductionLXScriptRuntimeImportRestoreEnableDelete|TestProductionLXScriptRuntimeQuarantinesMalformedStore|TestProductionLXScriptRuntimeIsolatesInvalidPersistedScript|TestLXScriptStoreSerializationIsStable' ./internal/desktop
