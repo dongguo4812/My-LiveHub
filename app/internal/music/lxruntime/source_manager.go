@@ -4,7 +4,6 @@ package lxruntime
 
 import (
 	"context"
-	_ "embed"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,15 +13,6 @@ import (
 	"time"
 )
 
-//go:embed testdata/sources/xinglan.js
-var productionXinglanSource []byte
-
-//go:embed testdata/sources/helloworld.js
-var productionHelloWorldSource []byte
-
-//go:embed testdata/sources/huanyin.js
-var productionHuanyinSource []byte
-
 type managedLXScript struct {
 	info        ScriptInfo
 	source      string
@@ -30,9 +20,9 @@ type managedLXScript struct {
 	initialized bool
 }
 
-// SourceManager owns isolated, persistent QuickJS contexts for all three real
-// LX scripts. Each script is initialized lazily on first use; a failed script
-// is isolated and the next real script is tried before returning an error.
+// SourceManager owns isolated, persistent QuickJS contexts for scripts
+// explicitly supplied by the script-import layer. Test fixtures and third-party
+// source snapshots are never bundled into the production binary by default.
 type SourceManager struct {
 	mu         sync.Mutex
 	dispatchMu sync.Mutex
@@ -45,21 +35,40 @@ type SourceManager struct {
 	closed     bool
 }
 
+type LXSourceScript struct {
+	Info   ScriptInfo
+	Source string
+}
+
 func NewSourceManager(client *http.Client) *SourceManager {
+	return NewSourceManagerWithScripts(client, nil)
+}
+
+func NewSourceManagerWithScripts(client *http.Client, scripts []LXSourceScript) *SourceManager {
 	if client == nil {
 		client = &http.Client{Timeout: lxMaxRequestTimeout}
 	}
 	managerCtx, cancel := context.WithCancel(context.Background())
-	return &SourceManager{
+	manager := &SourceManager{
 		ctx: managerCtx,
 		cancel: cancel,
 		client: client,
-		scripts: []*managedLXScript{
-			{info: ScriptInfo{Name: "Xinglan production source", Version: "4.0.2", RawScript: string(productionXinglanSource)}, source: string(productionXinglanSource)},
-			{info: ScriptInfo{Name: "HelloWorld production source", Version: "1.0.0", RawScript: string(productionHelloWorldSource)}, source: string(productionHelloWorldSource)},
-			{info: ScriptInfo{Name: "Huanyin production source", Version: "1.0.0", RawScript: string(productionHuanyinSource)}, source: string(productionHuanyinSource)},
-		},
+		scripts: make([]*managedLXScript, 0, len(scripts)),
 	}
+	for i, definition := range scripts {
+		if strings.TrimSpace(definition.Source) == "" {
+			continue
+		}
+		info := definition.Info
+		if strings.TrimSpace(info.Name) == "" {
+			info.Name = fmt.Sprintf("LX script %d", i+1)
+		}
+		if info.RawScript == "" {
+			info.RawScript = definition.Source
+		}
+		manager.scripts = append(manager.scripts, &managedLXScript{info: info, source: definition.Source})
+	}
+	return manager
 }
 
 func (m *SourceManager) Start(ctx context.Context) error {
@@ -75,6 +84,10 @@ func (m *SourceManager) Start(ctx context.Context) error {
 		return errors.New("LX source manager is closed")
 	}
 	if m.started {
+		return nil
+	}
+	if len(m.scripts) == 0 {
+		m.started = true
 		return nil
 	}
 	runtime, err := New(Options{})
@@ -191,6 +204,10 @@ func (m *SourceManager) ResolvePlaybackURL(ctx context.Context, source string, i
 		parsed, parseErr := url.Parse(strings.TrimSpace(resolved))
 		if parseErr != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
 			failures = append(failures, script.info.Name+" 返回无效 HTTP(S) 地址")
+			continue
+		}
+		if err := validateLXPlaybackURL(ctx, parsed); err != nil {
+			failures = append(failures, script.info.Name+" 返回不安全的播放地址："+err.Error())
 			continue
 		}
 		return resolved, nil

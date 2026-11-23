@@ -104,6 +104,17 @@ func validateLXDestinationWithPolicy(ctx context.Context, target *url.URL, allow
 	return validateLXDestinationWithResolver(ctx, target, allowPrivate, net.DefaultResolver)
 }
 
+func validateLXPlaybackURL(ctx context.Context, target *url.URL) error {
+	if ctx == nil { ctx = context.Background() }
+	select {
+	case lxRequestSemaphore <- struct{}{}:
+		defer func() { <-lxRequestSemaphore }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return validateLXDestinationWithPolicy(ctx, target, false)
+}
+
 func validateLXDestinationWithResolver(ctx context.Context, target *url.URL, allowPrivate bool, resolver lxHostResolver) error {
 	if target == nil || (target.Scheme != "http" && target.Scheme != "https") || target.Hostname() == "" {
 		return errors.New("lx.request: only absolute HTTP(S) URLs are supported")

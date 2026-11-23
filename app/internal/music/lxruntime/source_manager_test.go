@@ -4,14 +4,18 @@ package lxruntime
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestProductionSourceManagerLifecycleGuards(t *testing.T) {
-	manager := NewSourceManager(nil)
-	if len(manager.scripts) != 3 {
-		t.Fatalf("production script count = %d, want 3", len(manager.scripts))
+	manager := NewSourceManagerWithScripts(nil, []LXSourceScript{
+		{Info: ScriptInfo{Name: "fixture-one"}, Source: "lx.on('request', () => 'https://1.1.1.1/a.mp3');"},
+		{Info: ScriptInfo{Name: "fixture-two"}, Source: "lx.on('request', () => 'https://1.1.1.1/b.mp3');"},
+	})
+	if len(manager.scripts) != 2 {
+		t.Fatalf("registered script count = %d, want 2", len(manager.scripts))
 	}
 	for _, script := range manager.scripts {
 		if script.info.RawScript != script.source || script.info.RawScript == "" {
@@ -44,6 +48,7 @@ func TestProductionSourceManagerLifecycleGuards(t *testing.T) {
 
 func TestProductionSourceManagerUsesLXRequestTimeoutBudget(t *testing.T) {
 	manager := NewSourceManager(nil)
+	if len(manager.scripts) != 0 { t.Fatalf("default manager unexpectedly bundled %d test/community scripts", len(manager.scripts)) }
 	if manager.client.Timeout != lxMaxRequestTimeout {
 		t.Fatalf("default source HTTP client timeout = %s, want %s", manager.client.Timeout, lxMaxRequestTimeout)
 	}
@@ -51,15 +56,13 @@ func TestProductionSourceManagerUsesLXRequestTimeoutBudget(t *testing.T) {
 }
 
 func TestProductionSourceManagerCloseCancelsInitialization(t *testing.T) {
-	manager := NewSourceManager(nil)
-	source := `
+	 source := `
 lx.on(lx.EVENT_NAMES.request, async () => 'https://cdn.example.test/song.mp3');
 setTimeout(() => lx.send(lx.EVENT_NAMES.inited, {
   sources: { kw: { type: 'music', actions: ['musicUrl'], qualitys: ['128k'] } }
 }), 30000);
 `
-	manager.scripts[0].source = source
-	manager.scripts[0].info = ScriptInfo{Name: "shutdown-cancel-fixture", RawScript: source}
+	manager := NewSourceManagerWithScripts(nil, []LXSourceScript{{Info: ScriptInfo{Name: "shutdown-cancel-fixture", RawScript: source}, Source: source}})
 	if err := manager.Start(context.Background()); err != nil { t.Fatal(err) }
 
 	done := make(chan error, 1)
@@ -76,5 +79,22 @@ setTimeout(() => lx.send(lx.EVENT_NAMES.inited, {
 		if err == nil { t.Fatal("ResolvePlaybackURL unexpectedly succeeded after manager shutdown") }
 	case <-time.After(2 * time.Second):
 		t.Fatal("ResolvePlaybackURL did not exit after manager shutdown")
+	}
+}
+
+
+func TestProductionSourceManagerRejectsLoopbackPlaybackURL(t *testing.T) {
+	source := `
+lx.on(lx.EVENT_NAMES.request, async () => 'http://127.0.0.1:23330/private-audio');
+lx.send(lx.EVENT_NAMES.inited, {
+  sources: { kw: { type: 'music', actions: ['musicUrl'], qualitys: ['128k'] } }
+});
+`
+	manager := NewSourceManagerWithScripts(nil, []LXSourceScript{{Info: ScriptInfo{Name: "private-url-fixture"}, Source: source}})
+	if err := manager.Start(context.Background()); err != nil { t.Fatal(err) }
+	defer manager.Close()
+	_, err := manager.ResolvePlaybackURL(context.Background(), "kw", map[string]any{})
+	if err == nil || !strings.Contains(err.Error(), "not public") {
+		t.Fatalf("loopback playback URL should be rejected, got %v", err)
 	}
 }

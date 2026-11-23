@@ -150,3 +150,12 @@ func TestLXSafeHTTPClientRejectsCustomTransportInProduction(t *testing.T) {
 		t.Fatalf("strict policy should reject custom RoundTripper, got %v", err)
 	}
 }
+
+
+func TestLXPlaybackURLValidationRejectsLoopback(t *testing.T) {
+	target, err := url.Parse("http://127.0.0.1:23330/audio.mp3")
+	if err != nil { t.Fatal(err) }
+	if err := validateLXPlaybackURL(context.Background(), target); err == nil || !strings.Contains(err.Error(), "not public") {
+		t.Fatalf("loopback media URL should be rejected, got %v", err)
+	}
+}
