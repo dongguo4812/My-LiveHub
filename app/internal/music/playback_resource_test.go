@@ -117,8 +117,10 @@ func TestPlaybackResourceCacheHonorsSourceExpiryAndCapacity(t *testing.T) {
 	now = now.Add(11*time.Second)
 	if _, ok := cache.Get(a, "320k"); ok { t.Fatal("resource was served after source expiry") }
 	cache.Put(c, "320k", makeResource("c", now.Add(2*time.Minute)))
-	if _, ok := cache.Get(b, "320k"); !ok { t.Fatal("capacity eviction removed the later-expiring entry") }
-	if _, ok := cache.Get(c, "320k"); !ok { t.Fatal("new entry missing after bounded eviction") }
+	cache.Put(d, "320k", makeResource("d", now.Add(3*time.Minute)))
+	if _, ok := cache.Get(b, "320k"); ok { t.Fatal("capacity eviction retained the earliest-expiring entry") }
+	if _, ok := cache.Get(c, "320k"); !ok { t.Fatal("later-expiring entry was evicted unexpectedly") }
+	if _, ok := cache.Get(d, "320k"); !ok { t.Fatal("new entry missing after bounded eviction") }
 }
 
 func TestRefreshPlaybackResourceResolvesOnlyOnceAfterInvalidation(t *testing.T) {
