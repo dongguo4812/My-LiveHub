@@ -20,6 +20,10 @@ const (
 	lxDefaultRequestTimeout = 60 * time.Second
 	lxMaxRequestTimeout     = 60 * time.Second
 	lxMaxResponseBytes      = 8 << 20
+	lxMaxRequestBodyBytes   = 2 << 20
+	lxMaxRequestURLBytes    = 8 << 10
+	lxMaxRequestHeaders     = 100
+	lxMaxRequestHeaderBytes = 64 << 10
 )
 
 type lxRequestDescriptor struct {
@@ -52,6 +56,9 @@ func executeLXHTTPRequestWithPolicy(parent context.Context, descriptor lxRequest
 	if parent == nil {
 		parent = context.Background()
 	}
+	if len(descriptor.URL) > lxMaxRequestURLBytes {
+		return nil, fmt.Errorf("lx.request: URL exceeds %d bytes", lxMaxRequestURLBytes)
+	}
 	parsed, err := url.Parse(strings.TrimSpace(descriptor.URL))
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
 		return nil, errors.New("lx.request: only absolute HTTP(S) URLs are supported")
@@ -63,6 +70,9 @@ func executeLXHTTPRequestWithPolicy(parent context.Context, descriptor lxRequest
 	if !validHTTPToken(method) {
 		return nil, fmt.Errorf("lx.request: invalid HTTP method %q", method)
 	}
+	if err := validateLXRequestHeaders(descriptor.Headers); err != nil {
+		return nil, err
+	}
 	timeout := lxRequestTimeout(descriptor.Timeout)
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
@@ -73,6 +83,16 @@ func executeLXHTTPRequestWithPolicy(parent context.Context, descriptor lxRequest
 	body, contentType, err := buildLXRequestBody(descriptor)
 	if err != nil {
 		return nil, err
+	}
+	if body != nil {
+		bodyBytes, readErr := io.ReadAll(io.LimitReader(body, lxMaxRequestBodyBytes+1))
+		if readErr != nil {
+			return nil, fmt.Errorf("lx.request: read request body: %w", readErr)
+		}
+		if len(bodyBytes) > lxMaxRequestBodyBytes {
+			return nil, fmt.Errorf("lx.request: request body exceeds %d bytes", lxMaxRequestBodyBytes)
+		}
+		body = bytes.NewReader(bodyBytes)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, parsed.String(), body)
 	if err != nil {
@@ -111,6 +131,24 @@ func executeLXHTTPRequestWithPolicy(parent context.Context, descriptor lxRequest
 		StatusCode: resp.StatusCode, StatusMessage: resp.Status,
 		Headers: resp.Header.Clone(), Bytes: len(raw), Raw: raw, Body: parsedBody,
 	}, nil
+}
+
+func validateLXRequestHeaders(headers map[string]any) error {
+	if len(headers) > lxMaxRequestHeaders {
+		return fmt.Errorf("lx.request: too many request headers (max %d)", lxMaxRequestHeaders)
+	}
+	total := 0
+	for key, value := range headers {
+		valueText := fmt.Sprint(value)
+		total += len(key) + len(valueText)
+		if strings.ContainsAny(key, "\r\n") || strings.ContainsAny(valueText, "\r\n") {
+			return errors.New("lx.request: invalid request header")
+		}
+	}
+	if total > lxMaxRequestHeaderBytes {
+		return fmt.Errorf("lx.request: request headers exceed %d bytes", lxMaxRequestHeaderBytes)
+	}
+	return nil
 }
 
 func lxRequestTimeout(milliseconds int64) time.Duration {
