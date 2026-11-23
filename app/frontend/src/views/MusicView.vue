@@ -666,7 +666,7 @@ onUnmounted(() => {
             <el-button plain @click="chooseLXScriptFile">选择本地文件</el-button>
           </div>
         </div>
-        <p class="section-description">导入时自动执行脚本初始化，并根据洛雪 inited.sources.actions 识别搜索、详情、歌词和封面能力；musicUrl 始终由洛雪原生 action 处理，无需手动选择。</p>
+        <p class="section-description">导入时自动执行脚本初始化，并根据洛雪 inited.sources.actions 识别搜索、详情、歌词和封面能力；musicUrl 不作为社区扩展能力，仍按洛雪原生 actions 声明处理，无需手动选择。</p>
         <el-input v-model="lxScriptSource" type="textarea" :rows="8" resize="vertical" placeholder="粘贴完整的洛雪 JS 音源脚本源码……" />
         <div class="card-actions">
           <el-button type="primary" :loading="lxScriptBusy" :disabled="!lxScriptName.trim() || !lxScriptSource.trim()" @click="importLXScript">导入并启用脚本</el-button>
@@ -682,7 +682,7 @@ onUnmounted(() => {
             <span v-if="script.description">{{ script.description }}</span>
             <span>已识别能力：{{ lxActionNames(script.extension_actions ?? []) }}</span>
             <span v-if="script.supported_sources?.length">支持音源：{{ script.supported_sources.join('、') }}</span>
-            <span>播放地址 musicUrl：洛雪原生 action</span>
+            <span>播放地址 musicUrl：按洛雪原生 actions 声明处理</span>
             <span>SHA-256：{{ script.id }}</span>
             <el-text v-if="script.last_error" type="danger" size="small">{{ script.last_error }}</el-text>
           </div>
