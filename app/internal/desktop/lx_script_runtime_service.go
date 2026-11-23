@@ -14,12 +14,11 @@ import (
 // ResolvePlaybackURL runs the active LX source script through the owned
 // QuickJS runtime. The external 洛雪 URI playback path remains unchanged;
 // callers that need the concrete CDN URL can use this production resolver.
-func (s *MusicService) ResolvePlaybackURL(ctx context.Context, track music.Track, quality string) (string, error) {
+func (s *MusicService) ResolvePlaybackURL(track music.Track, quality string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
 	if s == nil {
 		return "", errors.New("music service is unavailable")
-	}
-	if ctx == nil {
-		ctx = context.Background()
 	}
 	s.mu.RLock()
 	runtime := s.scriptRuntime
@@ -73,8 +72,6 @@ func (s *MusicService) ResolvePlaybackURL(ctx context.Context, track music.Track
 		},
 		"type": quality,
 	}
-	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
-	defer cancel()
 	resolvedURL, err := runtime.ResolvePlaybackURL(ctx, source, info)
 	if err != nil {
 		return "", fmt.Errorf("resolve %s track %q: %w", source, track.Title, err)
