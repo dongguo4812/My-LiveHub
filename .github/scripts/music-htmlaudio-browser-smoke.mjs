@@ -36,7 +36,7 @@ try {
   await page.waitForFunction(() => {
     const audio = window.testAudio
     return audio && !audio.paused && audio.readyState >= 2 && audio.currentTime > 0
-  }, { timeout: 60000 })
+  }, null, { timeout: 60000 })
   const started = await page.evaluate(() => ({
     paused: window.testAudio.paused,
     readyState: window.testAudio.readyState,
@@ -57,7 +57,7 @@ try {
     if (Number.isFinite(audio.duration) && audio.duration > 2) audio.currentTime = 1
   })
   await page.evaluate(async () => { await window.testAudio.play() })
-  await page.waitForFunction(() => !window.testAudio.paused && window.testAudio.currentTime > 0.1, { timeout: 30000 })
+  await page.waitForFunction(() => !window.testAudio.paused && window.testAudio.currentTime > 0.1, null, { timeout: 30000 })
   const resumed = await page.evaluate(() => ({
     paused: window.testAudio.paused,
     currentTime: window.testAudio.currentTime,
