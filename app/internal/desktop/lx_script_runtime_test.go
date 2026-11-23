@@ -3,8 +3,10 @@ package desktop
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
+	"github.com/dongguo4812/My-LiveHub/app/internal/events"
 	"github.com/dongguo4812/My-LiveHub/app/internal/music"
 )
 
@@ -61,5 +63,28 @@ func TestMusicServiceRejectsPlaybackURLWithoutProductionRuntime(t *testing.T) {
 	_, err := service.ResolvePlaybackURL(context.Background(), music.Track{SourceID: "kw"}, "320k")
 	if err == nil {
 		t.Fatal("expected a clear error when production QuickJS is not enabled")
+	}
+}
+
+
+func TestMusicServiceOwnsLXRuntimeStartAndShutdown(t *testing.T) {
+	value := config.DefaultMusicConfig()
+	value.Enabled = false
+	service := NewMusicServiceWithDependencies(nil, value, nil, nil, events.NewBuffer())
+	runtime := &fakeLXScriptRuntime{}
+	service.scriptRuntime = runtime
+	if err := service.start(context.Background()); err != nil {
+		t.Fatalf("start music service: %v", err)
+	}
+	if !runtime.started {
+		t.Fatal("music service did not start the LX runtime")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := service.stop(ctx); err != nil {
+		t.Fatalf("stop music service: %v", err)
+	}
+	if !runtime.closed {
+		t.Fatal("music service did not close the LX runtime")
 	}
 }
