@@ -5,14 +5,14 @@ vars:
 
 tasks:
   dev:
-    summary: 使用生产 QuickJS 运行时启动 My-LiveHub 桌面开发环境（Windows 需要 MinGW-w64 GCC）
+    summary: 使用生产 QuickJS 运行时启动 My-LiveHub 桌面开发环境（自动准备 QuickJS 运行时，无需本机 C 编译器）
     env:
       GOFLAGS: -tags=lxproduction
-      CGO_ENABLED: "1"
+      CGO_ENABLED: "0"
     cmds:
       - powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/lxproduction.ps1 -Mode dev -Port {{.VITE_PORT}}
   build:
-    summary: 使用生产 QuickJS 运行时构建 My-LiveHub 桌面应用（Windows 需要 MinGW-w64 GCC）
+    summary: 使用生产 QuickJS 运行时构建 My-LiveHub 桌面应用（自动准备 QuickJS 运行时，无需本机 C 编译器）
     env:
       GOFLAGS: -tags=lxproduction
       CGO_ENABLED: "1"
