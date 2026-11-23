@@ -335,7 +335,7 @@ func TestProductionLXFishSunnyDayPlaybackURL(t *testing.T) {
 				continue
 			}
 			selectedTrack, selectedResource = &candidate, resource
-			t.Logf("Kuwo musicUrl returned URL: quality=%s host=%s path=%s", advertised.Type, safeLXMediaURL(resource.URL))
+			t.Logf("Kuwo musicUrl returned URL: quality=%s endpoint=%s", advertised.Type, safeLXMediaURL(resource.URL))
 			break
 		}
 		if selectedTrack != nil { break }
