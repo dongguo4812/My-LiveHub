@@ -42,7 +42,7 @@ if (lx.version !== '2.0.0' || lx.env !== 'desktop') throw new Error('wrong host 
 if (lx.currentScriptInfo.name !== 'Contract fixture') throw new Error('script metadata missing');
 lx.on('request', () => Promise.resolve('unused'));
 lx.send('inited', { sources: {
-  kw: { type: 'music', actions: ['musicUrl', 'lyric'], qualitys: ['128k', 'flac', 'flac24bit'] },
+  kw: { type: 'music', actions: ['musicUrl', 'search', 'detail', 'lyric', 'pic'], qualitys: ['128k', 'flac', 'flac24bit'] },
   tx: { type: 'music', actions: ['musicUrl'], qualitys: ['320k'] },
   local: { type: 'music', actions: ['musicUrl', 'lyric', 'pic'] },
   unsupported: { type: 'music', actions: ['musicUrl'], qualitys: ['320k'] }
@@ -57,7 +57,7 @@ JSON.stringify(__lxHostState.initInfo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"sources":{"kw":{"type":"music","actions":["musicUrl"],"qualitys":["128k","flac","flac24bit"]},"tx":{"type":"music","actions":["musicUrl"],"qualitys":["320k"]},"local":{"type":"music","actions":["musicUrl","lyric","pic"],"qualitys":[]}}}`
+	want := `{"sources":{"kw":{"type":"music","actions":["musicUrl","search","detail","lyric","pic"],"qualitys":["128k","flac","flac24bit"]},"tx":{"type":"music","actions":["musicUrl"],"qualitys":["320k"]},"local":{"type":"music","actions":["musicUrl","lyric","pic"],"qualitys":[]}}}`
 	if value != want {
 		t.Fatalf("filtered source info = %s, want %s", value, want)
 	}
