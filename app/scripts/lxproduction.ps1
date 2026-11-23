@@ -18,14 +18,16 @@ function Resolve-LXProductionCompiler {
     }
 
     $candidateDirectories = @(
-        (Join-Path $env:MSYS2_ROOT 'ucrt64\bin'),
-        (Join-Path $env:MSYS2_ROOT 'mingw64\bin'),
         'C:\msys64\ucrt64\bin',
         'C:\msys64\mingw64\bin',
         'C:\tools\msys64\ucrt64\bin',
         'C:\mingw64\bin',
         'C:\tools\mingw64\bin'
-    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    )
+    if (-not [string]::IsNullOrWhiteSpace($env:MSYS2_ROOT)) {
+        $candidateDirectories += (Join-Path $env:MSYS2_ROOT 'ucrt64\bin')
+        $candidateDirectories += (Join-Path $env:MSYS2_ROOT 'mingw64\bin')
+    }
 
     foreach ($directory in $candidateDirectories) {
         $configured += (Join-Path $directory 'gcc.exe')
