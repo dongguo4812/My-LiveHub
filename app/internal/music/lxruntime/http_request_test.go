@@ -184,7 +184,7 @@ func TestLXRequestResourceLimits(t *testing.T) {
 	}
 
 	_, err = executeLXHTTPRequest(context.Background(), lxRequestDescriptor{
-		URL: "https://1.1.1.1/", Headers: map[string]any{"X-Test": "bad\\r\\nInjected: yes"},
+		URL: "https://1.1.1.1/", Headers: map[string]any{"X-Test": "bad\r\nInjected: yes"},
 	}, nil)
 	if err == nil || !strings.Contains(err.Error(), "invalid request header") {
 		t.Fatalf("header injection error = %v", err)
