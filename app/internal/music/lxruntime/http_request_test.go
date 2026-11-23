@@ -5,6 +5,7 @@ package lxruntime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -162,5 +163,38 @@ func TestLXHTTPRedirectCannotReachLoopback(t *testing.T) {
 	_, err = safeClient.Do(req)
 	if err == nil || !strings.Contains(err.Error(), "not public") {
 		t.Fatalf("redirect to loopback should be rejected, got %v", err)
+	}
+}
+
+
+func TestLXRequestResourceLimits(t *testing.T) {
+	tooLargeBody, _ := json.Marshal(strings.Repeat("x", lxMaxRequestBodyBytes+1))
+	_, err := executeLXHTTPRequest(context.Background(), lxRequestDescriptor{
+		URL: "https://1.1.1.1/upload", Method: http.MethodPost, Body: tooLargeBody,
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "request body exceeds") {
+		t.Fatalf("oversized request body error = %v", err)
+	}
+
+	_, err = executeLXHTTPRequest(context.Background(), lxRequestDescriptor{
+		URL: "https://1.1.1.1/" + strings.Repeat("a", lxMaxRequestURLBytes),
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "URL exceeds") {
+		t.Fatalf("oversized URL error = %v", err)
+	}
+
+	_, err = executeLXHTTPRequest(context.Background(), lxRequestDescriptor{
+		URL: "https://1.1.1.1/", Headers: map[string]any{"X-Test": "bad\\r\\nInjected: yes"},
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "invalid request header") {
+		t.Fatalf("header injection error = %v", err)
+	}
+
+	headers := make(map[string]any, lxMaxRequestHeaders+1)
+	for i := 0; i <= lxMaxRequestHeaders; i++ {
+		headers[fmt.Sprintf("X-Test-%d", i)] = "v"
+	}
+	if err := validateLXRequestHeaders(headers); err == nil {
+		t.Fatal("expected too many headers to be rejected")
 	}
 }
