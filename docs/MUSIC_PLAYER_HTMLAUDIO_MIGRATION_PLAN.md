@@ -272,7 +272,7 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 
 | 阶段 | 状态 | 证据/备注 |
 |---|---|---|
-| 阶段 0：现状盘点与接口设计 | 进行中 | 已核对 PlaybackEngine、MusicService 默认 LXPlaybackEngine 注入、LXPlaybackEngine 外部委托实现、音乐配置和 MusicView；完整调用链与播放资源契约待梳理 |
+| 阶段 0：现状盘点与接口设计 | 进行中 | 已确认 playNext→resolveAndStartLXTrack→engine.Load、500ms Go watcher、外部 NextTrack 回退、歌词依赖 LX API、前端 500ms 状态轮询；接口边界初步拟定。待核对 QuickJS musicUrl 实际代码入口、真实音源格式/请求约束和 Wails 桥接实现 |
 | 阶段 1：HTMLAudio 最小 PoC | 未开始 | 尚无真实 WebView 播放验收记录 |
 | 阶段 2：统一播放控制与 Go 服务桥接 | 未开始 | |
 | 阶段 3：现有 Go 音乐业务层整合 | 未开始 | |
@@ -285,3 +285,32 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 ### 当前下一步
 
 继续完成阶段 0：梳理 MusicService 所有播放入口、播放 URL 解析路径、前端播放/歌词状态同步路径，并形成明确的 Go ↔ Vue 播放资源与事件契约。阶段 0 验收后再开始阶段 1 HTMLAudio PoC。
+
+
+### 阶段 0 已确认的关键调用链（2026-11-23）
+
+本轮继续检查后确认：
+
+1. `MusicView.vue` 的搜索结果通过 `Enqueue` / `PlayTrackNow` 交给 Go；前端没有直接的 Audio 播放实现。
+2. `MusicService.playNext()` 调用 `resolveAndStartLXTrack()`，后者位于 `music_auto_switch.go`，会按已启用音源优先级尝试候选歌曲，并直接调用 `s.engine.Load(ctx, candidate)`。
+3. 自动换源当前不是独立的 URL 解析服务：候选 Track 被交给旧 LX 播放引擎后，由旧播放路径委托洛雪客户端完成实际播放与确认。新方案必须把“解析播放 URL”从“执行播放”中拆出来，不能只把 `LXPlaybackEngine` 改名。
+4. `MusicService.watchPlayback()` 每 500ms 读取一次 `engine.Snapshot()`，依赖真实播放状态、停止状态和剩余时长判断歌曲结束；歌曲结束后由 Go 推进 My-LiveHub 队列，队列为空时当前代码会尝试调用洛雪自己的 `NextTrack`。新方案必须改成以 HTMLAudio 的 `ended` 事件为可靠结束信号，并移除外部播放器队列回退。
+5. `Pause/Resume/Stop` 当前直接调用 Go PlaybackEngine。新方案需要由前端 HTMLAudio adapter 执行，并将实际结果/事件回传。
+6. `GetLyrics(track)` 当前通过 PlaybackEngine 扩展接口读取洛雪客户端 `/lyric-all`、`/lyric`，并先用当前外部播放器 Snapshot 核对歌曲。歌词必须改为按 Track/音源独立获取，不能再依赖“洛雪当前正在播放哪首歌”。
+7. 主音乐页通过 `GetCachedPlaybackStatus()` 读取 Go watcher 缓存；独立歌词窗口也以约 500ms 频率轮询状态，并用本地时钟每 30ms 外推歌词位置。接入 HTMLAudio 后，应优先共享同一播放状态快照/事件，避免 Go watcher 与前端 Audio 各自成为状态权威。
+8. `MusicConfig` 当前版本为 14，包含 `LXAPIEndpoints` 和默认 `http://127.0.0.1:23330`。移除旧播放路径时必须做向后兼容迁移，并调整设置 UI 中“洛雪客户端连接”文案。
+
+### 阶段 0 的接口设计结论（待 PoC 验证后定稿）
+
+建议采用“Go 业务服务 + 前端 Audio 端口”的边界，而不是让 Go 直接实现浏览器音频设备：
+
+- Go 侧：`ResolvePlaybackResource(ctx, track, quality) (PlaybackResource, error)`，只负责调用当前音源适配器/QuickJS-NG 解析资源；不启动播放器。
+- Go 侧：播放会话协调器负责 session ID、当前 Track、队列、历史、自动切歌和错误状态。
+- 前端侧：单例 HTMLAudio adapter 执行 load/play/pause/resume/seek/setVolume/stop，订阅真实媒体事件。
+- 桥接事件：`playback:command`（Go → Vue）和 `playback:event`（Vue → Go）或等价的 Wails 绑定方法；具体机制在阶段 1 PoC 中按当前 Wails 版本验证后确定。
+- 资源模型至少携带 URL、source ID、track ID、quality、MIME/编码提示、过期/重解析信息和受控请求上下文。敏感签名 URL 不写日志。
+- 每次 load/stop/切歌递增 session ID；所有异步解析结果和媒体事件都必须校验 session ID。
+- HTMLAudio `ended` 只触发一次队列推进；Go 队列是唯一业务队列，绝不回退到第三方播放器队列。
+- 歌词由音源服务按 Track 获取，歌词位置以 HTMLAudio currentTime 为准。
+
+**尚未完成的阶段 0 项目**：逐个确认当前 QuickJS-NG/用户源运行时代码中 `musicUrl` action 的真实调用入口、结果结构和请求头处理；采集目标三音源的真实 URL/格式/请求约束；确认 Wails 当前版本下可靠的前端命令/事件桥接方式。因此阶段 0 仍保持“进行中”，不能开始声称阶段 1 已验收。
