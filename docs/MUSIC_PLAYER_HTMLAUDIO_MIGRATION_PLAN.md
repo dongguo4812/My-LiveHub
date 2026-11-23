@@ -1052,3 +1052,15 @@ line 3: unexpected EOF while looking for matching single quote
 当前代码提交：`a2f184c5201090f41467cc503e8422c3c6c1c49b`。预编译运行时发布地址：[QuickJS-NG v0.18.0 / LX ABI 1](https://github.com/dongguo4812/My-LiveHub/releases/tag/quickjs-ng-v0.18.0-lxabi1)。
 
 **结论：** Windows 开发者执行 `task dev` / `task build` 不再需要本机安装 GCC、MSYS2 或 MinGW；Taskfile 自动准备预编译 DLL，Go 生产 runtime 在 CGO_ENABLED=0 下运行，未退化为空 runtime。CI 仍使用编译器生成 DLL，这是构建机依赖，不是开发者本机依赖。
+
+
+## 10.31 LX 脚本导入能力探测初始化超时修复（2026-11-23）
+
+**问题证据：** 用户导入并启用脚本时，能力探测报错 `JavaScript execution exceeded 3s: InternalError: interrupted`。根因不是脚本缺少 action，也不是 60 秒初始化/网络请求预算耗尽：QuickJS 每次同步 `Eval` 默认只有 3 秒，而 `DetectLXScriptExtensionActions` 使用默认 Runtime 执行整段脚本初始化。洛雪脚本的同步启动代码超过 3 秒时，会在发出 `inited` 前被 QuickJS 中断。
+
+**修复：**
+- 只为导入阶段的能力探测 Runtime 设置独立的 15 秒单次 Eval 上限；普通运行时及 action 执行仍保留默认 3 秒同步 Eval 上限，不全局放宽脚本执行限制。
+- 能力探测的整体初始化仍受现有 60 秒 context deadline 约束；`lx.request` 的 HTTP 超时、安全策略和请求数量限制不变。
+- 能力识别仍以真实执行后的 `inited.sources[*].actions` 为唯一依据，不通过静态扫描猜测能力；初始化失败仍明确拒绝导入。
+
+**回归验收：** 增加一个同步启动耗时超过 3 秒的 QuickJS fixture，验证能力探测能够完成初始化并准确识别 `search`，同时不把原生 `musicUrl` 误计为社区扩展 action。需通过 lxruntime 与 lxproduction 测试及分支 CI 后，方可将本问题标记为解决。
