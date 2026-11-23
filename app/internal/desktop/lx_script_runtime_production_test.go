@@ -31,17 +31,25 @@ func TestProductionLXScriptRuntimeImportRestoreEnableDelete(t *testing.T) {
 	manager := testLXConfigManager(t)
 	runtime := newLXScriptRuntime(manager).(*productionMusicLXRuntime)
 	source := `
-lx.on(lx.EVENT_NAMES.request, async () => 'https://cdn.example.test/song.mp3');
+/*!
+ * @name Fixture Source
+ * @author My-LiveHub tests
+ * @version 1.2.3
+ * @description lifecycle fixture
+ * @homepage https://example.test/source
+ */
+lx.on(lx.EVENT_NAMES.request, async () => 'https://1.1.1.1/song.mp3');
 lx.send(lx.EVENT_NAMES.inited, {
   sources: { kw: { type: 'music', actions: ['musicUrl'], qualitys: ['128k'] } }
 });
 `
 	if _, err := runtime.ImportScript(context.Background(), "fixture", source, nil); err != nil { t.Fatalf("import script: %v", err) }
 	list := runtime.ListScripts()
-	if len(list) != 1 || !list[0].Enabled || list[0].Name != "fixture" { t.Fatalf("imported scripts = %#v", list) }
+	if len(list) != 1 || !list[0].Enabled || list[0].Name != "Fixture Source" || list[0].Version != "1.2.3" || list[0].Author != "My-LiveHub tests" || list[0].Homepage != "https://example.test/source" { t.Fatalf("imported script metadata = %#v", list) }
 	id := list[0].ID
 	if err := runtime.Start(context.Background()); err != nil { t.Fatalf("start and restore scripts: %v", err) }
 	if !runtime.Available() { t.Fatal("restored script runtime should be available") }
+	if got, err := runtime.ResolvePlaybackURL(context.Background(), "kw", map[string]any{}); err != nil || got != "https://1.1.1.1/song.mp3" { t.Fatalf("restored script URL = %q, %v", got, err) }
 	if err := runtime.SetScriptEnabled(context.Background(), id, false); err != nil { t.Fatalf("disable script: %v", err) }
 	if runtime.Available() { t.Fatal("disabled script must not be available for dispatch") }
 	if err := runtime.SetScriptEnabled(context.Background(), id, true); err != nil { t.Fatalf("re-enable script: %v", err) }
@@ -51,6 +59,7 @@ lx.send(lx.EVENT_NAMES.inited, {
 	restarted := newLXScriptRuntime(manager).(*productionMusicLXRuntime)
 	if err := restarted.Start(context.Background()); err != nil { t.Fatalf("restart runtime from persisted store: %v", err) }
 	if !restarted.Available() { t.Fatal("script was not restored after runtime restart") }
+	if restored := restarted.ListScripts()[0]; restored.Version != "1.2.3" || restored.Author != "My-LiveHub tests" { t.Fatalf("restored metadata = %#v", restored) }
 	if err := restarted.DeleteScript(context.Background(), id); err != nil { t.Fatalf("delete script: %v", err) }
 	if len(restarted.ListScripts()) != 0 { t.Fatal("deleted script remains in store") }
 	if err := restarted.Close(); err != nil { t.Fatalf("close restarted runtime: %v", err) }
