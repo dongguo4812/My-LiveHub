@@ -240,3 +240,17 @@ func TestResolveLXHostRejectsNonCanonicalIPv4Literals(t *testing.T) {
 		}
 	}
 }
+
+
+func TestLXSafeHTTPClientRejectsCustomTLSHandlersOnDefaultTransport(t *testing.T) {
+	original := http.DefaultTransport
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{
+		"h2": func(string, *tls.Conn) http.RoundTripper { return nil },
+	}
+	http.DefaultTransport = transport
+	defer func() { http.DefaultTransport = original }()
+	if _, err := lxSafeHTTPClient(&http.Client{Transport: http.DefaultTransport}); err == nil || !strings.Contains(err.Error(), "custom TLS protocol") {
+		t.Fatalf("strict policy must reject custom TLS protocol handlers even when installed as DefaultTransport, got %v", err)
+	}
+}

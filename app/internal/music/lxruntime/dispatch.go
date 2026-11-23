@@ -4,6 +4,7 @@ package lxruntime
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -139,10 +140,10 @@ func (r *Runtime) completeLXRequest(ctx context.Context, id uint64, response *lx
 	}
 	var responseValue any
 	if response != nil {
-		raw := make([]int, len(response.Raw))
-		for i, value := range response.Raw {
-			raw[i] = int(value)
-		}
+			// JSON integer arrays expand each response byte to up to four
+		// characters and can exceed the QuickJS heap for an otherwise valid
+		// 8 MiB response. Base64 keeps the bridge payload compact.
+		raw := base64.StdEncoding.EncodeToString(response.Raw)
 		responseValue = map[string]any{
 			"statusCode": response.StatusCode,
 			"statusMessage": response.StatusMessage,
@@ -159,7 +160,7 @@ func (r *Runtime) completeLXRequest(ctx context.Context, id uint64, response *lx
 	script := `
 (() => {
   const response = JSON.parse(` + string(mustJSONQuote(string(data))) + `);
-  if (response) response.raw = Buffer.from(response.raw);
+  if (response) response.raw = Buffer.from(response.raw, 'base64');
   globalThis.__lxCompleteRequest(` + fmt.Sprint(id) + `, ` + string(mustJSONQuote(errorText)) + `, response);
   'completed';
 })()

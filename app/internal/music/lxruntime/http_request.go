@@ -241,9 +241,11 @@ func buildLXRequestBody(descriptor lxRequestDescriptor) (io.Reader, string, erro
 	}
 	if descriptor.Form != nil {
 		values := url.Values{}
+		estimatedBytes := 0
 		for key, value := range descriptor.Form {
 			text := fmt.Sprint(value)
-			if len(key)*3+len(text)*3 > lxMaxRequestBodyBytes {
+			estimatedBytes += len(key)*3 + len(text)*3 + 2
+			if estimatedBytes > lxMaxRequestBodyBytes {
 				return nil, "", fmt.Errorf("lx.request: request body exceeds %d bytes", lxMaxRequestBodyBytes)
 			}
 			values.Set(key, text)

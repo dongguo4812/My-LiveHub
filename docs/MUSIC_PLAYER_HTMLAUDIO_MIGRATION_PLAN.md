@@ -954,3 +954,14 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 - **请求体限制晚于 multipart 分配**：原先 FormData 在完整写入 bytes.Buffer 后才进行统一大小检查，超大输入会先消耗无界临时内存。现在 multipart 写入使用限额 buffer；JSON 原始 body 在解码前检查大小；URL-encoded 表单字段在编码前进行保守尺寸预检并在编码后再次检查。测试覆盖超大 multipart 和 JSON body。
 
 状态：代码和回归测试已写入待提交变更；尚未由 CI 验证。该修复不改变 LX 协议或音乐模块架构，只收紧导入与请求资源边界。
+
+
+### 10.19 第二轮安全复核：TLS handler 绕过与响应桥接内存放大（2026-11-23）
+
+继续逐行检查 HTTP transport 和 QuickJS response bridge 后补充三项修复：
+
+- 安全 HTTP transport 之前只在自定义 transport 指针上拒绝非空 TLSNextProto；若调用方把带自定义 TLS handler 的 transport 安装为 http.DefaultTransport，旧条件会漏检。现在严格策略不论 transport 来源都拒绝自定义 TLS protocol handlers，并新增覆盖 DefaultTransport 被替换的回归测试。
+- lx.request 响应 raw 字节之前转换成 JSON 整数数组传给 QuickJS，8 MiB 响应可能膨胀为数十 MiB JSON，造成不必要的 QuickJS heap 压力。现在通过 JSON base64 字符串传输，并在 JS 侧用 Buffer.from(..., 'base64') 还原 Node-compatible Buffer；既有 binary raw octets 测试继续验证字节完全一致。
+- URL-encoded Form 参数增加累计保守尺寸预检，避免大量小字段在最终 Encode 后才发现超限。
+
+验证记录：上一轮提交 eb0635925546bb1545d1420bab4d75102db12078 的 QuickJS 专项 CI Run 45119572262 已全部成功（Windows x64 QuickJS native build、lxquickjs tests/vet、lxproduction tests）。本节新增修复尚未提交/验证。
