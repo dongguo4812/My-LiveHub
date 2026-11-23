@@ -123,3 +123,33 @@ func TestLXScriptStoreSerializationIsStable(t *testing.T) {
 	var decoded []storedLXScript
 	if err := json.Unmarshal(data, &decoded); err != nil || len(decoded) != 1 { t.Fatalf("decode store: %#v, %v", decoded, err) }
 }
+
+
+func TestProductionLXCommunityActionsReachMusicService(t *testing.T) {
+ manager:=testLXConfigManager(t)
+ runtime:=newLXScriptRuntime(manager).(*productionMusicLXRuntime)
+ service:=NewMusicServiceWithDependencies(manager,config.MusicConfig{EnabledSearchSources:[]string{"kw"}},nil,nil)
+ service.scriptRuntime=runtime
+ source:=`
+lx.on(lx.EVENT_NAMES.request, async ({source,action,info}) => {
+ if(source!=='kw') throw new Error('unexpected source '+source);
+ if(action==='search') return {tracks:[{id:'fixture-song',name:'Fixture Song',singer:'Fixture Artist',interval:180}],total:1,page:1,page_size:30,max_page:1};
+ if(action==='detail') return {album:'Fixture Album'};
+ if(action==='lyric') return '[00:00.00]Fixture lyric';
+ if(action==='pic') return 'https://1.1.1.1/fixture-cover.jpg';
+ throw new Error('unsupported action '+action);
+});
+lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl'],qualitys:['128k']}}});
+`
+ if _,err:=runtime.ImportScript(context.Background(),"community-action-fixture",source,[]string{"search","detail","lyric","pic"});err!=nil{t.Fatal(err)}
+ if err:=runtime.Start(context.Background());err!=nil{t.Fatal(err)}
+ defer service.Shutdown()
+ if !runtime.HasExtensionAction("search")||!runtime.HasExtensionAction("detail")||!runtime.HasExtensionAction("lyric")||!runtime.HasExtensionAction("pic"){t.Fatal("declared community actions were not exposed")}
+ page,err:=service.SearchSourcePage("Fixture Song","kw",1);if err!=nil{t.Fatalf("script search through MusicService: %v",err)}
+ if len(page.Tracks)!=1||page.Tracks[0].ID!="kw_fixture-song"||page.Tracks[0].Title!="Fixture Song"||page.Tracks[0].DurationMS!=180000{t.Fatalf("unexpected script search page: %#v",page)}
+ track:=page.Tracks[0]
+ detail,err:=service.GetLXTrackDetail(track);if err!=nil{t.Fatalf("detail action: %v",err)}
+ if detail.(map[string]any)["album"]!="Fixture Album"{t.Fatalf("detail result: %#v",detail)}
+ lyrics,err:=service.GetLyrics(track);if err!=nil||lyrics!="[00:00.00]Fixture lyric"{t.Fatalf("lyric action: %q, %v",lyrics,err)}
+ cover,err:=service.GetLXTrackCover(track);if err!=nil||cover!="https://1.1.1.1/fixture-cover.jpg"{t.Fatalf("pic action: %q, %v",cover,err)}
+}
