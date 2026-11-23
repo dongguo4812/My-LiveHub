@@ -15,6 +15,7 @@ type LXScriptSummary struct {
 	Homepage string `json:"homepage,omitempty"`
 	Enabled bool `json:"enabled"`
 	ExtensionActions []string `json:"extension_actions,omitempty"`
+	NativeActions []string `json:"native_actions,omitempty"`
 	SupportedSources []string `json:"supported_sources,omitempty"`
 	LastError string `json:"last_error,omitempty"`
 }
