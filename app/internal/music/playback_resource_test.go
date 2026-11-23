@@ -176,3 +176,25 @@ func TestPlaybackResourceCacheClonesMediaHeadersOnWriteAndRead(t *testing.T) {
 	if !ok { t.Fatal("expected cached resource after read mutation") }
 	if second.Headers["Referer"] != "https://source.example/" { t.Fatalf("read result mutated cached headers: %#v", second.Headers) }
 }
+
+
+func TestPlaybackResourceCacheEvictsLexicallyFirstEntryWhenExpiryTies(t *testing.T) {
+	cache := NewPlaybackResourceCache(time.Minute, 2)
+	now := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
+	cache.now = func() time.Time { return now }
+	a := Track{ID: "a", SourceID: "tx"}
+	b := Track{ID: "b", SourceID: "tx"}
+	c := Track{ID: "c", SourceID: "tx"}
+	put := func(track Track) {
+		cache.Put(track, "320k", PlaybackResource{
+			URL: "https://media.example.test/" + track.ID + ".mp3",
+			SourceID: "tx", TrackID: track.ID, Quality: "320k",
+		})
+	}
+	put(b)
+	put(a)
+	put(c)
+	if _, ok := cache.Get(a, "320k"); ok { t.Fatal("lexically first equal-expiry entry should be evicted") }
+	if _, ok := cache.Get(b, "320k"); !ok { t.Fatal("other equal-expiry entry should remain") }
+	if _, ok := cache.Get(c, "320k"); !ok { t.Fatal("new cache entry should remain") }
+}
