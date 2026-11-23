@@ -147,8 +147,8 @@ lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl'],qu
  if _,err:=runtime.ImportScript(context.Background(),"community-action-fixture",source,[]string{"search","detail","lyric","pic"});err!=nil{t.Fatal(err)}
  if err:=runtime.Start(context.Background());err!=nil{t.Fatal(err)}
  defer service.Shutdown()
- if !runtime.HasExtensionAction("search")||!runtime.HasExtensionAction("detail")||!runtime.HasExtensionAction("lyric")||!runtime.HasExtensionAction("pic"){t.Fatal("declared community actions were not exposed")}
- if runtime.HasExtensionAction("musicUrl"){t.Fatal("native musicUrl must not be classified as a community extension")}
+ if !runtime.HasExtensionAction("kw", "search")||!runtime.HasExtensionAction("kw", "detail")||!runtime.HasExtensionAction("kw", "lyric")||!runtime.HasExtensionAction("kw", "pic"){t.Fatal("declared community actions were not exposed")}
+ if runtime.HasExtensionAction("kw", "musicUrl"){t.Fatal("native musicUrl must not be classified as a community extension")}
  resolved,err:=runtime.ResolvePlaybackURL(context.Background(),"kw",map[string]any{"musicInfo":map[string]any{"songmid":"fixture-song"},"type":"128k"})
  if err!=nil||resolved!="https://1.1.1.1/fixture-song.mp3"{t.Fatalf("native musicUrl action: %q, %v",resolved,err)}
  page,err:=service.SearchSourcePage("Fixture Song","kw",1);if err!=nil{t.Fatalf("script search through MusicService: %v",err)}
