@@ -24,7 +24,10 @@ const (
 	lxMaxRequestURLBytes    = 8 << 10
 	lxMaxRequestHeaders     = 100
 	lxMaxRequestHeaderBytes = 64 << 10
+	lxMaxConcurrentRequests = 8
 )
+
+var lxRequestSemaphore = make(chan struct{}, lxMaxConcurrentRequests)
 
 type lxRequestDescriptor struct {
 	ID       uint64                     `json:"id"`
@@ -110,6 +113,12 @@ func executeLXHTTPRequestWithPolicy(parent context.Context, descriptor lxRequest
 	safeClient, err := lxSafeHTTPClientWithPolicy(client, allowPrivate)
 	if err != nil {
 		return nil, fmt.Errorf("lx.request: configure network policy: %w", err)
+	}
+	select {
+	case lxRequestSemaphore <- struct{}{}:
+		defer func() { <-lxRequestSemaphore }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
 	resp, err := safeClient.Do(req)
 	if err != nil {
