@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"reflect"
 	"testing"
 	"testing/fstest"
  "time"
@@ -239,8 +240,8 @@ func TestProductionLXFishLatestRealImportAndEnable(t *testing.T) {
 	if len(imported.SupportedSources) == 0 {
 		t.Fatalf("fish/latest.js initialized but declared no supported sources: %#v", imported)
 	}
-	if len(imported.ExtensionActions) == 0 {
-		t.Fatalf("fish/latest.js declared no supported My-LiveHub extension actions: %#v", imported)
+	if len(imported.ExtensionActions) == 0 && len(imported.NativeActions) == 0 {
+		t.Fatalf("fish/latest.js declared no supported community or native LX actions: %#v", imported)
 	}
 	for _, action := range imported.ExtensionActions {
 		switch action {
@@ -249,17 +250,20 @@ func TestProductionLXFishLatestRealImportAndEnable(t *testing.T) {
 			t.Fatalf("unexpected community extension action %q", action)
 		}
 	}
+	for _, action := range imported.NativeActions {
+		if action != "musicUrl" { t.Fatalf("unexpected native LX action %q", action) }
+	}
+	if !containsString(imported.NativeActions, "musicUrl") {
+		t.Fatalf("fish/latest.js did not expose native musicUrl capability: %#v", imported)
+	}
 	if runtime.manager == nil || !runtime.manager.HasScripts() || !runtime.Available() {
 		t.Fatal("imported fish/latest.js was not installed in the started production source manager")
 	}
-	for _, sourceName := range imported.SupportedSources {
-		recognized := false
-		for _, action := range imported.ExtensionActions {
-			if runtime.HasExtensionAction(sourceName, action) { recognized = true; break }
-		}
-		if !recognized {
-			t.Errorf("source %q has no enabled recognized community extension action", sourceName)
-		}
+	persisted := runtime.ListScripts()
+	if len(persisted) != 1 || !persisted[0].Enabled || !reflect.DeepEqual(persisted[0].SupportedSources, imported.SupportedSources) ||
+		!reflect.DeepEqual(persisted[0].ExtensionActions, imported.ExtensionActions) ||
+		!reflect.DeepEqual(persisted[0].NativeActions, imported.NativeActions) {
+		t.Fatalf("imported capabilities were not persisted and restored consistently: imported=%#v persisted=%#v", imported, persisted)
 	}
-	t.Logf("fish/latest.js import enabled: sources=%v community_actions=%v", imported.SupportedSources, imported.ExtensionActions)
+	t.Logf("fish/latest.js import enabled: sources=%v community_actions=%v native_actions=%v", imported.SupportedSources, imported.ExtensionActions, imported.NativeActions)
 }
