@@ -42,7 +42,7 @@ func (r *Runtime) InitializeLXSource(ctx context.Context, info ScriptInfo, sourc
 
 	const maxRequests = 256
 	processed := 0
-	tasks := newLXHTTPTasks(client)
+	tasks := newLXHTTPTasksWithPolicy(client, r.allowPrivateNetworkForTests)
 	defer tasks.cancelAll()
 	for {
 		if err := ctx.Err(); err != nil {

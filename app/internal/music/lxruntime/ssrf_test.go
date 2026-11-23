@@ -113,9 +113,12 @@ func TestLXDNSRebindingBetweenValidationAndDialIsBlocked(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	request, err := http.NewRequest(http.MethodGet, "http://rebind.example.test/audio", nil)
 	if err != nil { t.Fatal(err) }
+	if err := validateLXDestinationWithResolver(request.Context(), request.URL, false, resolver); err != nil {
+		t.Fatalf("initial public DNS validation failed: %v", err)
+	}
 	_, err = safe.Do(request)
 	if err == nil || !strings.Contains(err.Error(), "non-public address") {
-		t.Fatalf("DNS rebinding from public to loopback should be rejected, got %v", err)
+		t.Fatalf("DNS rebinding from public to loopback should be rejected at dial time, got %v", err)
 	}
 	resolver.mu.Lock()
 	remaining := len(resolver.answers)

@@ -55,6 +55,7 @@ type Runtime struct {
 	initializeMu sync.Mutex
 	lifecycle context.Context
 	shutdown context.CancelFunc
+	allowPrivateNetworkForTests bool
 }
 
 func New(opts Options) (*Runtime, error) {

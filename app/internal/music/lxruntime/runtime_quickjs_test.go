@@ -27,6 +27,7 @@ func newTestRuntime(t *testing.T, timeout time.Duration) *Runtime {
 	if err != nil {
 		t.Fatal(err)
 	}
+	rt.allowPrivateNetworkForTests = true // only test-created runtimes may reach httptest loopback
 	t.Cleanup(func() { _ = rt.Close() })
 	return rt
 }

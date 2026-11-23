@@ -36,6 +36,9 @@ type managedLXScript struct {
 type SourceManager struct {
 	mu         sync.Mutex
 	dispatchMu sync.Mutex
+	closeMu    sync.Mutex
+	ctx        context.Context
+	cancel     context.CancelFunc
 	client     *http.Client
 	scripts    []*managedLXScript
 	started    bool
@@ -44,9 +47,12 @@ type SourceManager struct {
 
 func NewSourceManager(client *http.Client) *SourceManager {
 	if client == nil {
-		client = &http.Client{Timeout: 20 * time.Second}
+		client = &http.Client{Timeout: lxMaxRequestTimeout}
 	}
+	managerCtx, cancel := context.WithCancel(context.Background())
 	return &SourceManager{
+		ctx: managerCtx,
+		cancel: cancel,
 		client: client,
 		scripts: []*managedLXScript{
 			{info: ScriptInfo{Name: "Xinglan production source", Version: "4.0.2", RawScript: string(productionXinglanSource)}, source: string(productionXinglanSource)},
@@ -91,6 +97,25 @@ func (m *SourceManager) ResolvePlaybackURL(ctx context.Context, source string, i
 	if ctx == nil {
 		ctx = context.Background()
 	}
+
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return nil, errors.New("LX source manager is closed")
+	}
+	managerCtx := m.ctx
+	m.mu.Unlock()
+
+	// Closing the manager must interrupt initialization and in-flight network
+	// actions before Close waits for the serialized dispatch lock.
+	actionCtx, cancelAction := context.WithCancel(ctx)
+	stopManagerCancel := context.AfterFunc(managerCtx, cancelAction)
+	defer func() {
+		stopManagerCancel()
+		cancelAction()
+	}()
+	ctx = actionCtx
+
 	m.dispatchMu.Lock()
 	defer m.dispatchMu.Unlock()
 
@@ -98,10 +123,6 @@ func (m *SourceManager) ResolvePlaybackURL(ctx context.Context, source string, i
 	if m.closed {
 		m.mu.Unlock()
 		return nil, errors.New("LX source manager is closed")
-	}
-	if !m.started {
-		m.mu.Unlock()
-		return nil, errors.New("LX source manager has not started")
 	}
 	scripts := append([]*managedLXScript(nil), m.scripts...)
 	client := m.client
@@ -112,7 +133,12 @@ func (m *SourceManager) ResolvePlaybackURL(ctx context.Context, source string, i
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+
 		m.mu.Lock()
+		if m.closed {
+			m.mu.Unlock()
+			return nil, errors.New("LX source manager is closed")
+		}
 		if script.runtime == nil {
 			runtime, err := New(Options{})
 			if err != nil {
@@ -122,21 +148,33 @@ func (m *SourceManager) ResolvePlaybackURL(ctx context.Context, source string, i
 			}
 			script.runtime = runtime
 		}
-		if !script.initialized {
+		runtime := script.runtime
+		initialized := script.initialized
+		m.mu.Unlock()
+
+		if !initialized {
 			initCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
-			err := script.runtime.InitializeLXSource(initCtx, script.info, script.source, client)
+			err := runtime.InitializeLXSource(initCtx, script.info, script.source, client)
 			cancel()
 			if err != nil {
-				failures = append(failures, script.info.Name+" 初始化失败："+err.Error())
-				_ = script.runtime.Close()
-				script.runtime = nil
+				_ = runtime.Close()
+				m.mu.Lock()
+				if script.runtime == runtime {
+					script.runtime = nil
+					script.initialized = false
+				}
 				m.mu.Unlock()
+				failures = append(failures, script.info.Name+" 初始化失败："+err.Error())
 				continue
 			}
+			m.mu.Lock()
+			if m.closed {
+				m.mu.Unlock()
+				return nil, errors.New("LX source manager is closed")
+			}
 			script.initialized = true
+			m.mu.Unlock()
 		}
-		runtime := script.runtime
-		m.mu.Unlock()
 
 		dispatchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		value, err := runtime.dispatchLXRequest(dispatchCtx, source, "musicUrl", info, client)
@@ -167,14 +205,27 @@ func (m *SourceManager) Close() error {
 	if m == nil {
 		return nil
 	}
-	m.dispatchMu.Lock()
-	defer m.dispatchMu.Unlock()
+	m.closeMu.Lock()
+	defer m.closeMu.Unlock()
+
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
 		return nil
 	}
 	m.closed = true
+	cancel := m.cancel
+	m.mu.Unlock()
+
+	// Cancel before waiting for dispatchMu so an active lx.request cannot
+	// hold shutdown hostage until its network timeout expires.
+	if cancel != nil {
+		cancel()
+	}
+
+	m.dispatchMu.Lock()
+	defer m.dispatchMu.Unlock()
+	m.mu.Lock()
 	runtimes := make([]*Runtime, 0, len(m.scripts))
 	for _, script := range m.scripts {
 		if script.runtime != nil {

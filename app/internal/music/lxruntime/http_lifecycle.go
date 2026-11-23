@@ -24,9 +24,14 @@ type lxHTTPTasks struct {
 	active    map[uint64]context.CancelFunc
 	completed chan lxHTTPCompletion
 	wg        sync.WaitGroup
+	allowPrivateNetwork bool
 }
 
 func newLXHTTPTasks(client *http.Client) *lxHTTPTasks {
+	return newLXHTTPTasksWithPolicy(client, false)
+}
+
+func newLXHTTPTasksWithPolicy(client *http.Client, allowPrivate bool) *lxHTTPTasks {
 	if client == nil {
 		client = http.DefaultClient
 	}
@@ -34,6 +39,7 @@ func newLXHTTPTasks(client *http.Client) *lxHTTPTasks {
 		client: client,
 		active: make(map[uint64]context.CancelFunc),
 		completed: make(chan lxHTTPCompletion, 256),
+		allowPrivateNetwork: allowPrivate,
 	}
 }
 
@@ -47,7 +53,7 @@ func (t *lxHTTPTasks) start(parent context.Context, requests []lxRequestDescript
 		t.wg.Add(1)
 		go func(request lxRequestDescriptor, requestCtx context.Context) {
 			defer t.wg.Done()
-			response, err := executeLXHTTPRequest(requestCtx, request, t.client)
+			response, err := executeLXHTTPRequestWithPolicy(requestCtx, request, t.client, t.allowPrivateNetwork)
 			select {
 			case t.completed <- lxHTTPCompletion{id: request.ID, response: response, err: err}:
 			case <-requestCtx.Done():

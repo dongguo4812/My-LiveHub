@@ -5,6 +5,7 @@ package lxruntime
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestProductionSourceManagerLifecycleGuards(t *testing.T) {
@@ -37,5 +38,43 @@ func TestProductionSourceManagerLifecycleGuards(t *testing.T) {
 	}
 	if err := manager.Start(context.Background()); err == nil {
 		t.Fatal("Start after Close must fail")
+	}
+}
+
+
+func TestProductionSourceManagerUsesLXRequestTimeoutBudget(t *testing.T) {
+	manager := NewSourceManager(nil)
+	if manager.client.Timeout != lxMaxRequestTimeout {
+		t.Fatalf("default source HTTP client timeout = %s, want %s", manager.client.Timeout, lxMaxRequestTimeout)
+	}
+	_ = manager.Close()
+}
+
+func TestProductionSourceManagerCloseCancelsInitialization(t *testing.T) {
+	manager := NewSourceManager(nil)
+	source := `
+lx.on(lx.EVENT_NAMES.request, async () => 'https://cdn.example.test/song.mp3');
+setTimeout(() => lx.send(lx.EVENT_NAMES.inited, {
+  sources: { kw: { type: 'music', actions: ['musicUrl'], qualitys: ['128k'] } }
+}), 30000);
+`
+	manager.scripts[0].source = source
+	manager.scripts[0].info = ScriptInfo{Name: "shutdown-cancel-fixture", RawScript: source}
+	if err := manager.Start(context.Background()); err != nil { t.Fatal(err) }
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := manager.ResolvePlaybackURL(context.Background(), "kw", map[string]any{})
+		done <- err
+	}()
+	time.Sleep(100 * time.Millisecond)
+	started := time.Now()
+	if err := manager.Close(); err != nil { t.Fatal(err) }
+	if time.Since(started) > 2*time.Second { t.Fatalf("Close waited too long for in-flight initialization: %s", time.Since(started)) }
+	select {
+	case err := <-done:
+		if err == nil { t.Fatal("ResolvePlaybackURL unexpectedly succeeded after manager shutdown") }
+	case <-time.After(2 * time.Second):
+		t.Fatal("ResolvePlaybackURL did not exit after manager shutdown")
 	}
 }
