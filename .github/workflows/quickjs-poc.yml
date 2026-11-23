@@ -65,6 +65,8 @@ jobs:
           TEMP_DIR="$(cygpath -u "$RUNNER_TEMP")"
           cmake -S "$WORKSPACE/app/internal/music/lxruntime/poc/native" -B "$TEMP_DIR/lx-quickjs-host-build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DQUICKJS_NG_SOURCE_DIR="$TEMP_DIR/quickjs-ng"
           cmake --build "$TEMP_DIR/lx-quickjs-host-build" --config Release
+          mkdir -p "$WORKSPACE/app/internal/music/lxruntime/poc/native/lib"
+          cp "$TEMP_DIR/lx-quickjs-host-build/lib/libqjs.a" "$WORKSPACE/app/internal/music/lxruntime/poc/native/lib/libqjs.a"
           host="$(find "$TEMP_DIR/lx-quickjs-host-build" -type f -iname 'lx_quickjs_host_smoke.exe' -print -quit)"
           test -n "$host"
           test -f "$TEMP_DIR/lx-quickjs-host-build/lib/libqjs.a"
@@ -82,7 +84,6 @@ jobs:
           cd "$WORKSPACE/app"
           export CGO_ENABLED=1
           export CC=gcc
-          export CGO_LDFLAGS="-L$TEMP_DIR/lx-quickjs-host-build/lib -lqjs"
           go test -tags lxquickjs -count=3 -run '^TestLXSourceRConfigLiveHandshake$' ./internal/music/lxruntime
           go test -tags lxquickjs -count=1 -v ./internal/music/lxruntime
           # Exercise the production build tag through the full desktop dependency graph.
