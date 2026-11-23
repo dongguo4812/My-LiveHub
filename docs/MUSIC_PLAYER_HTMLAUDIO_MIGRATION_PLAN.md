@@ -653,3 +653,48 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 ### 10.6 本轮审计状态
 
 本轮已完成第一批官方规范和关键源码核对，并发现此前阶段 0A 的顺序需要调整：**先审计官方原生协议与内置 SDK 的边界，再决定协议是否需要扩展；不是先写扩展 action 再找源码证明。** 本轮只更新开发基线与审计记录，不表示完整审计或代码开发已经完成。
+
+
+### 10.7 官方内置 Music SDK：搜索、跨源匹配与能力边界（第二批审计）
+
+核对源码：`src/renderer/store/search/music/action.ts`、`src/renderer/utils/musicSdk/index.js`、`src/renderer/utils/musicSdk/api-source.js`、`src/renderer/utils/musicSdk/api-source-info.ts`、各平台 `{kw,kg,tx,wy,mg}/index.js` 和 `musicSearch.js`。
+
+1. 搜索入口位于 renderer store 的 music search action。单源搜索调用 `music[sourceId].musicSearch.search(text, page, limit)`；全源搜索并发调用已启用的各平台 SDK，失败平台转为空结果，之后合并、去重、按关键词相似度排序。旧请求通过 key 检查丢弃过期结果。
+2. SDK 中的平台源是模块对象，不是用户自定义源脚本。已确认平台对象包含 `musicSearch`、`songList`、`leaderboard`、`hotSearch`、`comment`、`getMusicUrl`、`getLyric`、`getPic`、部分源的 `getMusicInfo` / `getMusicDetailPageUrl` 等不同能力。
+3. 当前默认平台列表为 kw/kg/tx/wy/mg/xm；bd 模块被导入但未列入默认在线源列表。跨源搜索 `searchMusic` 会跳过当前源和 xm，使用其他有 musicSearch 的平台；`findMusic` 再按歌名、歌手、专辑、时长和版本字符匹配排序，供播放失败后的跨源切换使用。
+4. 各平台搜索响应结构不同，平台模块自行解析、去重、补充质量信息并映射为音乐对象；例如酷我解析 N_MINFO，酷狗按 Audioid/FileHash 去重并映射音质，咪咕解析 songResultData，网易云/QQ 使用各自请求和解析逻辑。统一对象是在平台模块解析后建立，而不是由用户自定义源协议直接返回统一 Track。
+5. `api-source.js` 是另一个“可配置 API source”层：根据 apiSource 选择接口配置；当配置以 `user_api` 开头时，才路由到 `userApi.apis[source]`。当前 `api-source-info.ts` 内置配置数组为空（测试配置注释掉），因此不能将它误解为内置平台搜索脚本目录。
+6. 平台 SDK 的 `getMusicUrl` 通过 `apis(source).getMusicUrl` 委托可选 API source；平台歌词、封面则多由各平台 SDK 自己实现。网易云/酷狗/咪咕/酷我/QQ 的歌词解析方式不统一，可能涉及 KRC/QRC、逐字歌词、翻译歌词和专有加密/编码。
+7. 播放质量选择由曲目可用质量与当前 API source 对该平台声明的 quality 列表共同决定；播放 URL 获取会优先读取 URL 缓存，失败时可按匹配结果尝试其他音源，记录 retryedSource 防止重复尝试。Local source 的 musicUrl/lyric/pic 由用户自定义源提供。
+8. 由此得到关键结论：洛雪自定义源脚本原生协议只负责补充平台的 URL（远程 source）或 local source 的 URL/歌词/封面；洛雪桌面端平台搜索/详情/歌单等功能由独立 SDK 代码实现。若 My-LiveHub 要求“可导入 JS 脚本实现任意音源搜索和播放”，它要兼容的对象不能简单等同于桌面端自定义源协议；必须另行确认目标脚本生态和脚本 API 格式，再明确选择“移植平台 SDK 模块”或“支持另一类 JS provider 脚本”，不能宣称这是原生 LX 自定义源 action。
+
+### 10.8 官方自定义源运行时生命周期和请求语义（第二批审计）
+
+核对源码：`src/main/modules/userApi/utils.ts`、`src/main/modules/userApi/main.ts`、`src/main/modules/userApi/renderer/preload.js`、`src/main/modules/userApi/rendererEvent/rendererEvent.ts`、`src/renderer/core/useApp/useInitUserApi.ts`。
+
+1. 导入：读取脚本头部块注释元数据（name/description/author/homepage/version），对字段长度截断；deflate 后 base64 保存；按压缩内容防重复；生成 user_api ID。脚本内容单独缓存，元数据持久化；支持旧格式迁移、启用更新提示、删除。
+2. 执行隔离：每次加载先关闭旧 BrowserWindow；创建隐藏 Electron BrowserWindow，`contextIsolation=true`、`nodeIntegration=false`、`nodeIntegrationInWorker=false`，禁用若干导航/新窗口/权限能力；但 `sandbox=false`，因此不能把它描述为完整 OS 级沙箱。
+3. preload 在收到 initEnv 后通过 contextBridge 暴露 `globalThis.lx`，再注册全局 error/unhandledrejection 捕获，最后执行脚本。脚本须先注册 request handler，再发送 inited；初始化错误会通过专用错误 handler 报告。
+4. 初始化只允许一次。宿主校验 source key、type、action、quality，并只保留白名单能力；renderer 收到状态后将支持的 action 映射为 `getMusicUrl/getLyric/getPic` 方法。切换 source 时旧 API 请求会因 source changed 被拒绝。
+5. 请求由 requestKey 关联。renderer 主侧设置 20 秒超时；请求取消会 reject 对应 Promise 并清理队列和 timer。切换或关闭窗口时有资源清理。preload 的 `lx.request` 默认 60 秒，上限 60 秒，支持 method/headers/body/form/formData、当前代理设置及 abort closure；响应同时给 statusCode/statusMessage/headers/bytes/raw/body，body 尝试 JSON parse。
+6. `lx.request` 把 response raw 转字符串后作为 body；因此对二进制数据的原始语义、编码、Buffer 表现需要重点验证，不能简单视为 Node needle 完整响应兼容。宿主提供 Buffer、zlib、crypto（AES/RSA_NO_PADDING/randomBytes/MD5）接口。
+7. `lx.send` 支持 inited 和 updateAlert；updateAlert 每次运行仅允许一次，日志长度受限。脚本运行环境为桌面 Electron renderer，不暴露 Node integration，但并非 QuickJS 的等价全局环境。
+8. 关闭 BrowserWindow 前清理 auth cache、storage、cache；卸载或切源时销毁旧窗口。代理变化会通过 proxyUpdate 事件更新 preload 代理配置。
+9. 重要兼容边界：原生请求 action 的主侧超时为 20 秒，HTTP request timeout 最多 60 秒；取消链路跨 renderer/主进程；脚本环境包含真实 BrowserWindow/Web APIs 的一部分。QuickJS 适配不能只补齐 lx 对象名称，还必须对齐初始化时序、Promise/回调、事件和请求生命周期、错误报告、数据类型、取消语义。
+
+### 10.9 官方源码审计结论及对目标方案的约束
+
+- **原生 LX 自定义源协议已明确**：远程 source 的 `musicUrl`；local source 的 `musicUrl/lyric/pic`。协议通过 `inited` 声明 source 能力，通过 `request` 事件承载 action。
+- **LX 桌面端内置 SDK 已明确**：搜索、跨源匹配、平台详情/歌单/榜单/热搜/评论、歌词/封面等主要是桌面端 renderer 模块，而非远程自定义源 action。
+- **API source 与用户自定义源的关系已明确**：平台 SDK 可将 URL 获取委托给当前 API source；当 API source 选择 user_api 时，由用户脚本补充 URL 或 local metadata。平台搜索仍由内置 SDK 模块完成。
+- **因此原方案必须保持两条能力边界**：兼容 LX 原生用户自定义源协议是一项；实现可导入 JS provider 来承担搜索/详情/歌词等完整音源能力是另一项。后者若仍是产品目标，必须选定真实脚本格式/生态并以真实脚本样本验证，不能把扩展 action 伪装成 LX 原生协议。
+- **安全边界**：官方 BrowserWindow 不是完整 sandbox（sandbox=false）；My-LiveHub QuickJS 需要以更严格的权限、网络目标校验、DNS/重定向逐跳检查、执行资源配额实现安全目标，不应照搬官方较宽松行为。
+- **兼容性边界**：需要覆盖全局对象/Polyfill、Buffer 二进制语义、zlib/crypto、HTTP response、请求代理、异步事件、Promise、取消、初始化时序、脚本生命周期。仅测试一个 HelloWorld 或只测 musicUrl 无法代表真实兼容。
+
+### 10.10 阶段 0 审计状态更新
+
+本轮完成了官方内置 Music SDK 搜索/跨源匹配/播放质量与 URL 调度、各平台模块能力，以及自定义源导入/执行/初始化/请求/卸载生命周期的第二批源码核对。审计仍需最后完成两类证据收敛：
+- 对 My-LiveHub 现有 QuickJS host API、运行时限制、并发、网络安全、测试用例逐项建立带文件/符号/测试名称的差异矩阵；
+- 收集并运行至少一组目标生态真实脚本（不只是官方最小示例），确认用户最终希望导入的脚本格式和兼容范围。
+
+在这两项完成前，阶段 0 仍不得标记全部完成，也不得进入阶段 1 实现。
