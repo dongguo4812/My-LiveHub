@@ -4,9 +4,12 @@ package desktop
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"testing"
 	"testing/fstest"
+	"strings"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
 )
@@ -77,9 +80,12 @@ func TestProductionLXScriptRuntimeQuarantinesMalformedStore(t *testing.T) {
 
 func TestProductionLXScriptRuntimeIsolatesInvalidPersistedScript(t *testing.T) {
 	manager := testLXConfigManager(t)
+	validSource := "lx.send('inited', {});"
+	validDigest := sha256.Sum256([]byte(validSource))
 	records := []storedLXScript{
 		{ID:"broken", Name:"broken source", Source:"  ", Enabled:true},
-		{ID:"valid", Name:"valid source", Source:"lx.send('inited', {});", Enabled:true},
+		{ID:"tampered", Name:"tampered source", Source:validSource, Enabled:true},
+		{ID:hex.EncodeToString(validDigest[:]), Name:"valid source", Source:validSource, Enabled:true},
 	}
 	data, err := json.Marshal(records)
 	if err != nil { t.Fatal(err) }
@@ -88,9 +94,10 @@ func TestProductionLXScriptRuntimeIsolatesInvalidPersistedScript(t *testing.T) {
 	if err := runtime.Start(context.Background()); err != nil { t.Fatalf("start with one damaged script: %v", err) }
 	defer runtime.Close()
 	scripts := runtime.ListScripts()
-	if len(scripts) != 2 { t.Fatalf("restored script count = %d, want 2: %#v", len(scripts), scripts) }
+	if len(scripts) != 3 { t.Fatalf("restored script count = %d, want 3: %#v", len(scripts), scripts) }
 	if scripts[0].Enabled || scripts[0].LastError == "" { t.Fatalf("damaged script was not isolated: %#v", scripts[0]) }
-	if !scripts[1].Enabled || scripts[1].LastError != "" { t.Fatalf("valid script was affected by damaged peer: %#v", scripts[1]) }
+	if scripts[1].Enabled || !strings.Contains(scripts[1].LastError, "hash") { t.Fatalf("tampered script was not rejected by hash verification: %#v", scripts[1]) }
+	if !scripts[2].Enabled || scripts[2].LastError != "" { t.Fatalf("valid script was affected by damaged peer: %#v", scripts[2]) }
 	if !runtime.Available() { t.Fatal("valid script should keep runtime available") }
 }
 
