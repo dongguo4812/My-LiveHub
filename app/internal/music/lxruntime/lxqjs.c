@@ -1,4 +1,4 @@
-//go:build lxquickjs || lxproduction
+//go:build (lxquickjs || lxproduction) && cgo
 
 #include "lxqjs.h"
 
