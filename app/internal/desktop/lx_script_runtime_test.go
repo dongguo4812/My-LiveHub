@@ -37,7 +37,7 @@ func TestMusicServiceResolvesPlaybackURLThroughOwnedLXRuntime(t *testing.T) {
 		SourceData: map[string]string{"songmid": "song-123"},
 		Qualities: []music.TrackQuality{{Type: "320k", Size: "8 MiB"}},
 	}
-	got, err := service.ResolvePlaybackURL(context.Background(), track, "")
+	got, err := service.ResolvePlaybackURL(track, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestMusicServiceResolvesPlaybackURLThroughOwnedLXRuntime(t *testing.T) {
 func TestMusicServiceRejectsPlaybackURLWithoutProductionRuntime(t *testing.T) {
 	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, nil)
 	service.scriptRuntime = nil
-	_, err := service.ResolvePlaybackURL(context.Background(), music.Track{SourceID: "kw"}, "320k")
+	_, err := service.ResolvePlaybackURL(music.Track{SourceID: "kw"}, "320k")
 	if err == nil {
 		t.Fatal("expected a clear error when production QuickJS is not enabled")
 	}
