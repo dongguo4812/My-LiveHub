@@ -92,7 +92,14 @@ func DetectLXScriptExtensionActions(ctx context.Context, info ScriptInfo, source
 	sort.Strings(actions)
 	sort.Strings(sourceSet)
 	if len(actions) == 0 {
-		return nil, sourceSet, errors.New("脚本已初始化并声明音源，但没有声明 My-LiveHub 支持的社区扩展 action（search/detail/lyric/pic）；musicUrl 属于洛雪原生 action，不计入社区扩展能力")
+		declarations := make([]string, 0, len(sourceSet))
+		for sourceName, capability := range sources {
+			declared := append([]string(nil), capability.Actions...)
+			sort.Strings(declared)
+			declarations = append(declarations, fmt.Sprintf("%s=[%s]", sourceName, strings.Join(declared, ",")))
+		}
+		sort.Strings(declarations)
+		return nil, sourceSet, fmt.Errorf("脚本已初始化并声明音源，但没有声明 My-LiveHub 支持的社区扩展 action（search/detail/lyric/pic）；实际握手声明：%s；musicUrl 属于洛雪原生 action，不计入社区扩展能力", strings.Join(declarations, "; "))
 	}
 	return actions, sourceSet, nil
 }
