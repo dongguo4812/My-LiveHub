@@ -807,3 +807,41 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 
 
 **10.14 补充记录（后续安全收敛）：** 进一步将 IPv6 目标限制在 `2000::/3` 全球单播空间，并拒绝 IPv4-compatible、NAT64、6to4、Teredo/协议分配及文档保留地址；自定义 HTTP RoundTripper 若无法进行 DNS pinning，在生产策略下对域名请求直接拒绝。新增测试覆盖 loopback/私网/云元数据地址、重定向至 loopback、IPv4-compatible 与 NAT64 地址。最新安全代码提交为 `6c22c85288537cc8739e647dd44033d2d7d5503c`。仍需 CI 实际执行及可控 DNS rebinding/mixed-answer 测试，不能将安全验证标记为完成。
+
+
+### 10.15 外部目标生态真实脚本采样（pdone/lx-music-source，固定版本）
+
+已从公开目标生态仓库取得并逐段审阅外部脚本源码（仅用于兼容性审计；未将第三方完整脚本复制进本仓库）：
+
+- 上游仓库：`pdone/lx-music-source`
+- 固定审计 commit：`07dca9589e3734b140ec4ef396ee29dfe63687a2`
+- 仓库 README：`https://github.com/pdone/lx-music-source/tree/07dca9589e3734b140ec4ef396ee29dfe63687a2`
+- 样本 A：`feichangdao/latest.js`，blob `c1724ef140e03bdca336bb92c397c4d0a5a26199`
+- 样本 B：`xinghai/latest.js`，blob `3eb0ce8c233ba5e1b2f0f1b4d70856e6accb3be5`
+- 对照样本：`xinglan/4.0.2.js`，blob `f12581f4d2b05b6585480fd3436595836f91040a`
+
+**样本 A：非常刀（FeiChangDao）**
+- 约 17.1 KB / 443 行。
+- request handler 明确分支 `musicUrl`、`search`、`lyric`；初始化声明 wy/kw/mg/qs 等 source 的 search，qs 还声明 lyric。
+- 搜索支持网易云、酷我、咪咕、汽水等不同后端；歌曲结果映射为 source/id/name/singer/album/interval/meta 结构。
+- 歌词从汽水 API 获取 KRC 并转换成 LRC。
+- URL 解析使用 `Promise.any` 并发竞速前三个后端，失败后顺序回退；有缓存、质量映射和后端降级。
+- 请求示例使用自定义 Referer 和 Accept headers。
+- 这份脚本真实证明目标生态中确实存在“search/lyric 扩展 action”脚本，但这些不是洛雪桌面官方远程自定义源原生 action。
+
+**样本 B：星海（XingHai）**
+- 约 20.2 KB / 538 行。
+- handler 支持 `musicUrl`、`lyric`、`pic`；初始化为多个远程平台声明这三种 action。
+- 使用 `lx.utils.buffer.from/bufToString` 处理 base64/请求数据；使用请求 headers、设备标识/token、更新提示和缓存。
+- 启动流程除 inited 外还会异步发起 IP 查询、版本检查等 HTTP 请求；因此真实脚本初始化测试必须能隔离/回放初始化网络任务，不能让 CI 任意访问第三方服务。
+- 脚本把远程平台 lyric/pic 声明为 action，与官方桌面 preload 只允许远程 musicUrl、local 才允许 lyric/pic 的白名单存在明确差异。
+
+**生态兼容结论更新：**
+1. 用户提出的“搜索、播放 URL、歌词由真实 JS 音源脚本承担”在第三方脚本生态中有真实样本依据，不是臆想需求。
+2. 但目标脚本集合包含两种协议形态：严格 LX 官方 desktop custom-source 协议，以及社区扩展了 search/lyric/pic 的扩展脚本。My-LiveHub 必须明确保留原生协议兼容层，同时单独定义并测试扩展 action 兼容能力；不能把社区扩展 action 说成洛雪原生能力。
+3. 搜索结果需要由 Go 适配层映射成统一 Track；歌词结果需要兼容 string/object/null、LRC/KRC 等形态；播放 URL 需要连同媒体请求 headers/有效期建模。
+4. 测试不能只测 action 名称。至少应覆盖：FeichangDao 的搜索/歌词/Promise.any URL 回退/Referer；XingHai 的远程 lyric/pic/Buffer/base64/token/初始化网络请求；XingLan 的 AES/MD5/Buffer/多后端质量映射。
+5. 这些脚本来自不受 My-LiveHub 控制的第三方仓库，README 明确警告仓库曾下架含恶意逻辑的 LX 脚本。不得批量自动执行订阅仓库所有脚本；必须固定 commit/blob、人工审查样本、在 QuickJS 无 OS 能力的隔离环境执行，并对 `lx.request` 强制 SSRF/资源配额。当前不把被警告下架的 `lx/latest.js` 作为兼容 fixture。
+6. 第三方样本未明确授权再分发完整源码，因此本项目只记录固定版本、blob SHA、来源链接和测试观察，不把完整第三方脚本复制进仓库。后续若需要离线 CI fixture，应先确认许可或取得用户提供的可测试副本，再计算并固定 SHA-256。
+
+**目标脚本采样已完成第一轮；真实执行仍未完成。** 当前测试文件已对仓库自带三份脚本做初始化握手验证，但尚未对外部 FeichangDao/XingHai 执行 action。下一步需要在可注入、可录制回放的 HTTP Host 层完成测试隔离，再逐项执行真实外部脚本；不可直接放开 CI 出网。
