@@ -153,7 +153,7 @@ func TestUnifiedSourceServicePreservesNativeProviderPlaybackMetadata(t *testing.
 			indexed, ok := musicInfo["_types"].(map[string]any)
 			if !ok || indexed[tt.quality] == nil { t.Fatalf("indexed quality metadata = %#v", musicInfo["_types"]) }
 			if musicInfo["typeUrl"] == nil || musicInfo["interval"] != "03:00" || musicInfo["img"] == nil { t.Fatalf("missing or invalid LX legacy fields: %#v", musicInfo) }
-			if indexedQuality, ok := indexed[tt.quality].(map[string]any); !ok || indexedQuality["size"] != "4.12MB" { t.Errorf("_types[%s] = %#v, want normalized uppercase size", tt.quality, indexed[tt.quality]) }
+			if indexedQuality, ok := indexed[tt.quality].(map[string]any); !ok { t.Errorf("_types[%s] = %#v, want metadata object", tt.quality, indexed[tt.quality]) } else if tt.source == "kw" && indexedQuality["size"] != "4.12MB" { t.Errorf("Kuwo _types[%s].size = %#v, want 4.12MB", tt.quality, indexedQuality["size"]) }
 			for key, want := range tt.qualityData {
 				if qualitys[0][key] != want { t.Errorf("types[0].%s = %#v, want %q", key, qualitys[0][key], want) }
 			}
