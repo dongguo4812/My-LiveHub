@@ -526,7 +526,7 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 
 ### 9.3 必须冻结的协议决策
 
-1. **脚本 action 分层**：洛雪原生兼容 action 与 My-LiveHub 扩展 action 分开命名/标记。原生兼容范围以可核验的洛雪脚本规范和真实脚本为准；My-LiveHub 扩展至少定义 search、detail、musicUrl、lyric 的输入、输出、错误和能力声明。
+1. **脚本 action 分层**：先按官方桌面端自定义源文档和实现源码确认原生 action 的精确范围；不得将洛雪桌面端内置 SDK 的搜索/详情能力误认为自定义源 action。My-LiveHub 扩展 action 是否需要、包含哪些能力，必须由完整源码审计和项目目标差异共同决定，审计前不预设 search/detail/lyric 扩展。
 2. **搜索执行权**：按项目已确认的目标，搜索、详情、播放 URL、歌词由 JS 音源脚本执行；Go 负责调度与统一模型。现有 Go 五平台 provider 只能作为明确的兼容/迁移选项，不能在声称“脚本搜索”时暗中承担主搜索。
 3. **用户导入模型**：内置与用户脚本使用同一个加载器、运行时工厂、权限系统和 action 调度器；禁止为内置脚本单独开特权执行路径。
 4. **播放资源模型**：统一结构化返回值；媒体 GET headers 与脚本 API 请求 headers 分开保存和授权。敏感 Cookie/Token 不进入日志、普通事件广播或不可信前端持久存储。
@@ -574,5 +574,82 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 
 ### 9.7 当前唯一下一步
 
-先完成 **阶段 0A：冻结洛雪原生 action 与 My-LiveHub 扩展 action 的协议边界**，明确脚本搜索/详情/歌词的 schema、错误语义和能力声明；随后依次推进 0B–0F。完成这些前置门后，再进入阶段 1 实现。当前没有修改生产代码，也没有启动或声称 CI 通过。
+先完成 **阶段 0A：洛雪官方源码与规范全面审计**，确认自定义源 action、内置音乐 SDK、脚本宿主环境、生命周期及业务调用链；然后形成证据化兼容矩阵，再依据审计结果决定是否需要项目扩展协议。随后依次推进 0B–0F。完成这些前置门后，再进入阶段 1 实现。当前没有修改生产代码，也没有启动或声称 CI 通过。
 
+
+
+---
+
+## 10. 洛雪官方源码审计记录（2026-11-23）
+
+> 本节是阶段 0 的审计工作记录，**不是审计完成声明**。审计以洛雪官方桌面端仓库 `lyswhut/lx-music-desktop` 的提交 `323e4bac505da428adae8db6b58039fb2b36b86d` 和官方文档仓库 `lyswhut/lx-music-doc` 的提交 `a033df5292dfb0b371043417ea06071df518c904` 为当前可复核基线。后续若切换源码版本，必须记录新旧版本差异。
+
+### 10.1 已核实的官方资料
+
+- 官方桌面端源码：`https://github.com/lyswhut/lx-music-desktop/tree/323e4bac505da428adae8db6b58039fb2b36b86d`
+- 官方桌面端自定义源规范：`https://github.com/lyswhut/lx-music-doc/blob/a033df5292dfb0b371043417ea06071df518c904/docs/desktop/custom-source.mdx`
+- 关键源码文件：
+  - `src/main/modules/userApi/renderer/preload.js`
+  - `src/main/modules/userApi/utils.ts`
+  - `src/main/modules/userApi/main.ts`
+  - `src/main/modules/userApi/index.ts`
+  - `src/main/modules/userApi/rendererEvent/rendererEvent.ts`
+  - `src/main/modules/winMain/rendererEvent/userApi.ts`
+  - `src/common/types/user_api.d.ts`
+  - `src/renderer/core/useApp/useInitUserApi.ts`
+  - `src/renderer/utils/musicSdk/index.js`
+  - `src/renderer/utils/musicSdk/api-source.js`
+  - `src/renderer/core/music/utils.ts`
+  - 平台 SDK：`src/renderer/utils/musicSdk/{kw,kg,tx,wy,mg}/index.js`
+
+### 10.2 自定义源原生协议：已确认事实
+
+1. 自定义源脚本是 UTF-8 JavaScript（官方文档允许 ES6+），文件头部注释通过 `@name`、`@description`、`@version`、`@author`、`@homepage` 提供元数据。
+2. 桌面端向脚本暴露 `globalThis.lx`，包括 `version`、`env`、`currentScriptInfo`、`EVENT_NAMES`、`on`、`send`、`request` 和 `utils`。
+3. 原生事件名为 `request`、`inited`、`updateAlert`。脚本通过 `lx.on(EVENT_NAMES.request, handler)` 注册处理器，并通过 `lx.send(EVENT_NAMES.inited, {openDevTools, sources})` 完成初始化。初始化事件前发生脚本错误会导致初始化失败。
+4. 官方桌面端自定义源允许的 source key 为 `kw/kg/tx/wy/mg/local`。`inited.sources[source]` 声明 `type: "music"`、`actions` 和 `qualitys`；质量列表允许 `128k/320k/flac/flac24bit`。能力会被宿主端按 source 白名单过滤，而不是脚本声明什么就无条件开放什么。
+5. **远程 source（kw/kg/tx/wy/mg）的自定义源 action 只有 `musicUrl`；`local` source 才允许 `musicUrl/lyric/pic`。** 这是官方桌面端 preload 的 `supportActions` 白名单与官方文档一致的结论。
+6. `musicUrl` 入参为 `{type, musicInfo}`，其中 type 为所声明的质量标识；local source 的 type 为 null。返回值必须为 HTTP(S) URL 字符串。
+7. local source 的 `lyric` 入参为 `{musicInfo}`，返回歌词对象；`pic` 入参为 `{musicInfo}`，返回 HTTP(S) 图片 URL。歌词字段为 `lyric/tlyric/rlyric/lxlyric`，宿主端对长度和类型执行校验。
+8. `lx.request(url, options, callback)` 支持 method/headers/body/form/formData/timeout，回调提供 err、resp、body，并返回取消函数。桌面端实现使用 Needle；请求超时最大 60 秒。
+9. `lx.utils` 官方桌面端提供 buffer、crypto（AES/RSA/随机数/MD5）和 zlib（inflate/deflate）能力。
+10. `updateAlert` 每次脚本运行仅允许调用一次，日志最大 1024 字符。
+11. 官方桌面端脚本导入会解析头部元数据、压缩保存脚本文本、按内容防重复；可加载、切换、删除脚本。当前实现以独立 Electron BrowserWindow 运行脚本，启用 contextIsolation、关闭 nodeIntegration、拦截导航和新窗口，并在卸载时清理该窗口的缓存/存储。
+12. 宿主请求使用 requestKey 在主进程与脚本窗口之间关联；主进程 20 秒超时并支持取消。切换音源会关闭旧窗口并加载新脚本。
+
+### 10.3 必须纠正的协议认知
+
+**洛雪桌面端内置音乐 SDK 与“洛雪自定义源脚本协议”是两套不同层次的东西。**
+
+- 官方桌面端内置平台 SDK（`src/renderer/utils/musicSdk/{kw,kg,tx,wy,mg}`）包含 `musicSearch`、`songList`、`leaderboard`、`hotSearch`、`comment`、平台歌曲详情、歌词、封面及播放 URL 等业务模块。
+- 自定义源脚本协议并没有向远程 source 暴露通用 `search` 或 `detail` action；远程自定义源仅声明 `musicUrl`。自定义源的 `lyric/pic` 仅属于 local source action。
+- 因此不能把“洛雪桌面端有搜索/详情/歌词功能”推导成“洛雪自定义源 JS 原生支持 search/detail/lyric actions”。
+- 同样，不能在没有审计用户真实目标脚本样本、官方 SDK 与项目目标的情况下，直接把 `search/detail/lyric` 定义成 My-LiveHub 扩展 action 并称为兼容洛雪。
+- 下一步需要继续审计官方内置 SDK 的搜索调用、数据模型和各平台模块；并确认用户所说“洛雪 JS 音源脚本负责搜索”所指脚本生态/脚本格式，是否属于官方桌面端自定义源协议，还是另一类可加载脚本。该差异必须通过真实脚本样本和源码调用链确认。
+
+### 10.4 My-LiveHub 当前实现对照：已核实事实
+
+- `app/internal/music/lxruntime/host_contract.go` 已实现部分桌面端 `lx` 对象、事件名称、source/action/quality 白名单、初始化状态及脚本元信息注入；但它是 Go/QuickJS 实现，不等于官方 Electron preload 行为完全等价。
+- `app/internal/music/lxruntime/dispatch.go` 已实现 request action dispatch、Promise 结果轮询、`lx.request` 网络任务服务及回调交付。
+- `app/internal/music/lxruntime/http_request.go` 已存在 Go HTTP 桥接、响应体上限（8 MiB）等实现；仍需逐项核对 DNS/重定向 SSRF、超时语义、二进制响应与官方 Needle 行为差异。
+- `app/internal/music/lxruntime/source_manager.go` 通过 go:embed 固定内置三个脚本，按脚本隔离 QuickJS Runtime；`ResolvePlaybackURL` 当前只派发 `musicUrl`，返回 string。它不是用户可导入脚本管理器。
+- `app/internal/music/search_lx.go` 的五个平台搜索由 Go 原生 provider 实现。此事实与“搜索必须由用户导入的洛雪 JS 脚本执行”的目标存在差距；但在明确目标脚本格式之前，不应擅自添加伪洛雪原生 search action。
+- `app/internal/music/lyrics_lx.go` 存在 Go 原生平台歌词实现；它不等同于通过洛雪远程自定义源脚本的 lyric action（官方协议中远程 source 不支持该 action）。
+- `app/internal/desktop/lx_script_runtime.go` 当前接口主要为 Start/ResolvePlaybackURL/Close；`MusicService` 仍将旧播放引擎作为默认 engine，脚本 URL resolver 也未构成 HTMLAudio 播放闭环。
+- 当前结构化 PlaybackResource、通用用户脚本导入/管理、完整第三方脚本兼容及目标 Windows WebView 实播仍未验收。
+
+### 10.5 审计未完成项（不得提前进入实现）
+
+- [ ] 官方桌面端内置 SDK：搜索入口、平台搜索模块、搜索结果模型、详情/歌单/排行榜/热搜/评论调用链。
+- [ ] 官方自定义源窗口生命周期：脚本注入顺序、事件监听清理、切源/删除/错误/超时的完整状态机；检查是否有未被当前摘要覆盖的宿主行为。
+- [ ] `lx.request` 的 Needle 参数映射、响应 body/raw/bytes、重定向、代理、取消与异常语义。
+- [ ] 官方脚本样本：收集多个真实第三方自定义源，核对其实际使用的全局 API、模块/Polyfill、异步模式、加密/二进制依赖；不得只以官方最小样例为依据。
+- [ ] 官方 desktop 与 mobile 自定义源规范差异，明确项目只承诺 desktop 还是需要兼容 mobile 脚本子集。
+- [ ] 音源配置、音质偏好、用户切源、搜索跨源匹配、其他音源匹配与 URL 获取之间的业务调用链。
+- [ ] 与 My-LiveHub 当前 Go/QuickJS 实现逐个 API 对照，建立带源码位置、测试证据、状态和差异说明的矩阵。
+- [ ] 真实脚本的媒体 URL headers/Referer/Cookie、有效期、重定向、Range 和 WebView 可播放性采样。
+- [ ] 在以上项目完成前，阶段 0 保持进行中；不冻结新的扩展 action，不开始阶段 1 通用导入/搜索主链实现。
+
+### 10.6 本轮审计状态
+
+本轮已完成第一批官方规范和关键源码核对，并发现此前阶段 0A 的顺序需要调整：**先审计官方原生协议与内置 SDK 的边界，再决定协议是否需要扩展；不是先写扩展 action 再找源码证明。** 本轮只更新开发基线与审计记录，不表示完整审计或代码开发已经完成。
