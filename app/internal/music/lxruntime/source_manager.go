@@ -139,7 +139,7 @@ func (m *SourceManager) ResolvePlaybackURL(ctx context.Context, source string, i
 		m.mu.Unlock()
 
 		dispatchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		value, err := runtime.DispatchLXRequest(dispatchCtx, source, "musicUrl", info)
+		value, err := runtime.dispatchLXRequest(dispatchCtx, source, "musicUrl", info, client)
 		cancel()
 		if err != nil {
 			failures = append(failures, script.info.Name+" 解析失败："+err.Error())
