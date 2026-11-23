@@ -19,10 +19,19 @@ func TestProductionQuickJSRuntimeLifecycleAndEval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create production QuickJS runtime: %v", err)
 	}
-	value, err := runtime.Eval(context.Background(), "Promise.resolve(6 * 7)", "production-smoke.js")
+	value, err := runtime.Eval(context.Background(), "Promise.resolve(6 * 7).then(v => globalThis.__productionValue = v); 'queued'", "production-smoke.js")
 	if err != nil {
 		_ = runtime.Close()
 		t.Fatalf("evaluate production QuickJS runtime: %v", err)
+	}
+	if value != "queued" {
+		_ = runtime.Close()
+		t.Fatalf("production QuickJS queue result = %q, want queued", value)
+	}
+	value, err = runtime.Eval(context.Background(), "globalThis.__productionValue", "production-result.js")
+	if err != nil {
+		_ = runtime.Close()
+		t.Fatalf("read production QuickJS Promise result: %v", err)
 	}
 	if value != "42" {
 		_ = runtime.Close()
