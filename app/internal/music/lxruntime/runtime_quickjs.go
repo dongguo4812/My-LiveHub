@@ -57,7 +57,7 @@ type quickJSAPI struct {
 	freeString func(uintptr)
 	alloc func(uintptr) uintptr
 	dealloc func(uintptr)
-	setCallbacks func(uintptr, uintptr, uintptr, uintptr, uintptr, uintptr, uintptr, uintptr)
+	setCallbacks func(uintptr, uintptr, uintptr, uintptr, uintptr, uintptr, uintptr)
 }
 
 var (
@@ -211,10 +211,13 @@ func (r *Runtime) takeError(ptr uintptr, fallback string) error {
 }
 func nativeCString(ptr uintptr, limit int) string {
 	if ptr == 0 { return "" }
-	data := unsafe.Slice((*byte)(unsafe.Pointer(ptr)), limit)
-	end := 0
-	for end < len(data) && data[end] != 0 { end++ }
-	return string(data[:end])
+	data := make([]byte, 0, 256)
+	for i := 0; i < limit; i++ {
+		b := *(*byte)(unsafe.Pointer(ptr + uintptr(i)))
+		if b == 0 { return string(data) }
+		data = append(data, b)
+	}
+	return string(data)
 }
 
 func (r *Runtime) Eval(ctx context.Context, source, filename string) (string, error) {
