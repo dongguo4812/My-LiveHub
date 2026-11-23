@@ -20,6 +20,7 @@ type managedLXScript struct {
 	runtime           *Runtime
 	initialized       bool
 	supportedSources  map[string]struct{}
+	supportedActions  map[string]map[string]struct{}
 }
 
 // SourceManager owns isolated, persistent QuickJS contexts for scripts
@@ -206,27 +207,33 @@ func (m *SourceManager) dispatchScriptAction(ctx context.Context, script *manage
 			m.mu.Unlock()
 			return nil, fmt.Errorf("%s 初始化失败：%w", script.info.Name, err)
 		}
-		sourcesText, sourceErr := runtime.Eval(ctx, `JSON.stringify(Object.keys((globalThis.__lxHostState && globalThis.__lxHostState.initInfo && globalThis.__lxHostState.initInfo.sources) || {}))`, "lx-source-capabilities.js")
+		sourcesText, sourceErr := runtime.Eval(ctx, `JSON.stringify((globalThis.__lxHostState && globalThis.__lxHostState.initInfo && globalThis.__lxHostState.initInfo.sources) || {})`, "lx-source-capabilities.js")
 		if sourceErr != nil {
 			_ = runtime.Close()
 			m.mu.Lock()
-			if script.runtime == runtime { script.runtime = nil; script.initialized = false; script.supportedSources = nil }
+			if script.runtime == runtime { script.runtime = nil; script.initialized = false; script.supportedSources = nil; script.supportedActions = nil }
 			m.mu.Unlock()
 			return nil, fmt.Errorf("%s 读取音源能力失败：%w", script.info.Name, sourceErr)
 		}
-		var sourceNames []string
-		if sourceErr = json.Unmarshal([]byte(sourcesText), &sourceNames); sourceErr != nil {
+		var sourceCapabilities map[string]struct { Actions []string `json:"actions"` }
+		if sourceErr = json.Unmarshal([]byte(sourcesText), &sourceCapabilities); sourceErr != nil {
 			_ = runtime.Close()
 			m.mu.Lock()
-			if script.runtime == runtime { script.runtime = nil; script.initialized = false; script.supportedSources = nil }
+			if script.runtime == runtime { script.runtime = nil; script.initialized = false; script.supportedSources = nil; script.supportedActions = nil }
 			m.mu.Unlock()
 			return nil, fmt.Errorf("%s 音源能力格式无效：%w", script.info.Name, sourceErr)
 		}
-		supported := make(map[string]struct{}, len(sourceNames))
-		for _, name := range sourceNames { supported[name] = struct{}{} }
+		supported := make(map[string]struct{}, len(sourceCapabilities))
+		actions := make(map[string]map[string]struct{}, len(sourceCapabilities))
+		for name, capability := range sourceCapabilities {
+			supported[name] = struct{}{}
+			actions[name] = make(map[string]struct{}, len(capability.Actions))
+			for _, action := range capability.Actions { actions[name][action] = struct{}{} }
+		}
 		m.mu.Lock()
 		if m.closed { m.mu.Unlock(); return nil, errors.New("LX source manager is closed") }
 		script.supportedSources = supported
+		script.supportedActions = actions
 		script.initialized = true
 		m.mu.Unlock()
 	}
@@ -234,6 +241,12 @@ func (m *SourceManager) dispatchScriptAction(ctx context.Context, script *manage
 	_, supportsSource := script.supportedSources[source]
 	m.mu.Unlock()
 	if !supportsSource { return nil, &lxSourceUnsupportedError{source: source} }
+	if action == "musicUrl" {
+		m.mu.Lock()
+		_, advertised := script.supportedActions[source]["musicUrl"]
+		m.mu.Unlock()
+		if !advertised { return nil, &lxSourceUnsupportedError{source: source} }
+	}
 
 	dispatchCtx, cancel := context.WithTimeout(ctx, lxMaxRequestTimeout)
 	defer cancel()
