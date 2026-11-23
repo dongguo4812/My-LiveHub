@@ -4,6 +4,7 @@ package lxruntime
 
 import (
 	"context"
+	"sort"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -89,7 +90,8 @@ func DetectLXScriptExtensionActions(ctx context.Context, info ScriptInfo, source
 	}
 	return actions, sourceSet, nil
 }
-\nfunc newSourceManager(client *http.Client) *SourceManager {
+
+func newSourceManager(client *http.Client) *SourceManager {
 	if client == nil {
 		client = &http.Client{Timeout: lxMaxRequestTimeout}
 	}
