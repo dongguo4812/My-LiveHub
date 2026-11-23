@@ -87,6 +87,8 @@ jobs:
           go test -tags lxquickjs -count=1 -v ./internal/music/lxruntime
           # Exercise the production build tag through the full desktop dependency graph.
           go test -tags lxproduction ./...
+          go build -tags lxproduction -ldflags "-H=windowsgui" -o "$TEMP_DIR/My-LiveHub-production.exe" .
+          ls -lh "$TEMP_DIR/My-LiveHub-production.exe"
 
       - name: Measure QuickJS runtime lifecycle and binary footprint
         shell: msys2 {0}
