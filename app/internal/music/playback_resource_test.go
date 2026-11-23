@@ -82,3 +82,54 @@ func TestPlaybackResourceRejectsCredentialsFragmentsAndOversizedHeaders(t *testi
 	base.Headers = map[string]string{"X-Large": strings.Repeat("x", (64<<10)+1)}
 	if err := validatePlaybackResource(base); err == nil { t.Fatal("oversized headers accepted") }
 }
+
+
+func TestResolvePlaybackResourceQualityPrecedenceAndDeduplication(t *testing.T) {
+	track := Track{
+		ID: "song-order", SourceID: "tx", LXSourceKey: "tx",
+		SourceData: map[string]string{"songmid": "native-song-order"},
+		Title: "Song", SelectedQuality: "320k",
+		Qualities: []TrackQuality{{Type: "320k"}, {Type: "128k"}, {Type: "128k"}, {Type: "flac"}},
+	}
+	resolver := &qualityResolver{failures: map[string]bool{"flac": true}}
+	service := NewUnifiedSourceService(nil, resolver)
+	resource, err := service.ResolvePlaybackResource(context.Background(), track, "flac", NewPlaybackResourceCache(time.Minute, 8))
+	if err != nil { t.Fatal(err) }
+	if resource.Quality != "320k" { t.Fatalf("quality=%q, want selected fallback 320k", resource.Quality) }
+	want := []string{"flac", "320k"}
+	if len(resolver.calls) != len(want) { t.Fatalf("resolver calls=%v, want %v", resolver.calls, want) }
+	for i := range want { if resolver.calls[i] != want[i] { t.Fatalf("resolver calls=%v, want %v", resolver.calls, want) } }
+}
+
+func TestPlaybackResourceCacheHonorsSourceExpiryAndCapacity(t *testing.T) {
+	now := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
+	cache := NewPlaybackResourceCache(time.Hour, 2)
+	cache.now = func() time.Time { return now }
+	a := Track{ID: "a", SourceID: "tx"}
+	b := Track{ID: "b", SourceID: "tx"}
+	c := Track{ID: "c", SourceID: "tx"}
+	makeResource := func(id string, expiry time.Time) PlaybackResource {
+		return PlaybackResource{URL: "https://media.example.test/" + id + ".mp3", SourceID: "tx", TrackID: id, Quality: "320k", ExpiresAt: expiry}
+	}
+	cache.Put(a, "320k", makeResource("a", now.Add(10*time.Second)))
+	cache.Put(b, "320k", makeResource("b", now.Add(30*time.Second)))
+	if _, ok := cache.Get(a, "320k"); !ok { t.Fatal("source resource should be available before source expiry") }
+	now = now.Add(11*time.Second)
+	if _, ok := cache.Get(a, "320k"); ok { t.Fatal("resource was served after source expiry") }
+	cache.Put(c, "320k", makeResource("c", now.Add(2*time.Minute)))
+	if _, ok := cache.Get(b, "320k"); !ok { t.Fatal("capacity eviction removed the later-expiring entry") }
+	if _, ok := cache.Get(c, "320k"); !ok { t.Fatal("new entry missing after bounded eviction") }
+}
+
+func TestRefreshPlaybackResourceResolvesOnlyOnceAfterInvalidation(t *testing.T) {
+	track := Track{ID: "refresh-song", SourceID: "tx", LXSourceKey: "tx", SourceData: map[string]string{"songmid": "native-refresh-song"}, Title: "Song", Qualities: []TrackQuality{{Type: "320k"}}}
+	resolver := &qualityResolver{}
+	service := NewUnifiedSourceService(nil, resolver)
+	cache := NewPlaybackResourceCache(time.Minute, 4)
+	first, err := service.ResolvePlaybackResource(context.Background(), track, "320k", cache)
+	if err != nil { t.Fatal(err) }
+	refreshed, err := service.RefreshPlaybackResource(context.Background(), track, first, cache)
+	if err != nil { t.Fatal(err) }
+	if len(resolver.calls) != 2 { t.Fatalf("resolver called %d times, want initial + exactly one refresh", len(resolver.calls)) }
+	if refreshed.URL != first.URL { t.Fatalf("unexpected fixture URL change: %q != %q", refreshed.URL, first.URL) }
+}
