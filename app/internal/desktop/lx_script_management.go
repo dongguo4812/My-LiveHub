@@ -21,10 +21,6 @@ type lxScriptManagement interface {
 	DeleteScript(context.Context, string) error
 }
 
-func summarizeLXScript(script storedLXScript) LXScriptSummary {
-	return LXScriptSummary{ID:script.ID, Name:script.Name, Enabled:script.Enabled, ExtensionActions:append([]string(nil), script.ExtensionActions...), LastError:script.LastError}
-}
-
 // ImportLXScript imports and validates a user-provided LX JavaScript source.
 // Script text is persisted under config/local and is never embedded in the binary.
 func (s *MusicService) ImportLXScript(name, source string, extensionActions []string) (LXScriptSummary, error) {
