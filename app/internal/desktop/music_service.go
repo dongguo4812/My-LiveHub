@@ -91,7 +91,7 @@ func NewMusicServiceWithDependencies(manager *config.Manager, value config.Music
 	service := &MusicService{
 		manager: manager, buffer: buffer, value: cloneMusicConfig(value),
 		sources: sources, engine: engine, queue: music.NewQueue(value.QueueCapacity),
-		searcher: music.NewLXSearchClient(nil), lyricsCache: make(map[string]string), requestCooldowns: make(map[string]time.Time),
+		searcher: music.NewLXSearchClient(nil), scriptRuntime: newLXScriptRuntime(), lyricsCache: make(map[string]string), requestCooldowns: make(map[string]time.Time),
 	}
 	// Keep the lightweight command listener alive while the module is stopped,
 	// matching the video module so users still receive an explicit failure notice.
@@ -103,7 +103,7 @@ func (s *MusicService) start(ctx context.Context) error {
 	if s == nil || ctx == nil { return errors.New("music service and startup context are required") }
 	if s.buffer == nil { return errors.New("music event buffer is required") }
 	if lifecycle, ok := s.engine.(music.PlaybackEngineLifecycle); ok { if err := lifecycle.Start(ctx); err != nil { return fmt.Errorf("启动音乐播放服务失败：%w", err) } }
-	if s.scriptRuntime != nil { if err := s.scriptRuntime.Start(ctx); err != nil { return fmt.Errorf("启动 LX JavaScript Runtime 失败：%w", err) } }
+	if s.scriptRuntime != nil { if err := s.scriptRuntime.Start(ctx); err != nil { if lifecycle, ok := s.engine.(music.PlaybackEngineLifecycle); ok { _ = lifecycle.Close() }; return fmt.Errorf("启动 LX JavaScript Runtime 失败：%w", err) } }
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()
 	s.mu.Lock()
