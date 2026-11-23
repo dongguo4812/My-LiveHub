@@ -198,3 +198,19 @@ func TestPlaybackResourceCacheEvictsLexicallyFirstEntryWhenExpiryTies(t *testing
 	if _, ok := cache.Get(b, "320k"); !ok { t.Fatal("other equal-expiry entry should remain") }
 	if _, ok := cache.Get(c, "320k"); !ok { t.Fatal("new cache entry should remain") }
 }
+
+
+func TestURLOnlyPlaybackResolverDoesNotInventMediaRequestContext(t *testing.T) {
+	track := Track{
+		ID: "url-only-song", SourceID: "tx", LXSourceKey: "tx",
+		SourceData: map[string]string{"songmid": "url-only-native-id"},
+		Title: "URL Only", Qualities: []TrackQuality{{Type: "320k"}},
+	}
+	service := NewUnifiedSourceService(nil, &qualityResolver{})
+	resource, err := service.ResolvePlaybackResource(context.Background(), track, "", NewPlaybackResourceCache(time.Minute, 4))
+	if err != nil { t.Fatal(err) }
+	if len(resource.Headers) != 0 || resource.MIMEType != "" || resource.Codec != "" ||
+		!resource.ExpiresAt.IsZero() || resource.RequiresProxy {
+		t.Fatalf("URL-only native musicUrl protocol invented media context: %#v", resource)
+	}
+}
