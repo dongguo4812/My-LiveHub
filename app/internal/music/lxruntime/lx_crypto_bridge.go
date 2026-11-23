@@ -1,92 +1,100 @@
-//go:build (lxquickjs || lxproduction) && cgo
+//go:build lxquickjs || lxproduction
 
 package lxruntime
 
-/*
-#include <stddef.h>
-#include <stdlib.h>
-*/
-import "C"
+import (
+	"errors"
+	"unsafe"
+)
 
-import "unsafe"
+var nativeAllocator func(uintptr) uintptr
 
-//export lxqjsGoRSAEncrypt
-func lxqjsGoRSAEncrypt(data *C.char, dataLen C.size_t, key *C.char, keyLen C.size_t, outLen *C.size_t) unsafe.Pointer {
-	if dataLen > lxRSABlockSize || keyLen == 0 || keyLen > 1<<20 || outLen == nil || key == nil {
-		return nil
+func setNativeAllocator(alloc func(uintptr) uintptr) { nativeAllocator = alloc }
+func allocNativeBytes(data []byte) uintptr {
+	if nativeAllocator == nil { return 0 }
+	ptr := nativeAllocator(uintptr(len(data)+1))
+	if ptr == 0 { return 0 }
+	dst := unsafe.Slice((*byte)(unsafe.Pointer(ptr)), len(data)+1)
+	copy(dst, data)
+	dst[len(data)] = 0
+	return ptr
+}
+func allocNativeString(value string) uintptr { return allocNativeBytes([]byte(value)) }
+func readNativeBytes(ptr, length uintptr, limit uintptr) ([]byte, error) {
+	if length > limit { return nil, errors.New("native input exceeds size limit") }
+	if length == 0 { return []byte{}, nil }
+	if ptr == 0 { return nil, errors.New("native input pointer is null") }
+	return append([]byte(nil), unsafe.Slice((*byte)(unsafe.Pointer(ptr)), int(length))...), nil
+}
+func readNativeString(ptr uintptr, limit int) (string, error) {
+	if ptr == 0 { return "", nil }
+	data := unsafe.Slice((*byte)(unsafe.Pointer(ptr)), limit)
+	for i, b := range data { if b == 0 { return string(data[:i]), nil } }
+	return "", errors.New("native string is not terminated within limit")
+}
+func writeNativeLength(ptr uintptr, length int) bool {
+	if ptr == 0 { return false }
+	*(*uintptr)(unsafe.Pointer(ptr)) = uintptr(length)
+	return true
+}
+func lxqjsGoMD5(data, length uintptr) (result uintptr) {
+	defer func(){ if recover()!=nil { result=0 } }()
+	input, err := readNativeBytes(data,length,8<<20); if err!=nil{return 0}
+	return allocNativeString(lxCryptoMD5(input))
+}
+func lxqjsGoRandomBytes(length uintptr) (result uintptr) {
+	defer func(){ if recover()!=nil { result=0 } }()
+	if length > 1<<20 { return 0 }
+	value, err := lxCryptoRandomBytes(int(length)); if err!=nil{return 0}
+	return allocNativeBytes(value)
+}
+func lxqjsGoBufferFrom(data, length, encoding, outLength uintptr) (result uintptr) {
+	defer func(){ if recover()!=nil { result=0 } }()
+	input,err:=readNativeBytes(data,length,8<<20);if err!=nil||outLength==0{return 0}
+	enc:="utf8";if encoding!=0 { enc,err=readNativeString(encoding,128);if err!=nil{return 0} }
+	value,err:=lxBufferFromString(input,enc);if err!=nil{return 0}
+	if !writeNativeLength(outLength,len(value)){return 0}
+	return allocNativeBytes(value)
+}
+func lxqjsGoBufferToString(data, length, encoding, outLength uintptr) (result uintptr) {
+	defer func(){ if recover()!=nil { result=0 } }()
+	input,err:=readNativeBytes(data,length,8<<20);if err!=nil||outLength==0{return 0}
+	enc:="utf8";if encoding!=0 { enc,err=readNativeString(encoding,128);if err!=nil{return 0} }
+	value,err:=lxBufferToString(input,enc);if err!=nil{return 0}
+	if !writeNativeLength(outLength,len(value)){return 0}
+	return allocNativeBytes([]byte(value))
+}
+func lxqjsGoRSAEncrypt(data, dataLength, key, keyLength, outLength uintptr) (result uintptr) {
+	defer func(){ if recover()!=nil { result=0 } }()
+	if outLength==0||key==0||keyLength==0||keyLength>1<<20{return 0}
+	input,err:=readNativeBytes(data,dataLength,lxRSABlockSize);if err!=nil{return 0}
+	keyBytes,err:=readNativeBytes(key,keyLength,1<<20);if err!=nil{return 0}
+	value,err:=lxCryptoRSAEncrypt(input,keyBytes);if err!=nil{return 0}
+	if !writeNativeLength(outLength,len(value)){return 0}
+	return allocNativeBytes(value)
+}
+func lxqjsGoAESEncrypt(data,dataLength,mode,key,keyLength,iv,ivLength,outLength uintptr)(result uintptr){
+	defer func(){if recover()!=nil{result=0}}()
+	if outLength==0||mode==0||dataLength>1<<20||keyLength>64||ivLength>32{return 0}
+	input,err:=readNativeBytes(data,dataLength,1<<20);if err!=nil{return 0}
+	modeText,err:=readNativeString(mode,64);if err!=nil{return 0}
+	var keyBytes,ivBytes []byte
+	if keyLength>0 { keyBytes,err=readNativeBytes(key,keyLength,64);if err!=nil{return 0} }
+	if ivLength>0 { ivBytes,err=readNativeBytes(iv,ivLength,32);if err!=nil{return 0} }
+	value,err:=lxCryptoAESEncrypt(input,modeText,keyBytes,ivBytes);if err!=nil{return 0}
+	if !writeNativeLength(outLength,len(value)){return 0}
+	return allocNativeBytes(value)
+}
+func lxqjsGoZlib(data,length,inflate,outLength,errorOut uintptr)(result uintptr){
+	defer func(){if recover()!=nil{result=0}}()
+	if outLength==0||errorOut==0||length>lxMaxZlibInputBytes {
+		if errorOut!=0 { *(*uintptr)(unsafe.Pointer(errorOut))=allocNativeString("invalid zlib input or input exceeds limit") }
+		return 0
 	}
-	var input []byte
-	if dataLen > 0 {
-		input = C.GoBytes(unsafe.Pointer(data), C.int(dataLen))
-	}
-	keyBytes := C.GoBytes(unsafe.Pointer(key), C.int(keyLen))
-	result, err := lxCryptoRSAEncrypt(input, keyBytes)
-	if err != nil {
-		return nil
-	}
-	*outLen = C.size_t(len(result))
-	return C.CBytes(result)
-}
-
- 
-//export lxqjsGoBufferFrom
-func lxqjsGoBufferFrom(data *C.char, dataLen C.size_t, encoding *C.char, outLen *C.size_t) unsafe.Pointer {
-	if dataLen > 8<<20 || outLen == nil { return nil }
-	var input []byte
-	if dataLen > 0 { input = C.GoBytes(unsafe.Pointer(data), C.int(dataLen)) }
-	enc := "utf8"
-	if encoding != nil { enc = C.GoString(encoding) }
-	result, err := lxBufferFromString(input, enc)
-	if err != nil { return nil }
-	*outLen = C.size_t(len(result))
-	if len(result) == 0 { return C.malloc(1) }
-	return C.CBytes(result)
-}
-
-//export lxqjsGoBufferToString
-func lxqjsGoBufferToString(data *C.char, dataLen C.size_t, encoding *C.char, outLen *C.size_t) unsafe.Pointer {
-	if dataLen > 8<<20 || outLen == nil { return nil }
-	var input []byte
-	if dataLen > 0 { input = C.GoBytes(unsafe.Pointer(data), C.int(dataLen)) }
-	enc := "utf8"
-	if encoding != nil { enc = C.GoString(encoding) }
-	result, err := lxBufferToString(input, enc)
-	if err != nil { return nil }
-	*outLen = C.size_t(len(result))
-	if len(result) == 0 { return C.malloc(1) }
-	return C.CBytes([]byte(result))
-}
-
- 
-//export lxqjsGoMD5
-func lxqjsGoMD5(data *C.char, dataLen C.size_t) *C.char {
-	if dataLen > 8<<20 { return nil }
-	var input []byte
-	if dataLen > 0 { input = C.GoBytes(unsafe.Pointer(data), C.int(dataLen)) }
-	return C.CString(lxCryptoMD5(input))
-}
-
-//export lxqjsGoRandomBytes
-func lxqjsGoRandomBytes(length C.size_t) unsafe.Pointer {
-	if length > 1<<20 { return nil }
-	result, err := lxCryptoRandomBytes(int(length))
-	if err != nil { return nil }
-	if len(result) == 0 { return C.malloc(1) }
-	return C.CBytes(result)
-}
-
-//export lxqjsGoAESEncrypt
-func lxqjsGoAESEncrypt(data *C.char, dataLen C.size_t, mode *C.char,
-	key *C.char, keyLen C.size_t, iv *C.char, ivLen C.size_t,
-	outLen *C.size_t) unsafe.Pointer {
-	if dataLen > 1<<20 || keyLen > 64 || ivLen > 32 || outLen == nil || mode == nil { return nil }
-	var input, keyBytes, ivBytes []byte
-	if dataLen > 0 { input = C.GoBytes(unsafe.Pointer(data), C.int(dataLen)) }
-	if keyLen > 0 { if key == nil { return nil }; keyBytes = C.GoBytes(unsafe.Pointer(key), C.int(keyLen)) }
-	if ivLen > 0 { if iv == nil { return nil }; ivBytes = C.GoBytes(unsafe.Pointer(iv), C.int(ivLen)) }
-	result, err := lxCryptoAESEncrypt(input, C.GoString(mode), keyBytes, ivBytes)
-	if err != nil { return nil }
-	*outLen = C.size_t(len(result))
-	if len(result) == 0 { return C.malloc(1) }
-	return C.CBytes(result)
+	input,err:=readNativeBytes(data,length,lxMaxZlibInputBytes);if err!=nil{*(*uintptr)(unsafe.Pointer(errorOut))=allocNativeString(err.Error());return 0}
+	var output []byte
+	if inflate!=0 { output,err=lxZlibInflate(input) } else { output,err=lxZlibDeflate(input) }
+	if err!=nil { *(*uintptr)(unsafe.Pointer(errorOut))=allocNativeString(err.Error());return 0 }
+	if !writeNativeLength(outLength,len(output)){return 0}
+	return allocNativeBytes(output)
 }
