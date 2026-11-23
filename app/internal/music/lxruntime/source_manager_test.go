@@ -101,7 +101,7 @@ lx.send(lx.EVENT_NAMES.inited, {
   sources: { kw: { type: 'music', actions: ['musicUrl'], qualitys: ['128k'] } }
 });
 `
-	manager := NewSourceManagerWithScripts(nil, []LXSourceScript{{Info: ScriptInfo{Name: "private-url-fixture"}, Source: source}})
+	manager := newTestSourceManager(t, []LXSourceScript{{Info: ScriptInfo{Name: "private-url-fixture"}, Source: source}})
 	if err := manager.Start(context.Background()); err != nil { t.Fatal(err) }
 	defer manager.Close()
 	_, err := manager.ResolvePlaybackURL(context.Background(), "kw", map[string]any{})
@@ -118,7 +118,7 @@ lx.send(lx.EVENT_NAMES.inited, {
   sources: { kw: { type: 'music', actions: ['musicUrl'], qualitys: ['128k'] } }
 });
 `
-	manager := NewSourceManagerWithScripts(nil, []LXSourceScript{{
+	manager := newTestSourceManager(t, []LXSourceScript{{
 		Info: ScriptInfo{Name: "community-extension-fixture"},
 		Source: source,
 		ExtensionActions: []string{"search", "detail", "lyric", "pic"},
@@ -142,7 +142,7 @@ lx.send(lx.EVENT_NAMES.inited, {
   sources: { kw: { type: 'music', actions: ['musicUrl'], qualitys: ['128k'] } }
 });
 `
-	manager := NewSourceManagerWithScripts(nil, []LXSourceScript{{Info: ScriptInfo{Name: "no-extensions"}, Source: source}})
+	manager := newTestSourceManager(t, []LXSourceScript{{Info: ScriptInfo{Name: "no-extensions"}, Source: source}})
 	if err := manager.Start(context.Background()); err != nil { t.Fatal(err) }
 	defer manager.Close()
 	if _, err := manager.DispatchExtensionAction(context.Background(), "kw", "search", nil); err == nil || !strings.Contains(err.Error(), "explicitly enabled") {
@@ -159,6 +159,12 @@ func TestProductionSourceManagerEnforcesScriptResourceLimits(t *testing.T) {
 	for i := range tooMany { tooMany[i].Source = "lx.send('inited', {});" }
 	if _, err := NewSourceManagerWithScripts(nil, tooMany); err == nil || !strings.Contains(err.Error(), "too many imported") {
 		t.Fatalf("excessive script count should be rejected, got %v", err)
+	}
+
+	total := make([]LXSourceScript, 9)
+	for i := range total { total[i].Source = strings.Repeat("x", maxLXScriptSourceBytes) }
+	if _, err := NewSourceManagerWithScripts(nil, total); err == nil || !strings.Contains(err.Error(), "total imported") {
+		t.Fatalf("excessive total source size should be rejected, got %v", err)
 	}
 	invalidExtension := []LXSourceScript{{Source: "lx.send('inited', {});", ExtensionActions: []string{"shell"}}}
 	if _, err := NewSourceManagerWithScripts(nil, invalidExtension); err == nil || !strings.Contains(err.Error(), "unsupported community extension") {

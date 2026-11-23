@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -44,5 +45,19 @@ lx.request(`+string(mustJSONQuote(server.URL+"/rconfig"))+`, {}, (error, respons
 	}
 	if value != "fixture-config" {
 		t.Fatalf("pre-initialization request result = %q", value)
+	}
+}
+
+
+func TestInitializeLXSourceRejectsOversizedScriptAndMetadata(t *testing.T) {
+	rt := newTestRuntime(t, 5*time.Second)
+	defer rt.Close()
+	large := strings.Repeat("x", maxLXScriptSourceBytes+1)
+	if err := rt.InitializeLXSource(context.Background(), ScriptInfo{Name: "large-source"}, large, nil); err == nil || !strings.Contains(err.Error(), "byte limit") {
+		t.Fatalf("oversized source should be rejected before evaluation, got %v", err)
+	}
+	small := "lx.send('inited', {});"
+	if err := rt.InitializeLXSource(context.Background(), ScriptInfo{Name: "large-metadata", RawScript: large}, small, nil); err == nil || !strings.Contains(err.Error(), "metadata exceeds") {
+		t.Fatalf("oversized raw script metadata should be rejected, got %v", err)
 	}
 }
