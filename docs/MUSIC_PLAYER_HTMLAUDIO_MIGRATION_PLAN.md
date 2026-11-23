@@ -96,7 +96,7 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 **本节是音乐模块改造唯一有效的开发顺序和验收依据。** 开发必须严格按 A→B→C→D→E→F→G 推进；本文其他章节只能记录架构约束、审计证据、代码状态和历史结果，不得另行定义阶段、改变先后顺序或增加平行路线。若其他章节与本节冲突，以本节为准。
 
 执行规则：
-- **A：生产脚本导入与生命周期已完成并通过验收。** 下一唯一执行阶段为 B；B 尚未开始，不得跳过顺序。
+- **A：生产脚本导入与生命周期已完成并通过验收。B：统一 action 调度与歌曲模型接线正在执行。** 当前不得进入 C，必须先达到 B 的全部完成门。
 - 测试随功能开发同步编写；每项完成时集中运行该项测试及相关回归测试。CI 运行期间可继续不冲突的工作，但完成门必须取得对应 CI 结果。
 - CI 失败必须读取具体日志、修复根因并重跑；提交成功或 CI 启动不等于验收完成。
 - 不因单个边缘测试无限拆分开发；同类问题集中修复。第三方脚本许可只限制复制/分发对应脚本，不阻塞自建 fixture、兼容层和合法脚本导入流程。
@@ -120,19 +120,19 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 
 ### B. 统一 action 调度与歌曲模型接线
 
-**当前代码状态：未完成。** QuickJS 宿主 API 已覆盖一部分 request、事件、Buffer、crypto、zlib 能力；生产搜索仍存在 Go LXSearchClient 路径，社区扩展 action 尚未完整进入 MusicService 主链路。
+**当前代码状态：进行中。** 已新增生产脚本 action dispatcher，并将脚本感知搜索适配器接入单音源搜索、全局搜索和弹幕点歌搜索；已增加详情、歌词、封面 action 的 MusicService 入口，歌词接入现有 GetLyrics 路径。设置页已支持显式声明 search/detail/lyric/pic 扩展能力。当前提交为 `a2e35d8be0c259828f571c0ccd9be50523113859`；CI Run #550 正在进行，Go/runtime/production-tag/desktop 定向测试已通过，Wails bindings 与前端构建仍待最终结果。
 
 **工作内容**
 - 明确区分洛雪原生协议/action（如在线音源 `musicUrl`）与社区扩展 action（`search/detail/lyric/pic`），不得将扩展 action 冒充洛雪官方原生协议。
-- 建立统一脚本 action 调度入口，将脚本调用接入 MusicService 的生产搜索、详情、播放资源、歌词和封面路径。
-- Go 负责 Track/搜索结果/详情/歌词/封面模型映射、错误分类、超时取消、来源隔离和能力声明；缺少某 action 时明确返回不支持。
+- 已建立统一脚本 action 调度入口；已接入 MusicService 生产搜索、详情、歌词和封面调用入口；原生 musicUrl 继续经 production SourceManager.ResolvePlaybackURL，不混入扩展 action dispatcher。
+- 已将搜索 action 结果映射为统一 music.Track/SearchPage，保留 source id、LX source key、SourceData、时长、封面等字段；歌词/封面按字符串契约返回，详情入口当前返回脚本 JSON 结果。已设置 18 秒 action deadline，错误按来源隔离并回传；SourceManager 保持脚本级隔离和 action 能力声明。仍需补齐详情模型规范与错误/取消专项测试。
 - 对真实脚本依赖的参数、回调/Promise 形态、headers、Buffer/zlib 和结果结构补齐契约测试。
-- 使用自建且可再分发的最小 fixture 与可控 HTTP mock；未取得许可时不得复制完整第三方脚本，也不得因此阻塞兼容层和调度实现。
+- 已使用自建最小 fixture 验证 search/detail/musicUrl/lyric/pic 经 production MusicService/SourceManager 的调用；未复制第三方脚本。CI 定向 desktop 测试已加入新集成测试。
 
 **完成门**
-- 至少一个合法导入脚本可经生产 MusicService 调用其声明支持的 search、detail、musicUrl、lyric、pic 能力。
-- 搜索结果和 Track 映射稳定；错误、超时、取消、缺失能力和脚本隔离行为均有测试。
-- 不以旧 Go provider 的成功结果冒充 QuickJS 脚本 action 已接通；对应 CI 通过。
+- [进行中] 至少一个合法导入脚本已在新增生产集成测试中声明并调用 search、detail、musicUrl、lyric、pic；该新增测试在 CI Run #550 的 desktop 集成步骤已通过。
+- [部分完成] 搜索结果和 Track 映射有 fixture 测试；缺失能力通过显式 capability check，超时/取消沿用 context deadline/cancel 并保留错误；仍需补齐专项错误分类、取消和多脚本隔离回归。
+- [待最终验收] 脚本声明了 search 时生产搜索走脚本 action，未声明时才使用既有 Go provider；两者路径明确区分。CI Run #550 的前端 bindings/build 尚未结束。
 
 ### C. 播放 URL、音质回退与缓存闭环
 
@@ -247,7 +247,7 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 | 第 4 节阶段 | 当前状态 | 证据/备注 |
 |---|---|---|
 | A. 生产脚本导入与生命周期 | **已完成** | 已接入 `config/local/lx_sources.json`、production SourceManager、MusicService 管理 API 和音乐设置页；QuickJS/desktop/Wails bindings/前端构建 CI Run #544 成功 |
-| B. 统一 action 调度与歌曲模型接线 | 未开始 | 生产搜索/详情/歌词/封面等脚本 action 尚未完整接入 MusicService |
+| B. 统一 action 调度与歌曲模型接线 | **进行中** | 脚本感知搜索、详情/歌词/封面入口、扩展能力导入 UI 和生产 fixture 已接入；CI Run #550 的 Go/runtime/production/desktop 测试通过，前端构建待完成；详情模型与专项错误/取消测试仍待补齐 |
 | C. 播放 URL、音质回退与缓存闭环 | 部分完成 | resolver 与安全校验有基础；生产脚本装载及队列播放链路未闭环 |
 | D. HTMLAudio PoC 与正式播放桥接 | 未开始 | 无目标 WebView 真实播放验收 |
 | E. 媒体传输适配与旧引擎替换 | 未开始 | 旧 LXPlaybackEngine 仍在生产路径 |
@@ -256,7 +256,7 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 
 ### 当前唯一下一步
 
-A 已达到全部完成门并通过 CI Run #544。下一唯一阶段为 **B：统一 action 调度与歌曲模型接线**；本轮按用户要求止于 A，B 尚未开始。
+A 已达到全部完成门并通过 CI Run #544。当前唯一执行阶段为 **B：统一 action 调度与歌曲模型接线**；B 尚未达到全部完成门，不得进入 C。
 
 **以下“阶段 0”标题及内容均为历史审计记录，保留其当时的源码证据和技术结论；它们不再代表当前阶段、开发顺序或下一步。**
 
@@ -480,7 +480,7 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 | 总体架构路线 | **可行** | 现有 QuickJS、Go 音乐服务和 Wails WebView 能作为实现基础 |
 | 洛雪 JS 完整运行时兼容 | **未验收** | 目前只有部分宿主能力，需 API 矩阵和真实脚本证据 |
 | 用户 JS 导入/管理 | **A 阶段已完成** | 已接入本地持久化、元信息/hash 校验、启停删除、损坏隔离、MusicService API 和设置页；搜索等 action 调度留在 B |
-| JS 脚本搜索/详情/歌词 | **协议待冻结** | 当前五平台搜索为 Go provider，当前 action 证据主要是 musicUrl |
+| JS 脚本搜索/详情/歌词/封面 | **B 阶段进行中** | 已接入脚本搜索、详情/歌词/封面入口；原生 musicUrl 与扩展 action 分离；仍需完成详情模型与专项错误/取消测试 |
 | 结构化 PlaybackResource | **未完成** | 现有解析结果为 URL 字符串 |
 | HTMLAudio 目标 WebView 实播 | **未验证** | 无真实设备播放验收记录 |
 | SSRF/脚本资源隔离 | **需专项实现和测试** | 用户导入后属于上线前阻断项 |
@@ -488,7 +488,7 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 
 ### 9.7 开发顺序与当前执行项
 
-本节识别的协议、兼容性和 action 调度缺口，全部按第 4 节唯一开发顺序处理，不再设置阶段 0A—0F 等前置子路线。A 已完成；下一阶段为 **B：统一 action 调度与歌曲模型接线**，尚未开始。
+本节识别的协议、兼容性和 action 调度缺口，全部按第 4 节唯一开发顺序处理，不再设置阶段 0A—0F 等前置子路线。A 已完成；当前唯一执行阶段为 **B：统一 action 调度与歌曲模型接线**，仍在进行中，未达到完成门。
 
 
 
@@ -962,11 +962,21 @@ line 3: unexpected EOF while looking for matching single quote
 | QuickJS-NG 基础 runtime | 基础实现已有，专项 CI 覆盖 native smoke 与确定性 runtime/music 测试 |
 | 洛雪宿主 API | 部分实现；不能据此宣称全量洛雪兼容 |
 | HTTP 安全边界 | SSRF、DNS 校验/连接 pinning、redirect、代理/TLS 收敛及资源限制已有实现和测试 |
-| SourceManager/播放 URL facade | 生产用户脚本导入、持久化恢复和管理已完成；搜索/action 与队列播放接线未完成 |
-| 搜索/详情/歌词/封面 action | 生产脚本调度未完成 |
+| SourceManager/播放 URL facade | 生产用户脚本导入、持久化恢复和管理已完成；B 阶段正在接入搜索/详情/歌词/封面 action；C 阶段队列播放闭环未完成 |
+| 搜索/详情/歌词/封面 action | 生产搜索和 MusicService action 入口已接入；B 阶段验收仍未完成 |
 | HTMLAudio 与播放桥接 | 未完成；旧播放引擎仍在生产路径 |
 | 媒体代理与特殊请求头 | 未完成端到端验收 |
 | Windows 实播、两小时内存稳定性 | 待目标设备验收 |
-| 当前执行项 | A 已完成；B：统一 action 调度与歌曲模型接线为下一阶段（未开始） |
+| 当前执行项 | A 已完成；B：统一 action 调度与歌曲模型接线正在执行，CI Run #550 前端构建待完成 |
 
 历史 CI 记录应以对应 GitHub workflow 的最终 conclusion 为准；workflow 尚在运行时不得记录为成功。
+
+### 10.26 B 阶段 action 调度接线进度（2026-11-23）
+
+- 分支提交：`a2e35d8be0c259828f571c0ccd9be50523113859`。
+- `MusicService` 通过生产 runtime 的 `HasExtensionAction/DispatchExtensionAction` 检查并调度社区扩展 action；原生 `musicUrl` 仍由原生 resolver 处理。
+- `scriptAwareSourceSearcher` 接入单音源搜索、全局多源搜索和弹幕点歌搜索；支持并发来源请求、来源错误独立记录、搜索结果归一化为 `music.Track`。
+- `GetLyrics` 优先使用已声明的 `lyric` 扩展 action；另提供 `GetLXTrackDetail/GetLXTrackCover` 服务入口。
+- 音乐设置页导入时可显式选择 `search/detail/lyric/pic`；`musicUrl` 不可作为社区扩展 action 声明。
+- 自建 production fixture 已覆盖 search/detail/musicUrl/lyric/pic 的真实 QuickJS → SourceManager → MusicService 调用；CI Run #550 中 Go/runtime、production tag 和 desktop 定向测试通过。Wails bindings/前端构建仍在运行，故 B 暂不标记完成。
+- 后续 B 剩余项：明确 detail Track 模型映射；补充 action 取消/超时/错误分类和多脚本隔离测试；等待 CI Run #550 完整结束。完成前不得进入 C。
