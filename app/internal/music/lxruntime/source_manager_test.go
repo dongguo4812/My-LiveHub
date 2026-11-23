@@ -201,7 +201,7 @@ func TestProductionSourceManagerRoutesCommunityActionsToMatchingSourceScript(t *
 		return LXSourceScript{Info: ScriptInfo{Name: name}, Source: source, ExtensionActions: []string{"search", "detail", "lyric", "pic"}}
 	}
 	kw := `
-lx.on(lx.EVENT_NAMES.request, async ({ source, action, info }) => source + ':' + action + ':' + String(info.value));
+lx.on(lx.EVENT_NAMES.request, async ({ source, action, info }) => action === 'musicUrl' ? 'https://1.1.1.1/' + source + '.mp3' : source + ':' + action + ':' + String(info.value));
 lx.send(lx.EVENT_NAMES.inited, { sources: { kw: { type: 'music', actions: ['musicUrl'], qualitys: ['128k'] } } });
 `
 	kg := `
@@ -221,6 +221,12 @@ lx.send(lx.EVENT_NAMES.inited, { sources: { kg: { type: 'music', actions: ['musi
 			if got != want { t.Fatalf("%s/%s dispatched to wrong script: got %#v, want %q", source, action, got, want) }
 		}
 	}
+	for _, source := range []string{"kw", "kg"} {
+		got, err := manager.ResolvePlaybackURL(context.Background(), source, map[string]any{})
+		want := "https://1.1.1.1/" + source + ".mp3"
+		if err != nil || got != want { t.Fatalf("native musicUrl dispatch for %s = %#v, %v; want %q", source, got, err, want) }
+	}
+	if manager.HasExtensionAction("kw", "musicUrl") { t.Fatal("native musicUrl must not be advertised as a community extension") }
 	if manager.HasExtensionAction("wy", "search") { t.Fatal("unadvertised source must not claim community search capability after initialization") }
 	_, err := manager.DispatchExtensionAction(context.Background(), "wy", "search", map[string]any{"value": "fixture"})
 	var unsupported interface { LXExtensionSourceUnsupported() bool }
