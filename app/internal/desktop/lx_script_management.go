@@ -9,6 +9,10 @@ import (
 type LXScriptSummary struct {
 	ID string `json:"id"`
 	Name string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Version string `json:"version,omitempty"`
+	Author string `json:"author,omitempty"`
+	Homepage string `json:"homepage,omitempty"`
 	Enabled bool `json:"enabled"`
 	ExtensionActions []string `json:"extension_actions,omitempty"`
 	LastError string `json:"last_error,omitempty"`
