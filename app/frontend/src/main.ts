@@ -8,6 +8,7 @@ import App from './App.vue'
 import router from './router'
 import {loadAppearance} from './services/appearance'
 import './styles.css'
+import './services/htmlAudio'
 
 function formatLogValue(value: unknown): string {
   if (value instanceof Error) return value.stack || value.message
