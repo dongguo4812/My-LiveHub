@@ -243,7 +243,7 @@ func buildLXPlayURI(track music.Track) (string, error) {
 	source := firstNonEmpty(track.LXSourceKey, track.SourceID)
 	songID := firstNonEmpty(track.SourceData["songmid"], track.SourceData["song_id"], track.SourceData["hash"], track.SourceData["id"])
 	if songID == "" {
-		if source == "kg" { songID = strings.SplitN(track.ID, "_", 2)[0] } else { songID = strings.TrimPrefix(track.ID, source+"_") }
+		if source == "kg" {\n\t\t\t// LX Kugou IDs use AudioID_FileHash; playback requires FileHash.\n\t\t\tsongID = track.ID\n\t\t\tif separator := strings.LastIndex(songID, "_"); separator >= 0 { songID = songID[separator+1:] }\n\t\t} else {\n\t\t\tsongID = strings.TrimPrefix(track.ID, source+"_")\n\t\t\tif songID == track.ID { songID = "" }\n\t\t}
 	}
 	if strings.TrimSpace(track.Title) == "" || strings.TrimSpace(track.Artist) == "" || source == "" || songID == "" {
 		return "", errors.New("歌曲缺少洛雪播放所需的歌名、歌手、音源或歌曲 ID")
