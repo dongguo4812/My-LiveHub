@@ -234,3 +234,19 @@ lx.send(lx.EVENT_NAMES.inited, { sources: { kg: { type: 'music', actions: ['musi
 		t.Fatalf("unadvertised source error = %v, want source-unsupported classification", err)
 	}
 }
+
+
+func TestProductionSourceManagerRequiresNativeMusicURLAdvertisement(t *testing.T) {
+	source := `
+lx.on(lx.EVENT_NAMES.request, async ({ action }) => action === 'search' ? 'community-search-ok' : 'https://1.1.1.1/should-not-run.mp3');
+lx.send(lx.EVENT_NAMES.inited, { sources: { kw: { type: 'music', actions: [], qualitys: [] } } });
+`
+	manager := newTestSourceManager(t, []LXSourceScript{{Info: ScriptInfo{Name: "community-only"}, Source: source, ExtensionActions: []string{"search"}}})
+	if err := manager.Start(context.Background()); err != nil { t.Fatal(err) }
+	defer manager.Close()
+	got, err := manager.DispatchExtensionAction(context.Background(), "kw", "search", nil)
+	if err != nil || got != "community-search-ok" { t.Fatalf("community search action = %#v, %v", got, err) }
+	if _, err := manager.ResolvePlaybackURL(context.Background(), "kw", nil); err == nil || !strings.Contains(err.Error(), "no LX scripts available") {
+		t.Fatalf("native musicUrl must be rejected when not advertised, got %v", err)
+	}
+}
