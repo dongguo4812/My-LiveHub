@@ -4,6 +4,7 @@ package lxruntime
 
 import (
 	"context"
+	"strconv"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -223,5 +224,24 @@ func TestLXHTTPSRedirectCannotDowngradeToHTTP(t *testing.T) {
 	err = safeClient.CheckRedirect(req, []*http.Request{previous})
 	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "downgrade") {
 		t.Fatalf("HTTPS-to-HTTP redirect should be rejected, got %v", err)
+	}
+}
+
+
+func TestLXRequestFormDataEnforcesBodyLimitDuringEncoding(t *testing.T) {
+	_, _, err := buildLXRequestBody(lxRequestDescriptor{
+		FormData: map[string]any{"payload": strings.Repeat("x", lxMaxRequestBodyBytes+1)},
+	})
+	if err == nil || !strings.Contains(err.Error(), "request body exceeds") {
+		t.Fatalf("oversized multipart form should be rejected while encoding, got %v", err)
+	}
+}
+
+func TestLXRequestJSONBodyRejectsOversizeBeforeDecode(t *testing.T) {
+	_, _, err := buildLXRequestBody(lxRequestDescriptor{
+		Body: json.RawMessage(strconv.Quote(strings.Repeat("x", lxMaxRequestBodyBytes+1))),
+	})
+	if err == nil || !strings.Contains(err.Error(), "request body exceeds") {
+		t.Fatalf("oversized JSON body should be rejected before decoding, got %v", err)
 	}
 }

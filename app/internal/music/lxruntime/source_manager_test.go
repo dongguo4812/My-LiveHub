@@ -171,3 +171,14 @@ func TestProductionSourceManagerEnforcesScriptResourceLimits(t *testing.T) {
 		t.Fatalf("unknown extension capability should be rejected, got %v", err)
 	}
 }
+
+
+func TestProductionSourceManagerRejectsMismatchedRawScriptMetadata(t *testing.T) {
+	_, err := NewSourceManagerWithScripts(nil, []LXSourceScript{{
+		Info: ScriptInfo{Name: "mismatched", RawScript: "different executable bytes"},
+		Source: "lx.send('inited', {});",
+	}})
+	if err == nil || !strings.Contains(err.Error(), "does not match executable source") {
+		t.Fatalf("mismatched RawScript metadata must be rejected, got %v", err)
+	}
+}

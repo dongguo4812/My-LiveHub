@@ -944,3 +944,13 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 | 可选 live /rconfig | 外部阻塞 | 之前三次 HTTP status 0，没有 HTTP 响应；required CI 已改为 deterministic mock |
 
 **当前阶段结论：** QuickJS 运行时与 Go Host API 的一组关键兼容性/网络安全测试已通过；但 My-LiveHub 音乐模块迁移整体不能验收完成。搜索/详情/歌词/封面扩展 action、导入脚本接入、真实外部脚本 mock 执行、QuickJS 播放链路接入、HTMLAudio、媒体代理和内存/长时间稳定性仍未完成。不得把 QuickJS PoC CI 通过写成独立音乐播放器迁移完成。
+
+
+### 10.18 复核后补充：导入元数据一致性与请求体预分配上限（2026-11-23）
+
+在最新分支 HEAD 811d46faa30754f4d422c0a6440fbab29e3d6e4b 上继续复核后发现两处边界问题，并已补充修复与回归测试：
+
+- **脚本元数据与可执行源码不一致**：NewSourceManagerWithScripts 原先允许 ScriptInfo.RawScript 与实际 Source 不同。宿主 SCRIPT_MD5/currentScriptInfo 会依据 RawScript 生成，而 QuickJS 执行 Source，造成脚本身份/摘要不一致。现在导入时拒绝不匹配的 RawScript，并始终将元数据 RawScript 绑定为实际执行源码。测试：TestProductionSourceManagerRejectsMismatchedRawScriptMetadata。
+- **请求体限制晚于 multipart 分配**：原先 FormData 在完整写入 bytes.Buffer 后才进行统一大小检查，超大输入会先消耗无界临时内存。现在 multipart 写入使用限额 buffer；JSON 原始 body 在解码前检查大小；URL-encoded 表单字段在编码前进行保守尺寸预检并在编码后再次检查。测试覆盖超大 multipart 和 JSON body。
+
+状态：代码和回归测试已写入待提交变更；尚未由 CI 验证。该修复不改变 LX 协议或音乐模块架构，只收紧导入与请求资源边界。

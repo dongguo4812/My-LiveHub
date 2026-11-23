@@ -77,7 +77,8 @@ func NewSourceManagerWithScripts(client *http.Client, scripts []LXSourceScript) 
 		}
 		totalBytes += len(definition.Source)
 		if info.RawScript != "" && info.RawScript != definition.Source {
-			totalBytes += len(info.RawScript)
+			_ = manager.Close()
+			return nil, fmt.Errorf("LX script %q metadata rawScript does not match executable source", info.Name)
 		}
 		if totalBytes > maxLXTotalScriptSourceBytes {
 			_ = manager.Close()
@@ -86,9 +87,8 @@ func NewSourceManagerWithScripts(client *http.Client, scripts []LXSourceScript) 
 		if strings.TrimSpace(info.Name) == "" {
 			info.Name = fmt.Sprintf("LX script %d", i+1)
 		}
-		if info.RawScript == "" {
-			info.RawScript = definition.Source
-		}
+		// Keep script identity and digest bound to the exact bytes QuickJS evaluates.
+		info.RawScript = definition.Source
 		extensions := make(map[string]struct{})
 		for _, action := range definition.ExtensionActions {
 			action = strings.TrimSpace(action)

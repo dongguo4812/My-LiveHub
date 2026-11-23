@@ -222,6 +222,9 @@ func lxJSONTruthy(raw json.RawMessage) bool {
 }
 
 func buildLXRequestBody(descriptor lxRequestDescriptor) (io.Reader, string, error) {
+	if len(descriptor.Body) > lxMaxRequestBodyBytes {
+		return nil, "", fmt.Errorf("lx.request: request body exceeds %d bytes", lxMaxRequestBodyBytes)
+	}
 	if lxJSONTruthy(descriptor.Body) {
 		var value any
 		if err := json.Unmarshal(descriptor.Body, &value); err != nil {
@@ -239,13 +242,21 @@ func buildLXRequestBody(descriptor lxRequestDescriptor) (io.Reader, string, erro
 	if descriptor.Form != nil {
 		values := url.Values{}
 		for key, value := range descriptor.Form {
-			values.Set(key, fmt.Sprint(value))
+			text := fmt.Sprint(value)
+			if len(key)*3+len(text)*3 > lxMaxRequestBodyBytes {
+				return nil, "", fmt.Errorf("lx.request: request body exceeds %d bytes", lxMaxRequestBodyBytes)
+			}
+			values.Set(key, text)
 		}
-		return strings.NewReader(values.Encode()), "application/x-www-form-urlencoded", nil
+		encoded := values.Encode()
+		if len(encoded) > lxMaxRequestBodyBytes {
+			return nil, "", fmt.Errorf("lx.request: request body exceeds %d bytes", lxMaxRequestBodyBytes)
+		}
+		return strings.NewReader(encoded), "application/x-www-form-urlencoded", nil
 	}
 	if descriptor.FormData != nil {
-		var buffer bytes.Buffer
-		writer := multipart.NewWriter(&buffer)
+		buffer := &lxLimitedBuffer{limit: lxMaxRequestBodyBytes}
+		writer := multipart.NewWriter(buffer)
 		for key, value := range descriptor.FormData {
 			if err := writer.WriteField(key, fmt.Sprint(value)); err != nil {
 				return nil, "", fmt.Errorf("lx.request: encode formData: %w", err)
@@ -254,9 +265,21 @@ func buildLXRequestBody(descriptor lxRequestDescriptor) (io.Reader, string, erro
 		if err := writer.Close(); err != nil {
 			return nil, "", fmt.Errorf("lx.request: finalize formData: %w", err)
 		}
-		return &buffer, writer.FormDataContentType(), nil
+		return bytes.NewReader(buffer.buffer.Bytes()), writer.FormDataContentType(), nil
 	}
 	return nil, "", nil
+}
+
+type lxLimitedBuffer struct {
+	buffer bytes.Buffer
+	limit int
+}
+
+func (b *lxLimitedBuffer) Write(value []byte) (int, error) {
+	if b == nil || b.limit < 0 || len(value) > b.limit-b.buffer.Len() {
+		return 0, fmt.Errorf("lx.request: request body exceeds %d bytes", b.limit)
+	}
+	return b.buffer.Write(value)
 }
 
 func validHTTPToken(value string) bool {
