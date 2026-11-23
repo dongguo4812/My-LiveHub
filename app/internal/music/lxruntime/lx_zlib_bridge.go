@@ -1,4 +1,4 @@
-//go:build (lxquickjs || lxproduction) && cgo
+//go:build lxquickjs && cgo && lxlegacyquickjs
 
 package lxruntime
 
