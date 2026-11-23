@@ -14,4 +14,10 @@ int lxqjs_compile(LXQJSState *state, const char *source, const char *filename, c
 void lxqjs_string_free(char *value);
 int lxqjs_install_crypto(LXQJSState *state, char **error_out);
 
+typedef void *(*LXQJSAllocFn)(size_t);
+void *lxqjs_alloc(size_t size);
+void lxqjs_dealloc(void *value);
+void lxqjs_set_host_callbacks(void *md5, void *random_bytes, void *buffer_from,
+    void *buffer_to_string, void *rsa_encrypt, void *aes_encrypt, void *zlib);
+
 #endif
