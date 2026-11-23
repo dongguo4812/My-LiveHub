@@ -323,7 +323,7 @@ func TestProductionLXFishSunnyDayPlaybackURL(t *testing.T) {
 	// Resolve each requested quality exactly once through the production
 	// SourceManager. ResolvePlaybackResource adds fallback retries, which would
 	// obscure which single musicUrl request timed out or was rejected.
-	sourceResolver := music.NewUnifiedSourceService(service.SearcherForPlaybackTest(), manager)
+	sourceResolver := music.NewUnifiedSourceService(service.searcher, manager)
 	for i := range page.Tracks {
 		candidate := page.Tracks[i]
 		if strings.TrimSpace(candidate.Title) != "晴天" || !strings.Contains(candidate.Artist, "周杰伦") || candidate.Album != "叶惠美" { continue }
