@@ -21,6 +21,7 @@ var productionXinglanSource []byte
 // API cannot prevent the rest of the music module from starting.
 type SourceManager struct {
 	mu          sync.Mutex
+	dispatchMu  sync.Mutex
 	client      *http.Client
 	runtime     *Runtime
 	started     bool
@@ -96,6 +97,8 @@ func (m *SourceManager) ResolvePlaybackURL(ctx context.Context, source string, i
 	}
 	m.mu.Unlock()
 
+	m.dispatchMu.Lock()
+	defer m.dispatchMu.Unlock()
 	dispatchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	value, err := runtime.DispatchLXRequest(dispatchCtx, source, "musicUrl", info)
