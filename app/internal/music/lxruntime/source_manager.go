@@ -4,6 +4,7 @@ package lxruntime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -18,6 +19,7 @@ type managedLXScript struct {
 	extensionActions  map[string]struct{}
 	runtime           *Runtime
 	initialized       bool
+	supportedSources  map[string]struct{}
 }
 
 // SourceManager owns isolated, persistent QuickJS contexts for scripts
@@ -58,13 +60,21 @@ func NewSourceManager(client *http.Client) *SourceManager {
 	return newSourceManager(client)
 }
 
-// HasExtensionAction reports an explicitly enabled community action.
-func (m *SourceManager) HasExtensionAction(action string) bool {
- if m==nil || !isLXCommunityExtensionAction(action) { return false }
- m.mu.Lock(); defer m.mu.Unlock()
- if m.closed || !m.started { return false }
- for _, script:=range m.scripts { if _,ok:=script.extensionActions[action]; ok { return true } }
- return false
+// HasExtensionAction reports an explicitly enabled action for a source. Source
+// membership is learned from each script's own LX inited handshake; before a
+// script is initialized, the declaration is treated as a candidate and the
+// dispatcher performs the authoritative source check.
+func (m *SourceManager) HasExtensionAction(source, action string) bool {
+	if m == nil || strings.TrimSpace(source) == "" || !isLXCommunityExtensionAction(action) { return false }
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed || !m.started { return false }
+	for _, script := range m.scripts {
+		if _, enabled := script.extensionActions[action]; !enabled { continue }
+		if len(script.supportedSources) == 0 { return true }
+		if _, supported := script.supportedSources[source]; supported { return true }
+	}
+	return false
 }
 
 func (m *SourceManager) HasScripts() bool {
@@ -160,6 +170,10 @@ func isLXCommunityExtensionAction(action string) bool {
 	}
 }
 
+type lxSourceUnsupportedError struct { source string }
+func (e *lxSourceUnsupportedError) Error() string { return fmt.Sprintf("LX script does not advertise source %q", e.source) }
+func (e *lxSourceUnsupportedError) LXExtensionSourceUnsupported() bool { return true }
+
 func (m *SourceManager) dispatchScriptAction(ctx context.Context, script *managedLXScript, source, action string, info any, client *http.Client) (any, error) {
 	m.mu.Lock()
 	if m.closed {
@@ -192,14 +206,34 @@ func (m *SourceManager) dispatchScriptAction(ctx context.Context, script *manage
 			m.mu.Unlock()
 			return nil, fmt.Errorf("%s 初始化失败：%w", script.info.Name, err)
 		}
-		m.mu.Lock()
-		if m.closed {
+		sourcesText, sourceErr := runtime.Eval(ctx, `JSON.stringify(Object.keys((globalThis.__lxHostState && globalThis.__lxHostState.initInfo && globalThis.__lxHostState.initInfo.sources) || {}))`, "lx-source-capabilities.js")
+		if sourceErr != nil {
+			_ = runtime.Close()
+			m.mu.Lock()
+			if script.runtime == runtime { script.runtime = nil; script.initialized = false; script.supportedSources = nil }
 			m.mu.Unlock()
-			return nil, errors.New("LX source manager is closed")
+			return nil, fmt.Errorf("%s 读取音源能力失败：%w", script.info.Name, sourceErr)
 		}
+		var sourceNames []string
+		if sourceErr = json.Unmarshal([]byte(sourcesText), &sourceNames); sourceErr != nil {
+			_ = runtime.Close()
+			m.mu.Lock()
+			if script.runtime == runtime { script.runtime = nil; script.initialized = false; script.supportedSources = nil }
+			m.mu.Unlock()
+			return nil, fmt.Errorf("%s 音源能力格式无效：%w", script.info.Name, sourceErr)
+		}
+		supported := make(map[string]struct{}, len(sourceNames))
+		for _, name := range sourceNames { supported[name] = struct{}{} }
+		m.mu.Lock()
+		if m.closed { m.mu.Unlock(); return nil, errors.New("LX source manager is closed") }
+		script.supportedSources = supported
 		script.initialized = true
 		m.mu.Unlock()
 	}
+	m.mu.Lock()
+	_, supportsSource := script.supportedSources[source]
+	m.mu.Unlock()
+	if !supportsSource { return nil, &lxSourceUnsupportedError{source: source} }
 
 	dispatchCtx, cancel := context.WithTimeout(ctx, lxMaxRequestTimeout)
 	defer cancel()
@@ -248,15 +282,15 @@ func (m *SourceManager) DispatchExtensionAction(ctx context.Context, source, act
 	m.mu.Unlock()
 
 	var failures []string
+	declared := false
 	for _, script := range scripts {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		if _, enabled := script.extensionActions[action]; !enabled {
-			continue
-		}
+		if err := ctx.Err(); err != nil { return nil, err }
+		if _, enabled := script.extensionActions[action]; !enabled { continue }
+		declared = true
 		value, err := m.dispatchScriptAction(ctx, script, source, action, info, client)
 		if err != nil {
+			var unsupported *lxSourceUnsupportedError
+			if errors.As(err, &unsupported) { continue }
 			// Cancellation and deadlines belong to the caller, not to an
 			// individual script. Do not turn them into an aggregate script
 			// failure or continue trying other scripts after the caller leaves.
@@ -272,6 +306,7 @@ func (m *SourceManager) DispatchExtensionAction(ctx context.Context, source, act
 		return value, nil
 	}
 	if len(failures) == 0 {
+		if declared { return nil, &lxSourceUnsupportedError{source: source} }
 		return nil, fmt.Errorf("no imported LX script has explicitly enabled community extension action %q", action)
 	}
 	return nil, fmt.Errorf("all scripts failed community extension action %s: %s", action, strings.Join(failures, "；"))
@@ -326,6 +361,10 @@ func (m *SourceManager) ResolvePlaybackURL(ctx context.Context, source string, i
 		}
 		value, err := m.dispatchScriptAction(ctx, script, source, "musicUrl", info, client)
 		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil { return nil, ctxErr }
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) { return nil, err }
+			var unsupported *lxSourceUnsupportedError
+			if errors.As(err, &unsupported) { continue }
 			failures = append(failures, script.info.Name+" 解析失败："+err.Error())
 			continue
 		}
