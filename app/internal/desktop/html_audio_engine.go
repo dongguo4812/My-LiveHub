@@ -31,10 +31,11 @@ type htmlAudioPlaybackEngine struct {
 	sessionID uint64
 	retried bool
 	refreshing bool
+	volume float64
 }
 
 func newHTMLAudioPlaybackEngine(refresh func(music.Track, music.PlaybackResource) (music.PlaybackResource, error)) *htmlAudioPlaybackEngine {
-	return &htmlAudioPlaybackEngine{refresh: refresh, snapshot: music.PlaybackSnapshot{State: music.PlaybackIdle}}
+	return &htmlAudioPlaybackEngine{refresh: refresh, volume: 1, snapshot: music.PlaybackSnapshot{State: music.PlaybackIdle}}
 }
 
 func (e *htmlAudioPlaybackEngine) setEmitter(emit func(string, any)) {
@@ -46,6 +47,7 @@ func (e *htmlAudioPlaybackEngine) setEmitter(emit func(string, any)) {
 func (e *htmlAudioPlaybackEngine) commandLocked(command string, position int64, volume float64) error {
 	if e.emit == nil { return errors.New("HTMLAudio bridge is not attached to the Wails window") }
 	payload := htmlAudioCommand{Command:command, SessionID:e.sessionID, PositionMS:position, Volume:volume}
+	if command == "load" { payload.Volume = e.volume }
 	if command == "load" { payload.Track, payload.Resource = e.track, e.resource }
 	e.emit(musicHTMLAudioCommandEvent, payload)
 	return nil
@@ -105,6 +107,8 @@ func (e *htmlAudioPlaybackEngine) Seek(positionMS int64) error {
 func (e *htmlAudioPlaybackEngine) SetVolume(volume float64) error {
 	if volume < 0 { volume = 0 }; if volume > 1 { volume = 1 }
 	e.mu.Lock(); defer e.mu.Unlock()
+	e.volume = volume
+	if e.sessionID == 0 { return nil }
 	return e.commandLocked("volume", 0, volume)
 }
 func (e *htmlAudioPlaybackEngine) Report(sessionID uint64, event string, positionMS, durationMS int64, message string) error {
