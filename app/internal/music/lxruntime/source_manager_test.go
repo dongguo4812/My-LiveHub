@@ -67,8 +67,8 @@ lx.send(lx.EVENT_NAMES.inited, {
 });
 `
 	_, err := DetectLXScriptCapabilities(context.Background(), ScriptInfo{Name: "unknown-action"}, source, nil)
-	if err == nil || !strings.Contains(err.Error(), "unsupportedAction") {
-		t.Fatalf("unknown-only action declaration should fail with explicit reason, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "没有声明可支持的 action") || !strings.Contains(err.Error(), "kw=[]") {
+		t.Fatalf("unknown-only action declaration should fail with explicit post-handshake reason, got %v", err)
 	}
 }
 
