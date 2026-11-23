@@ -75,3 +75,19 @@ func TestHTMLAudioPlaybackEngineKeepsWatcherLoadingDuringRefresh(t *testing.T) {
 	if err := <-done; err != nil { t.Fatal(err) }
 	if len(commands) != 2 || commands[1].Resource.URL != "https://media.example/new.mp3" { t.Fatalf("refreshed URL was not loaded: %#v", commands) }
 }
+
+func TestMusicServiceBeginPlaybackResolutionCancelsPreviousRequest(t *testing.T) {
+	service := &MusicService{}
+	first, firstGeneration, firstCancel := service.beginPlaybackResolution(context.Background())
+	defer firstCancel()
+	second, secondGeneration, secondCancel := service.beginPlaybackResolution(context.Background())
+	defer secondCancel()
+	if firstGeneration == secondGeneration { t.Fatal("playback resolution generation did not advance") }
+	select {
+	case <-first.Done():
+	default: t.Fatal("starting a new track did not cancel the previous URL resolution")
+	}
+	if err := second.Err(); err != nil { t.Fatalf("new playback resolution was cancelled: %v", err) }
+	service.finishPlaybackResolution(firstGeneration)
+	if !service.playbackResolutionCurrent(secondGeneration) { t.Fatal("finishing stale generation invalidated the active resolution") }
+}
