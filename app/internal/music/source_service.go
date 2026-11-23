@@ -69,21 +69,22 @@ func (s *UnifiedSourceService) ResolvePlaybackURL(ctx context.Context, track Tra
 	}
 	if songID == "" { return "", errors.New("track has no native source song identifier") }
 
-	// Match LX desktop's live userApi contract: getMusicUrl(songInfo, type)
-	// forwards the nested MusicInfo unchanged as info.musicInfo.
-	qualitys := make([]map[string]any, 0, len(track.Qualities))
-	_qualitys := make(map[string]any, len(track.Qualities))
+	// Match LX desktop's actual toOldMusicInfo() contract. The renderer stores
+	// nested MusicInfo, but converts it to this flat object before calling the
+	// custom-source getMusicUrl(songInfo, type) action.
+	types := make([]map[string]any, 0, len(track.Qualities))
+	_types := make(map[string]any, len(track.Qualities))
 	for _, item := range track.Qualities {
 		kind := strings.TrimSpace(item.Type)
 		if kind == "" { continue }
 		entry := map[string]any{"type": kind, "size": item.Size}
 		indexed := map[string]any{"size": item.Size}
 		for key, value := range item.SourceData { entry[key] = value; indexed[key] = value }
-		qualitys = append(qualitys, entry)
-		_qualitys[kind] = indexed
+		types = append(types, entry)
+		_types[kind] = indexed
 	}
 	if qualityType == "" { qualityType = strings.TrimSpace(track.SelectedQuality) }
-	if qualityType == "" && len(qualitys) > 0 { qualityType, _ = qualitys[0]["type"].(string) }
+	if qualityType == "" && len(types) > 0 { qualityType, _ = types[0]["type"].(string) }
 	if qualityType == "" { qualityType = "320k" }
 
 	interval := ""
@@ -91,35 +92,36 @@ func (s *UnifiedSourceService) ResolvePlaybackURL(ctx context.Context, track Tra
 		seconds := track.DurationMS / 1000
 		interval = fmt.Sprintf("%02d:%02d", seconds/60, seconds%60)
 	}
-	meta := map[string]any{
-		"songId": songID,
+	info := map[string]any{
+		"name": track.Title,
+		"singer": track.Artist,
+		"source": source,
+		"songmid": songID,
+		"interval": interval,
 		"albumName": track.Album,
-		"picUrl": track.CoverURL,
-		"qualitys": qualitys,
-		"_qualitys": _qualitys,
+		"img": track.CoverURL,
+		"typeUrl": map[string]any{},
+		"albumId": firstTrackValue(track.SourceData["album_id"], track.SourceData["albumId"]),
+		"types": types,
+		"_types": _types,
 	}
-	if value := firstTrackValue(track.SourceData["album_id"], track.SourceData["albumId"]); value != "" { meta["albumId"] = value }
 	switch source {
 	case "kg":
-		if value := track.SourceData["hash"]; value != "" { meta["hash"] = value }
-		if value := firstTrackValue(track.SourceData["album_audio_id"], track.SourceData["albumAudioId"]); value != "" { meta["albumAudioId"] = value }
+		info["hash"] = track.SourceData["hash"]
+		info["albumAudioId"] = firstTrackValue(track.SourceData["album_audio_id"], track.SourceData["albumAudioId"])
 	case "tx":
-		if value := firstTrackValue(track.SourceData["media_mid"], track.SourceData["strMediaMid"]); value != "" { meta["strMediaMid"] = value }
+		info["strMediaMid"] = firstTrackValue(track.SourceData["media_mid"], track.SourceData["strMediaMid"])
+		info["albumMid"] = firstTrackValue(track.SourceData["album_mid"], track.SourceData["albumMid"])
 		if value := track.SourceData["song_id"]; value != "" {
-			if numeric, err := strconv.ParseInt(value, 10, 64); err == nil { meta["id"] = numeric } else { meta["id"] = value }
+			if numeric, err := strconv.ParseInt(value, 10, 64); err == nil { info["songId"] = numeric } else { info["songId"] = value }
 		}
-		if value := firstTrackValue(track.SourceData["album_mid"], track.SourceData["albumMid"]); value != "" { meta["albumMid"] = value }
 	case "mg":
-		if value := firstTrackValue(track.SourceData["copyright_id"], track.SourceData["copyrightId"]); value != "" { meta["copyrightId"] = value }
-		if value := firstTrackValue(track.SourceData["lrc_url"], track.SourceData["lrcUrl"]); value != "" { meta["lrcUrl"] = value }
-		if value := firstTrackValue(track.SourceData["mrc_url"], track.SourceData["mrcUrl"]); value != "" { meta["mrcUrl"] = value }
-		if value := firstTrackValue(track.SourceData["trc_url"], track.SourceData["trcUrl"]); value != "" { meta["trcUrl"] = value }
+		info["copyrightId"] = firstTrackValue(track.SourceData["copyright_id"], track.SourceData["copyrightId"])
+		info["lrcUrl"] = firstTrackValue(track.SourceData["lrc_url"], track.SourceData["lrcUrl"])
+		info["mrcUrl"] = firstTrackValue(track.SourceData["mrc_url"], track.SourceData["mrcUrl"])
+		info["trcUrl"] = firstTrackValue(track.SourceData["trc_url"], track.SourceData["trcUrl"])
 	}
-	musicInfo := map[string]any{
-		"id": track.ID, "name": track.Title, "singer": track.Artist,
-		"source": source, "interval": interval, "meta": meta,
-	}
-	resolved, err := s.resolver.ResolvePlaybackURL(ctx, source, map[string]any{"musicInfo": musicInfo, "type": qualityType})
+	resolved, err := s.resolver.ResolvePlaybackURL(ctx, source, map[string]any{"musicInfo": info, "type": qualityType})
 	if err != nil { return "", fmt.Errorf("resolve %s track %q: %w", source, track.Title, err) }
 	resolved = strings.TrimSpace(resolved)
 	parsed, err := url.Parse(resolved)
