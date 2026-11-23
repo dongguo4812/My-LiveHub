@@ -91,3 +91,20 @@ func TestMusicServiceBeginPlaybackResolutionCancelsPreviousRequest(t *testing.T)
 	service.finishPlaybackResolution(firstGeneration)
 	if !service.playbackResolutionCurrent(secondGeneration) { t.Fatal("finishing stale generation invalidated the active resolution") }
 }
+
+func TestHTMLAudioPlaybackEngineRejectsResourcesRequiringMediaHeadersOrProxy(t *testing.T) {
+	engine := newHTMLAudioPlaybackEngine(nil)
+	track := music.Track{ID:"track-1", SourceID:"tx"}
+	cases := []music.PlaybackResource{
+		{URL:"https://media.example/a.mp3", SourceID:"tx", TrackID:"track-1", Headers:map[string]string{"Referer":"https://source.example/"}},
+		{URL:"https://media.example/a.mp3", SourceID:"tx", TrackID:"track-1", RequiresProxy:true},
+	}
+	for _, resource := range cases {
+		if err := engine.LoadResource(context.Background(), track, resource); err == nil { t.Fatal("expected unsupported media request context to fail closed") }
+	}
+}
+
+func TestHTMLAudioQueueEndDoesNotFallBackToLegacyPlayer(t *testing.T) {
+	service := &MusicService{engine:newHTMLAudioPlaybackEngine(nil), queue:music.NewQueue(1)}
+	if err := service.advanceAfterPlaybackEnd(music.PlaybackSnapshot{State:music.PlaybackStopped}, nil); err != nil { t.Fatalf("empty HTMLAudio queue should end normally: %v", err) }
+}

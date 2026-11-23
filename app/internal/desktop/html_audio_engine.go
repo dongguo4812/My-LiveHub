@@ -61,6 +61,9 @@ func (e *htmlAudioPlaybackEngine) LoadResource(ctx context.Context, track music.
 		resource.SourceID != firstNonEmpty(track.LXSourceKey, track.SourceID) || resource.TrackID != track.ID {
 		return errors.New("HTMLAudio received a playback resource that does not match the track")
 	}
+	if resource.RequiresProxy || len(resource.Headers) > 0 {
+		return errors.New("HTMLAudio direct playback cannot satisfy media headers or proxy requirements; media transport adaptation is required")
+	}
 	e.mu.Lock()
 	e.sessionID++
 	e.track, e.resource, e.retried, e.refreshing = track, resource, false, false
