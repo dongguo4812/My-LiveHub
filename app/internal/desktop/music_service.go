@@ -548,8 +548,12 @@ func (s *MusicService) GetSources() []music.SourceSnapshot {
 	priority := s.enabledSearchSourceIDs()
 	rank := make(map[string]int, len(priority))
 	for i, id := range priority { rank[id] = i }
+	s.mu.RLock()
+	resolveAvailable := s.scriptRuntime != nil
+	s.mu.RUnlock()
 	result := s.searcher.Sources()
 	for i := range result {
+		result[i].Capabilities.Resolve = resolveAvailable
 		result[i].Enabled = false
 		for _, id := range priority { if id == result[i].ID { result[i].Enabled = true; break } }
 	}
