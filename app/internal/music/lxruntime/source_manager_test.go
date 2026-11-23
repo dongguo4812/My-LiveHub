@@ -5,6 +5,8 @@ package lxruntime
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -304,5 +306,54 @@ lx.send(lx.EVENT_NAMES.inited, { sources: { kw: { type: 'music', actions: [], qu
 	if err != nil || got != "community-search-ok" { t.Fatalf("community search action = %#v, %v", got, err) }
 	if _, err := manager.ResolvePlaybackURL(context.Background(), "kw", nil); err == nil || !strings.Contains(err.Error(), "no LX scripts available") {
 		t.Fatalf("native musicUrl must be rejected when not advertised, got %v", err)
+	}
+}
+
+
+func TestSourceManagerAllowsAsyncHTTPResponseCallbackBeyondDefaultEvalTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"url":"https://cdn.example.test/async-callback.mp3"}`))
+	}))
+	defer server.Close()
+
+	source := `
+lx.on(lx.EVENT_NAMES.request, async ({ info }) => await new Promise((resolve, reject) => {
+  lx.request(info.url, {}, (error, response) => {
+    if (error) return reject(error);
+    const started = Date.now();
+    while (Date.now() - started < 3500) {}
+    resolve(response.body.url);
+  });
+}));
+lx.send(lx.EVENT_NAMES.inited, {
+  sources: { kw: { type: 'music', actions: ['musicUrl'] } }
+});
+`
+	manager, err := NewSourceManagerWithScripts(server.Client(), []LXSourceScript{{
+		Info: ScriptInfo{Name: "slow async response callback"},
+		Source: source,
+	}})
+	if err != nil { t.Fatal(err) }
+	defer manager.Close()
+	if err := manager.Start(context.Background()); err != nil { t.Fatal(err) }
+
+	manager.mu.Lock()
+	if len(manager.scripts) != 1 || manager.scripts[0].runtime == nil {
+		manager.mu.Unlock()
+		t.Fatal("source manager did not initialize its QuickJS runtime")
+	}
+	manager.scripts[0].runtime.allowPrivateNetworkForTests = true
+	manager.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+	value, err := manager.ResolvePlaybackURL(ctx, "kw", map[string]any{
+		"musicInfo": map[string]any{"songmid": "fixture-song"},
+		"type": "320k",
+	})
+	if err != nil { t.Fatalf("async response callback was interrupted by the default 3s eval watchdog: %v", err) }
+	if value != "https://cdn.example.test/async-callback.mp3" {
+		t.Fatalf("musicUrl result = %#v", value)
 	}
 }
