@@ -46,6 +46,23 @@ func TestQuickJSEvalAndPromiseJobs(t *testing.T) {
 	}
 }
 
+func TestQuickJSEvalWithTimeoutOverridesOnlyOneEvaluation(t *testing.T) {
+	rt := newTestRuntime(t, 3*time.Second)
+	start := time.Now()
+	value, err := rt.EvalWithTimeout(context.Background(), "const start = Date.now(); while (Date.now() - start < 3200) {} 'initialized'", "slow-init.js", 5*time.Second)
+	if err != nil {
+		t.Fatalf("bounded initialization eval should exceed the ordinary 3s watchdog: %v", err)
+	}
+	if value != "initialized" {
+		t.Fatalf("initialization result = %q, want initialized", value)
+	}
+	start = time.Now()
+	_, err = rt.Eval(context.Background(), "while (true) {}", "ordinary-action.js")
+	if err == nil || time.Since(start) > 4*time.Second {
+		t.Fatalf("ordinary action must retain the 3s watchdog; err=%v elapsed=%s", err, time.Since(start))
+	}
+}
+
 func TestQuickJSInterruptsInfiniteLoop(t *testing.T) {
 	rt := newTestRuntime(t, 100*time.Millisecond)
 	start := time.Now()
