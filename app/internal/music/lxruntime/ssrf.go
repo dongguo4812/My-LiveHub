@@ -43,7 +43,7 @@ func lxSafeHTTPClientWithResolver(client *http.Client, allowPrivate bool, resolv
 		if !allowPrivate && transport.TLSClientConfig != nil && transport.TLSClientConfig.InsecureSkipVerify {
 			return nil, errors.New("lx.request: insecure TLS verification is not allowed")
 		}
-		if !allowPrivate && len(transport.TLSNextProto) > 0 {
+		if !allowPrivate && base != http.DefaultTransport && len(transport.TLSNextProto) > 0 {
 			return nil, errors.New("lx.request: custom TLS protocol handlers are not allowed")
 		}
 		safeTransport := transport.Clone()

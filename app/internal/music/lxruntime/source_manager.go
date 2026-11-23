@@ -189,7 +189,7 @@ func (m *SourceManager) DispatchExtensionAction(ctx context.Context, source, act
 	managerCtx := m.ctx
 	m.mu.Unlock()
 
-	actionCtx, cancelAction := context.WithCancel(ctx)
+	actionCtx, cancelAction := context.WithTimeout(ctx, lxMaxRequestTimeout)
 	stopManagerCancel := context.AfterFunc(managerCtx, cancelAction)
 	defer func() {
 		stopManagerCancel()

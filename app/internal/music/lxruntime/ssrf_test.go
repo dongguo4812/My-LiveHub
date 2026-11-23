@@ -5,13 +5,13 @@ package lxruntime
 import (
 	"context"
 	"crypto/tls"
-	"io"
-	"net/netip"
-	"net/http"
-	"sync"
 	"errors"
-	"strings"
+	"io"
+	"net/http"
+	"net/netip"
 	"net/url"
+	"strings"
+	"sync"
 	"testing"
 )
 
@@ -217,5 +217,16 @@ func TestLXCrossOriginRedirectStripsSensitiveHeaders(t *testing.T) {
 	}
 	for key, want := range map[string]string{"User-Agent": "fixture-agent", "Accept": "audio/*", "Range": "bytes=0-"} {
 		if got := finalHeaders.Get(key); got != want { t.Errorf("safe header %s = %q, want %q", key, got, want) }
+	}
+}
+
+
+func TestLXSafeHTTPClientRejectsCustomTLSProtocolHandlers(t *testing.T) {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{
+		"h2": func(string, *tls.Conn) http.RoundTripper { return nil },
+	}
+	if _, err := lxSafeHTTPClient(&http.Client{Transport: transport}); err == nil || !strings.Contains(err.Error(), "custom TLS protocol") {
+		t.Fatalf("strict policy should reject custom TLS protocol handlers, got %v", err)
 	}
 }
