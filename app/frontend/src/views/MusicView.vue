@@ -369,6 +369,15 @@ async function resume() { try { await MusicService.Resume(); await refreshPlayba
 async function stopPlayback() { try { await MusicService.Stop(); await refreshPlayback() } catch (reason) { error.value = String(reason) } }
 async function seekPlayback(value: number | number[]) { try { await MusicService.Seek(Number(Array.isArray(value) ? value[0] : value)); } catch (reason) { error.value = String(reason) } }
 async function setPlaybackVolume(value: number | number[]) { try { await MusicService.SetVolume(Number(Array.isArray(value) ? value[0] : value) / 100); } catch (reason) { error.value = String(reason) } }
+function handleSeekChange(value: number | number[]) {
+  const percentage = Number(Array.isArray(value) ? value[0] : value)
+  void seekPlayback(percentage * (playback.value?.duration_ms ?? 0) / 100)
+}
+function handleVolumeChange(value: number | number[]) {
+  const numeric = Number(Array.isArray(value) ? value[0] : value)
+  playbackVolume.value = numeric
+  void setPlaybackVolume(numeric)
+}
 onMounted(() => {
   void loadConfig()
   void refreshLXScripts()
@@ -418,8 +427,8 @@ onUnmounted(() => {
           <el-tag v-else-if="queue?.current && queue.current.requested_by !== '__my_livehub_search_play__'" type="warning" size="small">观众点播</el-tag>
         </div>
       </div>
-      <el-slider :model-value="progress" :min="0" :max="100" :step="0.1" :disabled="!playback?.track || (playback?.duration_ms ?? 0) <= 0" @change="value => seekPlayback(Number(value) * (playback?.duration_ms ?? 0) / 100)" />
-      <div class="volume-row"><span>音量</span><el-slider :model-value="playbackVolume" :min="0" :max="100" :step="1" style="max-width:220px" @change="value => { playbackVolume = Number(value); setPlaybackVolume(value) }" /></div>
+      <el-slider :model-value="progress" :min="0" :max="100" :step="0.1" :disabled="!playback?.track || (playback?.duration_ms ?? 0) <= 0" @change="handleSeekChange" />
+      <div class="volume-row"><span>音量</span><el-slider :model-value="playbackVolume" :min="0" :max="100" :step="1" style="max-width:220px" @change="handleVolumeChange" /></div>
       <div class="time-row"><span>{{ formatDuration(displayedPositionMs) }}</span><span>{{ formatDuration(playback?.duration_ms) }}</span></div>
       <p class="hint">播放进度和音量由 My-LiveHub 内置 HTMLAudio 控制。</p>
       <div class="player-controls">
