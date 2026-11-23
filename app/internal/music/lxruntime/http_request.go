@@ -82,6 +82,12 @@ func executeLXHTTPRequestWithPolicy(parent context.Context, descriptor lxRequest
 	if err := validateLXDestinationWithPolicy(ctx, parsed, allowPrivate); err != nil {
 		return nil, err
 	}
+	select {
+	case lxRequestSemaphore <- struct{}{}:
+		defer func() { <-lxRequestSemaphore }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 
 	body, contentType, err := buildLXRequestBody(descriptor)
 	if err != nil {
@@ -113,12 +119,6 @@ func executeLXHTTPRequestWithPolicy(parent context.Context, descriptor lxRequest
 	safeClient, err := lxSafeHTTPClientWithPolicy(client, allowPrivate)
 	if err != nil {
 		return nil, fmt.Errorf("lx.request: configure network policy: %w", err)
-	}
-	select {
-	case lxRequestSemaphore <- struct{}{}:
-		defer func() { <-lxRequestSemaphore }()
-	case <-ctx.Done():
-		return nil, ctx.Err()
 	}
 	resp, err := safeClient.Do(req)
 	if err != nil {
