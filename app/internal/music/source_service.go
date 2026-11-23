@@ -64,6 +64,7 @@ func (s *UnifiedSourceService) ResolvePlaybackURL(ctx context.Context, track Tra
 		for key, value := range item.SourceData { entry[key] = value }
 		types = append(types, entry)
 	}
+	if qualityType == "" { qualityType = strings.TrimSpace(track.SelectedQuality) }
 	if qualityType == "" && len(track.Qualities) > 0 { qualityType = track.Qualities[0].Type }
 	if qualityType == "" { qualityType = "320k" }
 	info := map[string]any{
