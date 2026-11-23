@@ -180,7 +180,7 @@ func (r *productionMusicLXRuntime) Start(ctx context.Context) error {
 	return nil
 }
 
-func (r *productionMusicLXRuntime) ImportScript(ctx context.Context, name, source string, extensionActions []string) (LXScriptSummary, error) {
+func (r *productionMusicLXRuntime) ImportScript(ctx context.Context, name, source string) (LXScriptSummary, error) {
 	if r == nil { return LXScriptSummary{}, errors.New("production LX source runtime is unavailable") }
 	name = strings.TrimSpace(name)
 	if name == "" { return LXScriptSummary{}, errors.New("LX script name is required") }
