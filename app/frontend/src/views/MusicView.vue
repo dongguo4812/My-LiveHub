@@ -83,13 +83,6 @@ type LXScriptSummary = Awaited<ReturnType<typeof MusicService.ListLXScripts>>[nu
 const lxScripts = ref<LXScriptSummary[]>([])
 const lxScriptName = ref('')
 const lxScriptSource = ref('')
-const lxScriptExtensionActions = ref<string[]>([])
-const lxScriptExtensionActionOptions = [
-  { label: '搜索', value: 'search' },
-  { label: '详情', value: 'detail' },
-  { label: '歌词', value: 'lyric' },
-  { label: '封面', value: 'pic' },
-]
 const lxScriptFileInput = ref<HTMLInputElement | null>(null)
 const lxScriptImportMode = ref<'online' | 'local'>('online')
 const lxScriptURL = ref('')
@@ -101,6 +94,11 @@ async function refreshLXScripts() {
   catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
 }
 function chooseLXScriptFile() { lxScriptFileInput.value?.click() }
+function lxActionNames(actions: string[] = []) {
+  const names: Record<string, string> = { search: '搜索', detail: '详情', lyric: '歌词', pic: '封面' }
+  return actions.map(action => names[action] ?? action).join('、') || '未识别到社区扩展能力'
+}
+
 async function importLXScriptFromURL() {
   const rawURL = lxScriptURL.value.trim()
   if (!rawURL) {
@@ -183,14 +181,13 @@ async function importLXScript() {
     if (typeof MusicService.ImportLXScript !== 'function') {
       throw new Error('当前程序未生成 ImportLXScript 前端绑定，请重新生成 Wails bindings 并重新构建')
     }
-    const added = await MusicService.ImportLXScript(lxScriptName.value.trim(), lxScriptSource.value, [...lxScriptExtensionActions.value])
+    const added = await MusicService.ImportLXScript(lxScriptName.value.trim(), lxScriptSource.value)
     await refreshLXScripts()
     const exists = lxScripts.value.some(script => script.id === added.id)
     if (!exists) throw new Error('后端返回导入成功，但刷新脚本列表后未找到该脚本，请检查本地脚本存储状态')
     lxScriptName.value = ''
     lxScriptSource.value = ''
-    lxScriptExtensionActions.value = []
-    success.value = `已导入并启用音源脚本：${added.name}`
+    success.value = `已导入并启用音源脚本：${added.name}；自动识别能力：${lxActionNames(added.extension_actions ?? [])}；支持音源：${(added.supported_sources ?? []).join('、')}`
     lxScriptFeedback.value = success.value
   } catch (reason) {
     const message = reason instanceof Error ? reason.message : String(reason)
@@ -669,12 +666,7 @@ onUnmounted(() => {
             <el-button plain @click="chooseLXScriptFile">选择本地文件</el-button>
           </div>
         </div>
-        <div class="setting-row">
-          <div><strong>社区扩展 action</strong><p>仅勾选脚本实际实现的能力；musicUrl 仍走洛雪原生 action。</p></div>
-          <el-checkbox-group v-model="lxScriptExtensionActions">
-            <el-checkbox v-for="option in lxScriptExtensionActionOptions" :key="option.value" :label="option.value">{{ option.label }}</el-checkbox>
-          </el-checkbox-group>
-        </div>
+        <p class="section-description">导入时自动执行脚本初始化，并根据洛雪 inited.sources.actions 识别搜索、详情、歌词和封面能力；musicUrl 始终由洛雪原生 action 处理，无需手动选择。</p>
         <el-input v-model="lxScriptSource" type="textarea" :rows="8" resize="vertical" placeholder="粘贴完整的洛雪 JS 音源脚本源码……" />
         <div class="card-actions">
           <el-button type="primary" :loading="lxScriptBusy" :disabled="!lxScriptName.trim() || !lxScriptSource.trim()" @click="importLXScript">导入并启用脚本</el-button>
@@ -688,6 +680,9 @@ onUnmounted(() => {
             <strong>{{ script.name }}</strong>
             <span v-if="script.version || script.author">{{ [script.version, script.author].filter(Boolean).join(' · ') }}</span>
             <span v-if="script.description">{{ script.description }}</span>
+            <span>已识别能力：{{ lxActionNames(script.extension_actions ?? []) }}</span>
+            <span v-if="script.supported_sources?.length">支持音源：{{ script.supported_sources.join('、') }}</span>
+            <span>播放地址 musicUrl：洛雪原生 action</span>
             <span>SHA-256：{{ script.id }}</span>
             <span v-if="script.extension_actions?.length">扩展能力：{{ script.extension_actions.join('、') }}</span>
             <el-text v-if="script.last_error" type="danger" size="small">{{ script.last_error }}</el-text>
