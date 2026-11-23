@@ -43,6 +43,12 @@ type lxHTTPResponse struct {
 }
 
 func executeLXHTTPRequest(parent context.Context, descriptor lxRequestDescriptor, client *http.Client) (*lxHTTPResponse, error) {
+	return executeLXHTTPRequestWithPolicy(parent, descriptor, client, false)
+}
+
+// executeLXHTTPRequestWithPolicy is used by tests with httptest loopback servers.
+// Production dispatch always calls executeLXHTTPRequest and keeps the policy closed.
+func executeLXHTTPRequestWithPolicy(parent context.Context, descriptor lxRequestDescriptor, client *http.Client, allowPrivate bool) (*lxHTTPResponse, error) {
 	if parent == nil {
 		parent = context.Background()
 	}
@@ -78,7 +84,7 @@ func executeLXHTTPRequest(parent context.Context, descriptor lxRequestDescriptor
 	if contentType != "" && req.Header.Get("Content-Type") == "" {
 		req.Header.Set("Content-Type", contentType)
 	}
-	safeClient, err := lxSafeHTTPClient(client)
+	safeClient, err := lxSafeHTTPClientWithPolicy(client, allowPrivate)
 	if err != nil {
 		return nil, fmt.Errorf("lx.request: configure network policy: %w", err)
 	}
