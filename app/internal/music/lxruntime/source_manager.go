@@ -60,6 +60,7 @@ func DetectLXScriptExtensionActions(ctx context.Context, info ScriptInfo, source
 	probeCtx, cancel := context.WithTimeout(ctx, lxMaxRequestTimeout)
 	defer cancel()
 	if err := ValidateLXScriptSource(source); err != nil { return nil, nil, err }
+	if client == nil { client = &http.Client{Timeout: lxMaxRequestTimeout} }
 	runtime, err := New(Options{})
 	if err != nil { return nil, nil, fmt.Errorf("create QuickJS capability probe: %w", err) }
 	defer runtime.Close()
