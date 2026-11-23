@@ -1022,8 +1022,8 @@ line 3: unexpected EOF while looking for matching single quote
 
 - 移除 JS 音源导入页的社区扩展 action 手动勾选项；用户只需选择在线/本地脚本并点击导入。
 - 导入前通过独立 QuickJS capability probe 执行脚本初始化，读取洛雪握手数据 `inited.sources[*].actions`，自动识别 `search/detail/lyric/pic`，并将识别出的能力写入脚本存储和导入结果。
-- `musicUrl` 不进入社区扩展能力集合，继续由洛雪原生 action resolver 处理。
-- 没有 `inited.sources`、没有有效音源声明、或未声明任何支持的社区扩展 action 时，导入明确失败并返回原因；不得静默保存为无社区能力脚本。
+- `musicUrl` 不进入社区扩展能力集合，单独识别并记录为洛雪原生 action，由原生 action resolver 处理；仅声明 `musicUrl` 的脚本仍属于具备有效能力的脚本，允许导入、自动启用并展示原生能力。
+- 没有 `inited.sources`、没有有效音源声明、或既未声明支持的社区扩展 action（`search/detail/lyric/pic`）也未声明支持的原生 action（`musicUrl`）时，导入明确失败并返回实际握手声明原因；不得静默保存为无能力脚本。
 - 导入成功后展示识别出的社区能力和支持音源；脚本列表持续展示已识别能力、音源范围及 musicUrl 原生处理说明。
 - 自动识别使用初始化握手声明作为能力依据，不通过源码字符串搜索猜测函数存在；该识别仍需由真实脚本兼容性测试验证。CI 尚未完成前不得将本节标记为验收通过。
 
