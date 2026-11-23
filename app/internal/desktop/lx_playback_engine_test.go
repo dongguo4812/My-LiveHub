@@ -223,3 +223,75 @@ func TestBuildLXPlayURIUsesKugouHashWhenIDIsHashOnly(t *testing.T) {
 		t.Fatalf("Kugou songmid = %#v, want %q", got, track.ID)
 	}
 }
+
+
+func TestBuildLXPlayURIMapsNativeIdentityAndQualitiesForThreeSources(t *testing.T) {
+	tests := []struct {
+		name string
+		track music.Track
+		wantSource string
+		wantSongID string
+	}{
+		{
+			name: "QQ",
+			track: music.Track{
+				ID: "tx_qq-native-1", SourceID: "tx", LXSourceKey: "tx",
+				Title: "测试歌曲", Artist: "测试歌手",
+				SourceData: map[string]string{"songmid": "qq-native-1", "media_mid": "qq-media-1", "album_mid": "qq-album-1"},
+				Qualities: []music.TrackQuality{{Type: "128k"}, {Type: "320k", SourceData: map[string]string{"file": "qq-320"}}},
+			},
+			wantSource: "tx", wantSongID: "qq-native-1",
+		},
+		{
+			name: "Kugou",
+			track: music.Track{
+				ID: "12345_KGFILEHASH", SourceID: "kg", LXSourceKey: "kg",
+				Title: "测试歌曲", Artist: "测试歌手",
+				SourceData: map[string]string{"hash": "KGFILEHASH"},
+				Qualities: []music.TrackQuality{{Type: "320k", SourceData: map[string]string{"hash": "KGFILEHASH"}}},
+			},
+			wantSource: "kg", wantSongID: "KGFILEHASH",
+		},
+		{
+			name: "Migu",
+			track: music.Track{
+				ID: "mg_migu-native-3", SourceID: "mg", LXSourceKey: "mg",
+				Title: "测试歌曲", Artist: "测试歌手",
+				SourceData: map[string]string{"songmid": "migu-native-3", "copyright_id": "migu-copy-3"},
+				Qualities: []music.TrackQuality{{Type: "flac24bit", SourceData: map[string]string{"copyrightId": "migu-copy-3"}}},
+			},
+			wantSource: "mg", wantSongID: "migu-native-3",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			uri, err := buildLXPlayURI(tt.track)
+			if err != nil { t.Fatal(err) }
+			parsed, err := url.Parse(uri)
+			if err != nil { t.Fatal(err) }
+			if parsed.Scheme != "lxmusic" || parsed.Host != "music" || parsed.Path != "/play" {
+				t.Fatalf("unexpected playback protocol URI: %s", uri)
+			}
+			var payload map[string]any
+			if err := json.Unmarshal([]byte(parsed.Query().Get("data")), &payload); err != nil { t.Fatal(err) }
+			if payload["source"] != tt.wantSource { t.Fatalf("source = %#v, want %q", payload["source"], tt.wantSource) }
+			if payload["songmid"] != tt.wantSongID { t.Fatalf("songmid = %#v, want %q", payload["songmid"], tt.wantSongID) }
+			qualities, ok := payload["types"].([]any)
+			if !ok || len(qualities) != len(tt.track.Qualities) {
+				t.Fatalf("quality payload = %#v, want %d entries", payload["types"], len(tt.track.Qualities))
+			}
+			for i, expected := range tt.track.Qualities {
+				quality, ok := qualities[i].(map[string]any)
+				if !ok || quality["type"] != expected.Type {
+					t.Fatalf("quality[%d] = %#v, want type %q", i, qualities[i], expected.Type)
+				}
+				for key, value := range expected.SourceData {
+					if quality[key] != value {
+						t.Errorf("quality[%d].%s = %#v, want %q", i, key, quality[key], value)
+					}
+				}
+			}
+		})
+	}
+}
