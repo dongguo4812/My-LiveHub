@@ -206,7 +206,7 @@ lx.on(lx.EVENT_NAMES.request, async ({ source, action, info }) => action === 'mu
 lx.send(lx.EVENT_NAMES.inited, { sources: { kw: { type: 'music', actions: ['musicUrl'], qualitys: ['128k'] } } });
 `
 	kg := `
-lx.on(lx.EVENT_NAMES.request, async ({ source, action, info }) => source + ':' + action + ':' + String(info.value));
+lx.on(lx.EVENT_NAMES.request, async ({ source, action, info }) => action === 'musicUrl' ? 'https://1.1.1.1/' + source + '.mp3' : source + ':' + action + ':' + String(info.value));
 lx.send(lx.EVENT_NAMES.inited, { sources: { kg: { type: 'music', actions: ['musicUrl'], qualitys: ['128k'] } } });
 `
 	manager := newTestSourceManager(t, []LXSourceScript{makeScript("kw-only", kw), makeScript("kg-only", kg)})
