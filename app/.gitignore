@@ -28,5 +28,9 @@
 /extensions/lol_hex_display/build/
 /extensions/lol_hex_display/dist/
 /extensions/lol_hex_display/*.spec
-
 /extensions/lol_hex_display/.venv/
+
+/internal/desktop/lolhex/runtime/__pycache__/
+/internal/desktop/lolhex/runtime/data/
+/internal/desktop/lolhex/runtime/screenshots/
+/internal/desktop/lolhex/runtime/logs/
