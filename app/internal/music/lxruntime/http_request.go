@@ -78,10 +78,11 @@ func executeLXHTTPRequest(parent context.Context, descriptor lxRequestDescriptor
 	if contentType != "" && req.Header.Get("Content-Type") == "" {
 		req.Header.Set("Content-Type", contentType)
 	}
-	if client == nil {
-		client = http.DefaultClient
+	safeClient, err := lxSafeHTTPClient(client)
+	if err != nil {
+		return nil, fmt.Errorf("lx.request: configure network policy: %w", err)
 	}
-	resp, err := client.Do(req)
+	resp, err := safeClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("lx.request: %w", err)
 	}
