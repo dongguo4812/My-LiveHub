@@ -41,7 +41,7 @@ type productionMusicLXRuntime struct {
 	started bool
 }
 
-var lxMetadataPattern = regexp.MustCompile("(?m)^\s*\*?\s*@([a-zA-Z]+)\s+(.+?)\s*$")
+var lxMetadataPattern = regexp.MustCompile("(?m)^[[:space:]]*\\*?[[:space:]]*@([a-zA-Z]+)[[:space:]]+(.+?)[[:space:]]*$")
 
 func newLXScriptRuntime(manager *config.Manager) lxScriptRuntime {
 	return &productionMusicLXRuntime{config: manager}
