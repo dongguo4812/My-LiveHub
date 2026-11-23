@@ -43,12 +43,12 @@ func TestDetectLXScriptCapabilitiesAcceptsNativeMusicURLOnly(t *testing.T) {
 	source := `
 lx.on(lx.EVENT_NAMES.request, async () => 'https://example.com/song.mp3');
 lx.send(lx.EVENT_NAMES.inited, {
-  sources: { fish: { type: 'music', actions: ['musicUrl'], qualitys: ['128k'] } }
+  sources: { kw: { type: 'music', actions: ['musicUrl'], qualitys: ['128k'] } }
 });
 `
 	capabilities, err := DetectLXScriptCapabilities(context.Background(), ScriptInfo{Name: "native-music-url-only"}, source, nil)
 	if err != nil { t.Fatalf("native musicUrl-only source should be recognized: %v", err) }
-	if len(capabilities.SupportedSources) != 1 || capabilities.SupportedSources[0] != "fish" {
+	if len(capabilities.SupportedSources) != 1 || capabilities.SupportedSources[0] != "kw" {
 		t.Fatalf("supported sources = %#v, want [fish]", capabilities.SupportedSources)
 	}
 	if len(capabilities.NativeActions) != 1 || capabilities.NativeActions[0] != "musicUrl" {
@@ -63,7 +63,7 @@ func TestDetectLXScriptCapabilitiesRejectsUnknownActions(t *testing.T) {
 	source := `
 lx.on(lx.EVENT_NAMES.request, async () => 'ok');
 lx.send(lx.EVENT_NAMES.inited, {
-  sources: { unknown: { type: 'music', actions: ['unsupportedAction'] } }
+  sources: { kw: { type: 'music', actions: ['unsupportedAction'] } }
 });
 `
 	_, err := DetectLXScriptCapabilities(context.Background(), ScriptInfo{Name: "unknown-action"}, source, nil)
