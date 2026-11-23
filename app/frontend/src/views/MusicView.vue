@@ -683,11 +683,7 @@ onUnmounted(() => {
             <span>已识别能力：{{ lxActionNames(script.extension_actions ?? []) }}</span>
             <span v-if="script.supported_sources?.length">支持音源：{{ script.supported_sources.join('、') }}</span>
             <span>播放地址 musicUrl：洛雪原生 action</span>
-            <span>已识别能力：{{ lxActionNames(script.extension_actions ?? []) }}</span>
-            <span v-if="script.supported_sources?.length">支持音源：{{ script.supported_sources.join('、') }}</span>
-            <span>播放地址 musicUrl：洛雪原生 action</span>
             <span>SHA-256：{{ script.id }}</span>
-            <span v-if="script.extension_actions?.length">扩展能力：{{ script.extension_actions.join('、') }}</span>
             <el-text v-if="script.last_error" type="danger" size="small">{{ script.last_error }}</el-text>
           </div>
           <div class="lx-source-actions">
