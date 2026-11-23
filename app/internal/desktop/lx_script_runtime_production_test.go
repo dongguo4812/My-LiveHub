@@ -253,7 +253,7 @@ func TestProductionLXFishLatestRealImportAndEnable(t *testing.T) {
 	for _, action := range imported.NativeActions {
 		if action != "musicUrl" { t.Fatalf("unexpected native LX action %q", action) }
 	}
-	if !containsString(imported.NativeActions, "musicUrl") {
+	if len(imported.NativeActions) != 1 || imported.NativeActions[0] != "musicUrl" {
 		t.Fatalf("fish/latest.js did not expose native musicUrl capability: %#v", imported)
 	}
 	if runtime.manager == nil || !runtime.manager.HasScripts() || !runtime.Available() {
