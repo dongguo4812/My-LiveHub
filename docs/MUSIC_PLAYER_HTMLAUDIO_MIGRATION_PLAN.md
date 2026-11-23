@@ -799,8 +799,11 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 
 **提交与验证记录：**
 - SSRF 实现及测试、真实脚本初始化测试和本节主方案更新均已提交至 `feat/lx-js-runtime-quickjs-poc`。
-- 最新代码提交：`1fe93c1a031cf75c91892a763a9dd225e8c76dea`（真实脚本兼容测试集第一版）。
+- 最新相关代码提交：`6c22c85288537cc8739e647dd44033d2d7d5503c`（包含真实脚本初始化测试、SSRF 地址策略及私网/重定向/NAT64 等测试用例）。
 - 本轮查询未返回该提交的 GitHub status checks 或 workflow runs；且本执行环境没有直接检出仓库运行 `go test` 的能力。因此所有新增测试状态均为**已编写、待 CI/本地实际执行**，不能标记通过。
 - 目前 SSRF blocker 的状态应记录为“严格网络策略代码已落地，自动化测试待执行和补齐”，不是“安全审计完成”。
 
 阶段 0 仍保持进行中。下一轮优先完成 DNS/redirect 安全测试和真实脚本 API 依赖验证，再取得目标生态独立脚本；不提前进入阶段 1，也不把仓库自带脚本误当成用户最终指定的全部目标。
+
+
+**10.14 补充记录（后续安全收敛）：** 进一步将 IPv6 目标限制在 `2000::/3` 全球单播空间，并拒绝 IPv4-compatible、NAT64、6to4、Teredo/协议分配及文档保留地址；自定义 HTTP RoundTripper 若无法进行 DNS pinning，在生产策略下对域名请求直接拒绝。新增测试覆盖 loopback/私网/云元数据地址、重定向至 loopback、IPv4-compatible 与 NAT64 地址。最新安全代码提交为 `6c22c85288537cc8739e647dd44033d2d7d5503c`。仍需 CI 实际执行及可控 DNS rebinding/mixed-answer 测试，不能将安全验证标记为完成。
