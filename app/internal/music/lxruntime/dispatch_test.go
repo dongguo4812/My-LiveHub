@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -375,4 +376,85 @@ lx.on('request', async () => await new Promise((resolve, reject) => {
 	if value != "response-won" { t.Fatalf("response race result = %#v, want response-won", value) }
 	count, evalErr := rt.Eval(ctx, "globalThis.__responseRaceCallbackCount", "read-response-race-count.js"); if evalErr != nil { t.Fatal(evalErr) }
 	if count != "1" { t.Fatalf("response callback count = %s, want 1", count) }
+}
+
+
+func TestDispatchCallbackExceptionDoesNotPoisonRuntime(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"ok":true}`)
+	}))
+	defer server.Close()
+
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{Name: "callback-isolation"}); err != nil {
+		t.Fatal(err)
+	}
+	badHandler := `
+lx.on('request', async () => await new Promise(resolve => {
+  lx.request(` + string(mustJSONQuote(server.URL)) + `, {}, () => {
+    throw new Error('intentional callback exception');
+  });
+}));
+'registered';
+`
+	if _, err := rt.Eval(context.Background(), badHandler, "callback-exception.js"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if _, err := rt.DispatchLXRequest(ctx, "kw", "musicUrl", map[string]any{}); err == nil || !strings.Contains(err.Error(), "intentional callback exception") {
+		t.Fatalf("dispatch error = %v, want callback exception", err)
+	}
+
+	if _, err := rt.Eval(ctx, `lx.on('request', async ({ info }) => info.value); 'recovered';`, "callback-recovery.js"); err != nil {
+		t.Fatalf("register recovery handler: %v", err)
+	}
+	value, err := rt.DispatchLXRequest(ctx, "kw", "musicUrl", map[string]any{"value": "runtime-recovered"})
+	if err != nil {
+		t.Fatalf("dispatch after callback exception: %v", err)
+	}
+	if value != "runtime-recovered" {
+		t.Fatalf("recovery dispatch result = %#v", value)
+	}
+}
+
+func TestDispatchLXRequestSerializesConcurrentActions(t *testing.T) {
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{Name: "concurrent-dispatch"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.Eval(context.Background(), `lx.on('request', async ({ info }) => info.value); 'registered';`, "concurrent-dispatch.js"); err != nil {
+		t.Fatal(err)
+	}
+	type result struct {
+		value any
+		err error
+	}
+	results := make(chan result, 2)
+	var workers sync.WaitGroup
+	for _, want := range []string{"first", "second"} {
+		workers.Add(1)
+		go func(value string) {
+			defer workers.Done()
+			got, err := rt.DispatchLXRequest(context.Background(), "kw", "musicUrl", map[string]any{"value": value})
+			results <- result{value: got, err: err}
+		}(want)
+	}
+	workers.Wait()
+	close(results)
+	seen := map[string]bool{}
+	for item := range results {
+		if item.err != nil {
+			t.Fatal(item.err)
+		}
+		value, ok := item.value.(string)
+		if !ok {
+			t.Fatalf("dispatch result type = %T", item.value)
+		}
+		seen[value] = true
+	}
+	if !seen["first"] || !seen["second"] {
+		t.Fatalf("concurrent dispatch results = %#v", seen)
+	}
 }
