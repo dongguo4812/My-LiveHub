@@ -108,3 +108,34 @@ func TestHTMLAudioQueueEndDoesNotFallBackToLegacyPlayer(t *testing.T) {
 	service := &MusicService{engine:newHTMLAudioPlaybackEngine(nil), queue:music.NewQueue(1)}
 	if err := service.advanceAfterPlaybackEnd(music.PlaybackSnapshot{State:music.PlaybackStopped}, nil); err != nil { t.Fatalf("empty HTMLAudio queue should end normally: %v", err) }
 }
+
+
+func TestHTMLAudioPlaybackEnginePreservesVolumeAcrossTrackLoads(t *testing.T) {
+	var commands []htmlAudioCommand
+	engine := newHTMLAudioPlaybackEngine(nil)
+	engine.setEmitter(func(_ string, payload any) { commands = append(commands, payload.(htmlAudioCommand)) })
+	if err := engine.SetVolume(0.35); err != nil { t.Fatal(err) }
+	track1 := music.Track{ID:"track-1", SourceID:"tx"}
+	resource1 := music.PlaybackResource{URL:"https://media.example/one.mp3", SourceID:"tx", TrackID:"track-1"}
+	if err := engine.LoadResource(context.Background(), track1, resource1); err != nil { t.Fatal(err) }
+	if got := commands[len(commands)-1].Volume; got != 0.35 { t.Fatalf("first load volume = %v, want 0.35", got) }
+	track2 := music.Track{ID:"track-2", SourceID:"kw"}
+	resource2 := music.PlaybackResource{URL:"https://media.example/two.mp3", SourceID:"kw", TrackID:"track-2"}
+	if err := engine.LoadResource(context.Background(), track2, resource2); err != nil { t.Fatal(err) }
+	if got := commands[len(commands)-1].Volume; got != 0.35 { t.Fatalf("volume was not preserved across source switch: %v", got) }
+}
+
+func TestHTMLAudioPlaybackEngineClampsAndAppliesVolumeToActiveSession(t *testing.T) {
+	var commands []htmlAudioCommand
+	engine := newHTMLAudioPlaybackEngine(nil)
+	engine.setEmitter(func(_ string, payload any) { commands = append(commands, payload.(htmlAudioCommand)) })
+	track := music.Track{ID:"track-1", SourceID:"tx"}
+	resource := music.PlaybackResource{URL:"https://media.example/song.mp3", SourceID:"tx", TrackID:"track-1"}
+	if err := engine.LoadResource(context.Background(), track, resource); err != nil { t.Fatal(err) }
+	if err := engine.SetVolume(1.5); err != nil { t.Fatal(err) }
+	last := commands[len(commands)-1]
+	if last.Command != "volume" || last.Volume != 1 { t.Fatalf("volume command = %#v, want clamped 1", last) }
+	if err := engine.SetVolume(-0.5); err != nil { t.Fatal(err) }
+	last = commands[len(commands)-1]
+	if last.Command != "volume" || last.Volume != 0 { t.Fatalf("mute command = %#v, want 0", last) }
+}
