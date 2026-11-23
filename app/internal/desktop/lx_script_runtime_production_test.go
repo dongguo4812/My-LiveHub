@@ -267,3 +267,87 @@ func TestProductionLXFishLatestRealImportAndEnable(t *testing.T) {
 	}
 	t.Logf("fish/latest.js import enabled: sources=%v community_actions=%v native_actions=%v", imported.SupportedSources, imported.ExtensionActions, imported.NativeActions)
 }
+
+
+// TestProductionLXFishSunnyDayPlaybackURL resolves an actual "晴天" track
+// through a native provider, invokes fish/latest.js musicUrl, verifies the
+// returned media endpoint, and exports the signed URL for the Chromium smoke test.
+func TestProductionLXFishSunnyDayPlaybackURL(t *testing.T) {
+	if os.Getenv("MYLIVEHUB_LX_FISH_PLAYBACK_INTEGRATION") != "1" {
+		t.Skip("set MYLIVEHUB_LX_FISH_PLAYBACK_INTEGRATION=1 to resolve a real song")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		"https://gh-proxy.org/raw.githubusercontent.com/pdone/lx-music-source/main/fish/latest.js", nil)
+	if err != nil { t.Fatal(err) }
+	response, err := (&http.Client{Timeout: 30*time.Second}).Do(request)
+	if err != nil { t.Fatalf("download fish/latest.js: %v", err) }
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK { t.Fatalf("fish/latest.js download status = %s", response.Status) }
+	source, err := io.ReadAll(io.LimitReader(response.Body, (2<<20)+1))
+	if err != nil { t.Fatalf("read fish/latest.js: %v", err) }
+	if len(source) == 0 || len(source) > 2<<20 { t.Fatalf("fish/latest.js size = %d", len(source)) }
+
+	manager := newLXScriptRuntime(testLXConfigManager(t)).(*productionMusicLXRuntime)
+	if err := manager.Start(ctx); err != nil { t.Fatalf("start production runtime: %v", err) }
+	defer manager.Close()
+	imported, err := manager.ImportScript(ctx, "fish/latest.js", string(source))
+	if err != nil { t.Fatalf("import and enable real fish/latest.js: %v", err) }
+	if !imported.Enabled || len(imported.NativeActions) != 1 || imported.NativeActions[0] != "musicUrl" {
+		t.Fatalf("fish script lacks enabled native musicUrl: %#v", imported)
+	}
+
+	service := NewMusicServiceWithDependencies(testLXConfigManager(t),
+		config.MusicConfig{EnabledSearchSources: []string{"tx", "kw", "kg"}}, nil, nil)
+	service.scriptRuntime = manager
+
+	var selectedTrack *music.Track
+	var selectedSource string
+	var searchFailures []string
+	for _, sourceID := range []string{"tx", "kw", "kg"} {
+		page, searchErr := service.SearchSourcePage("晴天", sourceID, 1)
+		if searchErr != nil { searchFailures = append(searchFailures, sourceID+": "+searchErr.Error()); continue }
+		for i := range page.Tracks {
+			track := page.Tracks[i]
+			if strings.TrimSpace(track.Title) == "晴天" && strings.Contains(track.Artist, "周杰伦") {
+				selectedTrack, selectedSource = &track, sourceID
+				break
+			}
+		}
+		if selectedTrack != nil { break }
+	}
+	if selectedTrack == nil {
+		t.Fatalf("native providers did not return an exact 晴天 / 周杰伦 track; provider errors: %s", strings.Join(searchFailures, " | "))
+	}
+	t.Logf("real search selected source=%s title=%q artist=%q track_id=%q qualities=%v",
+		selectedSource, selectedTrack.Title, selectedTrack.Artist, selectedTrack.ID, selectedTrack.Qualities)
+
+	resource, err := service.ResolvePlaybackResource(*selectedTrack, "")
+	if err != nil { t.Fatalf("fish/latest.js musicUrl failed for real 晴天 track: %v", err) }
+	parsed, err := url.Parse(resource.URL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		t.Fatalf("fish musicUrl returned invalid media URL")
+	}
+	probeCtx, probeCancel := context.WithTimeout(ctx, 25*time.Second)
+	defer probeCancel()
+	probeRequest, err := http.NewRequestWithContext(probeCtx, http.MethodGet, resource.URL, nil)
+	if err != nil { t.Fatal(err) }
+	probeRequest.Header.Set("Range", "bytes=0-1")
+	probeRequest.Header.Set("User-Agent", "Mozilla/5.0 My-LiveHub playback integration")
+	probeResponse, err := (&http.Client{Timeout: 25*time.Second}).Do(probeRequest)
+	if err != nil { t.Fatalf("real media URL request failed: %v", err) }
+	defer probeResponse.Body.Close()
+	if probeResponse.StatusCode != http.StatusOK && probeResponse.StatusCode != http.StatusPartialContent {
+		t.Fatalf("real media URL returned HTTP %d", probeResponse.StatusCode)
+	}
+	firstBytes, err := io.ReadAll(io.LimitReader(probeResponse.Body, 2))
+	if err != nil || len(firstBytes) == 0 { t.Fatalf("real media URL returned no media bytes: bytes=%d err=%v", len(firstBytes), err) }
+
+	outputPath := os.Getenv("MYLIVEHUB_PLAYBACK_URL_FILE")
+	if outputPath == "" { t.Fatal("MYLIVEHUB_PLAYBACK_URL_FILE must point to the CI handoff file") }
+	if err := os.WriteFile(outputPath, []byte(resource.URL), 0600); err != nil { t.Fatalf("write browser playback URL handoff: %v", err) }
+	t.Logf("real fish musicUrl resolved and media endpoint returned bytes: source=%s quality=%s status=%d content_type=%q",
+		selectedSource, resource.Quality, probeResponse.StatusCode, probeResponse.Header.Get("Content-Type"))
+}
