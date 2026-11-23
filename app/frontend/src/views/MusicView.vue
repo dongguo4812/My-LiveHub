@@ -60,22 +60,6 @@ function moveSearchSource(index: number, direction: -1 | 1) {
   ;[sources[index], sources[target]] = [sources[target], sources[index]]
   config.value.enabled_search_sources = sources
 }
-async function testLXAPIConnection() {
-  if (!config.value) return
-  saving.value = true
-  error.value = ''
-  success.value = ''
-  try {
-    config.value.lx_api_endpoints = config.value.lx_api_endpoints.map(item => item.trim()).filter(Boolean)
-    await MusicService.SaveConfig(config.value)
-    await MusicService.GetPlaybackStatus()
-    success.value = '已成功连接洛雪客户端 API'
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
-  } finally {
-    saving.value = false
-  }
-}
 const queue = ref<QueueSnapshot | null>(null)
 const draggedQueueItemID = ref('')
 const playback = ref<PlaybackSnapshot | null>(null)
@@ -404,7 +388,7 @@ onUnmounted(() => {
       <div>
         <p class="eyebrow">MUSIC PLAYER</p>
         <h2>音乐中心</h2>
-        <p class="description">管理洛雪音乐播放、歌曲搜索与观众点播队列。</p>
+        <p class="description">管理独立 HTMLAudio 音乐播放、歌曲搜索与观众点播队列。</p>
         <el-alert v-if="config && !config.enabled" title="音乐模块当前已关闭：无法加入歌曲队列或播放。请在下方「点歌设置」中启用音乐模块并保存全部设置。" type="warning" :closable="false" show-icon style="margin-top:12px" />
       </div>
       <el-tag type="success" effect="plain">直播音乐控制台</el-tag>
@@ -543,8 +527,8 @@ onUnmounted(() => {
       <div class="card-actions"><el-button type="primary" :loading="saving" :disabled="!config" @click="saveConfig">保存全部设置</el-button></div>
     </el-card>
     <el-card v-if="activeTab === 'settings'" class="player-card player-settings-card" shadow="never">
-      <template #header><strong>洛雪客户端连接与搜索音源</strong></template>
-      <p class="section-description">洛雪客户端需运行在本机。地址按从上到下的顺序尝试，前一个不可用时自动切换到下一个；播放通过 lxmusic:// 协议发起。</p>
+      <template #header><strong>旧版洛雪 API 配置（兼容保留）</strong></template>
+      <p class="section-description">以下地址仅为兼容历史 music.json 配置保留，不参与当前搜索和 HTMLAudio 播放；新播放器无需安装或启动洛雪客户端。</p>
       <div v-if="config" class="setting-list">
         <div class="setting-row">
           <strong>主 API 地址</strong>
@@ -557,7 +541,7 @@ onUnmounted(() => {
       </div>
       <div class="card-actions">
         <el-button plain :disabled="!config || config.lx_api_endpoints.length < 2" @click="swapLXEndpoints">交换主备地址</el-button>
-        <el-button type="primary" :loading="saving" :disabled="!config" @click="testLXAPIConnection">保存并测试连接</el-button>
+        <el-button type="primary" :loading="saving" :disabled="!config" @click="saveConfig">保存旧版配置</el-button>
       </div>
       <el-divider />
       <strong>搜索平台启用及优先级</strong>
