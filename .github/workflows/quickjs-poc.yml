@@ -108,9 +108,9 @@ jobs:
         run: |
           go test -tags lxproduction ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          go build -tags lxproduction -ldflags "-H=windowsgui" -o "$env:RUNNER_TEMP\\My-LiveHub-production.exe" .
+          go build -tags lxproduction -ldflags "-H=windowsgui" -o "$env:RUNNER_TEMP/My-LiveHub-production.exe" .
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Get-Item "$env:RUNNER_TEMP\\My-LiveHub-production.exe" | Select-Object Name, Length
+          Get-Item "$env:RUNNER_TEMP/My-LiveHub-production.exe" | Select-Object Name, Length
 
       - name: Measure QuickJS runtime lifecycle and binary footprint
         shell: msys2 {0}
