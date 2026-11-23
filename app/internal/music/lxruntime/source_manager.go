@@ -40,6 +40,8 @@ type SourceManager struct {
 	closed     bool
 }
 
+// Capability probing executes third-party startup code; allow a bounded startup window
+// without weakening the shorter timeout used by ordinary runtime actions.
 const (
 	lxCapabilityProbeEvalTimeout = 15 * time.Second
 	maxLXImportedScripts        = 32
