@@ -63,6 +63,8 @@ type MusicService struct {
 	playbackSnapshot music.PlaybackSnapshot
 	playbackSnapshotValid bool
 	playGeneration uint64
+	playResolveGeneration uint64
+	playResolveCancel context.CancelFunc
 	searcher *music.LXSearchClient
 	scriptRuntime lxScriptRuntime
 	lyricsMu sync.Mutex
@@ -146,6 +148,31 @@ func (s *MusicService) SetVolume(volume float64) error {
 	bridge, ok := engine.(*htmlAudioPlaybackEngine)
 	if !ok { return errors.New("当前播放引擎不支持音量调节") }
 	return bridge.SetVolume(volume)
+}
+
+
+func (s *MusicService) beginPlaybackResolution(parent context.Context) (context.Context, uint64, context.CancelFunc) {
+	if parent == nil { parent = context.Background() }
+	s.mu.Lock()
+	if s.playResolveCancel != nil { s.playResolveCancel() }
+	ctx, cancel := context.WithCancel(parent)
+	s.playResolveGeneration++
+	generation := s.playResolveGeneration
+	s.playResolveCancel = cancel
+	s.mu.Unlock()
+	return ctx, generation, cancel
+}
+
+func (s *MusicService) playbackResolutionCurrent(generation uint64) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.playResolveGeneration == generation
+}
+
+func (s *MusicService) finishPlaybackResolution(generation uint64) {
+	s.mu.Lock()
+	if s.playResolveGeneration == generation { s.playResolveCancel = nil }
+	s.mu.Unlock()
 }
 
 func (s *MusicService) start(ctx context.Context) error {
@@ -903,6 +930,7 @@ func (s *MusicService) pushHistory(item music.QueueItem) {
 }
 func (s *MusicService) Stop() error {
 	if s == nil || s.engine == nil || s.queue == nil { return nil }
+	s.mu.Lock(); if s.playResolveCancel != nil { s.playResolveCancel(); s.playResolveCancel = nil; s.playResolveGeneration++ }; s.mu.Unlock()
 	s.cancelPlaybackWatcher()
 	err := s.engine.Stop(context.Background())
 	s.queue.FinishCurrent()

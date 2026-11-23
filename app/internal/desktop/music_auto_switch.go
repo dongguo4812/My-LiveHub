@@ -27,7 +27,9 @@ func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original m
 		return music.Track{}, errors.New("洛雪播放服务尚未初始化")
 	}
 	if parent == nil { parent = context.Background() }
-	ctx, cancel := context.WithTimeout(parent, 90*time.Second)
+	resolutionCtx, resolutionGeneration, resolutionCancel := s.beginPlaybackResolution(parent)
+	defer func() { s.finishPlaybackResolution(resolutionGeneration); resolutionCancel() }()
+	ctx, cancel := context.WithTimeout(resolutionCtx, 90*time.Second)
 	defer cancel()
 
 	priority := s.enabledSearchSourceIDs()
@@ -86,20 +88,28 @@ func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original m
 			// JSON representation deliberately excludes this field.
 			if strings.TrimSpace(resource.URL) != "" { candidate.PlaybackResource = &resource }
 			var loadErr error
+			s.mu.RLock()
+			if s.playResolveGeneration != resolutionGeneration {
+				s.mu.RUnlock()
+				return music.Track{}, context.Canceled
+			}
 			resourceEngine, resourceAware := s.engine.(interface {
 				LoadResource(context.Context, music.Track, music.PlaybackResource) error
 			})
 			if resource.URL != "" && resourceAware {
 				loadErr = resourceEngine.LoadResource(ctx, candidate, resource)
 			} else {
-				// Compatibility seam for the legacy engine; D replaces this with
-				// the HTMLAudio resource consumer.
 				loadErr = s.engine.Load(ctx, candidate)
 			}
+			s.mu.RUnlock()
 			if loadErr != nil && resource.URL != "" && resourceAware {
 				// A resource-aware engine gets exactly one invalidation/re-resolution
 				// retry. Media adapters still own the final HTTP failure signal.
 				s.mu.RLock()
+				if s.playResolveGeneration != resolutionGeneration {
+					s.mu.RUnlock()
+					return music.Track{}, context.Canceled
+				}
 				cache := s.playbackResourceCache
 				searcher, resolver := s.searcher, s.scriptRuntime
 				s.mu.RUnlock()
@@ -107,7 +117,13 @@ func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original m
 				if refreshErr == nil {
 					candidate.PlaybackResource = &fresh
 					resource = fresh
+					s.mu.RLock()
+					if s.playResolveGeneration != resolutionGeneration {
+						s.mu.RUnlock()
+						return music.Track{}, context.Canceled
+					}
 					loadErr = resourceEngine.LoadResource(ctx, candidate, fresh)
+					s.mu.RUnlock()
 				} else {
 					loadErr = fmt.Errorf("%v; refresh failed: %w", loadErr, refreshErr)
 				}
