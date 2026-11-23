@@ -5,13 +5,19 @@ vars:
 
 tasks:
   dev:
-    summary: 生成 Wails 前端绑定并启动 My-LiveHub 桌面开发环境
+    summary: 使用生产 QuickJS 运行时生成绑定并启动 My-LiveHub 桌面开发环境
+    env:
+      GOFLAGS: -tags=lxproduction
+      CGO_ENABLED: "1"
     cmds:
       - powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/dev-preflight.ps1 -Port {{.VITE_PORT}}
       - wails3 generate bindings -ts
       - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
   build:
-    summary: 构建 My-LiveHub 桌面应用
+    summary: 使用生产 QuickJS 运行时构建 My-LiveHub 桌面应用
+    env:
+      GOFLAGS: -tags=lxproduction
+      CGO_ENABLED: "1"
     cmds:
       - wails3 build
   frontend:install:
