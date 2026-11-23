@@ -45,7 +45,7 @@ func TestProductionLXScriptRuntimeImportRestoreEnableDelete(t *testing.T) {
  */
 lx.on(lx.EVENT_NAMES.request, async () => 'https://1.1.1.1/song.mp3');
 lx.send(lx.EVENT_NAMES.inited, {
-  sources: { kw: { type: 'music', actions: ['musicUrl'], qualitys: ['128k'] } }
+  sources: { kw: { type: 'music', actions: ['musicUrl','search'], qualitys: ['128k'] } }
 });
 `
 	if _, err := runtime.ImportScript(context.Background(), "fixture", source); err != nil { t.Fatalf("import script: %v", err) }
@@ -142,7 +142,7 @@ lx.on(lx.EVENT_NAMES.request, async ({source,action,info}) => {
  if(action==='pic') return 'https://1.1.1.1/fixture-cover.jpg';
  throw new Error('unsupported action '+action);
 });
-lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl','search'],qualitys:['128k']}}});
+lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl','search','detail','lyric','pic'],qualitys:['128k']}}});
 `
  if _,err:=runtime.ImportScript(context.Background(),"community-action-fixture",source);err!=nil{t.Fatal(err)}
  if err:=runtime.Start(context.Background());err!=nil{t.Fatal(err)}
@@ -164,7 +164,7 @@ lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl','se
 func TestProductionLXCommunityActionIsolatesFailingScript(t *testing.T) {
  runtime:=newLXScriptRuntime(testLXConfigManager(t)).(*productionMusicLXRuntime)
  bad:=`lx.on(lx.EVENT_NAMES.request,()=>{throw new Error('fixture failure')});lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl','search','detail','lyric','pic']}}});`
- good:=`lx.on(lx.EVENT_NAMES.request,()=>({album:'second script'}));lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl']}}});`
+ good:=`lx.on(lx.EVENT_NAMES.request,()=>({album:'second script'}));lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl','detail']}}});`
  if _,err:=runtime.ImportScript(context.Background(),"failing fixture",bad);err!=nil{t.Fatal(err)}
  if _,err:=runtime.ImportScript(context.Background(),"healthy fixture",good);err!=nil{t.Fatal(err)}
  if err:=runtime.Start(context.Background());err!=nil{t.Fatal(err)}
