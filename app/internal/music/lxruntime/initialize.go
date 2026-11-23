@@ -51,7 +51,7 @@ func (r *Runtime) InitializeLXSource(ctx context.Context, info ScriptInfo, sourc
 	if filename == "" {
 		filename = "lx-source.js"
 	}
-	if _, err := r.Eval(ctx, source, filename); err != nil {
+	if _, err := r.EvalWithTimeout(ctx, source, filename, maxInitializationEvalTimeout); err != nil {
 		return fmt.Errorf("LX initialization: evaluate source: %w", err)
 	}
 
