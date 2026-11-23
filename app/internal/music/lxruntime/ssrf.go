@@ -24,6 +24,13 @@ func lxSafeHTTPClient(client *http.Client) (*http.Client, error) {
 
 // lxSafeHTTPClientWithPolicy allows private destinations only for isolated local HTTP tests.
 func lxSafeHTTPClientWithPolicy(client *http.Client, allowPrivate bool) (*http.Client, error) {
+	return lxSafeHTTPClientWithResolver(client, allowPrivate, net.DefaultResolver)
+}
+
+// lxSafeHTTPClientWithResolver keeps DNS behavior injectable for deterministic
+// rebinding tests; production always supplies net.DefaultResolver.
+func lxSafeHTTPClientWithResolver(client *http.Client, allowPrivate bool, resolver lxHostResolver) (*http.Client, error) {
+	if resolver == nil { resolver = net.DefaultResolver }
 	if client == nil {
 		client = http.DefaultClient
 	}
@@ -45,7 +52,7 @@ func lxSafeHTTPClientWithPolicy(client *http.Client, allowPrivate bool) (*http.C
 			if err != nil {
 				return nil, fmt.Errorf("lx.request: invalid destination: %w", err)
 			}
-			ips, err := resolveLXHost(ctx, host, allowPrivate)
+			ips, err := resolveLXHostWithResolver(ctx, host, allowPrivate, resolver)
 			if err != nil {
 				return nil, err
 			}
@@ -73,7 +80,7 @@ func lxSafeHTTPClientWithPolicy(client *http.Client, allowPrivate bool) (*http.C
 		if len(via) > 0 && via[len(via)-1].URL.Scheme == "https" && req.URL.Scheme != "https" {
 			return errors.New("lx.request: HTTPS redirect downgrade is not allowed")
 		}
-		if err := validateLXDestinationWithPolicy(req.Context(), req.URL, allowPrivate); err != nil {
+		if err := validateLXDestinationWithResolver(req.Context(), req.URL, allowPrivate, resolver); err != nil {
 			return err
 		}
 		if previousRedirect != nil {
@@ -106,13 +113,17 @@ func validateLXDestination(ctx context.Context, target *url.URL) error {
 }
 
 func validateLXDestinationWithPolicy(ctx context.Context, target *url.URL, allowPrivate bool) error {
+	return validateLXDestinationWithResolver(ctx, target, allowPrivate, net.DefaultResolver)
+}
+
+func validateLXDestinationWithResolver(ctx context.Context, target *url.URL, allowPrivate bool, resolver lxHostResolver) error {
 	if target == nil || (target.Scheme != "http" && target.Scheme != "https") || target.Hostname() == "" {
 		return errors.New("lx.request: only absolute HTTP(S) URLs are supported")
 	}
 	if target.User != nil {
 		return errors.New("lx.request: URL credentials are not allowed")
 	}
-	_, err := resolveLXHost(ctx, target.Hostname(), allowPrivate)
+	_, err := resolveLXHostWithResolver(ctx, target.Hostname(), allowPrivate, resolver)
 	return err
 }
 
@@ -120,7 +131,16 @@ func resolvePublicLXHost(ctx context.Context, host string) ([]netip.Addr, error)
 	return resolveLXHost(ctx, host, false)
 }
 
+type lxHostResolver interface {
+	LookupNetIP(context.Context, string, string) ([]netip.Addr, error)
+}
+
 func resolveLXHost(ctx context.Context, host string, allowPrivate bool) ([]netip.Addr, error) {
+	return resolveLXHostWithResolver(ctx, host, allowPrivate, net.DefaultResolver)
+}
+
+func resolveLXHostWithResolver(ctx context.Context, host string, allowPrivate bool, resolver lxHostResolver) ([]netip.Addr, error) {
+	if resolver == nil { resolver = net.DefaultResolver }
 	host = strings.TrimSuffix(strings.TrimSpace(host), ".")
 	if host == "" {
 		return nil, errors.New("lx.request: empty destination host")
@@ -135,10 +155,17 @@ func resolveLXHost(ctx context.Context, host string, allowPrivate bool) ([]netip
 		}
 		return []netip.Addr{ip}, nil
 	}
-	ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+	ips, err := resolver.LookupNetIP(ctx, "ip", host)
 	if err != nil {
 		return nil, fmt.Errorf("lx.request: resolve destination: %w", err)
 	}
+	if len(ips) == 0 {
+		return nil, errors.New("lx.request: destination has no IP addresses")
+	}
+	return validateLXIPAnswers(host, ips, allowPrivate)
+}
+
+func validateLXIPAnswers(host string, ips []netip.Addr, allowPrivate bool) ([]netip.Addr, error) {
 	if len(ips) == 0 {
 		return nil, errors.New("lx.request: destination has no IP addresses")
 	}
@@ -146,7 +173,7 @@ func resolveLXHost(ctx context.Context, host string, allowPrivate bool) ([]netip
 	for _, ip := range ips {
 		ip = ip.Unmap()
 		if !allowPrivate && !isPublicLXIP(ip) {
-			return nil, fmt.Errorf("lx.request: host resolves to a non-public address: %s", ip)
+			return nil, fmt.Errorf("lx.request: host %q resolves to a non-public address: %s", host, ip)
 		}
 		checked = append(checked, ip)
 	}
