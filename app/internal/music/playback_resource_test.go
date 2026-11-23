@@ -50,3 +50,34 @@ func TestPlaybackResourceRejectsUnsafeURLAndHeaders(t *testing.T) {
 	base.Headers=map[string]string{"Referer":"https://ok.example/\r\nInjected: yes"}
 	if err:=validatePlaybackResource(base);err==nil { t.Fatal("CRLF header accepted") }
 }
+
+func TestPlaybackResourceCacheOverwriteDoesNotEvictOtherEntries(t *testing.T) {
+	cache := NewPlaybackResourceCache(time.Minute, 2)
+	trackA := Track{ID: "a", SourceID: "tx"}
+	trackB := Track{ID: "b", SourceID: "tx"}
+	resourceA := PlaybackResource{URL: "https://media.example.test/a.mp3", SourceID: "tx", TrackID: "a", Quality: "320k"}
+	resourceB := PlaybackResource{URL: "https://media.example.test/b.mp3", SourceID: "tx", TrackID: "b", Quality: "320k"}
+	cache.Put(trackA, "320k", resourceA)
+	cache.Put(trackB, "320k", resourceB)
+	resourceA.URL = "https://media.example.test/a-refresh.mp3"
+	cache.Put(trackA, "320k", resourceA)
+	if got, ok := cache.Get(trackB, "320k"); !ok || got.URL != resourceB.URL {
+		t.Fatalf("overwriting an existing key evicted another entry: %#v, %v", got, ok)
+	}
+	if got, ok := cache.Get(trackA, "320k"); !ok || got.URL != resourceA.URL {
+		t.Fatalf("replacement was not stored: %#v, %v", got, ok)
+	}
+}
+
+func TestPlaybackResourceRejectsCredentialsFragmentsAndOversizedHeaders(t *testing.T) {
+	base := PlaybackResource{URL: "https://media.example.test/a.mp3", SourceID: "tx", TrackID: "1"}
+	base.URL = "https://user:secret@media.example.test/a.mp3"
+	if err := validatePlaybackResource(base); err == nil { t.Fatal("credential-bearing URL accepted") }
+	base.URL = "https://media.example.test/a.mp3#fragment"
+	if err := validatePlaybackResource(base); err == nil { t.Fatal("fragment-bearing URL accepted") }
+	base.URL = "https://media.example.test/a.mp3"
+	base.Headers = map[string]string{"Bad Header": "value"}
+	if err := validatePlaybackResource(base); err == nil { t.Fatal("invalid header name accepted") }
+	base.Headers = map[string]string{"X-Large": strings.Repeat("x", (64<<10)+1)}
+	if err := validatePlaybackResource(base); err == nil { t.Fatal("oversized headers accepted") }
+}
