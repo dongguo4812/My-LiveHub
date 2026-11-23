@@ -17,6 +17,28 @@ func newTestSourceManager(t *testing.T, scripts []LXSourceScript) *SourceManager
 	return manager
 }
 
+func TestDetectLXScriptExtensionActionsAllowsSlowSynchronousBootstrap(t *testing.T) {
+	source := `
+const startedAt = Date.now();
+while (Date.now() - startedAt < 3200) {}
+lx.on(lx.EVENT_NAMES.request, async () => 'ok');
+lx.send(lx.EVENT_NAMES.inited, {
+  sources: { kw: { type: 'music', actions: ['search', 'musicUrl'], qualitys: ['128k'] } }
+});
+`
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	actions, sources, err := DetectLXScriptExtensionActions(ctx, ScriptInfo{Name: "slow-bootstrap"}, source, nil)
+	if err != nil {
+		t.Fatalf("capability detection rejected a script whose synchronous bootstrap takes slightly over 3s: %v", err)
+	}
+	if len(actions) != 1 || actions[0] != "search" {
+		t.Fatalf("detected extension actions = %#v, want [search]", actions)
+	}
+	if len(sources) != 1 || sources[0] != "kw" {
+		t.Fatalf("detected sources = %#v, want [kw]", sources)
+	}
+}
 func TestProductionSourceManagerLifecycleGuards(t *testing.T) {
 	manager := newTestSourceManager(t, []LXSourceScript{
 		{Info: ScriptInfo{Name: "fixture-one"}, Source: "lx.on('request', () => 'https://1.1.1.1/a.mp3');"},
