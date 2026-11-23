@@ -86,24 +86,37 @@ func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original m
 			// JSON representation deliberately excludes this field.
 			if strings.TrimSpace(resource.URL) != "" { candidate.PlaybackResource = &resource }
 			var loadErr error
-			if resource.URL != "" {
-				if resourceEngine, ok := s.engine.(interface {
-					LoadResource(context.Context, music.Track, music.PlaybackResource) error
-				}); ok {
-					loadErr = resourceEngine.LoadResource(ctx, candidate, resource)
-				} else {
-					// Compatibility seam for the legacy engine; D replaces this with
-					// the HTMLAudio resource consumer.
-					loadErr = s.engine.Load(ctx, candidate)
-				}
+			resourceEngine, resourceAware := s.engine.(interface {
+				LoadResource(context.Context, music.Track, music.PlaybackResource) error
+			})
+			if resource.URL != "" && resourceAware {
+				loadErr = resourceEngine.LoadResource(ctx, candidate, resource)
 			} else {
+				// Compatibility seam for the legacy engine; D replaces this with
+				// the HTMLAudio resource consumer.
 				loadErr = s.engine.Load(ctx, candidate)
+			}
+			if loadErr != nil && resource.URL != "" && resourceAware {
+				// A resource-aware engine gets exactly one invalidation/re-resolution
+				// retry. Media adapters still own the final HTTP failure signal.
+				s.mu.RLock()
+				cache := s.playbackResourceCache
+				searcher, resolver := s.searcher, s.scriptRuntime
+				s.mu.RUnlock()
+				fresh, refreshErr := music.NewUnifiedSourceService(searcher, resolver).RefreshPlaybackResource(ctx, candidate, resource, cache)
+				if refreshErr == nil {
+					candidate.PlaybackResource = &fresh
+					resource = fresh
+					loadErr = resourceEngine.LoadResource(ctx, candidate, fresh)
+				} else {
+					loadErr = fmt.Errorf("%v; refresh failed: %w", loadErr, refreshErr)
+				}
 			}
 			if loadErr != nil {
 				s.mu.RLock()
 				cache := s.playbackResourceCache
 				s.mu.RUnlock()
-				if cache != nil { cache.Invalidate(candidate, resource.Quality) }
+				if cache != nil && resource.Quality != "" { cache.Invalidate(candidate, resource.Quality) }
 				failures = append(failures, source+": 播放引擎未能确认播放："+loadErr.Error())
 				continue
 			}
