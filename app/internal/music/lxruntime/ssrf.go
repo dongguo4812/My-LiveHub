@@ -40,6 +40,12 @@ func lxSafeHTTPClientWithResolver(client *http.Client, allowPrivate bool, resolv
 		base = http.DefaultTransport
 	}
 	if transport, ok := base.(*http.Transport); ok {
+		if !allowPrivate && transport.TLSClientConfig != nil && transport.TLSClientConfig.InsecureSkipVerify {
+			return nil, errors.New("lx.request: insecure TLS verification is not allowed")
+		}
+		if !allowPrivate && len(transport.TLSNextProto) > 0 {
+			return nil, errors.New("lx.request: custom TLS protocol handlers are not allowed")
+		}
 		safeTransport := transport.Clone()
 		// Do not let an ambient proxy bypass the address policy.
 		safeTransport.Proxy = nil
@@ -78,22 +84,73 @@ func lxSafeHTTPClientWithResolver(client *http.Client, allowPrivate bool, resolv
 		clone.Transport = base
 	}
 	previousRedirect := client.CheckRedirect
+	if !allowPrivate && previousRedirect != nil {
+		return nil, errors.New("lx.request: custom redirect callbacks are not allowed by strict network policy")
+	}
+	if !allowPrivate {
+		// CookieJar is an ambient credential source outside the script request
+		// descriptor; scripts must supply any required Cookie header explicitly.
+		clone.Jar = nil
+	}
 	clone.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 5 {
 			return errors.New("lx.request: too many redirects")
 		}
-		if len(via) > 0 && via[len(via)-1].URL.Scheme == "https" && req.URL.Scheme != "https" {
-			return errors.New("lx.request: HTTPS redirect downgrade is not allowed")
+		if previousRedirect != nil {
+			if err := previousRedirect(req, via); err != nil {
+				return err
+			}
+		}
+		if len(via) > 0 {
+			previousURL := via[len(via)-1].URL
+			if previousURL.Scheme == "https" && req.URL.Scheme != "https" {
+				return errors.New("lx.request: HTTPS redirect downgrade is not allowed")
+			}
+			if !sameLXOrigin(previousURL, req.URL) {
+				if req.Body != nil && req.Body != http.NoBody {
+					return errors.New("lx.request: cross-origin redirect with a request body is not allowed")
+				}
+				for key := range req.Header {
+					switch strings.ToLower(key) {
+					case "user-agent", "accept", "accept-encoding", "range":
+					default:
+						req.Header.Del(key)
+					}
+				}
+			}
 		}
 		if err := validateLXDestinationWithResolver(req.Context(), req.URL, allowPrivate, resolver); err != nil {
 			return err
 		}
-		if previousRedirect != nil {
-			return previousRedirect(req, via)
-		}
 		return nil
 	}
 	return &clone, nil
+}
+
+func sameLXOrigin(a, b *url.URL) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	return strings.EqualFold(a.Scheme, b.Scheme) &&
+		strings.EqualFold(a.Hostname(), b.Hostname()) &&
+		lxEffectivePort(a) == lxEffectivePort(b)
+}
+
+func lxEffectivePort(target *url.URL) string {
+	if target == nil {
+		return ""
+	}
+	if port := target.Port(); port != "" {
+		return port
+	}
+	switch strings.ToLower(target.Scheme) {
+	case "http":
+		return "80"
+	case "https":
+		return "443"
+	default:
+		return ""
+	}
 }
 
 func validateLXDestination(ctx context.Context, target *url.URL) error {

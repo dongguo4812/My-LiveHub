@@ -14,10 +14,11 @@ import (
 )
 
 type managedLXScript struct {
-	info        ScriptInfo
-	source      string
-	runtime     *Runtime
-	initialized bool
+	info             ScriptInfo
+	source            string
+	extensionActions  map[string]struct{}
+	runtime           *Runtime
+	initialized       bool
 }
 
 // SourceManager owns isolated, persistent QuickJS contexts for scripts
@@ -36,8 +37,9 @@ type SourceManager struct {
 }
 
 type LXSourceScript struct {
-	Info   ScriptInfo
-	Source string
+	Info             ScriptInfo
+	Source            string
+	ExtensionActions  []string
 }
 
 func NewSourceManager(client *http.Client) *SourceManager {
@@ -66,7 +68,14 @@ func NewSourceManagerWithScripts(client *http.Client, scripts []LXSourceScript) 
 		if info.RawScript == "" {
 			info.RawScript = definition.Source
 		}
-		manager.scripts = append(manager.scripts, &managedLXScript{info: info, source: definition.Source})
+		extensions := make(map[string]struct{})
+		for _, action := range definition.ExtensionActions {
+			action = strings.TrimSpace(action)
+			if isLXCommunityExtensionAction(action) {
+				extensions[action] = struct{}{}
+			}
+		}
+		manager.scripts = append(manager.scripts, &managedLXScript{info: info, source: definition.Source, extensionActions: extensions})
 	}
 	return manager
 }
@@ -101,6 +110,123 @@ func (m *SourceManager) Start(ctx context.Context) error {
 	m.scripts[0].runtime = runtime
 	m.started = true
 	return nil
+}
+
+func isLXCommunityExtensionAction(action string) bool {
+	switch action {
+	case "search", "detail", "lyric", "pic":
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *SourceManager) dispatchScriptAction(ctx context.Context, script *managedLXScript, source, action string, info any, client *http.Client) (any, error) {
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return nil, errors.New("LX source manager is closed")
+	}
+	if script.runtime == nil {
+		runtime, err := New(Options{})
+		if err != nil {
+			m.mu.Unlock()
+			return nil, fmt.Errorf("%s Runtime 创建失败：%w", script.info.Name, err)
+		}
+		script.runtime = runtime
+	}
+	runtime := script.runtime
+	initialized := script.initialized
+	m.mu.Unlock()
+
+	if !initialized {
+		initCtx, cancel := context.WithTimeout(ctx, lxMaxRequestTimeout)
+		err := runtime.InitializeLXSource(initCtx, script.info, script.source, client)
+		cancel()
+		if err != nil {
+			_ = runtime.Close()
+			m.mu.Lock()
+			if script.runtime == runtime {
+				script.runtime = nil
+				script.initialized = false
+			}
+			m.mu.Unlock()
+			return nil, fmt.Errorf("%s 初始化失败：%w", script.info.Name, err)
+		}
+		m.mu.Lock()
+		if m.closed {
+			m.mu.Unlock()
+			return nil, errors.New("LX source manager is closed")
+		}
+		script.initialized = true
+		m.mu.Unlock()
+	}
+
+	dispatchCtx, cancel := context.WithTimeout(ctx, lxMaxRequestTimeout)
+	defer cancel()
+	return runtime.dispatchLXRequest(dispatchCtx, source, action, info, client)
+}
+
+func (m *SourceManager) DispatchExtensionAction(ctx context.Context, source, action string, info any) (any, error) {
+	if m == nil {
+		return nil, errors.New("LX source manager is nil")
+	}
+	if !isLXCommunityExtensionAction(action) {
+		return nil, fmt.Errorf("%q is not a supported My-LiveHub community extension action", action)
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return nil, errors.New("LX source manager is closed")
+	}
+	if !m.started {
+		m.mu.Unlock()
+		return nil, errors.New("LX source manager has not started")
+	}
+	managerCtx := m.ctx
+	m.mu.Unlock()
+
+	actionCtx, cancelAction := context.WithCancel(ctx)
+	stopManagerCancel := context.AfterFunc(managerCtx, cancelAction)
+	defer func() {
+		stopManagerCancel()
+		cancelAction()
+	}()
+	ctx = actionCtx
+
+	m.dispatchMu.Lock()
+	defer m.dispatchMu.Unlock()
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return nil, errors.New("LX source manager is closed")
+	}
+	scripts := append([]*managedLXScript(nil), m.scripts...)
+	client := m.client
+	m.mu.Unlock()
+
+	var failures []string
+	for _, script := range scripts {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if _, enabled := script.extensionActions[action]; !enabled {
+			continue
+		}
+		value, err := m.dispatchScriptAction(ctx, script, source, action, info, client)
+		if err != nil {
+			failures = append(failures, script.info.Name+" "+action+" 失败："+err.Error())
+			continue
+		}
+		return value, nil
+	}
+	if len(failures) == 0 {
+		return nil, fmt.Errorf("no imported LX script has explicitly enabled community extension action %q", action)
+	}
+	return nil, fmt.Errorf("all scripts failed community extension action %s: %s", action, strings.Join(failures, "；"))
 }
 
 func (m *SourceManager) ResolvePlaybackURL(ctx context.Context, source string, info any) (any, error) {
@@ -150,52 +276,7 @@ func (m *SourceManager) ResolvePlaybackURL(ctx context.Context, source string, i
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-
-		m.mu.Lock()
-		if m.closed {
-			m.mu.Unlock()
-			return nil, errors.New("LX source manager is closed")
-		}
-		if script.runtime == nil {
-			runtime, err := New(Options{})
-			if err != nil {
-				failures = append(failures, script.info.Name+" Runtime 创建失败："+err.Error())
-				m.mu.Unlock()
-				continue
-			}
-			script.runtime = runtime
-		}
-		runtime := script.runtime
-		initialized := script.initialized
-		m.mu.Unlock()
-
-		if !initialized {
-			initCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
-			err := runtime.InitializeLXSource(initCtx, script.info, script.source, client)
-			cancel()
-			if err != nil {
-				_ = runtime.Close()
-				m.mu.Lock()
-				if script.runtime == runtime {
-					script.runtime = nil
-					script.initialized = false
-				}
-				m.mu.Unlock()
-				failures = append(failures, script.info.Name+" 初始化失败："+err.Error())
-				continue
-			}
-			m.mu.Lock()
-			if m.closed {
-				m.mu.Unlock()
-				return nil, errors.New("LX source manager is closed")
-			}
-			script.initialized = true
-			m.mu.Unlock()
-		}
-
-		dispatchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		value, err := runtime.dispatchLXRequest(dispatchCtx, source, "musicUrl", info, client)
-		cancel()
+		value, err := m.dispatchScriptAction(ctx, script, source, "musicUrl", info, client)
 		if err != nil {
 			failures = append(failures, script.info.Name+" 解析失败："+err.Error())
 			continue

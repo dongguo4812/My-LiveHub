@@ -102,3 +102,43 @@ lx.send(lx.EVENT_NAMES.inited, {
 		t.Fatalf("loopback playback URL should be rejected, got %v", err)
 	}
 }
+
+
+func TestProductionSourceManagerCommunityExtensionsAreExplicit(t *testing.T) {
+	source := `
+lx.on(lx.EVENT_NAMES.request, async ({ action, info }) => action + ':' + String(info.value));
+lx.send(lx.EVENT_NAMES.inited, {
+  sources: { kw: { type: 'music', actions: ['musicUrl'], qualitys: ['128k'] } }
+});
+`
+	manager := NewSourceManagerWithScripts(nil, []LXSourceScript{{
+		Info: ScriptInfo{Name: "community-extension-fixture"},
+		Source: source,
+		ExtensionActions: []string{"search", "detail", "lyric", "pic"},
+	}})
+	if err := manager.Start(context.Background()); err != nil { t.Fatal(err) }
+	defer manager.Close()
+	for _, action := range []string{"search", "detail", "lyric", "pic"} {
+		got, err := manager.DispatchExtensionAction(context.Background(), "kw", action, map[string]any{"value": "fixture"})
+		if err != nil { t.Fatalf("%s extension action failed: %v", action, err) }
+		if got != action+":fixture" { t.Fatalf("%s extension result = %#v", action, got) }
+	}
+	if _, err := manager.DispatchExtensionAction(context.Background(), "kw", "musicUrl", map[string]any{}); err == nil {
+		t.Fatal("musicUrl must remain on the official native action path, not the community extension dispatcher")
+	}
+}
+
+func TestProductionSourceManagerDoesNotImplicitlyEnableCommunityExtensions(t *testing.T) {
+	source := `
+lx.on(lx.EVENT_NAMES.request, async ({ action }) => action);
+lx.send(lx.EVENT_NAMES.inited, {
+  sources: { kw: { type: 'music', actions: ['musicUrl'], qualitys: ['128k'] } }
+});
+`
+	manager := NewSourceManagerWithScripts(nil, []LXSourceScript{{Info: ScriptInfo{Name: "no-extensions"}, Source: source}})
+	if err := manager.Start(context.Background()); err != nil { t.Fatal(err) }
+	defer manager.Close()
+	if _, err := manager.DispatchExtensionAction(context.Background(), "kw", "search", nil); err == nil || !strings.Contains(err.Error(), "explicitly enabled") {
+		t.Fatalf("undeclared community extension should be rejected, got %v", err)
+	}
+}

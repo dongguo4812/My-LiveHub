@@ -4,6 +4,8 @@ package lxruntime
 
 import (
 	"context"
+	"crypto/tls"
+	"io"
 	"net/netip"
 	"net/http"
 	"sync"
@@ -133,6 +135,7 @@ func TestLXSafeHTTPClientDisablesAmbientProxy(t *testing.T) {
 	transport, ok := safe.Transport.(*http.Transport)
 	if !ok { t.Fatalf("safe transport type = %T", safe.Transport) }
 	if transport.Proxy != nil { t.Fatal("safe LX transport retained ambient proxy configuration") }
+	if safe.Jar != nil { t.Fatal("safe LX client retained an ambient CookieJar") }
 	if transport.DialTLS != nil || transport.DialTLSContext != nil {
 		t.Fatal("safe LX transport retained a TLS dial bypass")
 	}
@@ -157,5 +160,62 @@ func TestLXPlaybackURLValidationRejectsLoopback(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	if err := validateLXPlaybackURL(context.Background(), target); err == nil || !strings.Contains(err.Error(), "not public") {
 		t.Fatalf("loopback media URL should be rejected, got %v", err)
+	}
+}
+
+
+func TestLXSafeHTTPClientRejectsCustomRedirectCallback(t *testing.T) {
+	client := &http.Client{
+		Transport: http.DefaultTransport,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return nil },
+	}
+	if _, err := lxSafeHTTPClient(client); err == nil || !strings.Contains(err.Error(), "custom redirect callbacks") {
+		t.Fatalf("strict policy should reject custom redirect callbacks, got %v", err)
+	}
+}
+
+func TestLXSafeHTTPClientRejectsInsecureTLSConfig(t *testing.T) {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	if _, err := lxSafeHTTPClient(&http.Client{Transport: transport}); err == nil || !strings.Contains(err.Error(), "insecure TLS") {
+		t.Fatalf("strict policy should reject insecure TLS config, got %v", err)
+	}
+}
+
+func TestLXCrossOriginRedirectStripsSensitiveHeaders(t *testing.T) {
+	calls := 0
+	var finalHeaders http.Header
+	transport := lxRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			return &http.Response{
+				StatusCode: http.StatusFound,
+				Header: http.Header{"Location": []string{"https://8.8.8.8/final"}},
+				Body: io.NopCloser(strings.NewReader("")),
+				Request: req,
+			}, nil
+		}
+		finalHeaders = req.Header.Clone()
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("ok")), Request: req}, nil
+	})
+	safe, err := lxSafeHTTPClientWithPolicy(&http.Client{Transport: transport}, true)
+	if err != nil { t.Fatal(err) }
+	request, err := http.NewRequest(http.MethodGet, "https://1.1.1.1/start", nil)
+	if err != nil { t.Fatal(err) }
+	request.Header.Set("X-Api-Key", "secret")
+	request.Header.Set("Authorization", "Bearer secret")
+	request.Header.Set("Cookie", "session=secret")
+	request.Header.Set("Referer", "https://private.example/")
+	request.Header.Set("User-Agent", "fixture-agent")
+	request.Header.Set("Accept", "audio/*")
+	request.Header.Set("Range", "bytes=0-")
+	response, err := safe.Do(request)
+	if err != nil { t.Fatal(err) }
+	_ = response.Body.Close()
+	for _, key := range []string{"X-Api-Key", "Authorization", "Cookie", "Referer"} {
+		if finalHeaders.Get(key) != "" { t.Errorf("cross-origin redirect leaked %s", key) }
+	}
+	for key, want := range map[string]string{"User-Agent": "fixture-agent", "Accept": "audio/*", "Range": "bytes=0-"} {
+		if got := finalHeaders.Get(key); got != want { t.Errorf("safe header %s = %q, want %q", key, got, want) }
 	}
 }
