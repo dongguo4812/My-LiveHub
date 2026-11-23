@@ -89,7 +89,7 @@ func (m *Manager) Save(name string, value map[string]any) error {
 }
 
 
-const maxLocalJSONFileBytes = 20 << 20
+const maxLocalJSONFileBytes = 40 << 20
 
 // ReadLocalJSON reads an application-owned JSON file from config/local without
 // requiring a matching embedded default. It is intended for bounded module data.
