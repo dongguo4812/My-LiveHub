@@ -71,7 +71,7 @@ func (m *SourceManager) HasExtensionAction(source, action string) bool {
 	if m.closed || !m.started { return false }
 	for _, script := range m.scripts {
 		if _, enabled := script.extensionActions[action]; !enabled { continue }
-		if len(script.supportedSources) == 0 { return true }
+		if script.supportedSources == nil { return true }
 		if _, supported := script.supportedSources[source]; supported { return true }
 	}
 	return false
