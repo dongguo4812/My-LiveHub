@@ -276,7 +276,7 @@ func (s *MusicService) processSongRequest(ctx context.Context, event events.Even
 		if checkErr != nil { reason := "粉丝勋章校验失败：" + checkErr.Error(); s.setLastError(fmt.Errorf("校验观众 %s 的主播粉丝勋章失败，已拒绝本次点播：%w", event.UserName, checkErr)); s.publishRequestNotice("music_request_failed", event.UserName, "", reason); return }
 		if !allowed { reason := fmt.Sprintf("粉丝勋章等级不足（当前 %d 级，要求 %d 级）", level, fanMedalLevel); s.setLastError(fmt.Errorf("观众 %s 的主播粉丝勋章等级不足（当前 %d，要求 %d）", event.UserName, level, fanMedalLevel)); s.publishRequestNotice("music_request_failed", event.UserName, "", reason); return }
 	}
-	track, matched, sourceFailures := s.searchSongRequestTrack(ctx, keyword, keyword, "")
+	item, matched, sourceFailures, enqueueErr := s.SearchAndEnqueue(ctx, keyword, event.UserName)
 	if !matched {
 		reason := "所有已启用音源均未找到匹配歌曲：" + keyword
 		if len(sourceFailures) > 0 {
@@ -286,12 +286,12 @@ func (s *MusicService) processSongRequest(ctx context.Context, event events.Even
 		s.publishRequestNotice("music_request_failed", event.UserName, "", reason)
 		return
 	}
-	if _, err := s.Enqueue(track, event.UserName); err != nil {
-		s.setLastError(fmt.Errorf("加入观众点播队列失败：%w", err))
-		s.publishRequestNotice("music_request_failed", event.UserName, "", err.Error())
+	if enqueueErr != nil {
+		s.setLastError(fmt.Errorf("加入观众点播队列失败：%w", enqueueErr))
+		s.publishRequestNotice("music_request_failed", event.UserName, "", enqueueErr.Error())
 	} else {
 		s.recordRequestCooldown(event)
-		s.publishRequestNotice("music_request_success", event.UserName, track.Title, "")
+		s.publishRequestNotice("music_request_success", event.UserName, item.Track.Title, "")
 	}
 }
 
@@ -346,6 +346,17 @@ func (s *MusicService) searchSongRequestTrack(parent context.Context, keyword, r
 		if err != nil { return nil, err }
 		return result.Tracks, nil
 	}, requestedTitle, requestedArtist)
+}
+
+// SearchAndEnqueue is the unified audience-request path: search enabled
+// providers, normalize to music.Track, match the requested song, then schedule
+// it through the same queue and playback engine used by manual requests.
+func (s *MusicService) SearchAndEnqueue(parent context.Context, keyword, requestedBy string) (music.QueueItem, bool, []string, error) {
+	if s == nil { return music.QueueItem{}, false, nil, errors.New("music service is unavailable") }
+	track, matched, failures := s.searchSongRequestTrack(parent, keyword, keyword, "")
+	if !matched { return music.QueueItem{}, false, failures, nil }
+	item, err := s.Enqueue(track, requestedBy)
+	return item, true, failures, err
 }
 
 // songRequestMatchesTrack mirrors the request matching policy used by the provider search path.
