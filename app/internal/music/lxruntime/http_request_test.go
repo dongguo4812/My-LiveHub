@@ -25,10 +25,10 @@ func TestExecuteLXHTTPRequestJSONAndHeaders(t *testing.T) {
 	}))
 	defer server.Close()
 
-	response, err := executeLXHTTPRequest(context.Background(), lxRequestDescriptor{
+	response, err := executeLXHTTPRequestWithPolicy(context.Background(), lxRequestDescriptor{
 		URL: server.URL, Method: "post", Headers: map[string]any{"X-LX-Test":"present"},
 		Body: json.RawMessage(`{"song":"demo"}`),
-	}, server.Client())
+	}, server.Client(), true)
 	if err != nil { t.Fatal(err) }
 	if response.StatusCode != http.StatusOK || response.Bytes == 0 { t.Fatalf("unexpected response metadata: %+v", response) }
 	body, ok := response.Body.(map[string]any)
@@ -45,7 +45,7 @@ func TestExecuteLXHTTPRequestFormAndMultipart(t *testing.T) {
 			_, _ = io.WriteString(w, "ok")
 		}))
 		defer server.Close()
-		_, err := executeLXHTTPRequest(context.Background(), lxRequestDescriptor{URL:server.URL, Method:http.MethodPost, Form:map[string]any{"keyword":"hello world"}}, server.Client())
+		_, err := executeLXHTTPRequestWithPolicy(context.Background(), lxRequestDescriptor{URL:server.URL, Method:http.MethodPost, Form:map[string]any{"keyword":"hello world"}}, server.Client())
 		if err != nil { t.Fatal(err) }
 	})
 	t.Run("multipart", func(t *testing.T) {
@@ -57,7 +57,7 @@ func TestExecuteLXHTTPRequestFormAndMultipart(t *testing.T) {
 			_, _ = io.WriteString(w, "ok")
 		}))
 		defer server.Close()
-		_, err := executeLXHTTPRequest(context.Background(), lxRequestDescriptor{URL:server.URL, Method:http.MethodPost, FormData:map[string]any{"token":"abc"}}, server.Client())
+		_, err := executeLXHTTPRequestWithPolicy(context.Background(), lxRequestDescriptor{URL:server.URL, Method:http.MethodPost, FormData:map[string]any{"token":"abc"}}, server.Client())
 		if err != nil { t.Fatal(err) }
 	})
 }
@@ -68,9 +68,9 @@ func TestExecuteLXHTTPRequestTimeoutAndURLValidation(t *testing.T) {
 		_, _ = io.WriteString(w, "late")
 	}))
 	defer server.Close()
-	_, err := executeLXHTTPRequest(context.Background(), lxRequestDescriptor{URL:server.URL, Timeout:25}, server.Client())
+	_, err := executeLXHTTPRequestWithPolicy(context.Background(), lxRequestDescriptor{URL:server.URL, Timeout:25}, server.Client())
 	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "deadline") { t.Fatalf("timeout error = %v", err) }
-	_, err = executeLXHTTPRequest(context.Background(), lxRequestDescriptor{URL:"file:///tmp/a"}, server.Client())
+	_, err = executeLXHTTPRequestWithPolicy(context.Background(), lxRequestDescriptor{URL:"file:///tmp/a"}, server.Client())
 	if err == nil { t.Fatal("expected non-HTTP URL to be rejected") }
 }
 
@@ -79,7 +79,7 @@ func TestExecuteLXHTTPRequestResponseSizeLimit(t *testing.T) {
 		_, _ = io.WriteString(w, strings.Repeat("x", lxMaxResponseBytes+1))
 	}))
 	defer server.Close()
-	_, err := executeLXHTTPRequest(context.Background(), lxRequestDescriptor{URL:server.URL}, server.Client())
+	_, err := executeLXHTTPRequestWithPolicy(context.Background(), lxRequestDescriptor{URL:server.URL}, server.Client())
 	if err == nil || !strings.Contains(err.Error(), "exceeds") { t.Fatalf("oversized response error = %v", err) }
 }
 
