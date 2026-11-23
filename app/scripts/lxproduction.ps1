@@ -61,8 +61,4 @@ if ($Mode -eq 'dev') {
 
 & wails3 build
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-$builtExecutable = Join-Path (Get-Location) 'bin\My-LiveHub.exe'
-if (Test-Path -LiteralPath $builtExecutable) {
-    Copy-Item -LiteralPath $runtimePath -Destination (Split-Path -Parent $builtExecutable) -Force
-}
 exit $LASTEXITCODE
