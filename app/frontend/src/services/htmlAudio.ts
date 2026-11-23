@@ -56,6 +56,7 @@ async function execute(command: Command) {
     audio.removeAttribute('src')
     audio.load()
     activeSession = command.session_id
+    audio.volume = Math.min(1, Math.max(0, command.volume ?? 1))
     audio.src = command.resource.url
     audio.load()
     try {
