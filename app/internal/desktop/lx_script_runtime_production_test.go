@@ -7,8 +7,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+ "errors"
 	"testing"
 	"testing/fstest"
+ "time"
 	"strings"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
@@ -154,7 +156,31 @@ lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl'],qu
  if len(page.Tracks)!=1||page.Tracks[0].ID!="kw_fixture-song"||page.Tracks[0].Title!="Fixture Song"||page.Tracks[0].DurationMS!=180000{t.Fatalf("unexpected script search page: %#v",page)}
  track:=page.Tracks[0]
  detail,err:=service.GetLXTrackDetail(track);if err!=nil{t.Fatalf("detail action: %v",err)}
- if detail.(map[string]any)["album"]!="Fixture Album"{t.Fatalf("detail result: %#v",detail)}
+ if detail.Album!="Fixture Album"||detail.Title!=track.Title||detail.ID!=track.ID{t.Fatalf("detail result was not merged into unified Track: %#v",detail)}
  lyrics,err:=service.GetLyrics(track);if err!=nil||lyrics!="[00:00.00]Fixture lyric"{t.Fatalf("lyric action: %q, %v",lyrics,err)}
  cover,err:=service.GetLXTrackCover(track);if err!=nil||cover!="https://1.1.1.1/fixture-cover.jpg"{t.Fatalf("pic action: %q, %v",cover,err)}
+}
+
+func TestProductionLXCommunityActionIsolatesFailingScript(t *testing.T) {
+ runtime:=newLXScriptRuntime(testLXConfigManager(t)).(*productionMusicLXRuntime)
+ bad:=`lx.on(lx.EVENT_NAMES.request,()=>{throw new Error('fixture failure')});lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl']}}});`
+ good:=`lx.on(lx.EVENT_NAMES.request,()=>({album:'second script'}));lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl']}}});`
+ if _,err:=runtime.ImportScript(context.Background(),"failing fixture",bad,[]string{"detail"});err!=nil{t.Fatal(err)}
+ if _,err:=runtime.ImportScript(context.Background(),"healthy fixture",good,[]string{"detail"});err!=nil{t.Fatal(err)}
+ if err:=runtime.Start(context.Background());err!=nil{t.Fatal(err)}
+ defer runtime.Close()
+ value,err:=runtime.DispatchExtensionAction(context.Background(),"kw","detail",map[string]any{})
+ if err!=nil{t.Fatalf("healthy script should be tried after a failing peer: %v",err)}
+ if value.(map[string]any)["album"]!="second script"{t.Fatalf("unexpected fallback value: %#v",value)}
+}
+
+func TestProductionLXCommunityActionHonorsContextCancellation(t *testing.T) {
+ runtime:=newLXScriptRuntime(testLXConfigManager(t)).(*productionMusicLXRuntime)
+ source:=`lx.on(lx.EVENT_NAMES.request,async ({info})=>info.slow?new Promise(()=>{}):'ok');lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl']}}});`
+ if _,err:=runtime.ImportScript(context.Background(),"slow action fixture",source,[]string{"detail"});err!=nil{t.Fatal(err)}
+ if err:=runtime.Start(context.Background());err!=nil{t.Fatal(err)}
+ defer runtime.Close()
+ ctx,cancel:=context.WithTimeout(context.Background(),50*time.Millisecond);defer cancel()
+ _,err:=runtime.DispatchExtensionAction(ctx,"kw","detail",map[string]any{"slow":true})
+ if !errors.Is(err,context.DeadlineExceeded){t.Fatalf("extension action did not honor caller deadline: %v",err)}
 }

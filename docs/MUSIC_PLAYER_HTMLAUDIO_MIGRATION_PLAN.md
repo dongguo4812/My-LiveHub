@@ -125,13 +125,13 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 **工作内容**
 - 明确区分洛雪原生协议/action（如在线音源 `musicUrl`）与社区扩展 action（`search/detail/lyric/pic`），不得将扩展 action 冒充洛雪官方原生协议。
 - 已建立统一脚本 action 调度入口；已接入 MusicService 生产搜索、详情、歌词和封面调用入口；原生 musicUrl 继续经 production SourceManager.ResolvePlaybackURL，不混入扩展 action dispatcher。
-- 已将搜索 action 结果映射为统一 music.Track/SearchPage，保留 source id、LX source key、SourceData、时长、封面等字段；歌词/封面按字符串契约返回，详情入口当前返回脚本 JSON 结果。已设置 18 秒 action deadline，错误按来源隔离并回传；SourceManager 保持脚本级隔离和 action 能力声明。仍需补齐详情模型规范与错误/取消专项测试。
+- 已将搜索 action 结果映射为统一 music.Track/SearchPage，保留 source id、LX source key、SourceData、时长、封面等字段；歌词/封面按字符串契约返回，详情入口当前返回脚本 JSON 结果。已设置 18 秒 action deadline，错误按来源隔离并回传；SourceManager 保持脚本级隔离和 action 能力声明。详情 action 已归一化为 music.Track，并补充 timeout/cancel 错误分类与多脚本隔离/调用取消测试；等待本轮 CI 实际执行结果。
 - 对真实脚本依赖的参数、回调/Promise 形态、headers、Buffer/zlib 和结果结构补齐契约测试。
 - 已使用自建最小 fixture 验证 search/detail/musicUrl/lyric/pic 经 production MusicService/SourceManager 的调用；未复制第三方脚本。CI 定向 desktop 测试已加入新集成测试。
 
 **完成门**
 - [进行中] 至少一个合法导入脚本已在新增生产集成测试中声明并调用 search、detail、musicUrl、lyric、pic；该新增测试在 CI Run #550 的 desktop 集成步骤已通过。
-- [部分完成] 搜索结果和 Track 映射有 fixture 测试；缺失能力通过显式 capability check，超时/取消沿用 context deadline/cancel 并保留错误；仍需补齐专项错误分类、取消和多脚本隔离回归。
+- [代码与测试已补齐，待 CI] 搜索/详情 Track 映射、缺失能力、timeout/cancel 分类和多脚本隔离均有新增 fixture 测试；必须以新增 CI desktop 定向测试结果验收。
 - [待最终验收] 脚本声明了 search 时生产搜索走脚本 action，未声明时才使用既有 Go provider；两者路径明确区分。CI Run #550 的前端 bindings/build 尚未结束。
 
 ### C. 播放 URL、音质回退与缓存闭环
@@ -247,7 +247,7 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 | 第 4 节阶段 | 当前状态 | 证据/备注 |
 |---|---|---|
 | A. 生产脚本导入与生命周期 | **已完成** | 已接入 `config/local/lx_sources.json`、production SourceManager、MusicService 管理 API 和音乐设置页；QuickJS/desktop/Wails bindings/前端构建 CI Run #544 成功 |
-| B. 统一 action 调度与歌曲模型接线 | **进行中** | 脚本感知搜索、详情/歌词/封面入口、扩展能力导入 UI 和生产 fixture 已接入；CI Run #550 的 Go/runtime/production/desktop 测试通过，前端构建待完成；详情模型与专项错误/取消测试仍待补齐 |
+| B. 统一 action 调度与歌曲模型接线 | **进行中** | 脚本感知搜索、详情/歌词/封面入口、扩展能力导入 UI 和生产 fixture 已接入；CI Run #550 的 Go/runtime/production/desktop 测试通过，前端构建待完成；详情 Track 映射与错误/取消/多脚本隔离测试已补齐，等待新增 CI 结果 |
 | C. 播放 URL、音质回退与缓存闭环 | 部分完成 | resolver 与安全校验有基础；生产脚本装载及队列播放链路未闭环 |
 | D. HTMLAudio PoC 与正式播放桥接 | 未开始 | 无目标 WebView 真实播放验收 |
 | E. 媒体传输适配与旧引擎替换 | 未开始 | 旧 LXPlaybackEngine 仍在生产路径 |
@@ -979,4 +979,4 @@ line 3: unexpected EOF while looking for matching single quote
 - `GetLyrics` 优先使用已声明的 `lyric` 扩展 action；另提供 `GetLXTrackDetail/GetLXTrackCover` 服务入口。
 - 音乐设置页导入时可显式选择 `search/detail/lyric/pic`；`musicUrl` 不可作为社区扩展 action 声明。
 - 自建 production fixture 已覆盖 search/detail/musicUrl/lyric/pic 的真实 QuickJS → SourceManager → MusicService 调用；CI Run #550 中 Go/runtime、production tag 和 desktop 定向测试通过。Wails bindings/前端构建仍在运行，故 B 暂不标记完成。
-- 后续 B 剩余项：明确 detail Track 模型映射；补充 action 取消/超时/错误分类和多脚本隔离测试；等待 CI Run #550 完整结束。完成前不得进入 C。
+- 后续 B 剩余项：运行并通过包含新增 detail Track 映射、timeout/cancel 分类、脚本隔离和取消测试的 CI；完成前不得进入 C。
