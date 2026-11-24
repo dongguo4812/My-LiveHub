@@ -93,6 +93,24 @@ func normalizeLXScriptSearchResult(source, keyword string, page int, value any) 
   if track.SourceID==""{track.SourceID=source};if track.LXSourceKey==""{track.LXSourceKey=source}
   if track.SourceData==nil{track.SourceData=map[string]string{}}
   for _,key:=range []string{"songmid","song_id","songId","songid","hash","filehash","FileHash","rid","album_id","media_mid","copyright_id","mrc_url","lrc_url","trc_url"}{if v:=scriptString(fields,key);v!=""{track.SourceData[key]=v}}
+  // Preserve provider-native identifiers even when a community script only
+  // returns its conventional id field. Native lyric adapters need these
+  // values after the search result has crossed the JS/Go boundary.
+  if source=="tx" && track.SourceData["song_id"]=="" && track.SourceData["songmid"]=="" {
+   id:=nativeID
+   if strings.HasPrefix(id,"tx_"){id=strings.TrimPrefix(id,"tx_")}
+   if id!=""{track.SourceData["song_id"]=id}
+  }
+  if (source=="kw"||source=="wy") && track.SourceData["songmid"]=="" && nativeID!="" {
+   id:=strings.TrimPrefix(nativeID,source+"_")
+   track.SourceData["songmid"]=id
+  }
+  if source=="kg" && track.SourceData["hash"]=="" {
+   track.SourceData["hash"]=firstNonEmpty(track.SourceData["FileHash"],track.SourceData["filehash"])
+  }
+  if source=="mg" && track.SourceData["copyright_id"]=="" && nativeID!="" {
+   track.SourceData["copyright_id"]=nativeID
+  }
   if track.ID==""||track.Title==""{continue}
   if nativeID!=""&&track.ID==nativeID&&source!="kg"&&!strings.HasPrefix(track.ID,source+"_"){track.ID=source+"_"+track.ID}
   tracks=append(tracks,track)
