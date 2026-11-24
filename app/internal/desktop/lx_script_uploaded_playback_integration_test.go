@@ -117,15 +117,13 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 						// return a non-canonical list envelope. Fall back to the native
 						// provider search only to exercise this uploaded script's
 						// musicUrl action; keep the community-search miss visible.
-						if aware, ok := service.searcher.(scriptAwareSourceSearcher); ok && aware.base != nil {
-							nativePage, nativeErr := aware.base.SearchProvider(ctx, sourceID, query, 1)
-							if nativeErr == nil {
-								for i := range nativePage.Tracks {
-									item := nativePage.Tracks[i]
-									if strings.Contains(strings.TrimSpace(item.Title), query) && (strings.Contains(item.Artist, "周杰伦") || strings.Contains(strings.ToLower(item.Artist), "jay chou") || strings.Contains(item.Artist, "周董")) {
-										candidate = &item
-										break
-									}
+						nativePage, nativeErr := service.searcher.SearchProvider(ctx, sourceID, query, 1)
+						if nativeErr == nil {
+							for i := range nativePage.Tracks {
+								item := nativePage.Tracks[i]
+								if strings.Contains(strings.TrimSpace(item.Title), query) && (strings.Contains(item.Artist, "周杰伦") || strings.Contains(strings.ToLower(item.Artist), "jay chou") || strings.Contains(item.Artist, "周董")) {
+									candidate = &item
+									break
 								}
 							}
 						}
