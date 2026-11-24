@@ -510,7 +510,7 @@ onUnmounted(() => {
           <strong>{{ playback?.track ? `${playback.track.title} - ${playback.track.artist || '未知歌手'}` : '尚未播放歌曲' }}</strong>
           <small v-if="playback?.track">{{ playbackSourceName(playback.track) }}</small>
           <small v-if="playback?.resolution_status === 'resolving'" class="resolution-status">正在解析播放地址，请稍候…</small>
-          <small v-else class="resolution-status">当前未在解析播放地址</small>
+          
           <el-tag v-if="queue?.current && queue.current.requested_by !== '__my_livehub_search_play__'" type="warning" size="small">观众点播</el-tag>
         </div>
       </div>
