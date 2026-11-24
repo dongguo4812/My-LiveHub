@@ -417,3 +417,63 @@ func TestProductionLXFishSunnyDayPlaybackURL(t *testing.T) {
 	t.Logf("real fish musicUrl resolved and media endpoint returned bytes: source=%s quality=%s status=%d content_type=%q",
 		selectedSource, resource.Quality, probeResponse.StatusCode, probeResponse.Header.Get("Content-Type"))
 }
+
+
+func TestProductionLXScriptRuntimeKeepsExactlyOneScriptEnabled(t *testing.T) {
+	manager := testLXConfigManager(t)
+	runtime := newLXScriptRuntime(manager).(*productionMusicLXRuntime)
+	firstSource := `lx.on(lx.EVENT_NAMES.request, () => 'first'); lx.send(lx.EVENT_NAMES.inited, {sources:{kw:{type:'music',actions:['search']}}});`
+	secondSource := `lx.on(lx.EVENT_NAMES.request, () => 'second'); lx.send(lx.EVENT_NAMES.inited, {sources:{tx:{type:'music',actions:['search']}}});`
+
+	first, err := runtime.ImportScript(context.Background(), "first source", firstSource)
+	if err != nil { t.Fatalf("import first script: %v", err) }
+	second, err := runtime.ImportScript(context.Background(), "second source", secondSource)
+	if err != nil { t.Fatalf("import second script: %v", err) }
+
+	list := runtime.ListScripts()
+	if len(list) != 2 || list[0].Enabled || !list[1].Enabled || list[1].ID != second.ID {
+		t.Fatalf("importing and enabling second script must disable first: %#v", list)
+	}
+
+	if err := runtime.SetScriptEnabled(context.Background(), first.ID, true); err != nil {
+		t.Fatalf("enable first script: %v", err)
+	}
+	list = runtime.ListScripts()
+	if len(list) != 2 || !list[0].Enabled || list[1].Enabled {
+		t.Fatalf("enabling first script must disable second: %#v", list)
+	}
+
+	if err := runtime.SetScriptEnabled(context.Background(), first.ID, false); err != nil {
+		t.Fatalf("disable active script: %v", err)
+	}
+	list = runtime.ListScripts()
+	if list[0].Enabled || list[1].Enabled {
+		t.Fatalf("disabling active script should leave no active script: %#v", list)
+	}
+}
+
+func TestProductionLXScriptRuntimeRestoresLegacyMultipleEnabledWithSingleWinner(t *testing.T) {
+	manager := testLXConfigManager(t)
+	firstSource := `lx.send(lx.EVENT_NAMES.inited, {sources:{kw:{type:'music',actions:['search']}}});`
+	secondSource := `lx.send(lx.EVENT_NAMES.inited, {sources:{tx:{type:'music',actions:['search']}}});`
+	firstDigest := sha256.Sum256([]byte(firstSource))
+	secondDigest := sha256.Sum256([]byte(secondSource))
+	records := []storedLXScript{
+		{ID: hex.EncodeToString(firstDigest[:]), Name: "first", Source: firstSource, ExtensionActions: []string{"search"}, Enabled: true},
+		{ID: hex.EncodeToString(secondDigest[:]), Name: "second", Source: secondSource, ExtensionActions: []string{"search"}, Enabled: true},
+	}
+	data, err := json.Marshal(records)
+	if err != nil { t.Fatal(err) }
+	if err := manager.WriteLocalJSON(lxScriptStoreFile, data, lxScriptStoreLimit); err != nil { t.Fatal(err) }
+
+	runtime := newLXScriptRuntime(manager).(*productionMusicLXRuntime)
+	if err := runtime.Start(context.Background()); err != nil { t.Fatalf("restore legacy store: %v", err) }
+	defer runtime.Close()
+	list := runtime.ListScripts()
+	if len(list) != 2 || list[0].Enabled || !list[1].Enabled {
+		t.Fatalf("legacy multiple-enabled store should keep only the last enabled script: %#v", list)
+	}
+	if !strings.Contains(list[0].LastError, "自动停用") {
+		t.Fatalf("legacy disabled script should explain automatic deactivation: %#v", list[0])
+	}
+}
