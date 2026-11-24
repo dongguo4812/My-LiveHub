@@ -249,7 +249,9 @@ func TestMusicConfigVolumeValidation(t *testing.T) {
 
 func TestMusicConfigVolumeSurvivesConfigReload(t *testing.T) {
 	localDir := t.TempDir()
-	manager, err := NewManager(fstest.MapFS{}, localDir)
+	defaults, err := json.Marshal(DefaultMusicConfig())
+	if err != nil { t.Fatal(err) }
+	manager, err := NewManager(fstest.MapFS{"music.json": {Data: defaults}}, localDir)
 	if err != nil { t.Fatal(err) }
 	want := DefaultMusicConfig()
 	want.Volume = 0.37
