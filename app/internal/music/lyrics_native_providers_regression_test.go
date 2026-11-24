@@ -5,10 +5,8 @@ import (
 	"compress/zlib"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"testing"
 )
@@ -77,7 +75,3 @@ func lyricHTTPResponse(status int, body []byte) *http.Response {
 	return &http.Response{StatusCode:status, Header:make(http.Header), Body:io.NopCloser(bytes.NewReader(body))}
 }
 
-// Keep this compile-time assertion close to the wire tests: form encoding is
-// also used by the NetEase adapter and must remain available to its fixture.
-var _ = url.Values{}
-var _ = json.Valid
