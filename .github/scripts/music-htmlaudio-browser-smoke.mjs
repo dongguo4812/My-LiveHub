@@ -37,7 +37,18 @@ try {
       </script>
     </body></html>
   `)
-  await page.locator('#audio').evaluate((audio, src) => { audio.src = src; audio.load() }, mediaURL)
+  await page.locator('#audio').evaluate((audio, src) => {
+    audio.src = src
+    // Mirror a seek command arriving before loadedmetadata. The browser must
+    // queue this position instead of silently dropping it.
+    audio.currentTime = 1
+    audio.load()
+  }, mediaURL)
+  await page.waitForFunction(() => window.testAudio?.readyState >= 1, null, { timeout: 60000 })
+  const queuedSeek = await page.evaluate(() => ({ currentTime: window.testAudio.currentTime, duration: window.testAudio.duration }))
+  if (Math.abs(queuedSeek.currentTime - 1) > 0.75) {
+    throw new Error('HTMLAudio discarded a seek issued before metadata: ' + JSON.stringify(queuedSeek))
+  }
   await page.locator('#start').click()
   await page.waitForFunction(() => {
     const audio = window.testAudio
