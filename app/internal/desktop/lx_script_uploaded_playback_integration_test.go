@@ -4,6 +4,7 @@ package desktop
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -177,8 +178,8 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 						statusCode := response.StatusCode
 						_ = response.Body.Close()
 						probeCancel()
-						if (statusCode != http.StatusOK && statusCode != http.StatusPartialContent) || readErr != nil && n == 0 || n == 0 {
-							failures = append(failures, sourceID+"/"+quality+" media probe: status="+response.Status+" bytes="+string(rune(n)))
+						if (statusCode != http.StatusOK && statusCode != http.StatusPartialContent) || n == 0 {
+							failures = append(failures, sourceID+"/"+quality+" media probe: status="+response.Status+" bytes="+fmt.Sprintf("%d", n)+" read_error="+errorTextForLXTest(readErr))
 							continue
 						}
 
