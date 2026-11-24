@@ -27,6 +27,21 @@ func TestHTMLAudioPlaybackEngineUsesStructuredResourceAndSession(t *testing.T) {
 	if snapshot.State != music.PlaybackPlaying { t.Fatalf("playing event not applied: %s", snapshot.State) }
 }
 
+func TestHTMLAudioPlaybackEngineExposesTrackDurationBeforeMetadata(t *testing.T) {
+	var commands []htmlAudioCommand
+	engine := newHTMLAudioPlaybackEngine(nil)
+	engine.setEmitter(func(_ string, payload any) { commands = append(commands, payload.(htmlAudioCommand)) })
+	track := music.Track{ID:"track-duration", SourceID:"tx", DurationMS:187000}
+	resource := music.PlaybackResource{URL:"https://media.example/song.mp3", SourceID:"tx", TrackID:"track-duration"}
+	if err := engine.LoadResource(context.Background(), track, resource); err != nil { t.Fatal(err) }
+	snapshot, err := engine.Snapshot(context.Background())
+	if err != nil { t.Fatal(err) }
+	if snapshot.DurationMS != 187000 { t.Fatalf("duration before loadedmetadata = %d, want 187000", snapshot.DurationMS) }
+	if err := engine.Seek(42000); err != nil { t.Fatal(err) }
+	seek := commands[len(commands)-1]
+	if seek.Command != "seek" || seek.PositionMS != 42000 { t.Fatalf("seek command before metadata = %#v", seek) }
+}
+
 func TestHTMLAudioPlaybackEngineRejectsTrackResourceMismatch(t *testing.T) {
 	engine := newHTMLAudioPlaybackEngine(nil)
 	err := engine.LoadResource(context.Background(), music.Track{ID:"track-1", SourceID:"tx"}, music.PlaybackResource{URL:"https://media.example/a.mp3", SourceID:"kw", TrackID:"track-1"})
