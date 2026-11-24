@@ -229,6 +229,8 @@ let playbackClockTimer: ReturnType<typeof setInterval> | undefined
 let playbackPositionAnchor = 0
 let playbackPositionAnchorAt = 0
 const displayedPositionMs = ref(0)
+const isSeeking = ref(false)
+const seekPreviewMs = ref(0)
 const playbackVolume = ref(100)
 const lastAudibleVolume = ref(100)
 const canPrevious = ref(false)
@@ -246,6 +248,7 @@ function formatDuration(value?: number) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 }
 function updatePlaybackClock() {
+  if (isSeeking.value) return
   if (!playback.value) { displayedPositionMs.value = 0; return }
   const position = playback.value.state === 'playing'
     ? playbackPositionAnchor + Date.now() - playbackPositionAnchorAt
@@ -441,11 +444,32 @@ async function openLyricsWindow() {
 }
 async function resume() { try { await MusicService.Resume(); await refreshPlayback() } catch (reason) { error.value = String(reason) } }
 async function stopPlayback() { try { await MusicService.Stop(); await refreshPlayback() } catch (reason) { error.value = String(reason) } }
-async function seekPlayback(value: number | number[]) { try { await MusicService.Seek(Number(Array.isArray(value) ? value[0] : value)); } catch (reason) { error.value = String(reason) } }
+async function seekPlayback(value: number | number[]) {
+  const duration = playback.value?.duration_ms ?? 0
+  const percentage = Math.min(100, Math.max(0, Number(Array.isArray(value) ? value[0] : value)))
+  const target = Math.round(percentage * duration / 100)
+  try {
+    await MusicService.Seek(target)
+    playbackPositionAnchor = target
+    playbackPositionAnchorAt = Date.now()
+    displayedPositionMs.value = target
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+    updatePlaybackClock()
+  } finally {
+    isSeeking.value = false
+  }
+}
 async function setPlaybackVolume(value: number | number[]) { try { await MusicService.SetVolume(Number(Array.isArray(value) ? value[0] : value) / 100); } catch (reason) { error.value = String(reason) } }
+function handleSeekInput(value: number | number[]) {
+  const percentage = Math.min(100, Math.max(0, Number(Array.isArray(value) ? value[0] : value)))
+  const duration = playback.value?.duration_ms ?? 0
+  if (duration <= 0) return
+  isSeeking.value = true
+  seekPreviewMs.value = Math.round(percentage * duration / 100)
+}
 function handleSeekChange(value: number | number[]) {
-  const percentage = Number(Array.isArray(value) ? value[0] : value)
-  void seekPlayback(percentage * (playback.value?.duration_ms ?? 0) / 100)
+  void seekPlayback(value)
 }
 function handleVolumeChange(value: number | number[]) {
   const numeric = Math.min(100, Math.max(0, Number(Array.isArray(value) ? value[0] : value)))
@@ -509,14 +533,17 @@ onUnmounted(() => {
         <div class="track-info">
           <strong>{{ playback?.track ? `${playback.track.title} - ${playback.track.artist || '未知歌手'}` : '尚未播放歌曲' }}</strong>
           <small v-if="playback?.track">{{ playbackSourceName(playback.track) }}</small>
-          <small v-if="playback?.state !== 'playing' && playback?.resolution_status === 'resolving'" class="resolution-status">正在解析播放地址，请稍候…</small>
+          <small v-if="playback?.resolution_status === 'resolving'" class="resolution-status">正在解析播放地址，请稍候…</small>
           
           <el-tag v-if="queue?.current && queue.current.requested_by !== '__my_livehub_search_play__'" type="warning" size="small">观众点播</el-tag>
         </div>
       </div>
-      <el-slider :model-value="progress" :min="0" :max="100" :step="0.1" :disabled="!playback?.track || (playback?.duration_ms ?? 0) <= 0" @change="handleSeekChange" />
+      <div class="progress-row">
+        <span class="progress-time">{{ formatDuration(isSeeking ? seekPreviewMs : displayedPositionMs) }}</span>
+        <el-slider :model-value="progress" :min="0" :max="100" :step="0.1" :disabled="!playback?.track || (playback?.duration_ms ?? 0) <= 0" @input="handleSeekInput" @change="handleSeekChange" />
+        <span class="progress-time">{{ formatDuration(playback?.duration_ms) }}</span>
+      </div>
       <div class="volume-row"><span>音量</span><el-slider :model-value="playbackVolume" :min="0" :max="100" :step="1" style="max-width:220px" @input="handleVolumeChange" /><el-button size="small" @click="toggleMute">{{ playbackVolume === 0 ? "恢复声音" : "静音" }}</el-button></div>
-      <div class="time-row"><span>{{ formatDuration(displayedPositionMs) }}</span><span>{{ formatDuration(playback?.duration_ms) }}</span></div>
       <p class="hint">播放进度和音量由 My-LiveHub 内置 HTMLAudio 控制。</p>
       <div class="player-controls">
         <el-button :disabled="playback?.state !== 'playing'" @click="pause">暂停</el-button>
