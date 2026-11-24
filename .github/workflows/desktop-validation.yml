@@ -135,6 +135,52 @@ jobs:
       - name: Test production LX runtime and capability import paths
         run: go test -tags lxproduction ./internal/music/lxruntime ./internal/desktop -run '^TestProductionLX'
 
+      # Run PoC-only real-provider/browser checks here to reuse this workflow's runtime and dependencies.
+      - name: Import and enable the real upstream fish/latest.js in isolated QuickJS
+        shell: pwsh
+        env:
+          MYLIVEHUB_LX_FISH_INTEGRATION: '1'
+          CGO_ENABLED: '0'
+          MYLIVEHUB_QUICKJS_LIB: ${{ github.workspace }}\app\bin\lxqjs.dll
+        run: go test -tags lxproduction -count=1 -v -run '^TestProductionLXFishLatestRealImportAndEnable
+      - name: Build Windows executable
+        shell: pwsh
+        run: go build -tags lxproduction -ldflags "-H=windowsgui" -o bin/My-LiveHub.exe .
+ ./internal/desktop
+
+      - name: Resolve real 晴天 playback URL through fish/latest.js
+        shell: pwsh
+        env:
+          MYLIVEHUB_LX_FISH_PLAYBACK_INTEGRATION: '1'
+          MYLIVEHUB_PLAYBACK_URL_FILE: ${{ runner.temp }}\my-livehub-playback-url.txt
+          CGO_ENABLED: '0'
+          MYLIVEHUB_QUICKJS_LIB: ${{ github.workspace }}\app\bin\lxqjs.dll
+        run: go test -tags lxproduction -count=1 -v -run '^TestProductionLXFishSunnyDayPlaybackURL
+      - name: Build Windows executable
+        shell: pwsh
+        run: go build -tags lxproduction -ldflags "-H=windowsgui" -o bin/My-LiveHub.exe .
+ ./internal/desktop
+
+      - name: Verify synchronized lyrics parsing and active-line timing
+        shell: pwsh
+        working-directory: app/frontend
+        run: node --experimental-strip-types ../../.github/scripts/music-synced-lyrics-smoke.mjs
+
+      - name: Install Chromium and run real HTMLAudio playback and lyrics tests
+        shell: pwsh
+        working-directory: app/frontend
+        env:
+          MYLIVEHUB_PLAYBACK_URL_FILE: ${{ runner.temp }}\my-livehub-playback-url.txt
+        run: |
+          npm install --no-save --package-lock=false playwright
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npx playwright install chromium
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node ../../.github/scripts/music-htmlaudio-browser-smoke.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node ../../.github/scripts/music-lyrics-overlay-browser-smoke.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Build Windows executable
         shell: pwsh
         run: go build -tags lxproduction -ldflags "-H=windowsgui" -o bin/My-LiveHub.exe .
