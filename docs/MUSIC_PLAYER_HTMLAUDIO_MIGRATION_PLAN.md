@@ -1095,3 +1095,11 @@ line 3: unexpected EOF while looking for matching single quote
 - Stop 先使前端 session 失效，再 pause/清空 src，防止异步 pause 事件把 Go 端 stopped 状态覆盖为 paused；Go Stop 后立即刷新并发布缓存快照，UI 应立即显示停止。
 - 上一首通过播放历史恢复，下一首优先消费 My-LiveHub 待播队列；HTMLAudio 不具备洛雪外部播放列表接口，队列为空时不得调用不存在的洛雪 NextTrack。UI 通过 `CanPrevious` 和队列快照禁用当前不可用的上一首/下一首按钮，避免点击后才报错。
 - 自动化覆盖包括 Go 命令/session/状态测试、Stop 缓存状态测试，以及真实 Chromium 媒体 seek/pause/resume/volume/stop 验证。新增 `CanPrevious` 历史状态测试，以及 MusicService 集成测试：下一首从待播队列提升歌曲、上一首恢复历史歌曲并保留前进队列。完整 CI 通过前不得验收。
+
+### 10.35 HTMLAudio 独立音源歌词与桌面歌词闭环（2026-11-24，实施中）
+
+- HTMLAudio 播放不再依赖洛雪播放器的 `GetCurrentLyrics` / `/lyric-all` 状态接口。优先执行当前音源已声明的社区 `lyric` action；未声明时按 Track 来源路由到独立平台适配器：QQ、酷狗、酷我、网易云、咪咕。
+- 各平台适配器输出统一同步 LRC；保留原文、翻译及时间戳，覆盖 QQ QRC 解密/翻译、酷狗 KRC 解密、酷我压缩歌词、网易云双语 LRC、咪咕 MRC/LRC。
+- 桌面歌词窗口继续共享应用级播放快照；以 HTMLAudio 的真实 position/duration 为时间基准，并在两次快照之间插值显示。切歌立即清空旧歌词并通过请求代次丢弃迟到结果；无歌词、获取失败和加载状态分别显示，不得沿用上一首歌词。
+- 新增 HTMLAudio 原生歌词来源路由回归测试；Windows CI 定向执行。浏览器 Stop smoke test 不再错误要求 `currentSrc` 必须清空（HTMLMediaElement 允许保留最后一次选中的 URL）；改为断言 src 属性移除、paused=true、readyState=HAVE_NOTHING。
+- **当前状态：实施中。** 必须继续验证所有五个来源的真实歌词响应、翻译/时间戳解析、桌面歌词与真实播放进度同步、切歌竞态，以及进度/音量/停止/上一首/下一首的完整回归和最终 Windows CI。仅完成适配器路由与编译测试不构成歌词验收。
