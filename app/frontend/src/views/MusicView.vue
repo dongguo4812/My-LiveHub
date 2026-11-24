@@ -231,6 +231,7 @@ let playbackPositionAnchorAt = 0
 const displayedPositionMs = ref(0)
 const playbackVolume = ref(100)
 const lastAudibleVolume = ref(100)
+const canPrevious = ref(false)
 
 const progress = computed(() => {
   if (!playback.value || playback.value.duration_ms <= 0) return 0
@@ -329,6 +330,7 @@ async function refreshPlayback() {
   await refreshQueue()
   try {
     playback.value = await MusicService.GetCachedPlaybackStatus()
+    canPrevious.value = await MusicService.CanPrevious()
     playbackPositionAnchor = playback.value.position_ms ?? 0
     playbackPositionAnchorAt = Date.now()
     updatePlaybackClock()
@@ -513,8 +515,8 @@ onUnmounted(() => {
         <el-button :disabled="playback?.state !== 'playing'" @click="pause">暂停</el-button>
         <el-button :disabled="playback?.state !== 'paused'" @click="resume">继续</el-button>
         <el-button :disabled="!playback?.track" @click="stopPlayback">停止</el-button>
-        <el-button @click="previousTrack">上一首</el-button>
-        <el-button @click="nextTrack">下一首</el-button>
+        <el-button :disabled="!canPrevious" @click="previousTrack">上一首</el-button>
+        <el-button :disabled="!queue?.items?.length" @click="nextTrack">下一首</el-button>
       </div>
       <p class="hint">播放由 My-LiveHub 内置 HTMLAudio 负责，无需启动外部播放器。</p>
     </el-card>
@@ -721,7 +723,7 @@ onUnmounted(() => {
         <span>{{ playback?.state === 'playing' ? '正在播放' : playback?.state === 'paused' ? '已暂停' : playback?.state === 'error' ? '播放失败' : '待机中' }}</span>
         <el-button circle text :disabled="playback?.state !== 'playing'" aria-label="暂停" @click="pause"><el-icon><VideoPause /></el-icon></el-button>
         <el-button circle text :disabled="playback?.state !== 'paused'" aria-label="继续播放" @click="resume"><el-icon><VideoPlay /></el-icon></el-button>
-        <el-button circle text :disabled="!playback?.track" @click="nextTrack">下一首</el-button>
+        <el-button circle text :disabled="!queue?.items?.length" @click="nextTrack">下一首</el-button>
       </div>
     </div>
   </section>
