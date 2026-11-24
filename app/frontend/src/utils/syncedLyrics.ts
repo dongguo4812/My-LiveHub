@@ -34,6 +34,7 @@ export function parseSyncedLyrics(lrc: string): SyncedLyricLine[] {
 
 export function getActiveSyncedLyric(lines: SyncedLyricLine[], positionMS: number): SyncedLyricLine | null {
   if (lines.length === 0) return null
+  if (positionMS < lines[0].time) return null
   let active = lines[0]
   for (const line of lines) {
     if (line.time > positionMS) break
