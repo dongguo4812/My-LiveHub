@@ -10,6 +10,30 @@ import (
  "github.com/dongguo4812/My-LiveHub/app/internal/music"
 )
 
+
+func TestNormalizeLXScriptSearchResultSupportsLegacyListEnvelope(t *testing.T) {
+	got, err := normalizeLXScriptSearchResult("qs", "稻香", 1, map[string]any{
+		"isEnd": true,
+		"list": []any{map[string]any{"id":"qs-1", "name":"稻香", "singer":"周杰伦", "duration":240}},
+	})
+	if err != nil { t.Fatal(err) }
+	if len(got.Tracks) != 1 || got.Tracks[0].Title != "稻香" || got.Tracks[0].Artist != "周杰伦" {
+		t.Fatalf("legacy list response was not normalized: %#v", got)
+	}
+	if got.Page != 1 || got.MaxPage != 1 { t.Fatalf("unexpected terminal page metadata: %#v", got) }
+}
+
+func TestGetLXTrackLyricsAcceptsStructuredLXResponse(t *testing.T) {
+	service := &MusicService{scriptRuntime: fakeLXActionRuntime{available:true, value:map[string]any{
+		"lyric":"[00:01.00]主歌词", "tlyric":"[00:01.00]Translated lyric",
+	}}}
+	got, err := service.GetLXTrackLyrics(music.Track{ID:"1", SourceID:"kw", LXSourceKey:"kw"})
+	if err != nil { t.Fatal(err) }
+	if got != "[00:01.00]主歌词\\n[00:01.00]Translated lyric" {
+		t.Fatalf("structured lyric = %q", got)
+	}
+}
+
 func TestNormalizeLXScriptSearchResultMapsCommunityTrackShape(t *testing.T){
  got,err:=normalizeLXScriptSearchResult("kw","fixture",1,[]any{map[string]any{"id":"native-1","name":"Fixture Song","singer":"Fixture Artist","album":"Fixture Album","interval":212,"pic":"https://cdn.example.test/cover.jpg"}})
  if err!=nil{t.Fatal(err)}
