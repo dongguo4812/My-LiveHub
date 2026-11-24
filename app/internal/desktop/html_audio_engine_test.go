@@ -233,3 +233,27 @@ func TestHTMLAudioPlaybackEngineAppliesPersistedVolumeBeforeFirstTrack(t *testin
 		t.Fatalf("initial volume command = %#v", commands)
 	}
 }
+
+
+func TestHTMLAudioPlaybackEngineCloseStopsActiveSession(t *testing.T) {
+	var commands []htmlAudioCommand
+	engine := newHTMLAudioPlaybackEngine(nil)
+	engine.setEmitter(func(_ string, payload any) { commands = append(commands, payload.(htmlAudioCommand)) })
+	track := music.Track{ID: "track-close", SourceID: "tx"}
+	resource := music.PlaybackResource{URL: "https://media.example/close.mp3", SourceID: "tx", TrackID: "track-close"}
+	if err := engine.LoadResource(context.Background(), track, resource); err != nil { t.Fatal(err) }
+	if err := engine.Close(); err != nil { t.Fatal(err) }
+	if len(commands) != 2 || commands[1].Command != "stop" { t.Fatalf("Close commands = %#v, want load then stop", commands) }
+	snapshot, err := engine.Snapshot(context.Background())
+	if err != nil { t.Fatal(err) }
+	if snapshot.State != music.PlaybackIdle || snapshot.Track != nil { t.Fatalf("snapshot after Close = %#v, want idle without track", snapshot) }
+}
+
+func TestHTMLAudioPlaybackEngineCloseIsIdempotentWhenIdle(t *testing.T) {
+	var commands []htmlAudioCommand
+	engine := newHTMLAudioPlaybackEngine(nil)
+	engine.setEmitter(func(_ string, payload any) { commands = append(commands, payload.(htmlAudioCommand)) })
+	if err := engine.Close(); err != nil { t.Fatal(err) }
+	if err := engine.Close(); err != nil { t.Fatal(err) }
+	if len(commands) != 0 { t.Fatalf("idle Close emitted commands: %#v", commands) }
+}
