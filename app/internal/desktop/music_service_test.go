@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"encoding/json"
 	"sync/atomic"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -330,6 +331,22 @@ func (e *verifiedLyricsTestEngine) Snapshot(context.Context) (music.PlaybackSnap
 func (e *verifiedLyricsTestEngine) GetCurrentLyrics(context.Context) (string, error) {
 	e.lyricCalls++
 	return e.lyrics, nil
+}
+
+func TestGetLyricsHTMLAudioUsesNativeProviderAdapter(t *testing.T) {
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, &htmlAudioPlaybackEngine{})
+	_, err := service.GetLyrics(music.Track{ID: "tx_without_metadata", SourceID: "tx", Title: "测试歌曲", Artist: "测试歌手"})
+	if err == nil || !strings.Contains(err.Error(), "QQ 歌词请求缺少 song_id/songmid") {
+		t.Fatalf("HTMLAudio should use the QQ provider lyric adapter, got error %v", err)
+	}
+}
+
+func TestGetLyricsHTMLAudioRejectsUnknownProviderExplicitly(t *testing.T) {
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, &htmlAudioPlaybackEngine{})
+	_, err := service.GetLyrics(music.Track{ID: "unknown_1", SourceID: "unknown", Title: "测试歌曲", Artist: "测试歌手"})
+	if err == nil || !strings.Contains(err.Error(), "暂不支持独立歌词解析") {
+		t.Fatalf("unsupported provider should return an explicit lyric capability error, got %v", err)
+	}
 }
 
 func TestGetLyricsRejectsLyricsWhenLXIsPlayingAnotherTrack(t *testing.T) {
