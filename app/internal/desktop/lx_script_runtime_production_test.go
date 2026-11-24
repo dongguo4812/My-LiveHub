@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"testing/fstest"
@@ -476,4 +477,130 @@ func TestProductionLXScriptRuntimeRestoresLegacyMultipleEnabledWithSingleWinner(
 	if !strings.Contains(list[0].LastError, "自动停用") {
 		t.Fatalf("legacy disabled script should explain automatic deactivation: %#v", list[0])
 	}
+}
+
+
+// TestProductionLXXinghaiDaoxiangPlaybackURL imports the exact source stored
+// under lx-js/, searches 稻香 through My-LiveHub's native LX search providers,
+// resolves each provider through the unchanged Xinghai musicUrl action, and
+// hands one verified media URL to the Chromium playback smoke test.
+func TestProductionLXXinghaiDaoxiangPlaybackURL(t *testing.T) {
+	if os.Getenv("MYLIVEHUB_LX_XINGHAI_PLAYBACK_INTEGRATION") != "1" {
+		t.Skip("set MYLIVEHUB_LX_XINGHAI_PLAYBACK_INTEGRATION=1 to verify the real Xinghai source")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	scriptPath := filepath.Join("..", "..", "..", "lx-js", "xinghai-music-sourcev2.3.20.js")
+	source, err := os.ReadFile(scriptPath)
+	if err != nil { t.Fatalf("read the uploaded lx-js/xinghai-music-sourcev2.3.20.js: %v", err) }
+	if len(source) == 0 || len(source) > 2<<20 { t.Fatalf("Xinghai source size is invalid: %d", len(source)) }
+	digest := sha256.Sum256(source)
+	t.Logf("using exact Xinghai source bytes: size=%d sha256=%s", len(source), hex.EncodeToString(digest[:]))
+
+	runtime := newLXScriptRuntime(testLXConfigManager(t)).(*productionMusicLXRuntime)
+	if err := runtime.Start(ctx); err != nil { t.Fatalf("start production LX runtime: %v", err) }
+	defer runtime.Close()
+	imported, err := runtime.ImportScript(ctx, filepath.Base(scriptPath), string(source))
+	if err != nil { t.Fatalf("import and enable unchanged Xinghai source: %v", err) }
+	if !imported.Enabled { t.Fatalf("Xinghai source was not enabled: %#v", imported) }
+	if !reflect.DeepEqual(imported.NativeActions, []string{"musicUrl"}) {
+		t.Fatalf("Xinghai native actions = %v, want [musicUrl]", imported.NativeActions)
+	}
+	if len(imported.ExtensionActions) != 0 {
+		t.Fatalf("Xinghai unexpectedly advertises community actions: %v", imported.ExtensionActions)
+	}
+	for _, expected := range []string{"kw", "kg", "tx", "wy", "mg"} {
+		if !containsString(imported.SupportedSources, expected) {
+			t.Fatalf("Xinghai did not register %s; registered sources: %v", expected, imported.SupportedSources)
+		}
+	}
+	t.Logf("Xinghai imported and enabled: sources=%v native_actions=%v; search is intentionally delegated to native LX providers", imported.SupportedSources, imported.NativeActions)
+
+	enabledSources := []string{"tx", "kw", "kg", "mg"}
+	service := NewMusicServiceWithDependencies(testLXConfigManager(t),
+		config.MusicConfig{EnabledSearchSources: enabledSources}, nil, nil)
+	service.scriptRuntime = runtime
+	sourceResolver := music.NewUnifiedSourceService(service.searcher, runtime)
+	resourceCache := music.NewPlaybackResourceCache(2*time.Minute, 32)
+
+	var browserURL string
+	var failures []string
+	for _, sourceID := range enabledSources {
+		page, searchErr := service.SearchSourcePage("稻香", sourceID, 1)
+		if searchErr != nil {
+			failures = append(failures, sourceID+" search: "+searchErr.Error())
+			continue
+		}
+		var candidate *music.Track
+		for i := range page.Tracks {
+			item := page.Tracks[i]
+			if strings.TrimSpace(item.Title) == "稻香" && strings.Contains(item.Artist, "周杰伦") {
+				candidate = &item
+				break
+			}
+		}
+		if candidate == nil {
+			failures = append(failures, sourceID+" search: no exact 稻香/周杰伦 result")
+			continue
+		}
+		t.Logf("%s search matched 稻香: track_id=%q native_id=%q qualities=%v",
+			sourceID, candidate.ID, firstTrackValueForTest(candidate.SourceData, "songmid", "song_id", "hash", "id"), candidate.Qualities)
+
+		// Ask for 24-bit lossless first. The script must map unsupported
+		// qualities to its best advertised quality; the unified resolver then
+		// retries the track's remaining advertised qualities if that URL fails.
+		resource, resolveErr := sourceResolver.ResolvePlaybackResource(ctx, *candidate, "flac24bit", resourceCache)
+		if resolveErr != nil {
+			failures = append(failures, sourceID+" playback/quality fallback: "+resolveErr.Error())
+			continue
+		}
+		parsed, parseErr := url.Parse(resource.URL)
+		if parseErr != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+			failures = append(failures, sourceID+" returned an invalid playback URL")
+			continue
+		}
+		probeCtx, probeCancel := context.WithTimeout(ctx, 25*time.Second)
+		probeRequest, requestErr := http.NewRequestWithContext(probeCtx, http.MethodGet, resource.URL, nil)
+		if requestErr == nil {
+			probeRequest.Header.Set("Range", "bytes=0-1")
+			probeRequest.Header.Set("User-Agent", "Mozilla/5.0 My-LiveHub Xinghai playback integration")
+		}
+		var probeResponse *http.Response
+		if requestErr == nil {
+			probeResponse, requestErr = (&http.Client{Timeout: 25*time.Second}).Do(probeRequest)
+		}
+		if requestErr != nil {
+			probeCancel()
+			failures = append(failures, sourceID+" media probe: "+requestErr.Error())
+			continue
+		}
+		firstBytes, readErr := io.ReadAll(io.LimitReader(probeResponse.Body, 2))
+		statusCode, contentType := probeResponse.StatusCode, probeResponse.Header.Get("Content-Type")
+		_ = probeResponse.Body.Close()
+		probeCancel()
+		if (statusCode != http.StatusOK && statusCode != http.StatusPartialContent) || readErr != nil || len(firstBytes) == 0 {
+			failures = append(failures, fmt.Sprintf("%s media probe: status=%d bytes=%d read_error=%v", sourceID, statusCode, len(firstBytes), readErr))
+			continue
+		}
+		t.Logf("%s Xinghai musicUrl and media probe succeeded: selected_quality=%s endpoint=%s status=%d content_type=%q",
+			sourceID, resource.Quality, safeLXMediaURL(resource.URL), statusCode, contentType)
+		if browserURL == "" { browserURL = resource.URL }
+	}
+	if len(failures) > 0 {
+		t.Fatalf("Xinghai 稻香 integration failures: %s", strings.Join(failures, " | "))
+	}
+	if browserURL == "" { t.Fatal("no Xinghai media URL was verified") }
+	outputPath := os.Getenv("MYLIVEHUB_PLAYBACK_URL_FILE")
+	if outputPath == "" { t.Fatal("MYLIVEHUB_PLAYBACK_URL_FILE must point to the CI handoff file") }
+	if err := os.WriteFile(outputPath, []byte(browserURL), 0600); err != nil {
+		t.Fatalf("write Xinghai browser playback URL handoff: %v", err)
+	}
+	t.Logf("real 稻香 search, Xinghai URL resolution, quality fallback, and media-byte checks passed for %d providers; Chromium handoff endpoint=%s",
+		len(enabledSources), safeLXMediaURL(browserURL))
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values { if value == target { return true } }
+	return false
 }
