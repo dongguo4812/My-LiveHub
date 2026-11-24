@@ -166,11 +166,13 @@ jobs:
         env:
           MYLIVEHUB_LX_UPLOADED_PLAYBACK_INTEGRATION: '1'
           CGO_ENABLED: '0'
-          MYLIVEHUB_QUICKJS_LIB: ${{ github.workspace }}\\app\\bin\\lxqjs.dll
-        run: go test -tags lxproduction -timeout 50m -count=1 -v -run '^TestProductionLXUploadedScriptsResolveRealPlaybackURL        shell: pwsh
+          MYLIVEHUB_QUICKJS_LIB: ${{ github.workspace }}\app\bin\lxqjs.dll
+        run: go test -tags lxproduction -timeout 50m -count=1 -v -run '^TestProductionLXUploadedScriptsResolveRealPlaybackURL$' ./internal/desktop
+
+      - name: Verify synchronized lyrics parsing and active-line timing
+        shell: pwsh
         working-directory: app/frontend
         run: node --experimental-strip-types ../../.github/scripts/music-synced-lyrics-smoke.mjs
-
       - name: Install Chromium and run real HTMLAudio playback and lyrics tests
         shell: pwsh
         working-directory: app/frontend
