@@ -744,3 +744,42 @@ func TestMusicServiceNextAndPreviousNavigateHTMLAudioQueueHistory(t *testing.T) 
 	if len(snapshot.Items) != 1 || snapshot.Items[0].Track.ID != next.ID { t.Fatalf("forward track was not preserved after going back: %#v", snapshot.Items) }
 	if service.CanPrevious() { t.Fatal("previous history entry should be consumed after going back") }
 }
+
+
+type canceledLoadTestEngine struct{}
+func (*canceledLoadTestEngine) Load(context.Context, music.Track) error { return context.Canceled }
+func (*canceledLoadTestEngine) Pause(context.Context) error { return nil }
+func (*canceledLoadTestEngine) Resume(context.Context) error { return nil }
+func (*canceledLoadTestEngine) Stop(context.Context) error { return nil }
+func (*canceledLoadTestEngine) Snapshot(context.Context) (music.PlaybackSnapshot, error) {
+	return music.PlaybackSnapshot{State: music.PlaybackIdle}, nil
+}
+
+func TestPlayNextDoesNotRetireTrackWhenResolutionIsSuperseded(t *testing.T) {
+	value := config.DefaultMusicConfig()
+	value.Enabled = true
+	value.EnabledSearchSources = []string{"tx"}
+	service := NewMusicServiceWithDependencies(nil, value, nil, &canceledLoadTestEngine{})
+	track := music.Track{ID:"tx_cancelled", SourceID:"tx", LXSourceKey:"tx", Title:"稻香", Artist:"周杰伦"}
+	if _, err := service.queue.SetCurrentTrack(track, searchPlayMarker); err != nil { t.Fatal(err) }
+	if err := service.PlayNext(); err != nil { t.Fatalf("expected superseded cancellation to be silent, got %v", err) }
+	current := service.queue.Snapshot().Current
+	if current == nil || current.Track.ID != track.ID { t.Fatalf("cancelled resolution retired current track: %#v", current) }
+	if got := service.GetStatus().LastError; got != "" { t.Fatalf("cancellation was reported as a playback error: %q", got) }
+}
+
+func TestCachedPlaybackStatusExposesActiveResolution(t *testing.T) {
+	value := config.DefaultMusicConfig()
+	value.Enabled = true
+	service := NewMusicServiceWithDependencies(nil, value, nil, &nextTrackTestEngine{})
+	track := music.Track{ID:"tx_resolving", SourceID:"tx", Title:"稻香", Artist:"周杰伦"}
+	if _, err := service.queue.SetCurrentTrack(track, searchPlayMarker); err != nil { t.Fatal(err) }
+	ctx, generation, cancel := service.beginPlaybackResolution(context.Background())
+	defer cancel()
+	defer service.finishPlaybackResolution(generation)
+	if ctx.Err() != nil { t.Fatalf("resolution context unexpectedly cancelled: %v", ctx.Err()) }
+	snapshot, err := service.GetCachedPlaybackStatus()
+	if err != nil { t.Fatal(err) }
+	if snapshot.ResolutionStatus != "resolving" { t.Fatalf("resolution status = %q, want resolving", snapshot.ResolutionStatus) }
+	if snapshot.Track == nil || snapshot.Track.ID != track.ID { t.Fatalf("resolving track not exposed in playback snapshot: %#v", snapshot.Track) }
+}
