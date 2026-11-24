@@ -29,7 +29,7 @@ const mockBindings = {
           track: { id: 'tx_fixture', source_id: 'tx', title: '桌面歌词验收曲', artist: '回归测试' } }
       }
       export async function GetLyrics() {
-        return ['[00:01.00]第一句', '[00:02.50]第二句', '[00:02.50]Second translation'].join(String.fromCharCode(10))
+        return ['[00:01.00]第一句', '[00:01.00]First translation', '[00:02.50]第二句', '[00:02.50]Second translation'].join(String.fromCharCode(10))
       }
     `
     if (id === mocks.window) return 'export async function CloseWindow() {}'
@@ -58,7 +58,7 @@ try {
   await original.waitFor({ state: 'visible' })
   await page.waitForFunction(() => document.querySelector('.original-lyric')?.textContent?.includes('第一句'))
   assert.match(await page.locator('.lyrics-track strong').textContent(), /桌面歌词验收曲/)
-  assert.equal((await page.locator('.translated-lyric').textContent()).trim(), 'Second translation')
+  assert.equal((await page.locator('.translated-lyric').textContent()).trim(), 'First translation')
 
   await page.evaluate(() => { globalThis.__lyricsPosition = 2600 })
   await page.waitForFunction(() => document.querySelector('.original-lyric')?.textContent?.includes('第二句'), null, { timeout: 5000 })
