@@ -174,7 +174,7 @@ func (s *MusicService) playbackResolutionCurrent(generation uint64) bool {
 
 func (s *MusicService) finishPlaybackResolution(generation uint64) {
 	s.mu.Lock()
-	if s.playResolveGeneration == generation { s.playResolveCancel = nil; s.playbackResolutionStatus = "" }
+	if s.playResolveGeneration == generation { s.playResolveCancel = nil; s.playbackResolutionStatus = "idle" }
 	s.mu.Unlock()
 }
 
@@ -1078,6 +1078,7 @@ func (s *MusicService) GetCachedPlaybackStatus() (music.PlaybackSnapshot, error)
 	if !valid { snapshot = music.PlaybackSnapshot{State: music.PlaybackIdle} }
 	s.mu.RLock()
 	snapshot.ResolutionStatus = s.playbackResolutionStatus
+	if snapshot.ResolutionStatus == "" { snapshot.ResolutionStatus = "idle" }
 	s.mu.RUnlock()
 	return s.attachCurrentQueueTrack(snapshot), nil
 }
@@ -1123,7 +1124,7 @@ func (s *MusicService) cancelPlaybackWatcher() {
 		s.playResolveCancel = nil
 		s.playResolveGeneration++
 	}
-	s.playbackResolutionStatus = ""
+	s.playbackResolutionStatus = "idle"
 	if s.watchCancel != nil {
 		s.watchCancel()
 		s.watchCancel = nil
