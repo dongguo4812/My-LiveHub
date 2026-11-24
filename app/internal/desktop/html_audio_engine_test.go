@@ -139,3 +139,45 @@ func TestHTMLAudioPlaybackEngineClampsAndAppliesVolumeToActiveSession(t *testing
 	last = commands[len(commands)-1]
 	if last.Command != "volume" || last.Volume != 0 { t.Fatalf("mute command = %#v, want 0", last) }
 }
+
+
+func TestHTMLAudioPlaybackEngineVolumePersistsAcrossSourceSwitchAndMuteRestore(t *testing.T) {
+	var commands []htmlAudioCommand
+	engine := newHTMLAudioPlaybackEngine(nil)
+	engine.setEmitter(func(_ string, payload any) { commands = append(commands, payload.(htmlAudioCommand)) })
+
+	if err := engine.SetVolume(0.42); err != nil { t.Fatal(err) }
+	track1 := music.Track{ID:"track-1", SourceID:"tx"}
+	resource1 := music.PlaybackResource{URL:"https://media.example/one.mp3", SourceID:"tx", TrackID:"track-1"}
+	if err := engine.LoadResource(context.Background(), track1, resource1); err != nil { t.Fatal(err) }
+	if got := commands[len(commands)-1].Volume; got != 0.42 { t.Fatalf("initial load volume = %v, want 0.42", got) }
+
+	if err := engine.SetVolume(0); err != nil { t.Fatal(err) }
+	mute := commands[len(commands)-1]
+	if mute.Command != "volume" || mute.Volume != 0 { t.Fatalf("mute command = %#v", mute) }
+	if err := engine.SetVolume(0.42); err != nil { t.Fatal(err) }
+	unmute := commands[len(commands)-1]
+	if unmute.Command != "volume" || unmute.Volume != 0.42 { t.Fatalf("restore command = %#v", unmute) }
+
+	track2 := music.Track{ID:"track-2", SourceID:"kw"}
+	resource2 := music.PlaybackResource{URL:"https://media.example/two.mp3", SourceID:"kw", TrackID:"track-2"}
+	if err := engine.LoadResource(context.Background(), track2, resource2); err != nil { t.Fatal(err) }
+	if got := commands[len(commands)-1].Volume; got != 0.42 { t.Fatalf("volume after source switch = %v, want 0.42", got) }
+}
+
+func TestHTMLAudioPlaybackEngineVolumeIsRetainedWhenMediaURLRefreshes(t *testing.T) {
+	var commands []htmlAudioCommand
+	engine := newHTMLAudioPlaybackEngine(func(_ music.Track, failed music.PlaybackResource) (music.PlaybackResource, error) {
+		return music.PlaybackResource{URL:"https://media.example/refreshed.mp3", SourceID:failed.SourceID, TrackID:failed.TrackID, Quality:failed.Quality}, nil
+	})
+	engine.setEmitter(func(_ string, payload any) { commands = append(commands, payload.(htmlAudioCommand)) })
+	track := music.Track{ID:"track-1", SourceID:"tx"}
+	resource := music.PlaybackResource{URL:"https://media.example/expired.mp3", SourceID:"tx", TrackID:"track-1", Quality:"128k"}
+	if err := engine.SetVolume(0.27); err != nil { t.Fatal(err) }
+	if err := engine.LoadResource(context.Background(), track, resource); err != nil { t.Fatal(err) }
+	session := commands[0].SessionID
+	if err := engine.Report(session, "error", 0, 10000, "expired"); err != nil { t.Fatal(err) }
+	if len(commands) != 2 || commands[1].Command != "load" || commands[1].Volume != 0.27 {
+		t.Fatalf("refreshed load did not retain volume: %#v", commands)
+	}
+}
