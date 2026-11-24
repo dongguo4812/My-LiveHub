@@ -63,6 +63,7 @@ type LXSearchEndpoints struct {
 	Kuwo string
 	Kugou string
 	QQ string
+	QQLegacy string
 	Netease string
 	Migu string
 }
@@ -72,6 +73,7 @@ func DefaultLXSearchEndpoints() LXSearchEndpoints {
 		Kuwo: "http://search.kuwo.cn/r.s",
 		Kugou: "http://songsearch.kugou.com/song_search_v2",
 		QQ: "https://u.y.qq.com/cgi-bin/musicu.fcg",
+		QQLegacy: "https://c.y.qq.com/soso/fcgi-bin/client_search_cp",
 		Netease: "http://interface.music.163.com/eapi/batch",
 		Migu: "https://jadeite.migu.cn/music_search/v3/search/searchAll",
 	}
@@ -88,7 +90,7 @@ func NewLXSearchClientWithEndpoints(client *http.Client, endpoints LXSearchEndpo
 	return &LXSearchClient{
 		httpClient: client,
 		providers: []SearchProvider{
-			qqSearchProvider{client: client, endpoint: endpoints.QQ},
+			qqSearchProvider{client: client, endpoint: endpoints.QQ, legacyEndpoint: endpoints.QQLegacy},
 			kuwoSearchProvider{client: client, endpoint: endpoints.Kuwo},
 			kugouSearchProvider{client: client, endpoint: endpoints.Kugou},
 			neteaseSearchProvider{client: client, endpoint: endpoints.Netease},
@@ -402,9 +404,14 @@ func (p kugouSearchProvider) Search(ctx context.Context, keyword string, page, l
 }
 
 // QQ Music (tx)
-type qqSearchProvider struct { client *http.Client; endpoint string }
-func (p qqSearchProvider) ID()string{return LXSearchTX}
-func (p qqSearchProvider) Name()string{return "QQ 音乐"}
+type qqSearchProvider struct {
+	client *http.Client
+	endpoint string
+	legacyEndpoint string
+}
+func (p qqSearchProvider) ID() string { return LXSearchTX }
+func (p qqSearchProvider) Name() string { return "QQ 音乐" }
+
 type qqSearchRequest struct {
 	Service struct {
 		Module string `json:"module"`
@@ -420,43 +427,161 @@ type qqSearchRequest struct {
 		} `json:"param"`
 	} `json:"music.search.SearchCgiService"`
 }
-func (p qqSearchProvider) Search(ctx context.Context,keyword string,page,limit int)(SearchPage,error){
-	if limit <= 0 { limit = lxSongSearchPageSize }
-	// Use the current QQ Music search endpoint and its module-key request envelope.
-	var raw map[string]any
-	var lastStatus string
-	for attempt:=0;attempt<=5;attempt++ {
-		var payload qqSearchRequest
-		payload.Service.Module="music.search.SearchCgiService";payload.Service.Method="DoSearchForQQMusicDesktop"
-		payload.Service.Param.Limit=limit;payload.Service.Param.Page=page;payload.Service.Param.Query=keyword;payload.Service.Param.Type=0
-		body,err:=jsonBody(payload);if err!=nil{return SearchPage{},err}
-		raw,err=doLXJSON(ctx,p.client,http.MethodPost,p.endpoint,map[string]string{"User-Agent":"Mozilla/5.0","Content-Type":"application/json","Referer":"https://y.qq.com/","Origin":"https://y.qq.com"},bytes.NewReader(body))
-		if err!=nil{return SearchPage{},err}
-		req:=mapValue(raw["music.search.SearchCgiService"]);if len(req)==0{req=mapValue(raw["req_1"])}
-		if len(req)>0&&intValue(raw["code"])==0&&intValue(req["code"])==0 {
-			data:=mapValue(req["data"]);resultBody:=mapValue(data["body"]);song:=mapValue(resultBody["song"]);meta:=mapValue(data["meta"])
-			items:=sliceValue(song["list"]);tracks:=make([]Track,0,len(items))
-			for _,entry:=range items{
-				item:=mapValue(entry);file:=mapValue(item["file"]);media:=stringValue(file["media_mid"]);if media==""{continue}
-				types:=[]TrackQuality{}
-				for _,spec:=range []struct{key,kind string}{{"size_128mp3","128k"},{"size_320mp3","320k"},{"size_flac","flac"},{"size_hires","flac24bit"}}{sz:=intValue(file[spec.key]);if sz>0{types=append(types,quality(spec.kind,sz,nil))}}
-				album:=mapValue(item["album"]);albumID:=stringValue(album["mid"]);albumName:=stringValue(album["name"])
-				artists:=[]string{};for _,v:=range sliceValue(item["singer"]){if n:=stringValue(mapValue(v)["name"]);n!=""{artists=append(artists,n)}}
-				id:=stringValue(item["mid"]);if id==""{id=stringValue(item["id"])}
-				cover:="";if albumID!="" && albumID!="空"{cover="https://y.gtimg.cn/music/photo_new/T002R500x500M000"+albumID+".jpg"}else if singers:=sliceValue(item["singer"]);len(singers)>0{if singerMid:=stringValue(mapValue(singers[0])["mid"]);singerMid!=""{cover="https://y.gtimg.cn/music/photo_new/T001R500x500M000"+singerMid+".jpg"}}
-				dur:=intValue(item["interval"])*1000
-				dataMap:=map[string]string{"songmid":id,"song_id":stringValue(item["id"]),"media_mid":media,"album_mid":albumID}
-				tracks=append(tracks,newLXTrack("tx",id,stringValue(item["title"]),strings.Join(artists,"、"),albumName,dur,cover,dataMap,types))
+
+func qqTracksFromDesktop(items []any) []Track {
+	tracks := make([]Track, 0, len(items))
+	for _, entry := range items {
+		item := mapValue(entry)
+		file := mapValue(item["file"])
+		media := stringValue(file["media_mid"])
+		if media == "" { continue }
+		types := []TrackQuality{}
+		for _, spec := range []struct{ key, kind string }{{"size_128mp3", "128k"}, {"size_320mp3", "320k"}, {"size_flac", "flac"}, {"size_hires", "flac24bit"}} {
+			if size := intValue(file[spec.key]); size > 0 { types = append(types, quality(spec.kind, size, nil)) }
+		}
+		album := mapValue(item["album"])
+		albumID, albumName := stringValue(album["mid"]), stringValue(album["name"])
+		artists := []string{}
+		for _, value := range sliceValue(item["singer"]) {
+			if name := stringValue(mapValue(value)["name"]); name != "" { artists = append(artists, name) }
+		}
+		id := stringValue(item["mid"])
+		if id == "" { id = stringValue(item["id"]) }
+		cover := ""
+		if albumID != "" && albumID != "空" {
+			cover = "https://y.gtimg.cn/music/photo_new/T002R500x500M000" + albumID + ".jpg"
+		} else if singers := sliceValue(item["singer"]); len(singers) > 0 {
+			if singerMid := stringValue(mapValue(singers[0])["mid"]); singerMid != "" {
+				cover = "https://y.gtimg.cn/music/photo_new/T001R500x500M000" + singerMid + ".jpg"
 			}
-			total:=intValue(meta["sum"]);if total==0{total=intValue(song["totalnum"])}
-			return SearchPage{Tracks:tracks,Total:total,Page:page,PageSize:limit,MaxPage:pageCount(total,limit),Source:"tx"},nil
 		}
-		lastStatus=fmt.Sprintf("top-level code=%v, provider code=%v",raw["code"],req["code"])
-		if attempt<5 {
-			select { case <-ctx.Done(): return SearchPage{},ctx.Err(); case <-time.After(time.Duration(attempt+1)*150*time.Millisecond): }
-		}
+		dur := intValue(item["interval"]) * 1000
+		data := map[string]string{"songmid": id, "song_id": stringValue(item["id"]), "media_mid": media, "album_mid": albumID}
+		tracks = append(tracks, newLXTrack("tx", id, stringValue(item["title"]), strings.Join(artists, "、"), albumName, dur, cover, data, types))
 	}
-	return SearchPage{},fmt.Errorf("QQ 音乐搜索响应状态异常（重试 6 次后仍失败：%s）",lastStatus)
+	return tracks
+}
+
+// qqLegacyTracksFromCGI adapts the legacy song-search payload to the same Track
+// model as the Desktop RPC. It deliberately rejects an empty legacy payload:
+// old CGI deployments have been observed returning structurally valid but
+// permanently empty song lists after the endpoint was retired.
+func qqLegacyTracksFromCGI(raw map[string]any, page, limit int) (SearchPage, error) {
+	data := mapValue(raw["data"])
+	song := mapValue(data["song"])
+	if len(data) == 0 || len(song) == 0 {
+		return SearchPage{}, errors.New("QQ 旧版歌曲搜索接口未返回有效 song 数据")
+	}
+	items := sliceValue(song["list"])
+	tracks := make([]Track, 0, len(items))
+	for _, entry := range items {
+		item := mapValue(entry)
+		id := stringValue(item["songmid"])
+		if id == "" { id = stringValue(item["mid"]) }
+		if id == "" { continue }
+		media := stringValue(item["strMediaMid"])
+		if media == "" { media = stringValue(mapValue(item["file"])["media_mid"]) }
+		albumID := stringValue(item["albummid"])
+		albumName := stringValue(item["albumname"])
+		artists := []string{}
+		for _, value := range sliceValue(item["singer"]) {
+			artist := mapValue(value)
+			name := stringValue(artist["name"])
+			if name == "" { name = stringValue(artist["title"]) }
+			if name != "" { artists = append(artists, name) }
+		}
+		file := mapValue(item["file"])
+		types := []TrackQuality{}
+		for _, spec := range []struct{ keys []string; kind string }{
+			{[]string{"size128", "size_128mp3"}, "128k"},
+			{[]string{"size320", "size_320mp3"}, "320k"},
+			{[]string{"sizeflac", "size_flac"}, "flac"},
+			{[]string{"sizeape"}, "ape"},
+		} {
+			var size int64
+			for _, key := range spec.keys {
+				size = intValue(item[key])
+				if size == 0 { size = intValue(file[key]) }
+				if size > 0 { break }
+			}
+			if size > 0 { types = append(types, quality(spec.kind, size, nil)) }
+		}
+		cover := ""
+		if albumID != "" { cover = "https://y.gtimg.cn/music/photo_new/T002R500x500M000" + albumID + ".jpg" }
+		duration := intValue(item["interval"]) * 1000
+		sourceData := map[string]string{"songmid": id, "song_id": stringValue(item["songid"]), "media_mid": media, "album_mid": albumID}
+		tracks = append(tracks, newLXTrack("tx", id, stringValue(item["songname"]), strings.Join(artists, "、"), albumName, duration, cover, sourceData, types))
+	}
+	total := intValue(song["totalnum"])
+	if len(tracks) == 0 {
+		return SearchPage{}, fmt.Errorf("QQ 旧版歌曲搜索接口返回空列表（total=%d），备用接口可能已失效", total)
+	}
+	return SearchPage{Tracks: tracks, Total: total, Page: page, PageSize: limit, MaxPage: pageCount(total, limit), Source: "tx"}, nil
+}
+
+func (p qqSearchProvider) searchLegacy(ctx context.Context, keyword string, page, limit int) (SearchPage, error) {
+	endpoint := p.legacyEndpoint
+	if endpoint == "" { endpoint = DefaultLXSearchEndpoints().QQLegacy }
+	u, err := url.Parse(endpoint)
+	if err != nil { return SearchPage{}, fmt.Errorf("QQ 旧版搜索地址无效：%w", err) }
+	q := u.Query()
+	params := map[string]string{
+		"ct":"24", "qqmusic_ver":"1298", "remoteplace":"txt.yqq.song",
+		"t":"0", "aggr":"1", "cr":"1", "lossless":"0", "flag_qc":"0",
+		"p":strconv.Itoa(page), "n":strconv.Itoa(limit), "w":keyword,
+		"g_tk":"5381", "loginUin":"0", "hostUin":"0", "format":"json",
+		"inCharset":"utf8", "outCharset":"utf-8", "notice":"0",
+		"platform":"yqq.json", "needNewCode":"0",
+	}
+	for key, value := range params { q.Set(key, value) }
+	u.RawQuery = q.Encode()
+	raw, err := doLXJSON(ctx, p.client, http.MethodGet, u.String(), map[string]string{
+		"User-Agent":"Mozilla/5.0", "Referer":"https://y.qq.com/", "Accept":"application/json, text/plain, */*",
+	}, nil)
+	if err != nil { return SearchPage{}, fmt.Errorf("QQ 旧版歌曲搜索回退失败：%w", err) }
+	if code := intValue(raw["code"]); code != 0 {
+		return SearchPage{}, fmt.Errorf("QQ 旧版歌曲搜索返回错误码：%d", code)
+	}
+	result, err := qqLegacyTracksFromCGI(raw, page, limit)
+	if err != nil { return SearchPage{}, err }
+	return result, nil
+}
+
+func (p qqSearchProvider) Search(ctx context.Context, keyword string, page, limit int) (SearchPage, error) {
+	if limit <= 0 { limit = lxSongSearchPageSize }
+	var payload qqSearchRequest
+	payload.Service.Module = "music.search.SearchCgiService"
+	payload.Service.Method = "DoSearchForQQMusicDesktop"
+	payload.Service.Param.Limit = limit
+	payload.Service.Param.Page = page
+	payload.Service.Param.Query = keyword
+	payload.Service.Param.Type = 0
+	body, err := jsonBody(payload)
+	if err != nil { return SearchPage{}, err }
+	raw, err := doLXJSON(ctx, p.client, http.MethodPost, p.endpoint, map[string]string{
+		"User-Agent":"Mozilla/5.0", "Content-Type":"application/json",
+		"Referer":"https://y.qq.com/", "Origin":"https://y.qq.com",
+	}, bytes.NewReader(body))
+	if err != nil { return SearchPage{}, err }
+	req := mapValue(raw["music.search.SearchCgiService"])
+	if len(req) == 0 { req = mapValue(raw["req_1"]) }
+	if len(req) > 0 && intValue(raw["code"]) == 0 && intValue(req["code"]) == 0 {
+		data := mapValue(req["data"])
+		resultBody := mapValue(data["body"])
+		song := mapValue(resultBody["song"])
+		meta := mapValue(data["meta"])
+		tracks := qqTracksFromDesktop(sliceValue(song["list"]))
+		total := intValue(meta["sum"])
+		if total == 0 { total = intValue(song["totalnum"]) }
+		return SearchPage{Tracks:tracks, Total:total, Page:page, PageSize:limit, MaxPage:pageCount(total,limit), Source:"tx"}, nil
+	}
+	providerCode := intValue(req["code"])
+	if providerCode == 2001 {
+		// 2001 is returned by the anonymous Desktop request. Repeating the same
+		// unsigned payload cannot change its identity; switch to legacy CGI once.
+		return p.searchLegacy(ctx, keyword, page, limit)
+	}
+	return SearchPage{}, fmt.Errorf("QQ 音乐搜索响应状态异常（top-level code=%v, provider code=%v）", raw["code"], req["code"])
 }
 
 // NetEase Cloud Music (wy): LX desktop uses the EAPI AES-128-ECB request.
