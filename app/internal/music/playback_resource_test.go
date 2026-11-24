@@ -214,3 +214,26 @@ func TestURLOnlyPlaybackResolverDoesNotInventMediaRequestContext(t *testing.T) {
 		t.Fatalf("URL-only native musicUrl protocol invented media context: %#v", resource)
 	}
 }
+
+func TestResolvePlaybackResourceAutomaticallyPrefersHighestKnownQuality(t *testing.T) {
+	track := Track{ID:"auto", SourceID:"tx", LXSourceKey:"tx", SourceData:map[string]string{"songmid":"native-auto"}, Title:"Song",
+		Qualities:[]TrackQuality{{Type:"128k"},{Type:"320k"},{Type:"flac"},{Type:"hires"},{Type:"atmos"}}}
+	resolver := &qualityResolver{failures:map[string]bool{"hires":true}}
+	service := NewUnifiedSourceService(nil,resolver)
+	resource, err := service.ResolvePlaybackResource(context.Background(),track,"",NewPlaybackResourceCache(time.Minute,8))
+	if err != nil { t.Fatal(err) }
+	if resource.Quality != "flac" { t.Fatalf("quality=%q, want flac after hires fallback",resource.Quality) }
+	want := []string{"hires","flac"}
+	if len(resolver.calls)!=len(want) { t.Fatalf("calls=%v, want %v",resolver.calls,want) }
+	for i := range want { if resolver.calls[i]!=want[i] { t.Fatalf("calls=%v, want %v",resolver.calls,want) } }
+}
+func TestExplicitQualityRemainsHigherPriorityThanAutomaticRanking(t *testing.T) {
+	track := Track{ID:"explicit", SourceID:"tx", LXSourceKey:"tx", SourceData:map[string]string{"songmid":"native-explicit"}, Title:"Song",
+		SelectedQuality:"320k", Qualities:[]TrackQuality{{Type:"128k"},{Type:"hires"},{Type:"flac"}}}
+	resolver := &qualityResolver{}
+	service := NewUnifiedSourceService(nil,resolver)
+	resource, err := service.ResolvePlaybackResource(context.Background(),track,"",NewPlaybackResourceCache(time.Minute,8))
+	if err != nil { t.Fatal(err) }
+	if resource.Quality!="320k" { t.Fatalf("quality=%q, want explicit 320k",resource.Quality) }
+	if len(resolver.calls)!=1 || resolver.calls[0]!="320k" { t.Fatalf("calls=%v, want [320k]",resolver.calls) }
+}

@@ -86,7 +86,7 @@ func (s *UnifiedSourceService) ResolvePlaybackURL(ctx context.Context, track Tra
 		_types[kind] = indexed
 	}
 	if qualityType == "" { qualityType = strings.TrimSpace(track.SelectedQuality) }
-	if qualityType == "" && len(types) > 0 { qualityType, _ = types[0]["type"].(string) }
+	if qualityType == "" { qualityType = bestAvailablePlaybackQuality(track.Qualities) }
 	if qualityType == "" { qualityType = "320k" }
 
 	interval := ""

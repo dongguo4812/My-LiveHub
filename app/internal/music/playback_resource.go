@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -146,9 +147,38 @@ func validatePlaybackResource(resource PlaybackResource) error {
 	return nil
 }
 
+// playbackQualityRank maps source quality labels to a comparable fidelity tier.
+// Spatial/Atmos variants are intentionally below lossless stereo tiers: they do not
+// guarantee higher fidelity or compatibility on every output device.
+func playbackQualityRank(value string) int {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "jymaster", "master": return 100
+	case "sky": return 95
+	case "jyeffect": return 90
+	case "hires", "hi-res": return 85
+	case "flac24bit": return 80
+	case "flac": return 70
+	case "atmos_plus": return 68
+	case "atmos", "spatial": return 65
+	case "320k": return 60
+	case "192k": return 50
+	case "128k": return 40
+	default: return 0
+	}
+}
+func bestAvailablePlaybackQuality(qualities []TrackQuality) string {
+	best, bestRank := "", -1
+	for _, item := range qualities {
+		kind := strings.TrimSpace(item.Type)
+		if kind == "" { continue }
+		if rank := playbackQualityRank(kind); rank > bestRank { best, bestRank = kind, rank }
+	}
+	return best
+}
+
 // ResolvePlaybackResource resolves quality candidates in deterministic order.
-// The selected quality is attempted first, followed by the source-provided
-// quality list (which retains its native ordering).
+// Explicitly selected quality is attempted first; automatic candidates are ranked
+// by known fidelity tier, with stable source order for equal or unknown labels.
 func (s *UnifiedSourceService) ResolvePlaybackResource(ctx context.Context, track Track, requestedQuality string, cache *PlaybackResourceCache) (PlaybackResource, error) {
 	if s == nil || s.resolver == nil { return PlaybackResource{}, errors.New("music playback URL resolver is unavailable") }
 	if ctx == nil { ctx = context.Background() }
@@ -158,9 +188,14 @@ func (s *UnifiedSourceService) ResolvePlaybackResource(ctx context.Context, trac
 		value = strings.TrimSpace(value)
 		if value != "" && !seen[value] { seen[value] = true; qualities = append(qualities, value) }
 	}
+	// Explicit user choices always win. Only automatic candidates are ranked.
 	add(requestedQuality)
 	add(track.SelectedQuality)
-	for _, item := range track.Qualities { add(item.Type) }
+	automatic := append([]TrackQuality(nil), track.Qualities...)
+	sort.SliceStable(automatic, func(i, j int) bool {
+		return playbackQualityRank(automatic[i].Type) > playbackQualityRank(automatic[j].Type)
+	})
+	for _, item := range automatic { add(item.Type) }
 	if len(qualities) == 0 { add("320k") }
 
 	failures := make([]string, 0, len(qualities))
