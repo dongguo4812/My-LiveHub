@@ -57,11 +57,19 @@ try {
 
   await page.evaluate(() => window.testAudio.pause())
   await page.waitForFunction(() => window.testAudio.paused)
-  await page.evaluate(() => {
+  const seekResult = await page.evaluate(() => {
     const audio = window.testAudio
-    audio.volume = 0.35
-    if (Number.isFinite(audio.duration) && audio.duration > 2) audio.currentTime = 1
+    if (!Number.isFinite(audio.duration) || audio.duration <= 2) {
+      throw new Error('media duration is too short to verify seeking')
+    }
+    audio.currentTime = 1
+    return { requested: 1, actual: audio.currentTime, duration: audio.duration }
   })
+  await page.waitForFunction(() => Math.abs(window.testAudio.currentTime - 1) < 0.75, null, { timeout: 10000 })
+  if (Math.abs(seekResult.actual - seekResult.requested) > 0.75) {
+    throw new Error('HTMLAudio seek did not reach requested position: ' + JSON.stringify(seekResult))
+  }
+  await page.evaluate(() => { window.testAudio.volume = 0.35 })
   await page.evaluate(async () => { await window.testAudio.play() })
   await page.waitForFunction(() => !window.testAudio.paused && window.testAudio.currentTime > 0.1, null, { timeout: 30000 })
   const resumed = await page.evaluate(() => ({
@@ -74,7 +82,15 @@ try {
     throw new Error('HTMLAudio pause/resume/volume smoke test failed: ' + JSON.stringify(resumed))
   }
   await page.evaluate(() => { window.testAudio.pause(); window.testAudio.removeAttribute('src'); window.testAudio.load() })
-  console.log('REAL_HTMLAUDIO_PLAYBACK_PASS', JSON.stringify({ started, resumed }))
+  const stopped = await page.evaluate(() => ({
+    paused: window.testAudio.paused,
+    currentSrc: window.testAudio.currentSrc,
+    readyState: window.testAudio.readyState,
+  }))
+  if (!stopped.paused || stopped.currentSrc || stopped.readyState !== 0) {
+    throw new Error('HTMLAudio stop did not release playback: ' + JSON.stringify(stopped))
+  }
+  console.log('REAL_HTMLAUDIO_PLAYBACK_PASS', JSON.stringify({ started, resumed, seekResult, stopped }))
 } finally {
   await browser.close()
 }
