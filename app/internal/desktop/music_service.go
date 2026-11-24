@@ -847,7 +847,7 @@ func (s *MusicService) playNext(parent context.Context) error {
 		if err != nil {
 			// A superseded request is expected cancellation, not a provider failure.
 			// Never retire the queue item or surface context.Canceled as a song error.
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) { return nil }
+			if errors.Is(err, context.Canceled) { return nil }
 			lastStartErr = fmt.Errorf("歌曲《%s》启动失败：%w", current.Track.Title, err)
 			s.setLastError(lastStartErr)
 			s.queue.FinishCurrent()
