@@ -128,8 +128,11 @@ jobs:
         working-directory: app/frontend
         run: npm run build
 
-      - name: Test Go with production QuickJS runtime
-        run: go test -tags lxproduction ./...
+      - name: Test all Go packages with the standard test runtime
+        run: go test ./...
+
+      - name: Test production LX runtime and capability import paths
+        run: go test -tags lxproduction ./internal/music/lxruntime ./internal/desktop -run '^TestProductionLX'
 
       - name: Build Windows executable
         shell: pwsh
