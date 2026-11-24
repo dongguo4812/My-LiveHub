@@ -282,8 +282,8 @@ func TestQQSearchDoesNotFallbackForNon2001DesktopErrors(t *testing.T) {
 	if _, err := provider.Search(context.Background(), "晴天", 1, 30); err == nil {
 		t.Fatal("expected non-2001 Desktop error")
 	}
-	if desktopCalls != 1 || legacyCalls != 0 {
-		t.Fatalf("unexpected fallback behavior: Desktop=%d legacy=%d", desktopCalls, legacyCalls)
+	if desktopCalls != 6 || legacyCalls != 0 {
+		t.Fatalf("non-2001 response should retain the existing retry policy without legacy fallback: Desktop=%d legacy=%d", desktopCalls, legacyCalls)
 	}
 }
 
