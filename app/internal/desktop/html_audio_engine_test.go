@@ -213,10 +213,14 @@ func TestHTMLAudioPlaybackEngineSeekAndStopCommands(t *testing.T) {
 	stop := commands[len(commands)-1]
 	if stop.Command != "stop" || stop.SessionID != session { t.Fatalf("stop command = %#v", stop) }
 	snapshot, _ := engine.Snapshot(context.Background())
-	if snapshot.State != music.PlaybackStopped || snapshot.PositionMS != 0 { t.Fatalf("stopped snapshot = %#v", snapshot) }
+	if snapshot.State != music.PlaybackIdle || snapshot.Track != nil || snapshot.PositionMS != 0 || snapshot.DurationMS != 0 {
+		t.Fatalf("stopped snapshot did not return to the pre-playback state: %#v", snapshot)
+	}
 	if err := engine.Report(session, "pause", 42000, 90000, ""); err != nil { t.Fatal(err) }
 	snapshot, _ = engine.Snapshot(context.Background())
-	if snapshot.State != music.PlaybackStopped { t.Fatalf("late pause event overwrote stopped state: %s", snapshot.State) }
+	if snapshot.State != music.PlaybackIdle || snapshot.Track != nil || snapshot.DurationMS != 0 {
+		t.Fatalf("late pause event repopulated the idle snapshot: %#v", snapshot)
+	}
 }
 
 

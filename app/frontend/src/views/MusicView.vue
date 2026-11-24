@@ -444,7 +444,20 @@ async function openLyricsWindow() {
   catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
 }
 async function resume() { try { await MusicService.Resume(); await refreshPlayback() } catch (reason) { error.value = String(reason) } }
-async function stopPlayback() { try { await MusicService.Stop(); await refreshPlayback() } catch (reason) { error.value = String(reason) } }
+async function stopPlayback() {
+  error.value = ''
+  try {
+    await MusicService.Stop()
+    isSeeking.value = false
+    seekPreviewMs.value = 0
+    playbackPositionAnchor = 0
+    playbackPositionAnchorAt = Date.now()
+    displayedPositionMs.value = 0
+    await refreshPlayback()
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  }
+}
 async function seekPlayback(value: number | number[]) {
   const duration = playback.value?.duration_ms ?? 0
   const percentage = Math.min(100, Math.max(0, Number(Array.isArray(value) ? value[0] : value)))

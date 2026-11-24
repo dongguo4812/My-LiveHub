@@ -86,12 +86,22 @@ func (e *htmlAudioPlaybackEngine) Resume(context.Context) error {
 	return e.commandLocked("play", 0, 0)
 }
 func (e *htmlAudioPlaybackEngine) Stop(context.Context) error {
-	e.mu.Lock(); defer e.mu.Unlock()
-	if e.snapshot.State == music.PlaybackIdle { return nil }
-	err := e.commandLocked("stop", 0, 0)
-	e.snapshot.State = music.PlaybackStopped
-	e.snapshot.PositionMS = 0
-	return err
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.snapshot.State != music.PlaybackIdle {
+		if err := e.commandLocked("stop", 0, 0); err != nil {
+			return err
+		}
+		// Invalidate the stopped session so delayed media events cannot
+		// repopulate the idle snapshot with the previous track's metadata.
+		e.sessionID++
+	}
+	e.track = music.Track{}
+	e.resource = music.PlaybackResource{}
+	e.retried = false
+	e.refreshing = false
+	e.snapshot = music.PlaybackSnapshot{State: music.PlaybackIdle}
+	return nil
 }
 func (e *htmlAudioPlaybackEngine) Snapshot(context.Context) (music.PlaybackSnapshot, error) {
 	e.mu.RLock(); defer e.mu.RUnlock()
