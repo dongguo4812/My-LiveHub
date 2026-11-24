@@ -98,9 +98,17 @@ async function execute(command: Command) {
       audio.removeAttribute('src')
       audio.load()
       break
-    case 'seek':
-      if (Number.isFinite(audio.duration)) audio.currentTime = Math.min(audio.duration, Math.max(0, (command.position_ms ?? 0) / 1000))
+    case 'seek': {
+      // Setting currentTime before loadedmetadata is valid: the browser queues
+      // the seek and applies it when media metadata becomes available. Only
+      // clamp when the media duration is already known; otherwise the old
+      // finite-duration guard silently discarded every early seek command.
+      const requestedTime = Math.max(0, (command.position_ms ?? 0) / 1000)
+      audio.currentTime = Number.isFinite(audio.duration)
+        ? Math.min(audio.duration, requestedTime)
+        : requestedTime
       break
+    }
     case 'volume':
       audio.volume = Math.min(1, Math.max(0, command.volume ?? 1))
       break
