@@ -196,7 +196,7 @@ func TestProductionLXScriptImportRejectsScriptsWithoutSupportedActions(t *testin
 	runtime := newLXScriptRuntime(manager).(*productionMusicLXRuntime)
 	source := `lx.on(lx.EVENT_NAMES.request, () => 'https://1.1.1.1/song.mp3'); lx.send(lx.EVENT_NAMES.inited, {sources:{kw:{type:'music',actions:['unsupportedAction']}}});`
 	_, err := runtime.ImportScript(context.Background(), "unsupported fixture", source)
-	if err == nil || !strings.Contains(err.Error(), "没有声明 My-LiveHub 支持的社区扩展 action 或洛雪原生 musicUrl action") {
+	if err == nil || !strings.Contains(err.Error(), "没有声明可支持的 action") {
 		t.Fatalf("unsupported script import error = %v, want explicit unsupported capability error", err)
 	}
 	if got := runtime.ListScripts(); len(got) != 0 {
