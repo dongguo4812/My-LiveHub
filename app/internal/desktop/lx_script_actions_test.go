@@ -3,8 +3,8 @@ package desktop
 import (
  "testing"
  "context"
- "errors"
- "github.com/dongguo4812/My-LiveHub/app/internal/music"
+ "errors"\n "strings"
+ "github.com/dongguo4812/My-LiveHub/app/internal/music"\n "github.com/dongguo4812/My-LiveHub/app/internal/config"
 )
 
 func TestNormalizeLXScriptSearchResultMapsCommunityTrackShape(t *testing.T){
@@ -14,6 +14,28 @@ func TestNormalizeLXScriptSearchResultMapsCommunityTrackShape(t *testing.T){
  track:=got.Tracks[0]
  if track.ID!="kw_native-1"||track.SourceID!="kw"||track.LXSourceKey!="kw"||track.Title!="Fixture Song"||track.Artist!="Fixture Artist"||track.DurationMS!=212000||track.CoverURL!="https://cdn.example.test/cover.jpg"{t.Fatalf("unexpected mapped track: %#v",track)}
 }
+func TestNormalizeLXScriptSearchResultPreservesNativeLyricIdentifiers(t *testing.T) {
+	got, err := normalizeLXScriptSearchResult("tx", "fixture", 1, []any{map[string]any{
+		"id":"song-1", "name":"Fixture Song", "singer":"Fixture Artist",
+		"songmid":"mid-123", "song_id":"12345", "lrc_url":"https://lyrics.example.test/a.lrc",
+	}})
+	if err != nil { t.Fatal(err) }
+	if len(got.Tracks) != 1 { t.Fatalf("tracks=%d", len(got.Tracks)) }
+	data := got.Tracks[0].SourceData
+	for key, want := range map[string]string{"songmid":"mid-123", "song_id":"12345", "lrc_url":"https://lyrics.example.test/a.lrc"} {
+		if data[key] != want { t.Errorf("SourceData[%q]=%q, want %q", key, data[key], want) }
+	}
+}
+
+func TestGetLyricsFallsBackToNativeProviderAfterLXActionFailure(t *testing.T) {
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, &htmlAudioPlaybackEngine{})
+	service.scriptRuntime = fakeLXActionRuntime{available:true, err:errors.New("script lyric action failed")}
+	_, err := service.GetLyrics(music.Track{ID:"unknown_1", SourceID:"unknown", LXSourceKey:"unknown", Title:"测试", Artist:"歌手"})
+	if err == nil || !strings.Contains(err.Error(), "script lyric action failed") || !strings.Contains(err.Error(), "暂不支持独立歌词解析") {
+		t.Fatalf("expected both script and native fallback errors, got %v", err)
+	}
+}
+
 func TestNormalizeLXScriptSearchResultPreservesUnifiedTrack(t *testing.T){
  got,err:=normalizeLXScriptSearchResult("kg","fixture",2,map[string]any{"tracks":[]music.Track{{ID:"track-2",SourceID:"kg",Title:"Song"}},"total":61,"page":2,"page_size":30,"max_page":3})
  if err!=nil{t.Fatal(err)}
