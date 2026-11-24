@@ -683,7 +683,7 @@ func TestSearchAndEnqueueUsesUnifiedSearchAndPlaybackQueue(t *testing.T) {
 
 func TestMusicServiceSourceCapabilitiesShareSearchAndPlaybackResolver(t *testing.T) {
 	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, nil)
-	service.scriptRuntime = &fakeLXScriptRuntime{}
+	service.scriptRuntime = &fakeLXScriptRuntime{available: true}
 	sources := service.GetSources()
 	if len(sources) != 5 { t.Fatalf("source count = %d, want 5", len(sources)) }
 	for _, source := range sources {
