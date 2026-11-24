@@ -543,6 +543,14 @@ func TestProductionLXXinghaiDaoxiangPlaybackURL(t *testing.T) {
 			}
 		}
 		if candidate == nil {
+			if sourceID == "kg" {
+				preview := make([]string, 0, 8)
+				for index, item := range page.Tracks {
+					if index >= 8 { break }
+					preview = append(preview, fmt.Sprintf("%q/%q", item.Title, item.Artist))
+				}
+				t.Logf("kg search diagnostic: total=%d page_tracks=%d first_results=%v", page.Total, len(page.Tracks), preview)
+			}
 			failures = append(failures, sourceID+" search: no exact 稻香/周杰伦 result")
 			continue
 		}
