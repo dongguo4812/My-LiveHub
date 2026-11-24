@@ -760,6 +760,7 @@ func TestPlayNextDoesNotRetireTrackWhenResolutionIsSuperseded(t *testing.T) {
 	value.Enabled = true
 	value.EnabledSearchSources = []string{"tx"}
 	service := NewMusicServiceWithDependencies(nil, value, nil, &canceledLoadTestEngine{})
+	service.scriptRuntime = nil
 	track := music.Track{ID:"tx_cancelled", SourceID:"tx", LXSourceKey:"tx", Title:"稻香", Artist:"周杰伦"}
 	if _, err := service.queue.SetCurrentTrack(track, searchPlayMarker); err != nil { t.Fatal(err) }
 	if err := service.PlayNext(); err != nil { t.Fatalf("expected superseded cancellation to be silent, got %v", err) }
