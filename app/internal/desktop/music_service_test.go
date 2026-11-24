@@ -694,7 +694,7 @@ func TestMusicServiceSourceCapabilitiesShareSearchAndPlaybackResolver(t *testing
 }
 
 
-func TestMusicServiceStopPublishesStoppedSnapshot(t *testing.T) {
+func TestMusicServiceStopResetsPlaybackToIdleSnapshot(t *testing.T) {
 	engine := newHTMLAudioPlaybackEngine(nil)
 	engine.setEmitter(func(string, any) {})
 	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, engine)
@@ -706,7 +706,9 @@ func TestMusicServiceStopPublishesStoppedSnapshot(t *testing.T) {
 	if err := service.Stop(); err != nil { t.Fatal(err) }
 	snapshot, err := service.GetCachedPlaybackStatus()
 	if err != nil { t.Fatal(err) }
-	if snapshot.State != music.PlaybackStopped || snapshot.PositionMS != 0 { t.Fatalf("cached stop snapshot = %#v", snapshot) }
+	if snapshot.State != music.PlaybackIdle || snapshot.Track != nil || snapshot.PositionMS != 0 || snapshot.DurationMS != 0 {
+		t.Fatalf("cached stop snapshot did not return to idle: %#v", snapshot)
+	}
 }
 
 
