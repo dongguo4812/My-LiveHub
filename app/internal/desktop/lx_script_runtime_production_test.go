@@ -508,15 +508,15 @@ func TestProductionLXXinghaiDaoxiangPlaybackURL(t *testing.T) {
 	if !reflect.DeepEqual(imported.NativeActions, []string{"musicUrl"}) {
 		t.Fatalf("Xinghai native actions = %v, want [musicUrl]", imported.NativeActions)
 	}
-	if len(imported.ExtensionActions) != 0 {
-		t.Fatalf("Xinghai unexpectedly advertises community actions: %v", imported.ExtensionActions)
+	if !reflect.DeepEqual(imported.ExtensionActions, []string{"lyric", "pic"}) {
+		t.Fatalf("Xinghai community actions = %v, want [lyric pic]", imported.ExtensionActions)
 	}
 	for _, expected := range []string{"kw", "kg", "tx", "wy", "mg"} {
 		if !containsLXXinghaiSource(imported.SupportedSources, expected) {
 			t.Fatalf("Xinghai did not register %s; registered sources: %v", expected, imported.SupportedSources)
 		}
 	}
-	t.Logf("Xinghai imported and enabled: sources=%v native_actions=%v; search is intentionally delegated to native LX providers", imported.SupportedSources, imported.NativeActions)
+	t.Logf("Xinghai imported and enabled: sources=%v native_actions=%v community_actions=%v; search is intentionally delegated to native LX providers", imported.SupportedSources, imported.NativeActions, imported.ExtensionActions)
 
 	enabledSources := []string{"tx", "kw", "kg", "mg"}
 	service := NewMusicServiceWithDependencies(testLXConfigManager(t),
