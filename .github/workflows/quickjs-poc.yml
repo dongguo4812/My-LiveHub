@@ -154,6 +154,13 @@ jobs:
         working-directory: app/frontend
         run: npm ci
 
+      - name: Verify synchronized lyrics parsing and active-line timing
+        shell: pwsh
+        working-directory: app/frontend
+        run: |
+          node --experimental-strip-types ../../.github/scripts/music-synced-lyrics-smoke.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Install Chromium and run real HTMLAudio playback test
         shell: pwsh
         working-directory: app/frontend
