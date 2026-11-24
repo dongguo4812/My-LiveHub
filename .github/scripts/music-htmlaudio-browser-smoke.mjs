@@ -89,10 +89,13 @@ try {
   await page.evaluate(() => { window.testAudio.pause(); window.testAudio.removeAttribute('src'); window.testAudio.load() })
   const stopped = await page.evaluate(() => ({
     paused: window.testAudio.paused,
-    currentSrc: window.testAudio.currentSrc,
+    sourceAttribute: window.testAudio.getAttribute('src'),
     readyState: window.testAudio.readyState,
   }))
-  if (!stopped.paused || stopped.currentSrc || stopped.readyState !== 0) {
+  // HTMLMediaElement.currentSrc is allowed to retain the last selected URL after
+  // removeAttribute('src') + load(); the observable stop contract is no source
+  // attribute, paused playback, and HAVE_NOTHING (readyState === 0).
+  if (!stopped.paused || stopped.sourceAttribute !== null || stopped.readyState !== 0) {
     throw new Error('HTMLAudio stop did not release playback: ' + JSON.stringify(stopped))
   }
   console.log('REAL_HTMLAUDIO_PLAYBACK_PASS', JSON.stringify({ started, resumed, seekResult, stopped }))
