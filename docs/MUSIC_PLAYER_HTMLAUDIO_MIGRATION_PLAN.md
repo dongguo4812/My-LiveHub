@@ -1102,4 +1102,5 @@ line 3: unexpected EOF while looking for matching single quote
 - 各平台适配器输出统一同步 LRC；保留原文、翻译及时间戳，覆盖 QQ QRC 解密/翻译、酷狗 KRC 解密、酷我压缩歌词、网易云双语 LRC、咪咕 MRC/LRC。
 - 桌面歌词窗口继续共享应用级播放快照；以 HTMLAudio 的真实 position/duration 为时间基准，并在两次快照之间插值显示。切歌立即清空旧歌词并通过请求代次丢弃迟到结果；无歌词、获取失败和加载状态分别显示，不得沿用上一首歌词。
 - 新增 HTMLAudio 原生歌词来源路由回归测试；Windows CI 定向执行。浏览器 Stop smoke test 不再错误要求 `currentSrc` 必须清空（HTMLMediaElement 允许保留最后一次选中的 URL）；改为断言 src 属性移除、paused=true、readyState=HAVE_NOTHING。
+- 新增同步歌词解析 smoke test，验证乱序时间戳排序、同时间戳原文/翻译合并、`//` 空翻译占位符过滤，以及首个时间戳前不提前显示歌词。真实 `fish/latest.js` 播放集成测试同时对最终选中的真实音源请求歌词，并要求返回带时间戳的 LRC。
 - **当前状态：实施中。** 必须继续验证所有五个来源的真实歌词响应、翻译/时间戳解析、桌面歌词与真实播放进度同步、切歌竞态，以及进度/音量/停止/上一首/下一首的完整回归和最终 Windows CI。仅完成适配器路由与编译测试不构成歌词验收。
