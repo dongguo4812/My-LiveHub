@@ -14,6 +14,11 @@ import (
 // resolveAndStartLXTrack asks the 洛雪 desktop client to play the selected
 // provider result. If playback cannot be confirmed, it searches the remaining
 // enabled providers in configured priority order and verifies each candidate.
+const (
+	playbackResolutionTimeout = 30 * time.Second
+	fallbackSourceSearchTimeout = 5 * time.Second
+)
+
 func (s *MusicService) resolvePlaybackResource(ctx context.Context, track music.Track) (music.PlaybackResource, error) {
 	s.mu.RLock()
 	searcher, resolver, cache := s.searcher, s.scriptRuntime, s.playbackResourceCache
@@ -29,7 +34,7 @@ func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original m
 	if parent == nil { parent = context.Background() }
 	resolutionCtx, resolutionGeneration, resolutionCancel := s.beginPlaybackResolution(parent)
 	defer func() { s.finishPlaybackResolution(resolutionGeneration); resolutionCancel() }()
-	ctx, cancel := context.WithTimeout(resolutionCtx, 90*time.Second)
+	ctx, cancel := context.WithTimeout(resolutionCtx, playbackResolutionTimeout)
 	defer cancel()
 
 	priority := s.enabledSearchSourceIDs()
@@ -58,7 +63,7 @@ func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original m
 			candidates = append(candidates, original)
 		} else {
 			query := strings.TrimSpace(original.Title + " " + original.Artist)
-			searchCtx, searchCancel := context.WithTimeout(ctx, 15*time.Second)
+			searchCtx, searchCancel := context.WithTimeout(ctx, fallbackSourceSearchTimeout)
 			s.mu.RLock()
 			searcher, resolver := s.searcher, s.scriptRuntime
 			s.mu.RUnlock()
