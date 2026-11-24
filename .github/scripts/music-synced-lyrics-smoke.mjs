@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { getActiveSyncedLyric, parseSyncedLyrics } from '../app/frontend/src/utils/syncedLyrics.ts'
+import { getActiveSyncedLyric, parseSyncedLyrics } from '../../app/frontend/src/utils/syncedLyrics.ts'
 
 const lyrics = parseSyncedLyrics([
   '[00:02.00]第二句',
