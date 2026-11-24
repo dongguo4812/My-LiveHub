@@ -142,11 +142,7 @@ jobs:
           MYLIVEHUB_LX_FISH_INTEGRATION: '1'
           CGO_ENABLED: '0'
           MYLIVEHUB_QUICKJS_LIB: ${{ github.workspace }}\app\bin\lxqjs.dll
-        run: go test -tags lxproduction -count=1 -v -run '^TestProductionLXFishLatestRealImportAndEnable
-      - name: Build Windows executable
-        shell: pwsh
-        run: go build -tags lxproduction -ldflags "-H=windowsgui" -o bin/My-LiveHub.exe .
- ./internal/desktop
+        run: go test -tags lxproduction -count=1 -v -run '^TestProductionLXFishLatestRealImportAndEnable$' ./internal/desktop
 
       - name: Resolve real 晴天 playback URL through fish/latest.js
         shell: pwsh
@@ -155,11 +151,7 @@ jobs:
           MYLIVEHUB_PLAYBACK_URL_FILE: ${{ runner.temp }}\my-livehub-playback-url.txt
           CGO_ENABLED: '0'
           MYLIVEHUB_QUICKJS_LIB: ${{ github.workspace }}\app\bin\lxqjs.dll
-        run: go test -tags lxproduction -count=1 -v -run '^TestProductionLXFishSunnyDayPlaybackURL
-      - name: Build Windows executable
-        shell: pwsh
-        run: go build -tags lxproduction -ldflags "-H=windowsgui" -o bin/My-LiveHub.exe .
- ./internal/desktop
+        run: go test -tags lxproduction -count=1 -v -run '^TestProductionLXFishSunnyDayPlaybackURL$' ./internal/desktop
 
       - name: Verify synchronized lyrics parsing and active-line timing
         shell: pwsh
