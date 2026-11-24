@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Headset, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import '../styles/player-center.css'
+import { getHTMLAudioVolume } from '../../services/htmlAudio'
 import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
 import * as MusicLyricsWindowService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musiclyricswindowservice.js'
 
@@ -454,6 +455,8 @@ function toggleMute() {
   }
 }
 onMounted(() => {
+  playbackVolume.value = getHTMLAudioVolume()
+  if (playbackVolume.value > 0) lastAudibleVolume.value = playbackVolume.value
   void loadConfig()
   void refreshLXScripts()
   void refreshPlayback()
@@ -503,7 +506,7 @@ onUnmounted(() => {
         </div>
       </div>
       <el-slider :model-value="progress" :min="0" :max="100" :step="0.1" :disabled="!playback?.track || (playback?.duration_ms ?? 0) <= 0" @change="handleSeekChange" />
-      <div class="volume-row"><span>音量</span><el-slider :model-value="playbackVolume" :min="0" :max="100" :step="1" style="max-width:220px" @input="handleVolumeChange" @change="handleVolumeChange" /><el-button size="small" @click="toggleMute">{{ playbackVolume === 0 ? "恢复声音" : "静音" }}</el-button></div>
+      <div class="volume-row"><span>音量</span><el-slider :model-value="playbackVolume" :min="0" :max="100" :step="1" style="max-width:220px" @input="handleVolumeChange" /><el-button size="small" @click="toggleMute">{{ playbackVolume === 0 ? "恢复声音" : "静音" }}</el-button></div>
       <div class="time-row"><span>{{ formatDuration(displayedPositionMs) }}</span><span>{{ formatDuration(playback?.duration_ms) }}</span></div>
       <p class="hint">播放进度和音量由 My-LiveHub 内置 HTMLAudio 控制。</p>
       <div class="player-controls">
