@@ -1079,3 +1079,11 @@ line 3: unexpected EOF while looking for matching single quote
 - 新增回归测试：单次显式 5 秒 Eval 可完成超过默认 3 秒的初始化代码，随后普通 Eval 仍会被 3 秒 watchdog 中断。
 
 **验收状态：** 代码已提交，等待 Windows x64 完整 CI 验证。CI 通过后需重新构建并安装最新 My-LiveHub，再以真实 `fish_music` 对 kg/kw/tx 分别请求 `musicUrl`；只有获得真实 HTTP(S) 播放地址并由 HTMLAudio 成功播放，才能认定播放链路通过。wy 的“未找到歌名和歌手均匹配”属于独立匹配问题，须在初始化超时修复后单独复测。
+
+
+### 10.33 HTMLAudio 音量实时控制与状态一致性（2026-11-24，实施中）
+
+- 音量滑块仅使用 Element Plus 的实时 `input` 事件，避免拖动过程中 `input` 与释放时 `change` 重复下发命令。
+- 音乐页面重新挂载时从应用级单例 HTMLAudio 读取实际 `audio.volume`，避免 UI 默认显示 100% 而实际音量仍保留上次设置。
+- Go HTMLAudio 引擎继续持有 0–1 音量值；新曲目/新音源的 load 命令及媒体 URL 刷新重试均携带当前音量。静音为音量 0，恢复由 UI 保存的最近非零值完成。
+- 新增 Go 自动化覆盖：切歌/换源音量保持、0/非零静音与恢复、边界 clamp、媒体 URL 刷新后音量保持。该项只有定向测试及完整 QuickJS Windows CI 成功后才可验收。
