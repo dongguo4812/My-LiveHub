@@ -1,17 +1,11 @@
 name: QuickJS-NG PoC
 
 on:
-  push:
-    branches:
-      - 'feat/lx-js-runtime-quickjs-poc'
-  pull_request:
-    branches:
-      - dev
-      - master
+  # Manual diagnostic run only. Automatic validation is owned by Desktop validation.
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: quickjs-poc-${{ github.workflow }}-${{ github.ref }}
@@ -19,9 +13,7 @@ concurrency:
 
 jobs:
   quickjs-windows-x64:
-    if: >-
-      (github.event_name == 'pull_request' && github.head_ref == 'feat/lx-js-runtime-quickjs-poc') ||
-      (github.event_name != 'pull_request' && github.ref == 'refs/heads/feat/lx-js-runtime-quickjs-poc')
+    if: github.ref == 'refs/heads/feat/lx-js-runtime-quickjs-poc'
     name: QuickJS-NG Windows x64 CGO-free LX runtime
     runs-on: windows-latest
     steps:
@@ -218,19 +210,6 @@ jobs:
           Compress-Archive -LiteralPath app/bin/lxqjs.dll -DestinationPath app/bin/lxqjs-windows-amd64.zip -Force
           $hash = (Get-FileHash app/bin/lxqjs-windows-amd64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  lxqjs-windows-amd64.zip" | Set-Content -Path app/bin/lxqjs-windows-amd64.zip.sha256 -NoNewline
-
-      - name: Publish prebuilt QuickJS-NG runtime
-        if: github.event_name != 'pull_request'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: quickjs-ng-v0.18.0-lxabi1
-          name: QuickJS-NG v0.18.0 runtime (LX ABI 1)
-          body: Prebuilt Windows x64 QuickJS-NG runtime for My-LiveHub. Built from the pinned QuickJS-NG v0.18.0 source and the repository LX host ABI.
-          files: |
-            app/bin/lxqjs-windows-amd64.zip
-            app/bin/lxqjs-windows-amd64.zip.sha256
-          overwrite_files: true
-          make_latest: false
 
       - name: Verify local no-CGO bootstrap from published runtime
         shell: pwsh
