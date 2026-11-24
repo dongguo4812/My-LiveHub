@@ -374,7 +374,7 @@ func TestProductionLXFishSunnyDayPlaybackURL(t *testing.T) {
 	if !strings.Contains(lyrics, "[00:") || !strings.Contains(lyrics, "]") {
 		t.Fatalf("real %s lyric response is not timestamped LRC: %q", selectedSource, lyrics)
 	}
-	t.Logf("real %s lyrics resolved: %d LRC lines", selectedSource, len(strings.Split(lyrics, "\\n")))
+	t.Logf("real %s lyrics resolved: %d LRC lines", selectedSource, len(strings.Split(lyrics, "\n")))
 	resource := selectedResource
 	parsed, err := url.Parse(resource.URL)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
