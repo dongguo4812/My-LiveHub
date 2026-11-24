@@ -29,7 +29,7 @@ const mockBindings = {
           track: { id: 'tx_fixture', source_id: 'tx', title: '桌面歌词验收曲', artist: '回归测试' } }
       }
       export async function GetLyrics() {
-        return '[00:01.00]第一句\n[00:02.50]第二句\n[00:02.50]Second translation'
+        return '[00:01.00]第一句\\n[00:02.50]第二句\\n[00:02.50]Second translation'
       }
     `
     if (id === mocks.window) return 'export async function CloseWindow() {}'
