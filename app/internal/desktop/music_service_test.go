@@ -675,3 +675,19 @@ func TestMusicServiceSourceCapabilitiesShareSearchAndPlaybackResolver(t *testing
 		}
 	}
 }
+
+
+func TestMusicServiceStopPublishesStoppedSnapshot(t *testing.T) {
+	engine := newHTMLAudioPlaybackEngine(nil)
+	engine.setEmitter(func(string, any) {})
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, engine)
+	track := music.Track{ID:"stop-track", SourceID:"tx", Title:"停止测试", Artist:"测试"}
+	resource := music.PlaybackResource{URL:"https://media.example/stop.mp3", SourceID:"tx", TrackID:track.ID}
+	if err := engine.LoadResource(context.Background(), track, resource); err != nil { t.Fatal(err) }
+	if err := engine.Report(1, "playing", 1000, 10000, ""); err != nil { t.Fatal(err) }
+	service.setPlaybackSnapshot(music.PlaybackSnapshot{State:music.PlaybackPlaying, Track:&track, PositionMS:1000, DurationMS:10000})
+	if err := service.Stop(); err != nil { t.Fatal(err) }
+	snapshot, err := service.GetCachedPlaybackStatus()
+	if err != nil { t.Fatal(err) }
+	if snapshot.State != music.PlaybackStopped || snapshot.PositionMS != 0 { t.Fatalf("cached stop snapshot = %#v", snapshot) }
+}
