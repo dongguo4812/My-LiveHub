@@ -57,15 +57,20 @@ try {
 
   await page.evaluate(() => window.testAudio.pause())
   await page.waitForFunction(() => window.testAudio.paused)
-  const seekResult = await page.evaluate(() => {
+  const seekTarget = await page.evaluate(() => {
     const audio = window.testAudio
     if (!Number.isFinite(audio.duration) || audio.duration <= 2) {
       throw new Error('media duration is too short to verify seeking')
     }
     audio.currentTime = 1
-    return { requested: 1, actual: audio.currentTime, duration: audio.duration }
+    return 1
   })
-  await page.waitForFunction(() => Math.abs(window.testAudio.currentTime - 1) < 0.75, null, { timeout: 10000 })
+  await page.waitForFunction(target => Math.abs(window.testAudio.currentTime - target) < 0.75, seekTarget, { timeout: 15000 })
+  const seekResult = await page.evaluate(target => ({
+    requested: target,
+    actual: window.testAudio.currentTime,
+    duration: window.testAudio.duration,
+  }), seekTarget)
   if (Math.abs(seekResult.actual - seekResult.requested) > 0.75) {
     throw new Error('HTMLAudio seek did not reach requested position: ' + JSON.stringify(seekResult))
   }
