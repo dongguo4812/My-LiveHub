@@ -237,3 +237,39 @@ func TestExplicitQualityRemainsHigherPriorityThanAutomaticRanking(t *testing.T) 
 	if resource.Quality!="320k" { t.Fatalf("quality=%q, want explicit 320k",resource.Quality) }
 	if len(resolver.calls)!=1 || resolver.calls[0]!="320k" { t.Fatalf("calls=%v, want [320k]",resolver.calls) }
 }
+
+type staticMediaURLResolver struct {
+	url string
+	calls []string
+}
+func (r *staticMediaURLResolver) ResolvePlaybackURL(_ context.Context, _ string, raw any) (string, error) {
+	info := raw.(map[string]any)
+	r.calls = append(r.calls, info["type"].(string))
+	return r.url, nil
+}
+func TestMiguURLQualityDowngradeIsDetectedAndFallsBackTruthfully(t *testing.T) {
+	track := Track{
+		ID: "migu-daoxiang", SourceID: "mg", LXSourceKey: "mg",
+		SourceData: map[string]string{"songmid": "60054702010165016", "copyright_id": "COPY"},
+		Title: "稻香", Artist: "周杰伦",
+		Qualities: []TrackQuality{{Type: "flac"}, {Type: "128k"}},
+	}
+	resolver := &staticMediaURLResolver{
+		url: "https://freetyst.nf.migu.cn/public/product/MP3_128_16_Stero/60054702010165016.mp3",
+	}
+	service := NewUnifiedSourceService(nil, resolver)
+	resource, err := service.ResolvePlaybackResource(context.Background(), track, "flac", NewPlaybackResourceCache(time.Minute, 8))
+	if err != nil { t.Fatal(err) }
+	if resource.Quality != "128k" { t.Fatalf("resolved quality=%q, want truthful 128k fallback", resource.Quality) }
+	want := []string{"flac", "128k"}
+	if len(resolver.calls) != len(want) { t.Fatalf("resolver calls=%v, want %v", resolver.calls, want) }
+	for i := range want { if resolver.calls[i] != want[i] { t.Fatalf("resolver calls=%v, want %v", resolver.calls, want) } }
+}
+func TestMiguURLQualityDetectionDoesNotGuessOpaqueURLs(t *testing.T) {
+	if got := detectPlaybackURLQuality("mg", "https://cdn.example.test/audio?id=1"); got != "" {
+		t.Fatalf("opaque media URL was guessed as %q", got)
+	}
+	if got := detectPlaybackURLQuality("kg", "https://cdn.example.test/MP3_128_16_Stero/song.mp3"); got != "" {
+		t.Fatalf("non-Migu source URL was incorrectly classified as %q", got)
+	}
+}

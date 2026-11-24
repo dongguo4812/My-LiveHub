@@ -176,6 +176,24 @@ func bestAvailablePlaybackQuality(qualities []TrackQuality) string {
 	return best
 }
 
+// detectPlaybackURLQuality recognizes only explicit provider URL encodings. It
+// deliberately returns unknown for opaque URLs rather than guessing from a label.
+func detectPlaybackURLQuality(source, rawURL string) string {
+	if strings.TrimSpace(source) != "mg" { return "" }
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil { return "" }
+	path, err := url.PathUnescape(parsed.EscapedPath())
+	if err != nil { path = parsed.Path }
+	path = strings.ToUpper(path)
+	switch {
+	case strings.Contains(path, "MP3_128_"): return "128k"
+	case strings.Contains(path, "MP3_192_"): return "192k"
+	case strings.Contains(path, "MP3_320_"): return "320k"
+	case strings.Contains(path, "FLAC"): return "flac"
+	default: return ""
+	}
+}
+
 // ResolvePlaybackResource resolves quality candidates in deterministic order.
 // Explicitly selected quality is attempted first; automatic candidates are ranked
 // by known fidelity tier, with stable source order for equal or unknown labels.
@@ -206,6 +224,11 @@ func (s *UnifiedSourceService) ResolvePlaybackResource(ctx context.Context, trac
 		if err != nil {
 			cache.Invalidate(track, quality)
 			failures = append(failures, quality+": "+err.Error())
+			continue
+		}
+		if actual := detectPlaybackURLQuality(firstTrackValue(track.LXSourceKey, track.SourceID), resolved); actual != "" &&
+			playbackQualityRank(actual) < playbackQualityRank(quality) {
+			failures = append(failures, fmt.Sprintf("%s: media URL identifies %s, not the requested quality", quality, actual))
 			continue
 		}
 		resource := PlaybackResource{

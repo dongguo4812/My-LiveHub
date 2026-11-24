@@ -10,6 +10,7 @@ type SourceCapabilities struct {
 type Track struct {
 	Qualities []TrackQuality `json:"qualities,omitempty"`
 	SelectedQuality string `json:"selected_quality,omitempty"`
+	ResolvedQuality string `json:"resolved_quality,omitempty"`
 	ID         string `json:"id"`
 	SourceID   string `json:"source_id"`
 	// LXSourceKey is the source identifier used by the 洛雪 playback protocol.

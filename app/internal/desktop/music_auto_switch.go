@@ -100,6 +100,7 @@ func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original m
 			}
 			// Keep the signed URL and media request context process-local. Track's
 			// JSON representation deliberately excludes this field.
+			if resource.Quality != "" { candidate.ResolvedQuality = resource.Quality }
 			if strings.TrimSpace(resource.URL) != "" { candidate.PlaybackResource = &resource }
 			var loadErr error
 			s.mu.RLock()
@@ -129,6 +130,7 @@ func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original m
 				s.mu.RUnlock()
 				fresh, refreshErr := music.NewUnifiedSourceService(searcher, resolver).RefreshPlaybackResource(ctx, candidate, resource, cache)
 				if refreshErr == nil {
+					candidate.ResolvedQuality = fresh.Quality
 					candidate.PlaybackResource = &fresh
 					resource = fresh
 					s.mu.RLock()
