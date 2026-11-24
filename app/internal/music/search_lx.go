@@ -813,31 +813,3 @@ func parseMiguSearchResponse(raw map[string]any, page, limit int) (SearchPage, e
 	if total == 0 { total = intValue(data["total"]) }
 	return SearchPage{Tracks: tracks, Total: total, Page: page, PageSize: limit, MaxPage: pageCount(total, limit), Source: "mg"}, nil
 }
-func(p miguSearchProvider)ID()string{return LXSearchMG}
-func(p miguSearchProvider)Name()string{return "咪咕音乐"}
-func(p miguSearchProvider)Search(ctx context.Context,keyword string,page,limit int)(SearchPage,error){
-	if limit <= 0 { limit = lxSongSearchPageSize }
-	now:=strconv.FormatInt(time.Now().UnixMilli(),10)
-	device:="963B7AA0D21511ED807EE5846EC87D20"
-	signatureMD5:="6cdc72a439cef99a3418d2a78aa28c73"
-	signature:=md5.Sum([]byte(keyword+signatureMD5+"yyapp2d16148780a1dcc7408e06336b98cfd50"+device+now))
-	u,_:=url.Parse(p.endpoint);q:=u.Query()
-	q.Set("isCorrect","0");q.Set("isCopyright","1");q.Set("searchSwitch",`{"song":1,"album":0,"singer":0,"tagSong":1,"mvSong":0,"bestShow":1,"songlist":0,"lyricSong":0}`)
-	q.Set("pageSize",strconv.Itoa(limit));q.Set("text",keyword);q.Set("pageNo",strconv.Itoa(page));q.Set("sort","0");q.Set("sid","USS");u.RawQuery=q.Encode()
-	headers:=map[string]string{"uiVersion":"A_music_3.6.1","deviceId":device,"timestamp":now,"sign":hex.EncodeToString(signature[:]),"channel":"0146921","User-Agent":"Mozilla/5.0 (Linux; U; Android 11.0.0; zh-cn; MI 11 Build/OPR1.170623.032) AppleWebKit/534.30 (KHTML, like Gecko) Version/4.0 Mobile Safari/534.30"}
-	raw,err:=doLXJSON(ctx,p.client,http.MethodGet,u.String(),headers,nil);if err!=nil{return SearchPage{},err}
-	if stringValue(raw["code"])!="000000"{return SearchPage{},fmt.Errorf("咪咕搜索失败：%s",stringValue(raw["info"]))}
-	data:=mapValue(raw["songResultData"]);items:=sliceValue(data["resultList"]);tracks:=make([]Track,0);seen:=map[string]bool{}
-	for _,group:=range items{for _,entry:=range sliceValue(group){
-		item:=mapValue(entry);id:=stringValue(item["songId"]);copyright:=stringValue(item["copyrightId"])
-		if id==""||copyright==""||seen[copyright]{continue};seen[copyright]=true
-		types:=[]TrackQuality{}
-		for _,v:=range sliceValue(item["audioFormats"]){f:=mapValue(v);kind:="";switch stringValue(f["formatType"]){case "PQ":kind="128k";case "HQ":kind="320k";case "SQ":kind="flac";case "ZQ24":kind="flac24bit"};if kind!=""{types=append(types,quality(kind,func() int64 { if rawSize, exists := f["asize"]; exists && rawSize != nil { return intValue(rawSize) }; return intValue(f["isize"]) }(),nil))}}
-		img:=stringValue(item["img3"]);if img==""{img=stringValue(item["img2"])};if img==""{img=stringValue(item["img1"])};img3 := stringValue(item["img3"]); if img!=""&&!strings.Contains(img3,"http:")&&!strings.Contains(img3,"https:"){img="http://d.musicapp.migu.cn"+img}
-		artists:=[]string{};for _,v:=range sliceValue(item["singerList"]){if n:=stringValue(mapValue(v)["name"]);n!=""{artists=append(artists,n)}}
-		dataMap:=map[string]string{"songmid":id,"copyright_id":copyright,"album_id":stringValue(item["albumId"]),"lrc_url":stringValue(item["lrcUrl"]),"mrc_url":stringValue(item["mrcurl"]),"trc_url":stringValue(item["trcUrl"])}
-		tracks=append(tracks,newLXTrack("mg",id,stringValue(item["name"]),strings.Join(artists,"、"),stringValue(item["album"]),formatLXDuration(intValue(item["duration"])),img,dataMap,types))
-	}}
-	total:=intValue(data["totalCount"])
-	return SearchPage{Tracks:tracks,Total:total,Page:page,PageSize:limit,MaxPage:pageCount(total,limit),Source:"mg"},nil
-}
