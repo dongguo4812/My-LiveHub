@@ -203,3 +203,14 @@ func TestHTMLAudioPlaybackEngineSeekAndStopCommands(t *testing.T) {
 	snapshot, _ = engine.Snapshot(context.Background())
 	if snapshot.State != music.PlaybackStopped { t.Fatalf("late pause event overwrote stopped state: %s", snapshot.State) }
 }
+
+
+func TestHTMLAudioPlaybackEngineAppliesPersistedVolumeBeforeFirstTrack(t *testing.T) {
+	var commands []htmlAudioCommand
+	engine := newHTMLAudioPlaybackEngine(nil)
+	engine.setEmitter(func(_ string, payload any) { commands = append(commands, payload.(htmlAudioCommand)) })
+	if err := engine.SetVolume(0.23); err != nil { t.Fatal(err) }
+	if len(commands) != 1 || commands[0].Command != "volume" || commands[0].SessionID != 0 || commands[0].Volume != 0.23 {
+		t.Fatalf("initial volume command = %#v", commands)
+	}
+}

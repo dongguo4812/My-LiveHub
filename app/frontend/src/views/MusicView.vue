@@ -270,6 +270,11 @@ async function loadConfig() {
     config.value = await MusicService.GetConfig()
     config.value.lx_api_endpoints ??= []
     config.value.enabled_search_sources ??= []
+    const savedVolume = Math.min(100, Math.max(0, Number(config.value.volume ?? 1) * 100))
+    playbackVolume.value = savedVolume
+    if (savedVolume > 0) lastAudibleVolume.value = savedVolume
+    // Re-apply after the frontend Audio singleton has subscribed to commands.
+    await MusicService.SetVolume(savedVolume / 100)
     await refreshQueue()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)

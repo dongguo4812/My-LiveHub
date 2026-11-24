@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -219,4 +220,41 @@ func TestMusicConfigV13MigrationAddsRequestCooldownDefault(t *testing.T) {
 	if !changed { t.Fatal("expected v13 configuration migration") }
 	if err := got.Validate(); err != nil { t.Fatal(err) }
 	if got.RequestCooldownSeconds != 0 { t.Fatalf("expected cooldown disabled by default, got %d", got.RequestCooldownSeconds) }
+}
+
+
+func TestMusicConfigV14MigrationAddsPersistentVolumeDefault(t *testing.T) {
+	got, changed := MigrateMusicConfig(MusicConfig{
+		ConfigVersion: 14, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
+		SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100,
+	})
+	if !changed { t.Fatal("expected v14 configuration migration") }
+	if err := got.Validate(); err != nil { t.Fatal(err) }
+	if got.ConfigVersion != 15 || got.Volume != 1 {
+		t.Fatalf("v14 migration should default volume to 100%%, got version=%d volume=%v", got.ConfigVersion, got.Volume)
+	}
+}
+
+func TestMusicConfigVolumeValidation(t *testing.T) {
+	c := DefaultMusicConfig()
+	for _, volume := range []float64{0, 0.35, 1} {
+		c.Volume = volume
+		if err := c.Validate(); err != nil { t.Fatalf("valid volume %v rejected: %v", volume, err) }
+	}
+	for _, volume := range []float64{-0.01, 1.01, math.NaN(), math.Inf(1)} {
+		c.Volume = volume
+		if err := c.Validate(); err == nil { t.Errorf("invalid volume %v was accepted", volume) }
+	}
+}
+
+func TestMusicConfigVolumeSurvivesConfigReload(t *testing.T) {
+	localDir := t.TempDir()
+	manager, err := NewManager(fstest.MapFS{}, localDir)
+	if err != nil { t.Fatal(err) }
+	want := DefaultMusicConfig()
+	want.Volume = 0.37
+	if err := SaveTyped(manager, "music.json", want, func(c MusicConfig) error { return c.Validate() }); err != nil { t.Fatal(err) }
+	reloaded, err := LoadMusicConfig(manager)
+	if err != nil { t.Fatal(err) }
+	if reloaded.Volume != want.Volume { t.Fatalf("reloaded volume = %v, want %v", reloaded.Volume, want.Volume) }
 }

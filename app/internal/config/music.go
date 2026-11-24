@@ -2,14 +2,16 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"net/url"
 	"strings"
 )
 
-const CurrentMusicConfigVersion = 14
+const CurrentMusicConfigVersion = 15
 
 type MusicConfig struct {
 	ConfigVersion  int    `json:"config_version"`
+	Volume float64 `json:"volume"`
 	Enabled        bool   `json:"enabled"`
 	CommandEnabled bool   `json:"command_enabled"`
 	CommandPrefix  string `json:"command_prefix"`
@@ -27,6 +29,7 @@ type MusicConfig struct {
 func DefaultMusicConfig() MusicConfig {
 	return MusicConfig{
 		ConfigVersion: CurrentMusicConfigVersion,
+		Volume: 1,
 		Enabled: true,
 		CommandEnabled: true,
 		CommandPrefix: "点歌",
@@ -46,6 +49,8 @@ func MigrateMusicConfig(c MusicConfig) (MusicConfig, bool) {
 		return c, false
 	}
 	n := DefaultMusicConfig()
+	// Volume did not exist before v15; preserve the historical 100% default.
+	n.Volume = 1
 	n.Enabled = c.Enabled
 	n.CommandEnabled = c.CommandEnabled
 	if c.ConfigVersion >= 7 {
@@ -78,6 +83,7 @@ func (c MusicConfig) Validate() error {
 	if c.ConfigVersion != CurrentMusicConfigVersion {
 		return fmt.Errorf("unsupported music configuration version %d", c.ConfigVersion)
 	}
+	if math.IsNaN(c.Volume) || math.IsInf(c.Volume, 0) || c.Volume < 0 || c.Volume > 1 { return fmt.Errorf("music volume must be between 0 and 1") }
 	if strings.TrimSpace(c.CommandPrefix) == "" {
 		return fmt.Errorf("music command prefix is required")
 	}
@@ -128,6 +134,7 @@ func LoadMusicConfig(m *Manager) (MusicConfig, error) {
 	if localExists {
 		allowed := map[string]bool{
 			"config_version": true,
+			"volume": true,
 			"enabled": true,
 			"command_enabled": true,
 			"command_prefix": true,

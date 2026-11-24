@@ -77,6 +77,10 @@ async function execute(command: Command) {
     }
     return
   }
+  if (command.command === 'volume' && command.session_id === 0) {
+    audio.volume = Math.min(1, Math.max(0, command.volume ?? 1))
+    return
+  }
   if (command.session_id !== activeSession) return
   switch (command.command) {
     case 'play':

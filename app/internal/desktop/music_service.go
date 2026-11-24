@@ -4,6 +4,7 @@ import (
 	"context"
 			"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"sort"
 	"strings"
@@ -112,7 +113,9 @@ func NewMusicServiceWithDependencies(manager *config.Manager, value config.Music
 func (s *MusicService) useHTMLAudioPlayback() {
 	if s == nil { return }
 	s.mu.Lock()
-	s.engine = newHTMLAudioPlaybackEngine(s.HandlePlaybackResourceFailure)
+	bridge := newHTMLAudioPlaybackEngine(s.HandlePlaybackResourceFailure)
+	bridge.volume = s.value.Volume
+	s.engine = bridge
 	s.mu.Unlock()
 }
 
@@ -146,9 +149,30 @@ func (s *MusicService) Seek(positionMS int64) error {
 
 func (s *MusicService) SetVolume(volume float64) error {
 	if s == nil { return music.ErrPlaybackEngineUnavailable }
-	s.mu.RLock(); engine := s.engine; s.mu.RUnlock()
+	if math.IsNaN(volume) || math.IsInf(volume, 0) { return errors.New("音量必须是 0 到 1 之间的数值") }
+	if volume < 0 { volume = 0 }
+	if volume > 1 { volume = 1 }
+
+	s.mu.RLock()
+	engine, manager := s.engine, s.manager
+	candidate := cloneMusicConfig(s.value)
+	s.mu.RUnlock()
 	bridge, ok := engine.(*htmlAudioPlaybackEngine)
 	if !ok { return errors.New("当前播放引擎不支持音量调节") }
+
+	// Persist before applying the change so a failed disk write is visible to
+	// the caller and never reports a volume that will be lost after restart.
+	if candidate.Volume != volume {
+		candidate.Volume = volume
+		if manager != nil {
+			if err := config.SaveTyped(manager, "music.json", candidate, func(value config.MusicConfig) error { return value.Validate() }); err != nil {
+				return fmt.Errorf("保存音乐音量失败：%w", err)
+			}
+		}
+		s.mu.Lock()
+		s.value.Volume = volume
+		s.mu.Unlock()
+	}
 	return bridge.SetVolume(volume)
 }
 

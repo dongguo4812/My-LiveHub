@@ -108,7 +108,6 @@ func (e *htmlAudioPlaybackEngine) SetVolume(volume float64) error {
 	if volume < 0 { volume = 0 }; if volume > 1 { volume = 1 }
 	e.mu.Lock(); defer e.mu.Unlock()
 	e.volume = volume
-	if e.sessionID == 0 { return nil }
 	return e.commandLocked("volume", 0, volume)
 }
 func (e *htmlAudioPlaybackEngine) Report(sessionID uint64, event string, positionMS, durationMS int64, message string) error {
