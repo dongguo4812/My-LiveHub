@@ -691,3 +691,15 @@ func TestMusicServiceStopPublishesStoppedSnapshot(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	if snapshot.State != music.PlaybackStopped || snapshot.PositionMS != 0 { t.Fatalf("cached stop snapshot = %#v", snapshot) }
 }
+
+
+func TestMusicServiceCanPreviousTracksPlaybackHistory(t *testing.T) {
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, newHTMLAudioPlaybackEngine(nil))
+	if service.CanPrevious() { t.Fatal("previous should be unavailable without playback history") }
+	item := music.QueueItem{ID:"history-1", Track:music.Track{ID:"track-1", SourceID:"tx", Title:"上一首", Artist:"测试"}}
+	service.pushHistory(item)
+	if !service.CanPrevious() { t.Fatal("previous should be available after a track enters playback history") }
+	if err := service.Previous(); err == nil {
+		t.Fatal("previous must not silently succeed when no source searcher can resolve the historical track")
+	}
+}
