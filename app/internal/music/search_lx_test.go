@@ -17,8 +17,15 @@ func TestLXSearchClientCallsAllFiveProvidersAndKeepsPartialResults(t *testing.T)
 		_, _ = w.Write([]byte(`{"TOTAL":"1","abslist":[{"MUSICRID":"MUSIC_101","SONGNAME":"Kuwo Song","ARTIST":"Singer","ALBUM":"Album","ALBUMID":"A1","DURATION":"180","N_MINFO":"level:mp3,bitrate:320,format:mp3,size:5.0"}]}`))
 	})
 	mux.HandleFunc("/kg", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("pagesize") != "30" { t.Errorf("Kugou page size = %q", r.URL.Query().Get("pagesize")) }
-		_, _ = w.Write([]byte(`{"error_code":0,"data":{"total":1,"lists":[{"Audioid":"202","FileHash":"HASH","OriSongName":"Kugou Song","Singers":[{"name":"Singer"}],"AlbumName":"Album","Duration":181,"FileSize":1024,"HQFileSize":2048,"Grp":[]}]}}`))
+		q := r.URL.Query()
+		if q.Get("pagesize") != "30" { t.Errorf("Kugou page size = %q", q.Get("pagesize")) }
+		if q.Get("platform") != "WebFilter" { t.Errorf("Kugou platform = %q, want WebFilter", q.Get("platform")) }
+		if q.Get("privilege_filter") != "0" { t.Errorf("Kugou privilege_filter = %q", q.Get("privilege_filter")) }
+		if q.Get("filter") != "2" || q.Get("tag") != "em" || q.Get("userid") != "-1" {
+			t.Errorf("Kugou WebFilter params = %v", q)
+		}
+		// Exercise the current WebFilter field names and HTML search highlights.
+		_, _ = w.Write([]byte(`{"error_code":0,"data":{"total":1,"lists":[{"Audioid":202,"FileHash":"HASH","SongName":"<em>Kugou</em> Song","SingerName":"Singer","AlbumName":"Album","Duration":181,"FileSize":1024,"HQFileSize":2048,"Grp":[]}]}}`))
 	})
 	mux.HandleFunc("/tx", func(w http.ResponseWriter, r *http.Request) {
 		var request map[string]any
@@ -64,6 +71,25 @@ func TestLXSearchClientCallsAllFiveProvidersAndKeepsPartialResults(t *testing.T)
 	for _, item := range bySource["mg"].Qualities { if item.Type == "flac24bit" { hasMiguHiRes = true } }
 	if !hasMiguHiRes { t.Fatalf("Migu ZQ quality was not mapped to flac24bit: %#v", bySource["mg"].Qualities) }
 	if result.PageSize != 30 || result.Total != 1 || result.MaxPage != 1 { t.Fatalf("LX merged pagination mismatch: %#v", result) }
+}
+
+func TestKugouSearchCleansHighlightedSongAndArtistFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"error_code":0,"data":{"total":1,"lists":[{"Audioid":"440613","FileHash":"ABC","OriSongName":"<em>稻香</em>","SingerName":"周杰伦","AlbumName":"魔杰座","Duration":223,"FileSize":1000,"HQFileSize":2000,"SQFileSize":3000,"ResFileSize":4000}]}}`))
+	}))
+	defer server.Close()
+	provider := kugouSearchProvider{client: server.Client(), endpoint: server.URL}
+	page, err := provider.Search(context.Background(), "稻香", 1, 30)
+	if err != nil { t.Fatalf("Kugou Search: %v", err) }
+	if len(page.Tracks) != 1 { t.Fatalf("got %d tracks, want 1: %#v", len(page.Tracks), page.Tracks) }
+	track := page.Tracks[0]
+	if track.Title != "稻香" || track.Artist != "周杰伦" {
+		t.Fatalf("Kugou highlight/name parsing mismatch: title=%q artist=%q", track.Title, track.Artist)
+	}
+	if track.SourceData["hash"] != "ABC" || track.SourceData["songmid"] != "440613" {
+		t.Fatalf("Kugou native IDs were not retained: %#v", track.SourceData)
+	}
+	if len(track.Qualities) != 4 { t.Fatalf("Kugou qualities = %#v, want four tiers", track.Qualities) }
 }
 
 func TestLXSearchClientReturnsSuccessfulProvidersWhenOneFails(t *testing.T) {
