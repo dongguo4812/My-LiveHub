@@ -13,6 +13,12 @@ type Command = {
 
 const audio = new Audio()
 audio.preload = 'none'
+
+// The route-level slider reads the singleton's live value so remounting the
+// music view cannot display 100% while the actual Audio instance is quieter.
+export function getHTMLAudioVolume(): number {
+  return Math.round(audio.volume * 100)
+}
 let activeSession = 0
 let activeURL = ''
 let lastTimeUpdate = 0
