@@ -983,14 +983,31 @@ func (s *MusicService) Stop() error {
 
 func (s *MusicService) GetLyrics(track music.Track) (string, error) {
 	if s == nil { return "", errors.New("music lyrics service is unavailable") }
-	if value, handled, err := s.dispatchLXExtension(context.Background(), firstNonEmpty(track.LXSourceKey, track.SourceID), "lyric", map[string]any{"musicInfo":track, "track":track}); handled {
-		if err != nil { return "", err }
-		lyrics, ok := value.(string)
-		if !ok { return "", errors.New("LX lyric action must return a string") }
-		return lyrics, nil
+	value, handled, extensionErr := s.dispatchLXExtension(context.Background(), firstNonEmpty(track.LXSourceKey, track.SourceID), "lyric", map[string]any{"musicInfo":track, "track":track})
+	if handled && extensionErr == nil {
+		if lyrics, ok := value.(string); ok && strings.TrimSpace(lyrics) != "" {
+			return lyrics, nil
+		}
+		if _, htmlAudio := s.engine.(*htmlAudioPlaybackEngine); !htmlAudio {
+			if _, ok := value.(string); !ok { return "", errors.New("LX lyric action must return a string") }
+			return "", nil
+		}
 	}
 	if _, htmlAudio := s.engine.(*htmlAudioPlaybackEngine); htmlAudio {
-		return s.getNativeProviderLyrics(track)
+		// A community script's optional lyric action must not block the native
+		// provider adapter. Imported scripts frequently expose search/playback
+		// while their lyric action is absent, incomplete, or incompatible with
+		// the current track metadata. Fall back to the matching provider API.
+		lyrics, nativeErr := s.getNativeProviderLyrics(track)
+		if nativeErr != nil && extensionErr != nil {
+			return "", errors.Join(extensionErr, nativeErr)
+		}
+		return lyrics, nativeErr
+	}
+	if handled && extensionErr != nil { return "", extensionErr }
+	if handled {
+		if _, ok := value.(string); !ok { return "", errors.New("LX lyric action must return a string") }
+		return "", nil
 	}
 	if s.engine == nil { return "", errors.New("music lyrics service is unavailable") }
 	provider, ok := s.engine.(interface {
