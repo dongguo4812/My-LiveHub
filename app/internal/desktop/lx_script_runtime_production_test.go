@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -511,7 +512,7 @@ func TestProductionLXXinghaiDaoxiangPlaybackURL(t *testing.T) {
 		t.Fatalf("Xinghai unexpectedly advertises community actions: %v", imported.ExtensionActions)
 	}
 	for _, expected := range []string{"kw", "kg", "tx", "wy", "mg"} {
-		if !containsString(imported.SupportedSources, expected) {
+		if !containsLXXinghaiSource(imported.SupportedSources, expected) {
 			t.Fatalf("Xinghai did not register %s; registered sources: %v", expected, imported.SupportedSources)
 		}
 	}
@@ -600,7 +601,7 @@ func TestProductionLXXinghaiDaoxiangPlaybackURL(t *testing.T) {
 		len(enabledSources), safeLXMediaURL(browserURL))
 }
 
-func containsString(values []string, target string) bool {
+func containsLXXinghaiSource(values []string, target string) bool {
 	for _, value := range values { if value == target { return true } }
 	return false
 }
