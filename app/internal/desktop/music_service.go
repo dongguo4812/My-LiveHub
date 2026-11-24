@@ -936,6 +936,11 @@ func (s *MusicService) Stop() error {
 	s.cancelPlaybackWatcher()
 	err := s.engine.Stop(context.Background())
 	s.queue.FinishCurrent()
+	if snapshot, snapshotErr := s.engine.Snapshot(context.Background()); snapshotErr == nil {
+		s.setPlaybackSnapshot(snapshot)
+	} else if err == nil {
+		err = snapshotErr
+	}
 	return err
 }
 
