@@ -66,6 +66,7 @@ type MusicService struct {
 	playGeneration uint64
 	playResolveGeneration uint64
 	playResolveCancel context.CancelFunc
+	playbackResolutionStatus string
 	searcher *music.LXSearchClient
 	scriptRuntime lxScriptRuntime
 	lyricsMu sync.Mutex
@@ -160,6 +161,7 @@ func (s *MusicService) beginPlaybackResolution(parent context.Context) (context.
 	s.playResolveGeneration++
 	generation := s.playResolveGeneration
 	s.playResolveCancel = cancel
+	s.playbackResolutionStatus = "resolving"
 	s.mu.Unlock()
 	return ctx, generation, cancel
 }
@@ -172,7 +174,7 @@ func (s *MusicService) playbackResolutionCurrent(generation uint64) bool {
 
 func (s *MusicService) finishPlaybackResolution(generation uint64) {
 	s.mu.Lock()
-	if s.playResolveGeneration == generation { s.playResolveCancel = nil }
+	if s.playResolveGeneration == generation { s.playResolveCancel = nil; s.playbackResolutionStatus = "" }
 	s.mu.Unlock()
 }
 
@@ -843,6 +845,9 @@ func (s *MusicService) playNext(parent context.Context) error {
 
 		resolvedTrack, err := s.resolveAndStartLXTrack(parent, current.Track, false)
 		if err != nil {
+			// A superseded request is expected cancellation, not a provider failure.
+			// Never retire the queue item or surface context.Canceled as a song error.
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) { return nil }
 			lastStartErr = fmt.Errorf("歌曲《%s》启动失败：%w", current.Track.Title, err)
 			s.setLastError(lastStartErr)
 			s.queue.FinishCurrent()
@@ -1070,7 +1075,10 @@ func (s *MusicService) GetCachedPlaybackStatus() (music.PlaybackSnapshot, error)
 	s.mu.RLock()
 	snapshot, valid := s.playbackSnapshot, s.playbackSnapshotValid
 	s.mu.RUnlock()
-	if !valid { return music.PlaybackSnapshot{State: music.PlaybackIdle}, nil }
+	if !valid { snapshot = music.PlaybackSnapshot{State: music.PlaybackIdle} }
+	s.mu.RLock()
+	snapshot.ResolutionStatus = s.playbackResolutionStatus
+	s.mu.RUnlock()
 	return s.attachCurrentQueueTrack(snapshot), nil
 }
 
@@ -1115,6 +1123,7 @@ func (s *MusicService) cancelPlaybackWatcher() {
 		s.playResolveCancel = nil
 		s.playResolveGeneration++
 	}
+	s.playbackResolutionStatus = ""
 	if s.watchCancel != nil {
 		s.watchCancel()
 		s.watchCancel = nil
