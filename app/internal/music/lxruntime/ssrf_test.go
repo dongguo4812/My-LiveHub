@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/netip"
 	"net/url"
 	"strings"
@@ -230,8 +231,8 @@ func TestLXSafeHTTPClientStripsCustomTLSProtocolHandlers(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	safeTransport, ok := safe.Transport.(*http.Transport)
 	if !ok { t.Fatalf("safe transport type = %T", safe.Transport) }
-	if len(safeTransport.TLSNextProto) != 0 || safeTransport.ForceAttemptHTTP2 {
-		t.Fatal("safe transport retained a custom TLS protocol handler or HTTP/2 override")
+	if len(safeTransport.TLSNextProto) != 0 || !safeTransport.ForceAttemptHTTP2 {
+		t.Fatal("safe transport must strip custom TLS protocol handlers and enable only built-in HTTP/2")
 	}
 }
 
@@ -258,7 +259,37 @@ func TestLXSafeHTTPClientStripsTLSHandlersFromReplacedDefaultTransport(t *testin
 	if err != nil { t.Fatal(err) }
 	safeTransport, ok := safe.Transport.(*http.Transport)
 	if !ok { t.Fatalf("safe transport type = %T", safe.Transport) }
-	if len(safeTransport.TLSNextProto) != 0 || safeTransport.ForceAttemptHTTP2 {
-		t.Fatal("safe transport retained TLS handlers from a replaced DefaultTransport")
+	if len(safeTransport.TLSNextProto) != 0 || !safeTransport.ForceAttemptHTTP2 {
+		t.Fatal("safe transport must strip replaced TLS handlers and enable only built-in HTTP/2")
+	}
+}
+
+
+func TestLXSafeHTTPClientNegotiatesHTTP2ThroughPinnedDialContext(t *testing.T) {
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor != 2 {
+			t.Errorf("server received protocol %s, want HTTP/2", r.Proto)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":{"token":"test-token"}}`)
+	}))
+	server.EnableHTTP2 = true
+	server.StartTLS()
+	defer server.Close()
+
+	safe, err := lxSafeHTTPClientWithPolicy(server.Client(), true)
+	if err != nil { t.Fatalf("create safe HTTP/2 client: %v", err) }
+	request, err := http.NewRequest(http.MethodGet, server.URL+"/lx/api/token.php?device_id=test-device", nil)
+	if err != nil { t.Fatal(err) }
+	response, err := safe.Do(request)
+	if err != nil { t.Fatalf("safe HTTP/2 request failed: %v", err) }
+	defer response.Body.Close()
+	if response.ProtoMajor != 2 {
+		t.Fatalf("safe transport negotiated %s, want HTTP/2", response.Proto)
+	}
+	body, err := io.ReadAll(response.Body)
+	if err != nil { t.Fatal(err) }
+	if !strings.Contains(string(body), `"test-token"`) {
+		t.Fatalf("HTTP/2 response body = %q", body)
 	}
 }
