@@ -892,6 +892,13 @@ func (s *MusicService) Next() error {
 	return nil
 }
 
+func (s *MusicService) CanPrevious() bool {
+	if s == nil { return false }
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.history) > 0
+}
+
 func (s *MusicService) Previous() error {
 	if s == nil || s.engine == nil || s.queue == nil { return errors.New("music playback service is unavailable") }
 	s.mu.RLock()
