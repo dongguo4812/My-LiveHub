@@ -103,8 +103,18 @@ func (r *productionMusicLXRuntime) loadStoreLocked() error {
 		return nil
 	}
 	if len(scripts) > 32 { return fmt.Errorf("LX script store contains %d entries; maximum is 32", len(scripts)) }
+	// Validate persisted source identities before resolving legacy multiple-enabled
+	// stores. Otherwise a tampered script could be hidden by the single-active
+	// normalization and lose its actionable hash-verification error.
+	for i := range scripts {
+		digest := sha256.Sum256([]byte(scripts[i].Source))
+		if scripts[i].ID != hex.EncodeToString(digest[:]) {
+			scripts[i].Enabled = false
+			scripts[i].LastError = "stored script hash does not match executable source"
+		}
+	}
 	// Enforce the single-active-script invariant when restoring legacy stores.
-	// If older data contains multiple enabled scripts, the last enabled entry wins.
+	// If older data contains multiple valid enabled scripts, the last enabled entry wins.
 	active := -1
 	for i := range scripts {
 		if scripts[i].Enabled { active = i }
