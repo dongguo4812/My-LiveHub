@@ -76,10 +76,12 @@ func dedupeScriptTracks(tracks []music.Track) []music.Track {
 func normalizeLXScriptSearchResult(source, keyword string, page int, value any) (music.SearchPage,error) {
  raw,err:=json.Marshal(value);if err!=nil{return music.SearchPage{},fmt.Errorf("encode %s script search result: %w",source,err)}
  var entries []json.RawMessage
- var envelope struct{Tracks []json.RawMessage `json:"tracks"`;Data []json.RawMessage `json:"data"`;Total int64 `json:"total"`;Page int `json:"page"`;PageSize int `json:"page_size"`;MaxPage int `json:"max_page"`}
+ var envelope struct{Tracks []json.RawMessage `json:"tracks"`;Data []json.RawMessage `json:"data"`;List []json.RawMessage `json:"list"`;Total int64 `json:"total"`;Page int `json:"page"`;PageSize int `json:"page_size"`;MaxPage int `json:"max_page"`;IsEnd bool `json:"isEnd"`}
  if len(raw)>0&&raw[0]=='[' { if err=json.Unmarshal(raw,&entries);err!=nil{return music.SearchPage{},fmt.Errorf("decode %s script search list: %w",source,err)} } else {
   if err=json.Unmarshal(raw,&envelope);err!=nil{return music.SearchPage{},fmt.Errorf("decode %s script search result: %w",source,err)}
-  entries=envelope.Tracks;if entries==nil{entries=envelope.Data}
+  entries=envelope.Tracks
+  if entries==nil{entries=envelope.Data}
+  if entries==nil{entries=envelope.List}
  }
  tracks:=make([]music.Track,0,len(entries))
  for i,entry:=range entries{
@@ -116,8 +118,12 @@ func normalizeLXScriptSearchResult(source, keyword string, page int, value any) 
   tracks=append(tracks,track)
  }
  pageValue:=envelope.Page;if pageValue<=0{pageValue=page};size:=envelope.PageSize;if size<=0{size=30};max:=envelope.MaxPage
- if max<=0&&envelope.Total>0{max=int((envelope.Total+int64(size)-1)/int64(size))};if max<=0{max=1}
- return music.SearchPage{Tracks:tracks,Total:envelope.Total,Page:pageValue,PageSize:size,MaxPage:max,Source:source},nil
+ total:=envelope.Total
+ if total<=0 { total=int64(len(tracks)) }
+ if max<=0&&total>0{max=int((total+int64(size)-1)/int64(size))}
+ if max<=0&&envelope.IsEnd { max=pageValue }
+ if max<=0 { max=pageValue+1 }
+ return music.SearchPage{Tracks:tracks,Total:total,Page:pageValue,PageSize:size,MaxPage:max,Source:source},nil
 }
 func scriptString(m map[string]any,keys ...string)string{for _,k:=range keys{switch v:=m[k].(type){case string:if strings.TrimSpace(v)!=""{return strings.TrimSpace(v)};case float64:return fmt.Sprintf("%.0f",v)}};return ""}
 func scriptInt(m map[string]any,keys ...string)int64{for _,k:=range keys{switch v:=m[k].(type){case float64:return int64(v);case string:var n int64;_,_=fmt.Sscan(v,&n);if n>0{return n}}};return 0}
