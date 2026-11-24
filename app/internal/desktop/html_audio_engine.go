@@ -69,7 +69,7 @@ func (e *htmlAudioPlaybackEngine) LoadResource(ctx context.Context, track music.
 	e.mu.Lock()
 	e.sessionID++
 	e.track, e.resource, e.retried, e.refreshing = track, resource, false, false
-	e.snapshot = music.PlaybackSnapshot{State:music.PlaybackLoading, Track:&track}
+	e.snapshot = music.PlaybackSnapshot{State:music.PlaybackLoading, Track:&track, DurationMS:track.DurationMS}
 	err := e.commandLocked("load", 0, 0)
 	e.mu.Unlock()
 	return err
