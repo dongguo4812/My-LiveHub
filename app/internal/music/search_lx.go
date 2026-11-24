@@ -379,33 +379,113 @@ func (p kuwoSearchProvider) Search(ctx context.Context, keyword string, page, li
 type kugouSearchProvider struct { client *http.Client; endpoint string }
 func (p kugouSearchProvider) ID() string { return LXSearchKG }
 func (p kugouSearchProvider) Name() string { return "酷狗音乐" }
-func (p kugouSearchProvider) Search(ctx context.Context, keyword string, page, limit int) (SearchPage,error) {
-	if limit <= 0 { limit = lxSongSearchPageSize }
-	u,_:=url.Parse(p.endpoint); q:=u.Query()
-	q.Set("platform","AndroidFilter");q.Set("iscorrection","1");q.Set("keyword",keyword);q.Set("hifiquality","0")
-	q.Set("pagesize",strconv.Itoa(limit));q.Set("PrivilegeFilter","0");q.Set("page",strconv.Itoa(page));u.RawQuery=q.Encode()
-	raw,err:=doLXJSON(ctx,p.client,http.MethodGet,u.String(),nil,nil);if err!=nil{return SearchPage{},err}
-	if intValue(raw["error_code"])!=0{return SearchPage{},fmt.Errorf("酷狗搜索失败，错误码：%s",stringValue(raw["error_code"]))}
-	data:=mapValue(raw["data"]);items:=sliceValue(data["lists"]);total:=intValue(data["total"])
-	list:=make([]Track,0)
-	seen:=map[string]bool{}
-	var add func(map[string]any)
-	add=func(item map[string]any){
-		id:=stringValue(item["Audioid"]);hash:=stringValue(item["FileHash"]);key:=id+":"+hash
-		if id==""||seen[key]{return};seen[key]=true
-		name:=stringValue(item["OriSongName"]);if suffix:=stringValue(item["Suffix"]);suffix!=""{name+=" "+suffix}
-		types:=[]TrackQuality{}
-		for _,spec:=range []struct{field,sizeField,kind string}{{"FileHash","FileSize","128k"},{"HQFileHash","HQFileSize","320k"},{"SQFileHash","SQFileSize","flac"},{"ResFileHash","ResFileSize","flac24bit"}}{
-			sz:=intValue(item[spec.sizeField]);if sz>0{types=append(types,quality(spec.kind,sz,map[string]string{"hash":stringValue(item[spec.field])}))}
-		}
-		artists:=[]string{};for _,v:=range sliceValue(item["Singers"]){if n:=stringValue(mapValue(v)["name"]);n!=""{artists=append(artists,n)}}
-		artist:=strings.Join(artists,"、")
-		dur:=intValue(item["Duration"])
-		sourceData:=map[string]string{"songmid":id,"hash":hash,"album_id":stringValue(item["AlbumID"]),"album_audio_id":stringValue(item["MixSongID"])}
-		list=append(list,newLXTrack("kg",id,name,artist,stringValue(item["AlbumName"]),formatLXDuration(dur),"",sourceData,types))
+func (p kugouSearchProvider) Search(ctx context.Context, keyword string, page, limit int) (SearchPage, error) {
+	if limit <= 0 {
+		limit = lxSongSearchPageSize
 	}
-	for _,entry:=range items{add(mapValue(entry))}
-	return SearchPage{Tracks:list,Total:total,Page:page,PageSize:limit,MaxPage:pageCount(total,limit),Source:"kg"},nil
+	u, err := url.Parse(p.endpoint)
+	if err != nil {
+		return SearchPage{}, fmt.Errorf("酷狗搜索地址无效：%w", err)
+	}
+	q := u.Query()
+	// song_search_v2 is the WebFilter endpoint. AndroidFilter and the
+	// incorrectly-cased PrivilegeFilter parameter can return an empty list
+	// even for well-known songs such as 稻香.
+	q.Set("platform", "WebFilter")
+	q.Set("iscorrection", "1")
+	q.Set("keyword", keyword)
+	q.Set("hifiquality", "0")
+	q.Set("pagesize", strconv.Itoa(limit))
+	q.Set("privilege_filter", "0")
+	q.Set("filter", "2")
+	q.Set("tag", "em")
+	q.Set("userid", "-1")
+	q.Set("clientver", "")
+	q.Set("page", strconv.Itoa(page))
+	u.RawQuery = q.Encode()
+
+	raw, err := doLXJSON(ctx, p.client, http.MethodGet, u.String(), map[string]string{
+		"User-Agent": "Mozilla/5.0",
+		"Referer": "https://www.kugou.com/",
+		"Accept": "application/json, text/plain, */*",
+	}, nil)
+	if err != nil {
+		return SearchPage{}, err
+	}
+	if code := intValue(raw["error_code"]); code != 0 {
+		return SearchPage{}, fmt.Errorf("酷狗搜索失败，错误码：%d", code)
+	}
+	data := mapValue(raw["data"])
+	items := sliceValue(data["lists"])
+	total := intValue(data["total"])
+	list := make([]Track, 0, len(items))
+	seen := make(map[string]bool, len(items))
+	for _, entry := range items {
+		item := mapValue(entry)
+		id := firstTrackValue(stringValue(item["Audioid"]), stringValue(item["ID"]), stringValue(item["MixSongID"]))
+		hash := firstTrackValue(stringValue(item["FileHash"]), stringValue(item["Hash"]))
+		key := id + ":" + hash
+		if id == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+
+		// Kugou's current WebFilter response may use SongName/SingerName
+		// instead of the older OriSongName/Singers fields. Search highlighting
+		// wraps matched words in <em>, which must not leak into the Track model.
+		name := cleanLXSearchText(firstTrackValue(stringValue(item["OriSongName"]), stringValue(item["SongName"]), stringValue(item["FileName"])))
+		if suffix := cleanLXSearchText(stringValue(item["Suffix"])); suffix != "" {
+			name = strings.TrimSpace(name + " " + suffix)
+		}
+		artists := make([]string, 0)
+		for _, value := range sliceValue(item["Singers"]) {
+			singer := mapValue(value)
+			if artist := cleanLXSearchText(firstTrackValue(stringValue(singer["name"]), stringValue(singer["SingerName"]))); artist != "" {
+				artists = append(artists, artist)
+			}
+		}
+		if len(artists) == 0 {
+			if artist := cleanLXSearchText(stringValue(item["SingerName"])); artist != "" {
+				artists = append(artists, artist)
+			}
+		}
+		if len(artists) == 0 {
+			fileName := cleanLXSearchText(stringValue(item["FileName"]))
+			if separator := strings.Index(fileName, " - "); separator > 0 {
+				artists = append(artists, strings.TrimSpace(fileName[:separator]))
+			}
+		}
+
+		types := make([]TrackQuality, 0, 4)
+		for _, spec := range []struct{ field, sizeField, kind string }{
+			{"FileHash", "FileSize", "128k"},
+			{"HQFileHash", "HQFileSize", "320k"},
+			{"SQFileHash", "SQFileSize", "flac"},
+			{"ResFileHash", "ResFileSize", "flac24bit"},
+		} {
+			if size := intValue(item[spec.sizeField]); size > 0 {
+				types = append(types, quality(spec.kind, size, map[string]string{"hash": stringValue(item[spec.field])}))
+			}
+		}
+		duration := intValue(item["Duration"])
+		album := firstTrackValue(stringValue(item["AlbumName"]), stringValue(item["Album"]))
+		sourceData := map[string]string{
+			"songmid": id,
+			"hash": hash,
+			"album_id": firstTrackValue(stringValue(item["AlbumID"]), stringValue(item["album_id"])),
+			"album_audio_id": stringValue(item["MixSongID"]),
+		}
+		list = append(list, newLXTrack("kg", id, name, strings.Join(artists, "、"), album, formatLXDuration(duration), "", sourceData, types))
+	}
+	return SearchPage{Tracks: list, Total: total, Page: page, PageSize: limit, MaxPage: pageCount(total, limit), Source: "kg"}, nil
+}
+
+func cleanLXSearchText(value string) string {
+	value = strings.ReplaceAll(value, "<em>", "")
+	value = strings.ReplaceAll(value, "</em>", "")
+	value = strings.ReplaceAll(value, "<strong>", "")
+	value = strings.ReplaceAll(value, "</strong>", "")
+	return decodeLXName(value)
 }
 
 // QQ Music (tx)
