@@ -97,7 +97,7 @@ func normalizeLXScriptSearchResult(source, keyword string, page int, value any) 
   // returns its conventional id field. Native lyric adapters need these
   // values after the search result has crossed the JS/Go boundary.
   if source=="tx" && track.SourceData["song_id"]=="" && track.SourceData["songmid"]=="" {
-   id:=nativeID
+   id:=firstNonEmpty(track.SourceData["songId"],track.SourceData["songid"],nativeID)
    if strings.HasPrefix(id,"tx_"){id=strings.TrimPrefix(id,"tx_")}
    if id!=""{track.SourceData["song_id"]=id}
   }
@@ -109,7 +109,7 @@ func normalizeLXScriptSearchResult(source, keyword string, page int, value any) 
    track.SourceData["hash"]=firstNonEmpty(track.SourceData["FileHash"],track.SourceData["filehash"])
   }
   if source=="mg" && track.SourceData["copyright_id"]=="" && nativeID!="" {
-   track.SourceData["copyright_id"]=nativeID
+   track.SourceData["copyright_id"]=strings.TrimPrefix(nativeID,"mg_")
   }
   if track.ID==""||track.Title==""{continue}
   if nativeID!=""&&track.ID==nativeID&&source!="kg"&&!strings.HasPrefix(track.ID,source+"_"){track.ID=source+"_"+track.ID}
