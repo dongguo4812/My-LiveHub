@@ -39,6 +39,16 @@ func TestGetLyricsFallsBackToNativeProviderAfterLXActionFailure(t *testing.T) {
 	}
 }
 
+func TestNormalizeLXScriptSearchResultDerivesProviderLyricIDs(t *testing.T) {
+	qq, err := normalizeLXScriptSearchResult("tx", "fixture", 1, []any{map[string]any{"id":"123456", "name":"QQ Song", "singer":"Artist"}})
+	if err != nil { t.Fatal(err) }
+	if got := qq.Tracks[0].SourceData["song_id"]; got != "123456" { t.Fatalf("QQ song_id=%q, want 123456", got) }
+
+	kugou, err := normalizeLXScriptSearchResult("kg", "fixture", 1, []any{map[string]any{"id":"native-1", "name":"KG Song", "singer":"Artist", "FileHash":"ABCDEF"}})
+	if err != nil { t.Fatal(err) }
+	if got := kugou.Tracks[0].SourceData["hash"]; got != "ABCDEF" { t.Fatalf("Kugou hash=%q, want ABCDEF", got) }
+}
+
 func TestNormalizeLXScriptSearchResultPreservesUnifiedTrack(t *testing.T){
  got,err:=normalizeLXScriptSearchResult("kg","fixture",2,map[string]any{"tracks":[]music.Track{{ID:"track-2",SourceID:"kg",Title:"Song"}},"total":61,"page":2,"page_size":30,"max_page":3})
  if err!=nil{t.Fatal(err)}
