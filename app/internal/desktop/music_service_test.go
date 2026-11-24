@@ -774,6 +774,8 @@ func TestCachedPlaybackStatusExposesActiveResolution(t *testing.T) {
 	service := NewMusicServiceWithDependencies(nil, value, nil, &nextTrackTestEngine{})
 	track := music.Track{ID:"tx_resolving", SourceID:"tx", Title:"稻香", Artist:"周杰伦"}
 	if _, err := service.queue.SetCurrentTrack(track, searchPlayMarker); err != nil { t.Fatal(err) }
+	oldTrack := music.Track{ID:"old_track", SourceID:"wy", Title:"晴天", Artist:"周杰伦"}
+	service.setPlaybackSnapshot(music.PlaybackSnapshot{State:music.PlaybackPlaying, Track:&oldTrack})
 	ctx, generation, cancel := service.beginPlaybackResolution(context.Background())
 	defer cancel()
 	defer service.finishPlaybackResolution(generation)
