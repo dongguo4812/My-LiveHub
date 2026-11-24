@@ -181,3 +181,25 @@ func TestHTMLAudioPlaybackEngineVolumeIsRetainedWhenMediaURLRefreshes(t *testing
 		t.Fatalf("refreshed load did not retain volume: %#v", commands)
 	}
 }
+
+
+func TestHTMLAudioPlaybackEngineSeekAndStopCommands(t *testing.T) {
+	var commands []htmlAudioCommand
+	engine := newHTMLAudioPlaybackEngine(nil)
+	engine.setEmitter(func(_ string, payload any) { commands = append(commands, payload.(htmlAudioCommand)) })
+	track := music.Track{ID:"track-seek", SourceID:"tx"}
+	resource := music.PlaybackResource{URL:"https://media.example/seek.mp3", SourceID:"tx", TrackID:"track-seek"}
+	if err := engine.LoadResource(context.Background(), track, resource); err != nil { t.Fatal(err) }
+	session := commands[0].SessionID
+	if err := engine.Seek(42000); err != nil { t.Fatal(err) }
+	seek := commands[len(commands)-1]
+	if seek.Command != "seek" || seek.SessionID != session || seek.PositionMS != 42000 { t.Fatalf("seek command = %#v", seek) }
+	if err := engine.Stop(context.Background()); err != nil { t.Fatal(err) }
+	stop := commands[len(commands)-1]
+	if stop.Command != "stop" || stop.SessionID != session { t.Fatalf("stop command = %#v", stop) }
+	snapshot, _ := engine.Snapshot(context.Background())
+	if snapshot.State != music.PlaybackStopped || snapshot.PositionMS != 0 { t.Fatalf("stopped snapshot = %#v", snapshot) }
+	if err := engine.Report(session, "pause", 42000, 90000, ""); err != nil { t.Fatal(err) }
+	snapshot, _ = engine.Snapshot(context.Background())
+	if snapshot.State != music.PlaybackStopped { t.Fatalf("late pause event overwrote stopped state: %s", snapshot.State) }
+}
