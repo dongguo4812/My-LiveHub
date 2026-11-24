@@ -595,7 +595,7 @@ func TestProductionLXXinghaiDaoxiangPlaybackURL(t *testing.T) {
 		probeCtx, probeCancel := context.WithTimeout(ctx, 25*time.Second)
 		probeRequest, requestErr := http.NewRequestWithContext(probeCtx, http.MethodGet, resource.URL, nil)
 		if requestErr == nil {
-			probeRequest.Header.Set("Range", "bytes=0-1")
+			probeRequest.Header.Set("Range", "bytes=0-63")
 			probeRequest.Header.Set("User-Agent", "Mozilla/5.0 My-LiveHub Xinghai playback integration")
 		}
 		var probeResponse *http.Response
