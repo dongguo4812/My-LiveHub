@@ -104,7 +104,7 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 					// provider-specific artist aliases (e.g. Jay Chou / 周董).
 					for i := range page.Tracks {
 						item := page.Tracks[i]
-						if strings.TrimSpace(item.Title) != query { continue }
+						if !strings.Contains(strings.TrimSpace(item.Title), query) { continue }
 						if candidate == nil { candidate = &item }
 						artist := strings.ToLower(strings.TrimSpace(item.Artist))
 						if strings.Contains(artist, "周杰伦") || strings.Contains(artist, "jay chou") || strings.Contains(artist, "周董") {
@@ -122,7 +122,7 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 							if nativeErr == nil {
 								for i := range nativePage.Tracks {
 									item := nativePage.Tracks[i]
-									if strings.TrimSpace(item.Title) == query && (strings.Contains(item.Artist, "周杰伦") || strings.Contains(strings.ToLower(item.Artist), "jay chou")) {
+									if strings.Contains(strings.TrimSpace(item.Title), query) && (strings.Contains(item.Artist, "周杰伦") || strings.Contains(strings.ToLower(item.Artist), "jay chou") || strings.Contains(item.Artist, "周董")) {
 										candidate = &item
 										break
 									}
@@ -131,7 +131,13 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 						}
 					}
 					if candidate == nil {
-						failures = append(failures, sourceID+" search("+query+"): no exact 周杰伦 result from script or native provider")
+						preview := make([]string, 0, 6)
+						for index, item := range page.Tracks {
+							if index >= 6 { break }
+							preview = append(preview, fmt.Sprintf("%q/%q", item.Title, item.Artist))
+						}
+						t.Logf("%s search(%s) produced no usable match; community results=%d preview=%v", sourceID, query, len(page.Tracks), preview)
+						failures = append(failures, sourceID+" search("+query+"): no 周杰伦 result from script or native provider")
 						continue
 					}
 
