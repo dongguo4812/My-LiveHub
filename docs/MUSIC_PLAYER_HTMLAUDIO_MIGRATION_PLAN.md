@@ -1087,3 +1087,11 @@ line 3: unexpected EOF while looking for matching single quote
 - 音乐页面重新挂载时从应用级单例 HTMLAudio 读取实际 `audio.volume`，避免 UI 默认显示 100% 而实际音量仍保留上次设置。
 - Go HTMLAudio 引擎继续持有 0–1 音量值；新曲目/新音源的 load 命令及媒体 URL 刷新重试均携带当前音量。静音为音量 0，恢复由 UI 保存的最近非零值完成。
 - 新增 Go 自动化覆盖：切歌/换源音量保持、0/非零静音与恢复、边界 clamp、媒体 URL 刷新后音量保持。该项只有定向测试及完整 QuickJS Windows CI 成功后才可验收。
+
+
+### 10.34 HTMLAudio 进度跳转、停止状态及切歌控制验收（2026-11-24，实施中）
+
+- HTMLAudio seek 命令携带当前 session 与毫秒位置；前端按媒体 duration 将目标位置限制在有效范围，Chromium smoke test 验证真实媒体 currentTime 跳转到指定位置。
+- Stop 先使前端 session 失效，再 pause/清空 src，防止异步 pause 事件把 Go 端 stopped 状态覆盖为 paused；Go Stop 后立即刷新并发布缓存快照，UI 应立即显示停止。
+- 上一首通过播放历史恢复，下一首优先消费 My-LiveHub 待播队列；HTMLAudio 不具备洛雪外部播放列表接口，队列为空时不得调用不存在的洛雪 NextTrack，需明确提示没有下一首。
+- 自动化覆盖包括 Go 命令/session/状态测试、Stop 缓存状态测试，以及真实 Chromium 媒体 seek/pause/resume/volume/stop 验证。上一首/下一首仍需服务级队列与历史测试；完整 CI 通过前不得验收。
