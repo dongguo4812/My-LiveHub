@@ -98,11 +98,7 @@ jobs:
         working-directory: app
         run: |
           $env:CGO_ENABLED = '0'
-          go test -tags lxproduction -count=1 -v -run '^(TestGetQQMusicLyricsUsesNativePlayLyricInfo|TestGetKugouMusicLyricsUsesLXSearchAndDownloadFlow|TestNativeProviderLyricsAdapters)        shell: pwsh
-        working-directory: app
-        run: |
-          $env:CGO_ENABLED = '0'
-          go test -tags lxproduction -run 'TestMusicServiceGetSourcesReportsActualRuntimeAvailability|TestProductionLXScriptRuntimeAvailabilityRequiresImportedScripts|TestProductionLXScriptRuntimeImportRestoreEnableDelete|TestProductionLXScriptRuntimeQuarantinesMalformedStore|TestProductionLXScriptRuntimeIsolatesInvalidPersistedScript|TestMusicServiceLXScriptManagementAPI|TestLXScriptStoreSerializationIsStable|TestProductionLXCommunityActionsReachMusicService|TestProductionLXCommunityAction|TestNormalizeLXScriptSearchResult|TestDispatchLXExtension|TestQueuePlaybackPassesStructuredResourceToResourceAwareEngine|TestMusicServiceMediaFailureRefreshIsIdempotent|TestMusicServiceMediaFailureRefreshRejectsMismatchedResource|TestHTMLAudioPlaybackEngineUsesStructuredResourceAndSession|TestHTMLAudioPlaybackEngineRejectsTrackResourceMismatch|TestHTMLAudioPlaybackEngineRefreshesFailedMediaAtMostOnce|TestHTMLAudioPlaybackEngineKeepsWatcherLoadingDuringRefresh|TestMusicServiceBeginPlaybackResolutionCancelsPreviousRequest|TestHTMLAudioPlaybackEngineRejectsResourcesRequiringMediaHeadersOrProxy|TestHTMLAudioQueueEndDoesNotFallBackToLegacyPlayer|TestHTMLAudioPlaybackEnginePreservesVolumeAcrossTrackLoads|TestHTMLAudioPlaybackEngineClampsAndAppliesVolumeToActiveSession|TestHTMLAudioPlaybackEngineVolumePersistsAcrossSourceSwitchAndMuteRestore|TestHTMLAudioPlaybackEngineVolumeIsRetainedWhenMediaURLRefreshes|TestHTMLAudioPlaybackEngineSeekAndStopCommands|TestMusicServiceStopPublishesStoppedSnapshot|TestMusicServiceCanPreviousTracksPlaybackHistory|TestMusicServiceNextAndPreviousNavigateHTMLAudioQueueHistory|TestGetLyricsHTMLAudioUsesNativeProviderAdapter|TestGetLyricsHTMLAudioRejectsUnknownProviderExplicitly' ./internal/desktop
+          go test -tags lxproduction -count=1 -v -run '^(TestGetQQMusicLyricsUsesNativePlayLyricInfo|TestGetKugouMusicLyricsUsesLXSearchAndDownloadFlow|TestNativeProviderLyricsAdapters)$' ./internal/music
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Import and enable the real upstream fish/latest.js in isolated QuickJS
