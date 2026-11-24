@@ -3,8 +3,11 @@ package desktop
 import (
  "testing"
  "context"
- "errors"\n "strings"
- "github.com/dongguo4812/My-LiveHub/app/internal/music"\n "github.com/dongguo4812/My-LiveHub/app/internal/config"
+ "errors"
+ "strings"
+
+ "github.com/dongguo4812/My-LiveHub/app/internal/config"
+ "github.com/dongguo4812/My-LiveHub/app/internal/music"
 )
 
 func TestNormalizeLXScriptSearchResultMapsCommunityTrackShape(t *testing.T){
