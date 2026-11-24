@@ -1015,7 +1015,7 @@ func (s *MusicService) GetLyrics(track music.Track) (string, error) {
 // already returned by search and returns synchronized LRC for HTMLAudio/Desktop Lyrics.
 func (s *MusicService) getNativeProviderLyrics(track music.Track) (string, error) {
 	source := firstNonEmpty(track.LXSourceKey, track.SourceID)
-	cacheKey := strings.Join([]string{source, track.ID, track.Title, track.Artist}, "\\x00")
+	cacheKey := strings.Join([]string{source, track.ID, track.Title, track.Artist}, "\x00")
 	s.lyricsMu.Lock()
 	cached, ok := s.lyricsCache[cacheKey]
 	s.lyricsMu.Unlock()
