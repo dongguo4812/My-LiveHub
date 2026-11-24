@@ -86,6 +86,8 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 			cache := music.NewPlaybackResourceCache(2*time.Minute, 32)
 
 			var success bool
+			var upstreamIPBlocked bool
+			var otherPlaybackFailure bool
 			var failures []string
 			for _, query := range []string{"稻香", "晴天"} {
 				if success {
@@ -170,14 +172,17 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 						resource, resolveErr := resolver.ResolvePlaybackResource(ctx, *candidate, quality, cache)
 						if resolveErr != nil {
 							if strings.Contains(strings.ToLower(resolveErr.Error()), "block ip") {
+								upstreamIPBlocked = true
 								failures = append(failures, sourceID+"/"+quality+" musicUrl: upstream explicitly blocked CI runner IP")
 								continue
 							}
+							otherPlaybackFailure = true
 							failures = append(failures, sourceID+"/"+quality+" musicUrl: "+resolveErr.Error())
 							continue
 						}
 						parsed, parseErr := url.Parse(resource.URL)
 						if parseErr != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+							otherPlaybackFailure = true
 							failures = append(failures, sourceID+"/"+quality+" musicUrl: invalid HTTP(S) URL")
 							continue
 						}
@@ -194,6 +199,7 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 						}
 						if requestErr != nil {
 							probeCancel()
+							otherPlaybackFailure = true
 							failures = append(failures, sourceID+"/"+quality+" media probe: "+requestErr.Error())
 							continue
 						}
@@ -203,6 +209,7 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 						_ = response.Body.Close()
 						probeCancel()
 						if (statusCode != http.StatusOK && statusCode != http.StatusPartialContent) || n == 0 {
+							otherPlaybackFailure = true
 							failures = append(failures, sourceID+"/"+quality+" media probe: status="+response.Status+" bytes="+fmt.Sprintf("%d", n)+" read_error="+errorTextForLXTest(readErr))
 							continue
 						}
@@ -216,14 +223,7 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 				}
 			}
 			if !success {
-				allBlockedByUpstreamIP := len(failures) > 0
-				for _, failure := range failures {
-					if !strings.Contains(failure, "upstream explicitly blocked CI runner IP") {
-						allBlockedByUpstreamIP = false
-						break
-					}
-				}
-				if allBlockedByUpstreamIP && strings.Contains(strings.ToLower(filename), "v8") {
+				if upstreamIPBlocked && !otherPlaybackFailure && strings.Contains(strings.ToLower(filename), "v8") {
 					t.Skipf("script imported and its actions were recognized, but the upstream v8 service explicitly blocks the GitHub CI runner IP; live playback cannot be verified from this network: %s", strings.Join(failures, " | "))
 				}
 				t.Fatalf("uploaded script did not complete search -> musicUrl -> media bytes: %s", strings.Join(failures, " | "))
