@@ -1093,5 +1093,5 @@ line 3: unexpected EOF while looking for matching single quote
 
 - HTMLAudio seek 命令携带当前 session 与毫秒位置；前端按媒体 duration 将目标位置限制在有效范围，Chromium smoke test 验证真实媒体 currentTime 跳转到指定位置。
 - Stop 先使前端 session 失效，再 pause/清空 src，防止异步 pause 事件把 Go 端 stopped 状态覆盖为 paused；Go Stop 后立即刷新并发布缓存快照，UI 应立即显示停止。
-- 上一首通过播放历史恢复，下一首优先消费 My-LiveHub 待播队列；HTMLAudio 不具备洛雪外部播放列表接口，队列为空时不得调用不存在的洛雪 NextTrack，需明确提示没有下一首。
-- 自动化覆盖包括 Go 命令/session/状态测试、Stop 缓存状态测试，以及真实 Chromium 媒体 seek/pause/resume/volume/stop 验证。上一首/下一首仍需服务级队列与历史测试；完整 CI 通过前不得验收。
+- 上一首通过播放历史恢复，下一首优先消费 My-LiveHub 待播队列；HTMLAudio 不具备洛雪外部播放列表接口，队列为空时不得调用不存在的洛雪 NextTrack。UI 通过 `CanPrevious` 和队列快照禁用当前不可用的上一首/下一首按钮，避免点击后才报错。
+- 自动化覆盖包括 Go 命令/session/状态测试、Stop 缓存状态测试，以及真实 Chromium 媒体 seek/pause/resume/volume/stop 验证。新增 `CanPrevious` 历史状态测试；下一首队列消费和上一首恢复仍以 MusicService 现有队列/历史逻辑为准，完整 CI 通过前不得验收。
