@@ -88,10 +88,11 @@ async function execute(command: Command) {
       break
     case 'pause': audio.pause(); break
     case 'stop':
+      // Invalidate before pause dispatches its asynchronous event so a late pause report cannot overwrite stopped state.
+      activeSession = 0
       audio.pause()
       audio.removeAttribute('src')
       audio.load()
-      activeSession = 0
       break
     case 'seek':
       if (Number.isFinite(audio.duration)) audio.currentTime = Math.min(audio.duration, Math.max(0, (command.position_ms ?? 0) / 1000))
