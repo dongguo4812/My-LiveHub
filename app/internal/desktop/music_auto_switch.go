@@ -17,6 +17,7 @@ import (
 const (
 	playbackResolutionTimeout = 30 * time.Second
 	fallbackSourceSearchTimeout = 5 * time.Second
+	fallbackSourceResolveTimeout = 5 * time.Second
 )
 
 func (s *MusicService) resolvePlaybackResource(ctx context.Context, track music.Track) (music.PlaybackResource, error) {
@@ -85,10 +86,16 @@ func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original m
 
 		for _, candidate := range candidates {
 			if err := ctx.Err(); err != nil { return music.Track{}, err }
-			resource, resolveErr := s.resolvePlaybackResource(ctx, candidate)
+			resolveCtx, resolveCancel := context.WithTimeout(ctx, fallbackSourceResolveTimeout)
+			resource, resolveErr := s.resolvePlaybackResource(resolveCtx, candidate)
+			resolveCancel()
 			if resolveErr != nil {
-				if errors.Is(resolveErr, context.Canceled) || ctx.Err() != nil { return music.Track{}, context.Canceled }
-				failures = append(failures, source+": 播放资源解析失败："+resolveErr.Error())
+				if ctx.Err() != nil { return music.Track{}, context.Canceled }
+				if errors.Is(resolveErr, context.DeadlineExceeded) {
+					failures = append(failures, source+": 播放资源解析超时（单音源上限 5 秒）")
+				} else {
+					failures = append(failures, source+": 播放资源解析失败："+resolveErr.Error())
+				}
 				continue
 			}
 			// Keep the signed URL and media request context process-local. Track's
