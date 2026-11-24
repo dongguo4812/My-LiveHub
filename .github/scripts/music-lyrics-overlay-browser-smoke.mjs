@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict'
-import { createServer } from 'vite'
-import vue from '@vitejs/plugin-vue'
-import { chromium } from 'playwright'
+import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
 const frontendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../app/frontend')
+// Resolve frontend dependencies from the frontend package, not from this script's
+// .github/scripts directory (Node resolves bare imports relative to the importer).
+const requireFrontend = createRequire(path.join(frontendRoot, 'package.json'))
+const { createServer } = requireFrontend('vite')
+const vue = requireFrontend('@vitejs/plugin-vue').default
+const { chromium } = requireFrontend('playwright')
 const mocks = {
   music: '\0my-livehub-lyrics-music-service',
   window: '\0my-livehub-lyrics-window-service',
