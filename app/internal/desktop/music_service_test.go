@@ -700,3 +700,30 @@ func TestMusicServiceCanPreviousTracksPlaybackHistory(t *testing.T) {
 	service.pushHistory(item)
 	if !service.CanPrevious() { t.Fatal("previous should be available after a track enters playback history") }
 }
+
+
+func TestMusicServiceNextAndPreviousNavigateHTMLAudioQueueHistory(t *testing.T) {
+	value := config.DefaultMusicConfig()
+	value.Enabled = true
+	value.EnabledSearchSources = []string{"tx"}
+	engine := &nextTrackTestEngine{}
+	service := NewMusicServiceWithDependencies(nil, value, nil, engine)
+	service.scriptRuntime = nil // Exercise the deterministic provider/engine path without network access.
+	defer service.cancelPlaybackWatcher()
+
+	previous := music.Track{ID:"tx_previous", SourceID:"tx", LXSourceKey:"tx", Title:"上一首歌曲", Artist:"测试歌手"}
+	next := music.Track{ID:"tx_next", SourceID:"tx", LXSourceKey:"tx", Title:"下一首歌曲", Artist:"测试歌手"}
+	if _, err := service.queue.SetCurrentTrack(previous, searchPlayMarker); err != nil { t.Fatal(err) }
+	if _, err := service.queue.Enqueue(next, "viewer"); err != nil { t.Fatal(err) }
+
+	if err := service.Next(); err != nil { t.Fatalf("Next failed to start queued track: %v", err) }
+	snapshot := service.queue.Snapshot()
+	if snapshot.Current == nil || snapshot.Current.Track.ID != next.ID { t.Fatalf("Next current = %#v, want %s", snapshot.Current, next.ID) }
+	if !service.CanPrevious() { t.Fatal("previous should become available after advancing") }
+
+	if err := service.Previous(); err != nil { t.Fatalf("Previous failed to restore history: %v", err) }
+	snapshot = service.queue.Snapshot()
+	if snapshot.Current == nil || snapshot.Current.Track.ID != previous.ID { t.Fatalf("Previous current = %#v, want %s", snapshot.Current, previous.ID) }
+	if len(snapshot.Items) != 1 || snapshot.Items[0].Track.ID != next.ID { t.Fatalf("forward track was not preserved after going back: %#v", snapshot.Items) }
+	if service.CanPrevious() { t.Fatal("previous history entry should be consumed after going back") }
+}
