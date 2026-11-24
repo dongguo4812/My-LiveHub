@@ -226,11 +226,9 @@ func (r *productionMusicLXRuntime) ImportScript(ctx context.Context, name, sourc
 		if existing.ID == id { return LXScriptSummary{}, fmt.Errorf("LX script %q is already imported", name) }
 	}
 	if len(r.scripts) >= 32 { return LXScriptSummary{}, errors.New("maximum of 32 imported LX scripts reached") }
-	totalEnabledBytes := len(source)
-	for _, existing := range r.scripts {
-		if existing.Enabled { totalEnabledBytes += len(existing.Source) }
+	if len(source) > 16<<20 {
+		return LXScriptSummary{}, errors.New("LX script source exceeds the 16 MiB active-script limit")
 	}
-	if totalEnabledBytes > 16<<20 { return LXScriptSummary{}, errors.New("enabled LX scripts would exceed the aggregate 16 MiB source limit") }
 	// Import-and-enable is a replacement operation: retain all scripts, but
 	// disable every previous script before activating the newly imported one.
 	previous := append([]storedLXScript(nil), r.scripts...)
