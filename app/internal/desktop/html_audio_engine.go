@@ -38,6 +38,16 @@ func newHTMLAudioPlaybackEngine(refresh func(music.Track, music.PlaybackResource
 	return &htmlAudioPlaybackEngine{refresh: refresh, volume: 1, snapshot: music.PlaybackSnapshot{State: music.PlaybackIdle}}
 }
 
+// Start satisfies PlaybackEngineLifecycle. HTMLAudio is owned by the main
+// WebView and becomes active only when a validated resource is loaded.
+func (e *htmlAudioPlaybackEngine) Start(context.Context) error { return nil }
+
+// Close stops the WebView-owned media element while the Wails window is still
+// available. The frontend also has pagehide/beforeunload cleanup as a fallback.
+func (e *htmlAudioPlaybackEngine) Close() error {
+	return e.Stop(context.Background())
+}
+
 func (e *htmlAudioPlaybackEngine) setEmitter(emit func(string, any)) {
 	e.mu.Lock()
 	e.emit = emit
