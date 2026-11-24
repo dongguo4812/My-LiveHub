@@ -3,6 +3,7 @@
 package desktop
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -23,6 +24,18 @@ import (
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
 	"github.com/dongguo4812/My-LiveHub/app/internal/music"
 )
+
+func detectLXMediaFormat(data []byte) string {
+	switch {
+	case bytes.HasPrefix(data, []byte("fLaC")): return "FLAC"
+	case bytes.HasPrefix(data, []byte("OggS")): return "Ogg"
+	case bytes.HasPrefix(data, []byte("RIFF")): return "WAV/RIFF"
+	case len(data) >= 8 && string(data[4:8]) == "ftyp": return "ISO-BMFF"
+	case bytes.HasPrefix(data, []byte("ID3")): return "MP3"
+	case len(data) >= 2 && data[0] == 0xff && data[1]&0xe0 == 0xe0: return "MP3"
+	default: return "unknown"
+	}
+}
 
 func testLXConfigManager(t *testing.T) *config.Manager {
 	t.Helper()
@@ -402,7 +415,7 @@ func TestProductionLXFishSunnyDayPlaybackURL(t *testing.T) {
 	defer probeCancel()
 	probeRequest, err := http.NewRequestWithContext(probeCtx, http.MethodGet, resource.URL, nil)
 	if err != nil { t.Fatal(err) }
-	probeRequest.Header.Set("Range", "bytes=0-1")
+	probeRequest.Header.Set("Range", "bytes=0-63")
 	probeRequest.Header.Set("User-Agent", "Mozilla/5.0 My-LiveHub playback integration")
 	probeResponse, err := (&http.Client{Timeout: 25*time.Second}).Do(probeRequest)
 	if err != nil { t.Fatalf("real media URL request failed: %v", err) }
@@ -557,10 +570,11 @@ func TestProductionLXXinghaiDaoxiangPlaybackURL(t *testing.T) {
 		t.Logf("%s search matched 稻香: track_id=%q native_id=%q qualities=%v",
 			sourceID, candidate.ID, firstTrackValueForTest(candidate.SourceData, "songmid", "song_id", "hash", "id"), candidate.Qualities)
 
-		// Ask for 24-bit lossless first. The script must map unsupported
-		// qualities to its best advertised quality; the unified resolver then
-		// retries the track's remaining advertised qualities if that URL fails.
-		resource, resolveErr := sourceResolver.ResolvePlaybackResource(ctx, *candidate, "flac24bit", resourceCache)
+		// Request the best quality actually advertised by this search result,
+		// matching the quality choice the UI presents to the user.
+		requestedQuality := music.BestAvailablePlaybackQuality(candidate.Qualities)
+		if requestedQuality == "" { requestedQuality = "320k" }
+		resource, resolveErr := sourceResolver.ResolvePlaybackResource(ctx, *candidate, requestedQuality, resourceCache)
 		if resolveErr != nil {
 			if sourceID == "tx" && strings.Contains(resolveErr.Error(), "该音源仅支持当前已授权的客户端访问") {
 				// The script obtained a server token and reached the TX backend.
@@ -593,16 +607,23 @@ func TestProductionLXXinghaiDaoxiangPlaybackURL(t *testing.T) {
 			failures = append(failures, sourceID+" media probe: "+requestErr.Error())
 			continue
 		}
-		firstBytes, readErr := io.ReadAll(io.LimitReader(probeResponse.Body, 2))
+		firstBytes, readErr := io.ReadAll(io.LimitReader(probeResponse.Body, 64))
 		statusCode, contentType := probeResponse.StatusCode, probeResponse.Header.Get("Content-Type")
+		contentRange := probeResponse.Header.Get("Content-Range")
+		corsOrigin := probeResponse.Header.Get("Access-Control-Allow-Origin")
+		mediaFormat := detectLXMediaFormat(firstBytes)
 		_ = probeResponse.Body.Close()
 		probeCancel()
 		if (statusCode != http.StatusOK && statusCode != http.StatusPartialContent) || readErr != nil || len(firstBytes) == 0 {
 			failures = append(failures, fmt.Sprintf("%s media probe: status=%d bytes=%d read_error=%v", sourceID, statusCode, len(firstBytes), readErr))
 			continue
 		}
-		t.Logf("%s Xinghai musicUrl and media probe succeeded: selected_quality=%s endpoint=%s status=%d content_type=%q",
-			sourceID, resource.Quality, safeLXMediaURL(resource.URL), statusCode, contentType)
+		if sourceID == "mg" && mediaFormat == "MP3" && resource.Quality != "128k" {
+			failures = append(failures, fmt.Sprintf("mg returned MP3 bytes at %s but resolver reported %s", mediaFormat, resource.Quality))
+			continue
+		}
+		t.Logf("%s Xinghai musicUrl and media probe succeeded: requested_quality=%s resolved_quality=%s endpoint=%s status=%d content_type=%q media_format=%s content_range=%q cors_origin=%q",
+			sourceID, requestedQuality, resource.Quality, safeLXMediaURL(resource.URL), statusCode, contentType, mediaFormat, contentRange, corsOrigin)
 		if browserURL == "" { browserURL = resource.URL }
 	}
 	if len(failures) > 0 {

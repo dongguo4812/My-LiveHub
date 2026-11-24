@@ -85,6 +85,7 @@ func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original m
 		}
 
 		for _, candidate := range candidates {
+			candidate.ResolvedQuality = ""
 			if err := ctx.Err(); err != nil { return music.Track{}, err }
 			resolveCtx, resolveCancel := context.WithTimeout(ctx, fallbackSourceResolveTimeout)
 			resource, resolveErr := s.resolvePlaybackResource(resolveCtx, candidate)

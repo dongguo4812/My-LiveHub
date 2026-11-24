@@ -217,7 +217,7 @@ func TestURLOnlyPlaybackResolverDoesNotInventMediaRequestContext(t *testing.T) {
 
 func TestResolvePlaybackResourceAutomaticallyPrefersHighestKnownQuality(t *testing.T) {
 	track := Track{ID:"auto", SourceID:"tx", LXSourceKey:"tx", SourceData:map[string]string{"songmid":"native-auto"}, Title:"Song",
-		Qualities:[]TrackQuality{{Type:"128k"},{Type:"320k"},{Type:"flac"},{Type:"hires"},{Type:"atmos"}}}
+		Qualities:[]TrackQuality{{Type:"128k"},{Type:"320k"},{Type:"flac"},{Type:"hires"}}}
 	resolver := &qualityResolver{failures:map[string]bool{"hires":true}}
 	service := NewUnifiedSourceService(nil,resolver)
 	resource, err := service.ResolvePlaybackResource(context.Background(),track,"",NewPlaybackResourceCache(time.Minute,8))
@@ -271,5 +271,19 @@ func TestMiguURLQualityDetectionDoesNotGuessOpaqueURLs(t *testing.T) {
 	}
 	if got := detectPlaybackURLQuality("kg", "https://cdn.example.test/MP3_128_16_Stero/song.mp3"); got != "" {
 		t.Fatalf("non-Migu source URL was incorrectly classified as %q", got)
+	}
+}
+
+func TestPlaybackQualityRankMatchesXinghaiFallbackOrder(t *testing.T) {
+	ordered := []string{"jymaster", "sky", "jyeffect", "hires", "flac24bit", "spatial", "master", "flac", "320k", "192k", "128k"}
+	for i := 0; i < len(ordered)-1; i++ {
+		if playbackQualityRank(ordered[i]) <= playbackQualityRank(ordered[i+1]) {
+			t.Fatalf("quality rank order mismatch: %s=%d must outrank %s=%d",
+				ordered[i], playbackQualityRank(ordered[i]), ordered[i+1], playbackQualityRank(ordered[i+1]))
+		}
+	}
+	if playbackQualityRank("atmos") != playbackQualityRank("master") ||
+		playbackQualityRank("atmos_plus") != playbackQualityRank("master") {
+		t.Fatal("Atmos aliases must share Xinghai's master quality tier")
 	}
 }

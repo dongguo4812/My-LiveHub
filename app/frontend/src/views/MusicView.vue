@@ -547,7 +547,10 @@ onUnmounted(() => {
         <div class="track-info">
           <strong>{{ playback?.track ? `${playback.track.title} - ${playback.track.artist || '未知歌手'}` : '尚未播放歌曲' }}</strong>
           <small v-if="playback?.track">{{ playbackSourceName(playback.track) }}</small>
-          <small v-if="playback?.track?.resolved_quality">取链成功档位：{{ playback.track.resolved_quality }}</small>
+          <small v-if="playback?.track?.resolved_quality">
+            取链成功档位：{{ playback.track.resolved_quality }}
+            <span v-if="playback.track.selected_quality && playback.track.resolved_quality !== playback.track.selected_quality">（请求{{ playback.track.selected_quality }}，音源已降级）</span>
+          </small>
           <small v-if="playback?.resolution_status === 'resolving'" class="resolution-status">正在解析播放地址，请稍候…</small>
           
           <el-tag v-if="queue?.current && queue.current.requested_by !== '__my_livehub_search_play__'" type="warning" size="small">观众点播</el-tag>

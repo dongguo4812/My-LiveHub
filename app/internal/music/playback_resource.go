@@ -147,26 +147,25 @@ func validatePlaybackResource(resource PlaybackResource) error {
 	return nil
 }
 
-// playbackQualityRank maps source quality labels to a comparable fidelity tier.
-// Spatial/Atmos variants are intentionally below lossless stereo tiers: they do not
-// guarantee higher fidelity or compatibility on every output device.
+// playbackQualityRank follows Xinghai's mapQuality fallback order rather than
+// assuming that every source-specific label is a simple bitrate.
 func playbackQualityRank(value string) int {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "jymaster", "master": return 100
+	case "jymaster": return 100
 	case "sky": return 95
 	case "jyeffect": return 90
 	case "hires", "hi-res": return 85
 	case "flac24bit": return 80
-	case "flac": return 70
-	case "atmos_plus": return 68
-	case "atmos", "spatial": return 65
-	case "320k": return 60
-	case "192k": return 50
-	case "128k": return 40
+	case "spatial": return 75
+	case "master", "atmos", "atmos_plus": return 70
+	case "flac": return 60
+	case "320k": return 50
+	case "192k": return 40
+	case "128k": return 30
 	default: return 0
 	}
 }
-func bestAvailablePlaybackQuality(qualities []TrackQuality) string {
+func BestAvailablePlaybackQuality(qualities []TrackQuality) string {
 	best, bestRank := "", -1
 	for _, item := range qualities {
 		kind := strings.TrimSpace(item.Type)
