@@ -193,6 +193,44 @@ lx.send(lx.EVENT_NAMES.inited, {
 	}
 }
 
+
+func TestProductionSourceManagerScopesCommunityActionsPerProvider(t *testing.T) {
+	source := `
+lx.on(lx.EVENT_NAMES.request, async ({ action }) => action === 'lyric' ? '[00:01.00]fixture' : 'https://cdn.example.test/song.mp3');
+lx.send(lx.EVENT_NAMES.inited, {
+  sources: {
+    kw: { type: 'music', actions: ['musicUrl'], qualitys: ['128k'] },
+    kg: { type: 'music', actions: ['musicUrl', 'lyric'], qualitys: ['128k'] }
+  }
+});
+`
+	manager := newTestSourceManager(t, []LXSourceScript{{
+		Info: ScriptInfo{Name: "provider-scoped-actions"},
+		Source: source,
+		ExtensionActions: []string{"lyric"},
+	}})
+	if err := manager.Start(context.Background()); err != nil { t.Fatal(err) }
+	defer manager.Close()
+
+	// First dispatch initializes the script and discovers the per-provider
+	// action table. The script must not receive kw/lyric because only kg
+	// declared that community action.
+	_, err := manager.DispatchExtensionAction(context.Background(), "kw", "lyric", nil)
+	var unsupported interface{ LXExtensionSourceUnsupported() bool }
+	if !errors.As(err, &unsupported) || !unsupported.LXExtensionSourceUnsupported() {
+		t.Fatalf("kw lyric should be treated as provider-unsupported, got %v", err)
+	}
+	if manager.HasExtensionAction("kw", "lyric") {
+		t.Fatal("kw must not advertise lyric merely because kg declares it")
+	}
+	if !manager.HasExtensionAction("kg", "lyric") {
+		t.Fatal("kg should advertise its explicitly declared lyric action")
+	}
+	got, err := manager.DispatchExtensionAction(context.Background(), "kg", "lyric", nil)
+	if err != nil { t.Fatal(err) }
+	if got != "[00:01.00]fixture" { t.Fatalf("kg lyric = %#v", got) }
+}
+
 func TestProductionSourceManagerDoesNotImplicitlyEnableCommunityExtensions(t *testing.T) {
 	source := `
 lx.on(lx.EVENT_NAMES.request, async ({ action }) => action);
