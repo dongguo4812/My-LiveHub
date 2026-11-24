@@ -237,7 +237,8 @@ const canPrevious = ref(false)
 
 const progress = computed(() => {
   if (!playback.value || playback.value.duration_ms <= 0) return 0
-  return Math.min(100, Math.max(0, displayedPositionMs.value / playback.value.duration_ms * 100))
+  const position = isSeeking.value ? seekPreviewMs.value : displayedPositionMs.value
+  return Math.min(100, Math.max(0, position / playback.value.duration_ms * 100))
 })
 const searchErrorText = computed(() => Object.values(searchErrors.value).join('；'))
 function formatDuration(value?: number) {
