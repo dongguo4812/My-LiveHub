@@ -66,6 +66,7 @@ type LXSearchEndpoints struct {
 	QQLegacy string
 	Netease string
 	Migu string
+	MiguFallback string
 }
 
 func DefaultLXSearchEndpoints() LXSearchEndpoints {
@@ -76,6 +77,7 @@ func DefaultLXSearchEndpoints() LXSearchEndpoints {
 		QQLegacy: "https://c.y.qq.com/soso/fcgi-bin/client_search_cp",
 		Netease: "http://interface.music.163.com/eapi/batch",
 		Migu: "https://jadeite.migu.cn/music_search/v3/search/searchAll",
+		MiguFallback: "https://c.musicapp.migu.cn/v1.0/content/search_all.do",
 	}
 }
 
@@ -87,6 +89,9 @@ func NewLXSearchClientWithEndpoints(client *http.Client, endpoints LXSearchEndpo
 	if client == nil {
 		client = &http.Client{Timeout: 15 * time.Second}
 	}
+	if strings.TrimSpace(endpoints.MiguFallback) == "" {
+		endpoints.MiguFallback = DefaultLXSearchEndpoints().MiguFallback
+	}
 	return &LXSearchClient{
 		httpClient: client,
 		providers: []SearchProvider{
@@ -94,7 +99,7 @@ func NewLXSearchClientWithEndpoints(client *http.Client, endpoints LXSearchEndpo
 			kuwoSearchProvider{client: client, endpoint: endpoints.Kuwo},
 			kugouSearchProvider{client: client, endpoint: endpoints.Kugou},
 			neteaseSearchProvider{client: client, endpoint: endpoints.Netease},
-			miguSearchProvider{client: client, endpoint: endpoints.Migu},
+			miguSearchProvider{client: client, endpoint: endpoints.Migu, fallbackEndpoint: endpoints.MiguFallback},
 		},
 	}
 }
@@ -644,7 +649,170 @@ func(p neteaseSearchProvider)Search(ctx context.Context,keyword string,page,limi
 }
 
 // Migu (mg): request signing follows the LX desktop SDK's MD5 signature.
-type miguSearchProvider struct{client *http.Client;endpoint string}
+type miguSearchProvider struct {
+	client *http.Client
+	endpoint string
+	fallbackEndpoint string
+}
+
+func (p miguSearchProvider) ID() string { return LXSearchMG }
+func (p miguSearchProvider) Name() string { return "咪咕音乐" }
+
+func (p miguSearchProvider) Search(ctx context.Context, keyword string, page, limit int) (SearchPage, error) {
+	if limit <= 0 { limit = lxSongSearchPageSize }
+	now := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	device := "963B7AA0D21511ED807EE5846EC87D20"
+	signatureMD5 := "6cdc72a439cef99a3418d2a78aa28c73"
+	signature := md5.Sum([]byte(keyword + signatureMD5 + "yyapp2d16148780a1dcc7408e06336b98cfd50" + device + now))
+	u, _ := url.Parse(p.endpoint)
+	q := u.Query()
+	q.Set("isCorrect", "0")
+	q.Set("isCopyright", "1")
+	q.Set("searchSwitch", `{"song":1,"album":0,"singer":0,"tagSong":1,"mvSong":0,"bestShow":1,"songlist":0,"lyricSong":0}`)
+	q.Set("pageSize", strconv.Itoa(limit))
+	q.Set("text", keyword)
+	q.Set("pageNo", strconv.Itoa(page))
+	q.Set("sort", "0")
+	q.Set("sid", "USS")
+	u.RawQuery = q.Encode()
+	headers := map[string]string{
+		"uiVersion": "A_music_3.6.1", "deviceId": device, "timestamp": now,
+		"sign": hex.EncodeToString(signature[:]), "channel": "0146921",
+		"User-Agent": "Mozilla/5.0 (Linux; U; Android 11.0.0; zh-cn; MI 11 Build/OPR1.170623.032) AppleWebKit/534.30 (KHTML, like Gecko) Version/4.0 Mobile Safari/534.30",
+	}
+	raw, primaryErr := doLXJSON(ctx, p.client, http.MethodGet, u.String(), headers, nil)
+	if primaryErr == nil {
+		if result, parseErr := parseMiguSearchResponse(raw, page, limit); parseErr == nil && len(result.Tracks) > 0 {
+			return result, nil
+		} else if parseErr != nil {
+			primaryErr = parseErr
+		} else {
+			primaryErr = errors.New("主搜索接口未返回歌曲")
+		}
+	}
+	fallbackURL, fallbackErr := buildMiguFallbackSearchURL(p.fallbackEndpoint, keyword, page, limit)
+	if fallbackErr != nil {
+		return SearchPage{}, fmt.Errorf("咪咕搜索主接口失败：%v；备用接口地址无效：%w", primaryErr, fallbackErr)
+	}
+	fallbackHeaders := map[string]string{
+		"User-Agent": "Mozilla/5.0 (Linux; Android 11; zh-cn) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36",
+		"channel": "0146921",
+		"Accept": "application/json, text/plain, */*",
+	}
+	fallbackRaw, fallbackErr := doLXJSON(ctx, p.client, http.MethodGet, fallbackURL, fallbackHeaders, nil)
+	if fallbackErr != nil {
+		return SearchPage{}, fmt.Errorf("咪咕搜索主接口失败：%v；备用接口失败：%w", primaryErr, fallbackErr)
+	}
+	result, fallbackErr := parseMiguSearchResponse(fallbackRaw, page, limit)
+	if fallbackErr != nil {
+		return SearchPage{}, fmt.Errorf("咪咕搜索主接口失败：%v；备用接口解析失败：%w", primaryErr, fallbackErr)
+	}
+	if len(result.Tracks) == 0 {
+		return SearchPage{}, fmt.Errorf("咪咕搜索主接口失败：%v；备用接口未返回歌曲", primaryErr)
+	}
+	return result, nil
+}
+
+func buildMiguFallbackSearchURL(endpoint, keyword string, page, limit int) (string, error) {
+	target, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil || target.Scheme == "" || target.Host == "" {
+		return "", errors.New("fallback endpoint must be an absolute HTTP(S) URL")
+	}
+	if target.Scheme != "http" && target.Scheme != "https" {
+		return "", errors.New("fallback endpoint must use HTTP(S)")
+	}
+	query := target.Query()
+	query.Set("ua", "Android_migu")
+	query.Set("version", "5.0.1")
+	query.Set("text", keyword)
+	query.Set("pageNo", strconv.Itoa(page))
+	query.Set("pageSize", strconv.Itoa(limit))
+	query.Set("searchSwitch", `{"song":1,"album":0,"singer":0,"tagSong":0,"mvSong":0,"songlist":0,"bestShow":1}`)
+	target.RawQuery = query.Encode()
+	return target.String(), nil
+}
+
+func parseMiguSearchResponse(raw map[string]any, page, limit int) (SearchPage, error) {
+	if stringValue(raw["code"]) != "000000" {
+		return SearchPage{}, fmt.Errorf("咪咕搜索失败：%s", stringValue(raw["info"]))
+	}
+	data := mapValue(raw["songResultData"])
+	items := sliceValue(data["resultList"])
+	if len(items) == 0 { items = sliceValue(data["result"]) }
+	if len(items) == 0 { items = sliceValue(data["musics"]) }
+	tracks := make([]Track, 0, len(items))
+	seen := map[string]bool{}
+	for _, group := range items {
+		entries := sliceValue(group)
+		if len(entries) == 0 { entries = []any{group} }
+		for _, entry := range entries {
+			item := mapValue(entry)
+			id := firstTrackValue(stringValue(item["songId"]), stringValue(item["contentId"]), stringValue(item["id"]))
+			copyright := firstTrackValue(stringValue(item["copyrightId"]), id)
+			if id == "" || seen[copyright] { continue }
+			seen[copyright] = true
+			types := []TrackQuality{}
+			for _, value := range sliceValue(item["audioFormats"]) {
+				format := mapValue(value)
+				kind := ""
+				switch stringValue(format["formatType"]) {
+				case "PQ": kind = "128k"
+				case "HQ": kind = "320k"
+				case "SQ": kind = "flac"
+				case "ZQ24": kind = "flac24bit"
+				}
+				if kind != "" {
+					size := intValue(format["asize"])
+					if size == 0 { size = intValue(format["isize"]) }
+					types = append(types, quality(kind, size, nil))
+				}
+			}
+			if len(types) == 0 {
+				if stringValue(item["mp3"]) != "" || stringValue(item["listenUrl"]) != "" || stringValue(item["lisQq"]) != "" {
+					types = append(types, TrackQuality{Type: "128k"})
+				}
+			}
+			artists := []string{}
+			for _, value := range sliceValue(item["singerList"]) {
+				if name := stringValue(mapValue(value)["name"]); name != "" { artists = append(artists, name) }
+			}
+			if len(artists) == 0 {
+				for _, value := range sliceValue(item["singers"]) {
+					if name := stringValue(mapValue(value)["name"]); name != "" { artists = append(artists, name) }
+				}
+			}
+			artist := strings.Join(artists, "、")
+			if artist == "" { artist = firstTrackValue(stringValue(item["artist"]), stringValue(item["singer"])) }
+			album := firstTrackValue(stringValue(item["album"]), stringValue(item["albumName"]))
+			if album == "" {
+				albums := sliceValue(item["albums"])
+				if len(albums) > 0 { album = stringValue(mapValue(albums[0])["name"]) }
+			}
+			img := firstTrackValue(stringValue(item["img3"]), stringValue(item["img2"]), stringValue(item["img1"]))
+			if img == "" {
+				imgItems := sliceValue(item["imgItems"])
+				if len(imgItems) > 0 { img = firstTrackValue(stringValue(mapValue(imgItems[0])["img"]), stringValue(mapValue(imgItems[0])["url"])) }
+			}
+			if img != "" && !strings.HasPrefix(img, "http://") && !strings.HasPrefix(img, "https://") {
+				img = "https://d.musicapp.migu.cn" + img
+			}
+			duration := intValue(item["duration"])
+			if duration > 0 && duration <= 10000 { duration = formatLXDuration(duration) }
+			dataMap := map[string]string{
+				"songmid": id, "content_id": firstTrackValue(stringValue(item["contentId"]), id),
+				"copyright_id": copyright, "album_id": firstTrackValue(stringValue(item["albumId"]), stringValue(item["albumid"])),
+				"lrc_url": firstTrackValue(stringValue(item["lrcUrl"]), stringValue(item["lyricUrl"])),
+				"mrc_url": stringValue(item["mrcurl"]), "trc_url": stringValue(item["trcUrl"]),
+			}
+			tracks = append(tracks, newLXTrack("mg", id,
+				firstTrackValue(stringValue(item["name"]), stringValue(item["songName"])),
+				artist, album, duration, img, dataMap, types))
+		}
+	}
+	total := intValue(data["totalCount"])
+	if total == 0 { total = intValue(data["total"]) }
+	return SearchPage{Tracks: tracks, Total: total, Page: page, PageSize: limit, MaxPage: pageCount(total, limit), Source: "mg"}, nil
+}
 func(p miguSearchProvider)ID()string{return LXSearchMG}
 func(p miguSearchProvider)Name()string{return "咪咕音乐"}
 func(p miguSearchProvider)Search(ctx context.Context,keyword string,page,limit int)(SearchPage,error){
