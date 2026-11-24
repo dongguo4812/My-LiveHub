@@ -192,6 +192,9 @@ func (r *productionMusicLXRuntime) ImportScript(ctx context.Context, name, sourc
 	if ctx == nil { ctx = context.Background() }
 	capabilities, err := lxruntime.DetectLXScriptCapabilities(ctx, info, source, nil)
 	if err != nil { return LXScriptSummary{}, fmt.Errorf("无法识别脚本能力：%w", err) }
+	if len(capabilities.ExtensionActions) == 0 {
+		return LXScriptSummary{}, errors.New("脚本没有声明 My-LiveHub 支持的社区扩展 action，无法导入")
+	}
 	probe, err := lxruntime.NewSourceManagerWithScripts(nil, []lxruntime.LXSourceScript{{
 		Info: info, Source: source, ExtensionActions: capabilities.ExtensionActions,
 	}})
