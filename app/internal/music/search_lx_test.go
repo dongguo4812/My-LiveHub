@@ -224,3 +224,98 @@ func TestDefaultLXSearchQQEndpointMatchesLXDesktop(t *testing.T) {
 		t.Fatalf("QQ search endpoint = %q, want current musicu.fcg endpoint", got)
 	}
 }
+
+
+func TestQQSearchFallsBackToLegacyCGIImmediatelyOnDesktop2001(t *testing.T) {
+	desktopCalls, legacyCalls := 0, 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/desktop", func(w http.ResponseWriter, r *http.Request) {
+		desktopCalls++
+		_, _ = w.Write([]byte(`{"code":0,"music.search.SearchCgiService":{"code":2001,"message":"anonymous search restricted"}}`))
+	})
+	mux.HandleFunc("/legacy", func(w http.ResponseWriter, r *http.Request) {
+		legacyCalls++
+		if r.Method != http.MethodGet { t.Errorf("legacy method = %s, want GET", r.Method) }
+		q := r.URL.Query()
+		for key, want := range map[string]string{
+			"w":"晴天", "p":"2", "n":"30", "remoteplace":"txt.yqq.song",
+			"loginUin":"0", "hostUin":"0", "format":"json",
+		} {
+			if got := q.Get(key); got != want { t.Errorf("legacy query %s = %q, want %q", key, got, want) }
+		}
+		_, _ = w.Write([]byte(`{"code":0,"data":{"song":{"totalnum":1,"list":[{"songmid":"0039MnYb0HxY2m","songid":12345,"songname":"晴天","albumname":"叶惠美","albummid":"0024N7xD","interval":269,"strMediaMid":"MEDIA123","singer":[{"name":"周杰伦","mid":"001"}],"size320":4096000}]}}}`))
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	provider := qqSearchProvider{client:server.Client(), endpoint:server.URL+"/desktop", legacyEndpoint:server.URL+"/legacy"}
+	result, err := provider.Search(context.Background(), "晴天", 2, 30)
+	if err != nil { t.Fatalf("QQ fallback search failed: %v", err) }
+	if desktopCalls != 1 { t.Fatalf("Desktop attempts = %d, want exactly 1 (no repeated 2001 retries)", desktopCalls) }
+	if legacyCalls != 1 { t.Fatalf("legacy calls = %d, want 1", legacyCalls) }
+	if result.Source != "tx" || result.Page != 2 || result.PageSize != 30 || result.Total != 1 || result.MaxPage != 1 {
+		t.Fatalf("unexpected unified search page: %#v", result)
+	}
+	if len(result.Tracks) != 1 { t.Fatalf("tracks = %#v, want one converted track", result.Tracks) }
+	track := result.Tracks[0]
+	if track.ID != "tx_0039MnYb0HxY2m" || track.SourceID != "tx" || track.LXSourceKey != "tx" ||
+		track.Title != "晴天" || track.Artist != "周杰伦" || track.Album != "叶惠美" ||
+		track.DurationMS != 269000 || track.SourceData["songmid"] != "0039MnYb0HxY2m" ||
+		track.SourceData["media_mid"] != "MEDIA123" {
+		t.Fatalf("legacy track was not converted to the existing QQ Track model: %#v", track)
+	}
+	if len(track.Qualities) != 1 || track.Qualities[0].Type != "320k" {
+		t.Fatalf("legacy quality metadata not preserved: %#v", track.Qualities)
+	}
+}
+
+func TestQQSearchDoesNotFallbackForNon2001DesktopErrors(t *testing.T) {
+	desktopCalls, legacyCalls := 0, 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/desktop", func(w http.ResponseWriter, r *http.Request) {
+		desktopCalls++
+		_, _ = w.Write([]byte(`{"code":0,"music.search.SearchCgiService":{"code":2002}}`))
+	})
+	mux.HandleFunc("/legacy", func(w http.ResponseWriter, r *http.Request) { legacyCalls++ })
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	provider := qqSearchProvider{client:server.Client(), endpoint:server.URL+"/desktop", legacyEndpoint:server.URL+"/legacy"}
+	if _, err := provider.Search(context.Background(), "晴天", 1, 30); err == nil {
+		t.Fatal("expected non-2001 Desktop error")
+	}
+	if desktopCalls != 1 || legacyCalls != 0 {
+		t.Fatalf("unexpected fallback behavior: Desktop=%d legacy=%d", desktopCalls, legacyCalls)
+	}
+}
+
+func TestQQSearchFallbackHandlesDesktopIntermittent2001AcrossCalls(t *testing.T) {
+	desktopCalls, legacyCalls := 0, 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/desktop", func(w http.ResponseWriter, r *http.Request) {
+		desktopCalls++
+		if desktopCalls == 1 {
+			_, _ = w.Write([]byte(`{"code":0,"music.search.SearchCgiService":{"code":0,"data":{"body":{"song":{"list":[{"id":99,"mid":"DESKTOP99","title":"Desktop Song","interval":200,"singer":[{"name":"Singer"}],"album":{"mid":"ALBUM","name":"Album"},"file":{"media_mid":"MEDIA99","size_320mp3":1000}}]}},"meta":{"sum":1}}}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"code":0,"music.search.SearchCgiService":{"code":2001}}`))
+	})
+	mux.HandleFunc("/legacy", func(w http.ResponseWriter, r *http.Request) {
+		legacyCalls++
+		_, _ = w.Write([]byte(`{"code":0,"data":{"song":{"totalnum":1,"list":[{"songmid":"LEGACY100","songid":100,"songname":"Legacy Song","albumname":"Album","albummid":"ALBUM","interval":180,"strMediaMid":"MEDIA100","singer":[{"name":"Singer"}]}]}}}`))
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	provider := qqSearchProvider{client:server.Client(), endpoint:server.URL+"/desktop", legacyEndpoint:server.URL+"/legacy"}
+	first, err := provider.Search(context.Background(), "test", 1, 30)
+	if err != nil { t.Fatal(err) }
+	second, err := provider.Search(context.Background(), "test", 1, 30)
+	if err != nil { t.Fatal(err) }
+	if first.Tracks[0].SourceData["songmid"] != "DESKTOP99" {
+		t.Fatalf("successful Desktop result changed: %#v", first.Tracks)
+	}
+	if second.Tracks[0].SourceData["songmid"] != "LEGACY100" {
+		t.Fatalf("2001 did not switch to legacy result: %#v", second.Tracks)
+	}
+	if desktopCalls != 2 || legacyCalls != 1 {
+		t.Fatalf("unexpected calls across intermittent responses: Desktop=%d legacy=%d", desktopCalls, legacyCalls)
+	}
+}
