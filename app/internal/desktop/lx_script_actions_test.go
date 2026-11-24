@@ -29,7 +29,7 @@ func TestGetLXTrackLyricsAcceptsStructuredLXResponse(t *testing.T) {
 	}}}
 	got, err := service.GetLXTrackLyrics(music.Track{ID:"1", SourceID:"kw", LXSourceKey:"kw"})
 	if err != nil { t.Fatal(err) }
-	if got != "[00:01.00]主歌词\\n[00:01.00]Translated lyric" {
+	if got != "[00:01.00]主歌词\n[00:01.00]Translated lyric" {
 		t.Fatalf("structured lyric = %q", got)
 	}
 }
