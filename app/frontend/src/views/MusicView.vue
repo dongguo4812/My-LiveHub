@@ -495,7 +495,7 @@ onUnmounted(() => {
     </nav>
 
     <el-card v-if="activeTab === 'now-playing'" class="player-card" shadow="never">
-      <template #header><div class="card-heading"><strong>正在播放</strong><div style="display:flex;align-items:center;gap:10px"><el-tag :type="playback?.state === 'playing' ? 'success' : playback?.state === 'error' ? 'danger' : 'info'">{{ playback?.state === 'error' ? '播放失败' : playback?.state ?? '播放器未启动' }}</el-tag><el-button size="small" :disabled="!playback?.track" @click="openLyricsWindow">桌面歌词</el-button></div></div></template>
+      <template #header><div class="card-heading"><strong>正在播放</strong><div style="display:flex;align-items:center;gap:10px"><el-tag :type="playback?.resolution_status === 'resolving' ? 'warning' : playback?.state === 'playing' ? 'success' : playback?.state === 'error' ? 'danger' : 'info'">{{ playback?.resolution_status === 'resolving' ? '正在解析' : playback?.state === 'error' ? '播放失败' : playback?.state ?? '播放器未启动' }}</el-tag><el-button size="small" :disabled="!playback?.track" @click="openLyricsWindow">桌面歌词</el-button></div></div></template>
       <div class="now-playing">
         <div class="track-cover">
           <img v-if="playback?.track?.cover_url" :src="playback.track.cover_url" alt="歌曲封面" />
@@ -504,6 +504,8 @@ onUnmounted(() => {
         <div class="track-info">
           <strong>{{ playback?.track ? `${playback.track.title} - ${playback.track.artist || '未知歌手'}` : '尚未播放歌曲' }}</strong>
           <small v-if="playback?.track">{{ playbackSourceName(playback.track) }}</small>
+          <small v-if="playback?.resolution_status === 'resolving'" class="resolution-status">正在解析播放地址，请稍候…</small>
+          <small v-else class="resolution-status">当前没有进行播放地址解析</small>
           <el-tag v-else-if="queue?.current && queue.current.requested_by !== '__my_livehub_search_play__'" type="warning" size="small">观众点播</el-tag>
         </div>
       </div>
