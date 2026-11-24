@@ -65,6 +65,7 @@ func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original m
 			page, searchErr := music.NewUnifiedSourceService(searcher, resolver).SearchSource(searchCtx, source, query, 1)
 			searchCancel()
 			if searchErr != nil {
+				if errors.Is(searchErr, context.Canceled) || ctx.Err() != nil { return music.Track{}, context.Canceled }
 				failures = append(failures, source+": 搜索失败："+searchErr.Error())
 				continue
 			}
@@ -81,6 +82,7 @@ func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original m
 			if err := ctx.Err(); err != nil { return music.Track{}, err }
 			resource, resolveErr := s.resolvePlaybackResource(ctx, candidate)
 			if resolveErr != nil {
+				if errors.Is(resolveErr, context.Canceled) || ctx.Err() != nil { return music.Track{}, context.Canceled }
 				failures = append(failures, source+": 播放资源解析失败："+resolveErr.Error())
 				continue
 			}
@@ -129,6 +131,10 @@ func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original m
 				}
 			}
 			if loadErr != nil {
+				// Cancellation is control flow, not a provider failure. Do not
+				// flatten it into the per-provider failure list: playNext must
+				// be able to recognize it and preserve the current queue item.
+				if errors.Is(loadErr, context.Canceled) || ctx.Err() != nil { return music.Track{}, context.Canceled }
 				s.mu.RLock()
 				cache := s.playbackResourceCache
 				s.mu.RUnlock()
