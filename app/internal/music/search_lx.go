@@ -271,6 +271,12 @@ func newLXTrack(source, nativeID, title, artist, album string, duration int64, c
 func quality(kind string, size int64, data map[string]string) TrackQuality {
 	return TrackQuality{Type: kind, Size: formatLXSize(size), SourceData: data}
 }
+func appendUniqueQuality(qualities []TrackQuality, item TrackQuality) []TrackQuality {
+	for _, existing := range qualities {
+		if existing.Type == item.Type { return qualities }
+	}
+	return append(qualities, item)
+}
 func qualityFromOptionalObject(kind string, raw any, sizeKey string) TrackQuality {
 	if raw == nil { return TrackQuality{Type: kind} }
 	return quality(kind, intValue(mapValue(raw)[sizeKey]), nil)
@@ -364,8 +370,8 @@ func (p kuwoSearchProvider) Search(ctx context.Context, keyword string, page, li
 			match := kuwoInfoPattern.FindStringSubmatch(token)
 			if len(match) != 5 { continue }
 			var kind string
-			switch match[2] { case "4000": kind="flac24bit"; case "2000": kind="flac"; case "320": kind="320k"; case "128": kind="128k" }
-			if kind != "" { types = append(types, TrackQuality{Type:kind, Size:match[4]}) }
+			switch match[2] { case "4000", "2000": kind="flac"; case "320": kind="320k"; case "128": kind="128k" }
+			if kind != "" { types = appendUniqueQuality(types, TrackQuality{Type:kind, Size:match[4]}) }
 		}
 		for i,j:=0,len(types)-1;i<j;i,j=i+1,j-1 { types[i],types[j]=types[j],types[i] }
 		duration, _ := strconv.ParseInt(stringValue(item["DURATION"]),10,64)
@@ -461,10 +467,10 @@ func (p kugouSearchProvider) Search(ctx context.Context, keyword string, page, l
 			{"FileHash", "FileSize", "128k"},
 			{"HQFileHash", "HQFileSize", "320k"},
 			{"SQFileHash", "SQFileSize", "flac"},
-			{"ResFileHash", "ResFileSize", "flac24bit"},
+			{"ResFileHash", "ResFileSize", "hires"},
 		} {
 			if size := intValue(item[spec.sizeField]); size > 0 {
-				types = append(types, quality(spec.kind, size, map[string]string{"hash": stringValue(item[spec.field])}))
+				types = appendUniqueQuality(types, quality(spec.kind, size, map[string]string{"hash": stringValue(item[spec.field])}))
 			}
 		}
 		duration := intValue(item["Duration"])
@@ -521,8 +527,8 @@ func qqTracksFromDesktop(items []any) []Track {
 		media := stringValue(file["media_mid"])
 		if media == "" { continue }
 		types := []TrackQuality{}
-		for _, spec := range []struct{ key, kind string }{{"size_128mp3", "128k"}, {"size_320mp3", "320k"}, {"size_flac", "flac"}, {"size_hires", "flac24bit"}} {
-			if size := intValue(file[spec.key]); size > 0 { types = append(types, quality(spec.kind, size, nil)) }
+		for _, spec := range []struct{ key, kind string }{{"size_128mp3", "128k"}, {"size_320mp3", "320k"}, {"size_flac", "flac"}, {"size_hires", "hires"}} {
+			if size := intValue(file[spec.key]); size > 0 { types = appendUniqueQuality(types, quality(spec.kind, size, nil)) }
 		}
 		album := mapValue(item["album"])
 		albumID, albumName := stringValue(album["mid"]), stringValue(album["name"])
@@ -715,7 +721,7 @@ func(p neteaseSearchProvider)Search(ctx context.Context,keyword string,page,limi
 		base:=mapValue(mapValue(entry)["baseInfo"]);item:=mapValue(base["simpleSongData"]);if len(item)==0{continue}
 		album:=mapValue(item["al"]);priv:=mapValue(item["privilege"])
 		types:=[]TrackQuality{};maxLevel:=stringValue(priv["maxBrLevel"]);maxBR:=intValue(priv["maxbr"])
-		if maxLevel=="hires"{types=append(types,qualityFromOptionalObject("flac24bit",item["hr"],"size"))}
+		if maxLevel=="hires"{types=append(types,qualityFromOptionalObject("hires",item["hr"],"size"))}
 		if maxBR>=999000{types=append(types,qualityFromOptionalObject("flac",item["sq"],"size"))}
 		if maxBR>=320000{types=append(types,qualityFromOptionalObject("320k",item["h"],"size"))}
 		if maxBR>=128000{types=append(types,qualityFromOptionalObject("128k",item["l"],"size"))}
@@ -839,7 +845,7 @@ func parseMiguSearchResponse(raw map[string]any, page, limit int) (SearchPage, e
 				case "PQ": kind = "128k"
 				case "HQ": kind = "320k"
 				case "SQ": kind = "flac"
-				case "ZQ24": kind = "flac24bit"
+				case "ZQ24": kind = "flac"
 				}
 				if kind != "" {
 					size := intValue(format["asize"])

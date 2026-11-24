@@ -67,9 +67,9 @@ func TestLXSearchClientCallsAllFiveProvidersAndKeepsPartialResults(t *testing.T)
 	if bySource["tx"].SourceData["media_mid"] != "MEDIA" { t.Fatalf("QQ native media ID was not retained: %#v", bySource["tx"].SourceData) }
 	if bySource["mg"].ID != "mg_505" { t.Fatalf("Migu native song ID was not retained: %q", bySource["mg"].ID) }
 	if bySource["mg"].SourceData["copyright_id"] != "COPY505" { t.Fatalf("Migu copyright ID was not retained: %#v", bySource["mg"].SourceData) }
-	hasMiguHiRes := false
-	for _, item := range bySource["mg"].Qualities { if item.Type == "flac24bit" { hasMiguHiRes = true } }
-	if !hasMiguHiRes { t.Fatalf("Migu ZQ quality was not mapped to flac24bit: %#v", bySource["mg"].Qualities) }
+	hasMiguFLAC := false
+	for _, item := range bySource["mg"].Qualities { if item.Type == "flac" { hasMiguFLAC = true } }
+	if !hasMiguFLAC { t.Fatalf("Migu ZQ24 quality was not normalized to the Xinghai-supported flac tier: %#v", bySource["mg"].Qualities) }
 	if result.PageSize != 30 || result.Total != 1 || result.MaxPage != 1 { t.Fatalf("LX merged pagination mismatch: %#v", result) }
 }
 
@@ -385,4 +385,39 @@ func TestMiguSearchFallsBackToPublicContentSearch(t *testing.T) {
 	if track.CoverURL != "https://d.musicapp.migu.cn/cover/daoxiang.jpg" {
 		t.Fatalf("Migu fallback cover URL = %q", track.CoverURL)
 	}
+}
+
+func TestKuwoQualityLabelsMatchXinghaiSupportedTiers(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"TOTAL":"1","SHOW":"1","abslist":[{"MUSICRID":"MUSIC_1","SONGNAME":"Song","ARTIST":"Singer","ALBUM":"Album","DURATION":"180","N_MINFO":"level:flac,bitrate:4000,format:flac,size:9.0;level:flac,bitrate:2000,format:flac,size:7.0;level:mp3,bitrate:320,format:mp3,size:5.0"}]}`))
+	}))
+	defer server.Close()
+	provider := kuwoSearchProvider{client: server.Client(), endpoint: server.URL}
+	page, err := provider.Search(context.Background(), "Song", 1, 30)
+	if err != nil { t.Fatal(err) }
+	if len(page.Tracks) != 1 { t.Fatalf("tracks=%#v", page.Tracks) }
+	qualities := page.Tracks[0].Qualities
+	countFLAC, hasUnsupported24Bit := 0, false
+	for _, item := range qualities {
+		if item.Type == "flac" { countFLAC++ }
+		if item.Type == "flac24bit" { hasUnsupported24Bit = true }
+	}
+	if countFLAC != 1 || hasUnsupported24Bit { t.Fatalf("Kuwo qualities must expose one script-supported flac tier, got %#v", qualities) }
+}
+
+func TestKugouHiResQualityUsesXinghaiQualityName(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"error_code":0,"data":{"total":1,"lists":[{"Audioid":"1","FileHash":"A","SongName":"Song","SingerName":"Singer","Duration":180,"FileSize":1000,"HQFileSize":2000,"SQFileSize":3000,"ResFileSize":4000}]}}`))
+	}))
+	defer server.Close()
+	provider := kugouSearchProvider{client: server.Client(), endpoint: server.URL}
+	page, err := provider.Search(context.Background(), "Song", 1, 30)
+	if err != nil { t.Fatal(err) }
+	if len(page.Tracks) != 1 { t.Fatalf("tracks=%#v", page.Tracks) }
+	hasHiRes, hasLegacyAlias := false, false
+	for _, item := range page.Tracks[0].Qualities {
+		if item.Type == "hires" { hasHiRes = true }
+		if item.Type == "flac24bit" { hasLegacyAlias = true }
+	}
+	if !hasHiRes || hasLegacyAlias { t.Fatalf("Kugou Hi-Res must use Xinghai's hires label, got %#v", page.Tracks[0].Qualities) }
 }
