@@ -1084,11 +1084,13 @@ func (s *MusicService) GetCachedPlaybackStatus() (music.PlaybackSnapshot, error)
 }
 
 func (s *MusicService) attachCurrentQueueTrack(snapshot music.PlaybackSnapshot) music.PlaybackSnapshot {
-	if current := s.queue.Snapshot().Current; current != nil {
-		if snapshot.Track == nil || sameLXTrackIdentity(current.Track, *snapshot.Track) {
-			track := current.Track
-			snapshot.Track = &track
-		}
+	current := s.queue.Snapshot().Current
+	s.mu.RLock()
+	resolving := s.playbackResolutionStatus == "resolving"
+	s.mu.RUnlock()
+	if current != nil && (resolving || snapshot.Track == nil || sameLXTrackIdentity(current.Track, *snapshot.Track)) {
+		track := current.Track
+		snapshot.Track = &track
 	}
 	return snapshot
 }
