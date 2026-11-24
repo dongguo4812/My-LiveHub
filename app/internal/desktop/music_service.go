@@ -4,6 +4,7 @@ import (
 	"context"
 			"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 		"sync"
@@ -959,6 +960,9 @@ func (s *MusicService) GetLyrics(track music.Track) (string, error) {
 		if !ok { return "", errors.New("LX lyric action must return a string") }
 		return lyrics, nil
 	}
+	if _, htmlAudio := s.engine.(*htmlAudioPlaybackEngine); htmlAudio {
+		return s.getNativeProviderLyrics(track)
+	}
 	if s.engine == nil { return "", errors.New("music lyrics service is unavailable") }
 	provider, ok := s.engine.(interface {
 		GetCurrentLyrics(context.Context) (string, error)
@@ -997,6 +1001,48 @@ func (s *MusicService) GetLyrics(track music.Track) (string, error) {
 	if after.Track == nil || !sameLXTrackIdentity(track, *after.Track) || !sameLXTrackIdentity(*before.Track, *after.Track) {
 		return "", nil
 	}
+
+	s.lyricsMu.Lock()
+	if s.lyricsCache == nil { s.lyricsCache = make(map[string]string) }
+	if len(s.lyricsCache) >= 128 { s.lyricsCache = make(map[string]string) }
+	s.lyricsCache[cacheKey] = lyrics
+	s.lyricsMu.Unlock()
+	return lyrics, nil
+}
+
+// getNativeProviderLyrics keeps lyric retrieval independent from the legacy 洛雪
+// player API. The selected provider adapter uses the normalized Track metadata
+// already returned by search and returns synchronized LRC for HTMLAudio/Desktop Lyrics.
+func (s *MusicService) getNativeProviderLyrics(track music.Track) (string, error) {
+	source := firstNonEmpty(track.LXSourceKey, track.SourceID)
+	cacheKey := strings.Join([]string{source, track.ID, track.Title, track.Artist}, "\\x00")
+	s.lyricsMu.Lock()
+	cached, ok := s.lyricsCache[cacheKey]
+	s.lyricsMu.Unlock()
+	if ok { return cached, nil }
+
+	ctx, cancel := context.WithTimeout(context.Background(), 18*time.Second)
+	defer cancel()
+	client := &http.Client{Timeout: 18 * time.Second}
+	var lyrics string
+	var err error
+	switch source {
+	case "tx":
+		lyrics, err = music.GetQQMusicLyrics(ctx, client, track)
+	case "kg":
+		lyrics, err = music.GetKugouMusicLyrics(ctx, client, track)
+	case "kw":
+		lyrics, err = music.GetKuwoMusicLyrics(ctx, client, track)
+	case "wy":
+		lyrics, err = music.GetNeteaseMusicLyrics(ctx, client, track)
+	case "mg":
+		lyrics, err = music.GetMiguMusicLyrics(ctx, client, track)
+	default:
+		return "", fmt.Errorf("音源 %q 暂不支持独立歌词解析", source)
+	}
+	if err != nil { return "", fmt.Errorf("获取 %s 歌词失败：%w", source, err) }
+	lyrics = strings.TrimSpace(lyrics)
+	if lyrics == "" { return "", nil }
 
 	s.lyricsMu.Lock()
 	if s.lyricsCache == nil { s.lyricsCache = make(map[string]string) }
