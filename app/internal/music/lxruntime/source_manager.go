@@ -151,7 +151,14 @@ func (m *SourceManager) HasExtensionAction(source, action string) bool {
 	for _, script := range m.scripts {
 		if _, enabled := script.extensionActions[action]; !enabled { continue }
 		if script.supportedSources == nil { return true }
-		if _, supported := script.supportedSources[source]; supported { return true }
+		if _, supported := script.supportedSources[source]; !supported { continue }
+		// Once a script has completed its real LX handshake, use the
+		// provider-specific action declaration rather than the union of
+		// actions declared by all providers (or local music).
+		if script.supportedActions != nil {
+			if _, declared := script.supportedActions[source][action]; !declared { continue }
+		}
+		return true
 	}
 	return false
 }
@@ -319,11 +326,13 @@ func (m *SourceManager) dispatchScriptAction(ctx context.Context, script *manage
 	_, supportsSource := script.supportedSources[source]
 	m.mu.Unlock()
 	if !supportsSource { return nil, &lxSourceUnsupportedError{source: source} }
-	if action == "musicUrl" {
-		m.mu.Lock()
-		_, advertised := script.supportedActions[source]["musicUrl"]
-		m.mu.Unlock()
-		if !advertised { return nil, &lxSourceUnsupportedError{source: source} }
+	m.mu.Lock()
+	_, advertised := script.supportedActions[source][action]
+	m.mu.Unlock()
+	if !advertised {
+		// Do not invoke an action merely because another provider in this
+		// script declared it. LX declarations are scoped to each source.
+		return nil, &lxSourceUnsupportedError{source: source}
 	}
 
 	dispatchCtx, cancel := context.WithTimeout(ctx, lxMaxRequestTimeout)
