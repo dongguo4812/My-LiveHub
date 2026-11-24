@@ -45,10 +45,12 @@ func lxSafeHTTPClientWithResolver(client *http.Client, allowPrivate bool, resolv
 		}
 		safeTransport := transport.Clone()
 		// Do not let caller-provided TLS protocol handlers install an alternate
-		// RoundTripper after the validated dial. Disable HTTP/2 handlers and
-		// force the standard HTTP/1.1 path through our pinned DialContext.
+		// RoundTripper after the validated dial. Keep only Go's built-in HTTP/2
+		// implementation, which still uses this pinned DialContext. Some LX
+		// source backends require HTTP/2 and fail with opaque response errors
+		// when the safe transport silently downgrades them to HTTP/1.1.
 		safeTransport.TLSNextProto = nil
-		safeTransport.ForceAttemptHTTP2 = false
+		safeTransport.ForceAttemptHTTP2 = true
 		// Do not let an ambient proxy bypass the address policy.
 		safeTransport.Proxy = nil
 		// Force HTTPS through the validated DialContext path as well.
