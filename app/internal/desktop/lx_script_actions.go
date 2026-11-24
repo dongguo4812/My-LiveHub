@@ -159,7 +159,7 @@ func (s *MusicService) GetLXTrackLyrics(track music.Track)(string,error){
   tlyric:=scriptString(result,"tlyric","trans")
   if lyric=="" { return tlyric,nil }
   if tlyric=="" { return lyric,nil }
-  return lyric+"\\n"+tlyric,nil
+  return lyric+"\n"+tlyric,nil
  case nil:
   return "",nil
  default:
