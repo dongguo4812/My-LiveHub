@@ -8,7 +8,21 @@ import App from './App.vue'
 import router from './router'
 import {loadAppearance} from './services/appearance'
 import './styles.css'
-import './services/htmlAudio'
+import { disposeHTMLAudioForShutdown } from './services/htmlAudio'
+import { disposeVoiceAudio } from './services/voiceAudio'
+import { stopLive2DMicrophone } from './services/live2dMicrophone'
+
+let audioResourcesDisposed = false
+function disposeAudioResources(reason: string) {
+  if (audioResourcesDisposed) return
+  audioResourcesDisposed = true
+  console.info('audio lifecycle cleanup started:', reason)
+  disposeHTMLAudioForShutdown()
+  disposeVoiceAudio()
+  stopLive2DMicrophone()
+}
+window.addEventListener('pagehide', () => disposeAudioResources('pagehide'), { once: true })
+window.addEventListener('beforeunload', () => disposeAudioResources('beforeunload'), { once: true })
 
 function formatLogValue(value: unknown): string {
   if (value instanceof Error) return value.stack || value.message
