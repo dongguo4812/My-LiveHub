@@ -549,39 +549,49 @@ func (p qqSearchProvider) searchLegacy(ctx context.Context, keyword string, page
 
 func (p qqSearchProvider) Search(ctx context.Context, keyword string, page, limit int) (SearchPage, error) {
 	if limit <= 0 { limit = lxSongSearchPageSize }
-	var payload qqSearchRequest
-	payload.Service.Module = "music.search.SearchCgiService"
-	payload.Service.Method = "DoSearchForQQMusicDesktop"
-	payload.Service.Param.Limit = limit
-	payload.Service.Param.Page = page
-	payload.Service.Param.Query = keyword
-	payload.Service.Param.Type = 0
-	body, err := jsonBody(payload)
-	if err != nil { return SearchPage{}, err }
-	raw, err := doLXJSON(ctx, p.client, http.MethodPost, p.endpoint, map[string]string{
-		"User-Agent":"Mozilla/5.0", "Content-Type":"application/json",
-		"Referer":"https://y.qq.com/", "Origin":"https://y.qq.com",
-	}, bytes.NewReader(body))
-	if err != nil { return SearchPage{}, err }
-	req := mapValue(raw["music.search.SearchCgiService"])
-	if len(req) == 0 { req = mapValue(raw["req_1"]) }
-	if len(req) > 0 && intValue(raw["code"]) == 0 && intValue(req["code"]) == 0 {
-		data := mapValue(req["data"])
-		resultBody := mapValue(data["body"])
-		song := mapValue(resultBody["song"])
-		meta := mapValue(data["meta"])
-		tracks := qqTracksFromDesktop(sliceValue(song["list"]))
-		total := intValue(meta["sum"])
-		if total == 0 { total = intValue(song["totalnum"]) }
-		return SearchPage{Tracks:tracks, Total:total, Page:page, PageSize:limit, MaxPage:pageCount(total,limit), Source:"tx"}, nil
+	var lastStatus string
+	for attempt := 0; attempt <= 5; attempt++ {
+		var payload qqSearchRequest
+		payload.Service.Module = "music.search.SearchCgiService"
+		payload.Service.Method = "DoSearchForQQMusicDesktop"
+		payload.Service.Param.Limit = limit
+		payload.Service.Param.Page = page
+		payload.Service.Param.Query = keyword
+		payload.Service.Param.Type = 0
+		body, err := jsonBody(payload)
+		if err != nil { return SearchPage{}, err }
+		raw, err := doLXJSON(ctx, p.client, http.MethodPost, p.endpoint, map[string]string{
+			"User-Agent":"Mozilla/5.0", "Content-Type":"application/json",
+			"Referer":"https://y.qq.com/", "Origin":"https://y.qq.com",
+		}, bytes.NewReader(body))
+		if err != nil { return SearchPage{}, err }
+		req := mapValue(raw["music.search.SearchCgiService"])
+		if len(req) == 0 { req = mapValue(raw["req_1"]) }
+		if len(req) > 0 && intValue(raw["code"]) == 0 && intValue(req["code"]) == 0 {
+			data := mapValue(req["data"])
+			resultBody := mapValue(data["body"])
+			song := mapValue(resultBody["song"])
+			meta := mapValue(data["meta"])
+			tracks := qqTracksFromDesktop(sliceValue(song["list"]))
+			total := intValue(meta["sum"])
+			if total == 0 { total = intValue(song["totalnum"]) }
+			return SearchPage{Tracks:tracks, Total:total, Page:page, PageSize:limit, MaxPage:pageCount(total,limit), Source:"tx"}, nil
+		}
+		providerCode := intValue(req["code"])
+		if providerCode == 2001 {
+			// 2001 is returned by the anonymous Desktop request. Repeating the same
+			// unsigned payload cannot change its identity; switch to legacy CGI once.
+			return p.searchLegacy(ctx, keyword, page, limit)
+		}
+		lastStatus = fmt.Sprintf("top-level code=%v, provider code=%v", raw["code"], req["code"])
+		if attempt < 5 {
+			select {
+			case <-ctx.Done(): return SearchPage{}, ctx.Err()
+			case <-time.After(time.Duration(attempt+1) * 150 * time.Millisecond):
+			}
+		}
 	}
-	providerCode := intValue(req["code"])
-	if providerCode == 2001 {
-		// 2001 is returned by the anonymous Desktop request. Repeating the same
-		// unsigned payload cannot change its identity; switch to legacy CGI once.
-		return p.searchLegacy(ctx, keyword, page, limit)
-	}
-	return SearchPage{}, fmt.Errorf("QQ 音乐搜索响应状态异常（top-level code=%v, provider code=%v）", raw["code"], req["code"])
+	return SearchPage{}, fmt.Errorf("QQ 音乐搜索响应状态异常（重试 6 次后仍失败：%s）", lastStatus)
 }
 
 // NetEase Cloud Music (wy): LX desktop uses the EAPI AES-128-ECB request.
