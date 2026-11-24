@@ -319,3 +319,44 @@ func TestQQSearchFallbackHandlesDesktopIntermittent2001AcrossCalls(t *testing.T)
 		t.Fatalf("unexpected calls across intermittent responses: Desktop=%d legacy=%d", desktopCalls, legacyCalls)
 	}
 }
+
+
+func TestMiguSearchFallsBackToPublicContentSearch(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/primary", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "primary search temporarily unavailable", http.StatusServiceUnavailable)
+	})
+	mux.HandleFunc("/fallback", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("ua") != "Android_migu" || r.URL.Query().Get("version") != "5.0.1" {
+			t.Errorf("Migu fallback client parameters = %v", r.URL.Query())
+		}
+		if r.URL.Query().Get("text") != "稻香" || r.URL.Query().Get("pageNo") != "1" || r.URL.Query().Get("pageSize") != "30" {
+			t.Errorf("Migu fallback search parameters = %v", r.URL.Query())
+		}
+		_, _ = w.Write([]byte(`{"code":"000000","songResultData":{"totalCount":1,"result":[{"contentId":"MIGU-CONTENT-1","copyrightId":"MIGU-COPY-1","name":"稻香","duration":269,"singers":[{"name":"周杰伦"}],"albums":[{"name":"魔杰座"}],"audioFormats":[{"formatType":"HQ","asize":2048000}],"imgItems":[{"img":"/cover/daoxiang.jpg"}]}]}}`))
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	client := NewLXSearchClientWithEndpoints(server.Client(), LXSearchEndpoints{
+		Migu: server.URL + "/primary",
+		MiguFallback: server.URL + "/fallback",
+	})
+	page, err := client.SearchProvider(context.Background(), LXSearchMG, "稻香", 1)
+	if err != nil { t.Fatalf("Migu fallback search failed: %v", err) }
+	if len(page.Tracks) != 1 { t.Fatalf("Migu fallback returned %d tracks, want 1: %#v", len(page.Tracks), page.Tracks) }
+	track := page.Tracks[0]
+	if track.Title != "稻香" || track.Artist != "周杰伦" || track.Album != "魔杰座" {
+		t.Fatalf("Migu fallback metadata mismatch: %#v", track)
+	}
+	if track.SourceData["songmid"] != "MIGU-CONTENT-1" || track.SourceData["copyright_id"] != "MIGU-COPY-1" {
+		t.Fatalf("Migu fallback native IDs were not retained: %#v", track.SourceData)
+	}
+	if track.DurationMS != 269000 { t.Fatalf("Migu fallback duration = %dms, want 269000ms", track.DurationMS) }
+	if len(track.Qualities) != 1 || track.Qualities[0].Type != "320k" {
+		t.Fatalf("Migu fallback quality metadata = %#v", track.Qualities)
+	}
+	if track.CoverURL != "https://d.musicapp.migu.cn/cover/daoxiang.jpg" {
+		t.Fatalf("Migu fallback cover URL = %q", track.CoverURL)
+	}
+}
