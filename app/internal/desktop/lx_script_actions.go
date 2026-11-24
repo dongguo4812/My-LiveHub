@@ -92,7 +92,7 @@ func normalizeLXScriptSearchResult(source, keyword string, page int, value any) 
   if track.DurationMS==0{d:=scriptInt(fields,"duration_ms","duration","interval","dt");if d>0&&d<100000{d*=1000};track.DurationMS=d}
   if track.SourceID==""{track.SourceID=source};if track.LXSourceKey==""{track.LXSourceKey=source}
   if track.SourceData==nil{track.SourceData=map[string]string{}}
-  for _,key:=range []string{"songmid","song_id","hash","rid","album_id","media_mid","copyright_id","lrc_url"}{if v:=scriptString(fields,key);v!=""{track.SourceData[key]=v}}
+  for _,key:=range []string{"songmid","song_id","songId","songid","hash","filehash","FileHash","rid","album_id","media_mid","copyright_id","mrc_url","lrc_url","trc_url"}{if v:=scriptString(fields,key);v!=""{track.SourceData[key]=v}}
   if track.ID==""||track.Title==""{continue}
   if nativeID!=""&&track.ID==nativeID&&source!="kg"&&!strings.HasPrefix(track.ID,source+"_"){track.ID=source+"_"+track.ID}
   tracks=append(tracks,track)
