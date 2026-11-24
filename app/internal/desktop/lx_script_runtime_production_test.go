@@ -191,17 +191,33 @@ func TestProductionLXCommunityActionHonorsContextCancellation(t *testing.T) {
  if !errors.Is(err,context.DeadlineExceeded){t.Fatalf("extension action did not honor caller deadline: %v",err)}
 }
 
-func TestProductionLXScriptImportRejectsScriptsWithoutCommunityActions(t *testing.T) {
+func TestProductionLXScriptImportRejectsScriptsWithoutSupportedActions(t *testing.T) {
 	manager := testLXConfigManager(t)
 	runtime := newLXScriptRuntime(manager).(*productionMusicLXRuntime)
-	source := `lx.on(lx.EVENT_NAMES.request, () => 'https://1.1.1.1/song.mp3'); lx.send(lx.EVENT_NAMES.inited, {sources:{kw:{type:'music',actions:['musicUrl']}}});`
-	_, err := runtime.ImportScript(context.Background(), "native-only fixture", source)
-	if err == nil || !strings.Contains(err.Error(), "没有声明 My-LiveHub 支持的社区扩展 action") {
-		t.Fatalf("native-only script import error = %v, want explicit unsupported capability error", err)
+	source := `lx.on(lx.EVENT_NAMES.request, () => 'https://1.1.1.1/song.mp3'); lx.send(lx.EVENT_NAMES.inited, {sources:{kw:{type:'music',actions:['unsupportedAction']}}});`
+	_, err := runtime.ImportScript(context.Background(), "unsupported fixture", source)
+	if err == nil || !strings.Contains(err.Error(), "没有声明 My-LiveHub 支持的社区扩展 action 或洛雪原生 musicUrl action") {
+		t.Fatalf("unsupported script import error = %v, want explicit unsupported capability error", err)
 	}
 	if got := runtime.ListScripts(); len(got) != 0 {
 		t.Fatalf("unsupported script was silently persisted: %#v", got)
 	}
+}
+
+func TestProductionLXNativeMusicURLOnlyScriptCanBeImportedAndEnabled(t *testing.T) {
+	manager := testLXConfigManager(t)
+	runtime := newLXScriptRuntime(manager).(*productionMusicLXRuntime)
+	source := `lx.on(lx.EVENT_NAMES.request, ({action}) => action === 'musicUrl' ? 'https://1.1.1.1/song.mp3' : null); lx.send(lx.EVENT_NAMES.inited, {sources:{kw:{type:'music',actions:['musicUrl']}}});`
+	imported, err := runtime.ImportScript(context.Background(), "native playback fixture", source)
+	if err != nil { t.Fatalf("import native musicUrl-only script: %v", err) }
+	if !imported.Enabled || len(imported.NativeActions) != 1 || imported.NativeActions[0] != "musicUrl" || len(imported.ExtensionActions) != 0 {
+		t.Fatalf("native-only import capabilities = %#v", imported)
+	}
+	if err := runtime.Start(context.Background()); err != nil { t.Fatalf("start native-only runtime: %v", err) }
+	defer runtime.Close()
+	if !runtime.Available() { t.Fatal("native-only imported script should make the playback resolver available") }
+	resolved, err := runtime.ResolvePlaybackURL(context.Background(), "kw", map[string]any{"musicInfo": map[string]any{"songmid":"fixture"}})
+	if err != nil || resolved != "https://1.1.1.1/song.mp3" { t.Fatalf("native-only musicUrl result = %q, %v", resolved, err) }
 }
 
 
