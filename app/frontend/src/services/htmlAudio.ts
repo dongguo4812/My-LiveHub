@@ -126,6 +126,8 @@ export function disposeHTMLAudioForShutdown() {
   if (disposed) return
   disposed = true
   unsubscribe()
+  // Invalidate first: pause/load can synchronously dispatch media events.
+  activeSession = 0
   audio.pause()
   audio.removeAttribute('src')
   audio.load()
