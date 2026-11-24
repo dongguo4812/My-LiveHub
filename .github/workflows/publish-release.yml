@@ -1,0 +1,238 @@
+name: Build Windows installer and portable ZIP
+
+on:
+  workflow_run:
+    workflows:
+      - Desktop validation
+    branches:
+      - master
+      - 'v*'
+    types:
+      - completed
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build Windows installer and portable ZIP
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      (github.event.workflow_run.head_branch == 'master' ||
+       startsWith(github.event.workflow_run.head_branch, 'v'))
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - name: Checkout validated commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+          cache: true
+          cache-dependency-path: app/go.sum
+
+      - name: Set up MSYS2 UCRT64 toolchain for production QuickJS
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          path-type: inherit
+          install: >-
+            git
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+
+      - name: Build pinned QuickJS-NG production library
+        shell: msys2 {0}
+        run: |
+          WORKSPACE="$(cygpath -u "$GITHUB_WORKSPACE")"
+          TEMP_DIR="$(cygpath -u "$RUNNER_TEMP")"
+          git clone --depth 1 --branch v0.18.0 https://github.com/quickjs-ng/quickjs.git "$TEMP_DIR/quickjs-ng"
+          cmake -S "$WORKSPACE/app/internal/music/lxruntime/poc/native" -B "$TEMP_DIR/lx-quickjs-production-build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DQUICKJS_NG_SOURCE_DIR="$TEMP_DIR/quickjs-ng"
+          cmake --build "$TEMP_DIR/lx-quickjs-production-build" --config Release
+          mkdir -p "$WORKSPACE/app/internal/music/lxruntime/poc/native/lib"
+          cp "$TEMP_DIR/lx-quickjs-production-build/lib/libqjs.a" "$WORKSPACE/app/internal/music/lxruntime/poc/native/lib/libqjs.a"
+          GITHUB_ENV_PATH="$(cygpath -u "$GITHUB_ENV")"
+          printf 'CGO_ENABLED=1\nCC=gcc\n' >> "$GITHUB_ENV_PATH"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: npm
+          cache-dependency-path: app/frontend/package-lock.json
+
+      - name: Set up Python for built-in LOL Hex runtime
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: app/internal/desktop/lolhex/runtime/requirements.txt
+
+      - name: Add Go bin to PATH
+        shell: pwsh
+        run: |
+          "$(go env GOPATH)\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Cache Wails CLI
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin/wails3.exe
+          key: wails3-${{ runner.os }}-go1.27-v3.1.0
+
+      - name: Install Wails CLI
+        shell: pwsh
+        run: |
+          $wails = Join-Path (go env GOPATH) 'bin/wails3.exe'
+          if (!(Test-Path $wails)) {
+            go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
+          }
+
+      - name: Generate frontend bindings
+        shell: pwsh
+        run: wails3 generate bindings -ts
+
+      - name: Install frontend dependencies
+        working-directory: app/frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: app/frontend
+        run: npm run build
+
+      - name: Test Go with production QuickJS runtime
+        run: go test -tags lxproduction ./...
+
+      - name: Embed Windows application icon
+        shell: pwsh
+        run: |
+          @'
+          <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+          <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+            <assemblyIdentity version="1.0.0.0" name="My-LiveHub"/>
+            <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+              <security><requestedPrivileges><requestedExecutionLevel level="asInvoker" uiAccess="false"/></requestedPrivileges></security>
+            </trustInfo>
+            <application xmlns="urn:schemas-microsoft-com:asm.v3">
+              <windowsSettings>
+                <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+                <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2,PerMonitor</dpiAwareness>
+              </windowsSettings>
+            </application>
+          </assembly>
+          '@ | Set-Content -Path build/manifest.xml -Encoding utf8
+          go run github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0 generate syso -manifest build/manifest.xml -icon build/icon.ico -arch amd64 -out rsrc_windows_amd64.syso
+
+      - name: Build LOL Hex standalone extension
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r internal/desktop/lolhex/runtime/requirements.txt
+          Push-Location internal/desktop/lolhex/runtime
+          try {
+            cmd /c build.bat
+            if ($LASTEXITCODE -ne 0) { throw "LOL Hex extension build failed with exit code $LASTEXITCODE" }
+          } finally {
+            Pop-Location
+          }
+
+      - name: Resolve application version
+        shell: pwsh
+        run: |
+          $headBranch = "${{ github.event.workflow_run.head_branch }}"
+          $version = if ($headBranch.StartsWith('v')) { $headBranch -replace '^v', '' } else { '0.1.3' }
+          "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Assemble application directory
+        shell: pwsh
+        run: |
+          $version = $env:APP_VERSION
+          $package = "bin/package"
+          New-Item -ItemType Directory -Force -Path $package | Out-Null
+          go build -tags lxproduction -ldflags "-H=windowsgui -X main.currentVersion=$version" -o "$package/My-LiveHub.exe" .
+          if ($LASTEXITCODE -ne 0) { throw "My-LiveHub build failed" }
+
+          $moduleSource = "internal/desktop/lolhex/runtime"
+          $moduleTarget = "$package/modules/lol_hex_display"
+          New-Item -ItemType Directory -Force -Path $moduleTarget | Out-Null
+          robocopy $moduleSource $moduleTarget /E /XD .venv build dist data screenshots logs __pycache__ /XF *.pid *.spec
+          $robocopyExitCode = $LASTEXITCODE
+          if ($robocopyExitCode -ge 8) { throw "Copying built-in LOL Hex runtime failed with exit code $robocopyExitCode" }
+          # Robocopy exit codes 0-7 indicate success (including copied files).
+          # Reset LASTEXITCODE so PowerShell does not report a successful copy as a failed step.
+          $global:LASTEXITCODE = 0
+          New-Item -ItemType Directory -Force -Path "$moduleTarget/dist" | Out-Null
+          Copy-Item -Recurse -Force "$moduleSource/dist/lol_hex_display" "$moduleTarget/dist/lol_hex_display"
+
+      - name: Export updater executable
+        shell: pwsh
+        run: |
+          Copy-Item -Force bin/package/My-LiveHub.exe bin/My-LiveHub-windows-amd64.exe
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup installation failed" }
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+          if (!(Test-Path $iscc)) { throw "Inno Setup compiler not found: $iscc" }
+          & $iscc build/windows/My-LiveHub.iss
+          if ($LASTEXITCODE -ne 0) { throw "My-LiveHub installer build failed" }
+          if (!(Test-Path bin/My-LiveHub-Setup.exe)) { throw "Installer output missing" }
+
+      - name: Build portable ZIP
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path bin/portable | Out-Null
+          if (Test-Path bin/portable/My-LiveHub) { Remove-Item -Recurse -Force bin/portable/My-LiveHub }
+          Copy-Item -Recurse -Force bin/package bin/portable/My-LiveHub
+          Set-Content -Path bin/portable/My-LiveHub/.my-livehub-portable -Value 'My-LiveHub portable package' -Encoding ascii
+          Compress-Archive -Path bin/portable/My-LiveHub -DestinationPath bin/My-LiveHub-Portable.zip -CompressionLevel Optimal
+
+      - name: Generate SHA256SUMS
+        shell: pwsh
+        run: |
+          $assets = @(
+            "bin/My-LiveHub-Portable.zip",
+            "bin/My-LiveHub-Setup.exe",
+            "bin/My-LiveHub-windows-amd64.exe"
+          )
+          $lines = foreach ($path in $assets) {
+            $file = Get-Item $path
+            $hash = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($file.Name)"
+          }
+          $lines | Set-Content -Path bin/SHA256SUMS -Encoding ascii
+
+      - name: Upload Windows build artifacts
+        if: github.event.workflow_run.head_branch == 'master'
+        uses: actions/upload-artifact@v4
+        with:
+          name: My-LiveHub-Windows-build-${{ github.event.workflow_run.run_number }}
+          path: |
+            app/bin/My-LiveHub-Portable.zip
+            app/bin/My-LiveHub-Setup.exe
+            app/bin/My-LiveHub-windows-amd64.exe
+            app/bin/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish GitHub Release assets
+        if: startsWith(github.event.workflow_run.head_branch, 'v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.workflow_run.head_branch }}
+          name: ${{ github.event.workflow_run.head_branch }}
+          generate_release_notes: true
+          files: |
+            app/bin/My-LiveHub-Portable.zip
+            app/bin/My-LiveHub-Setup.exe
+            app/bin/My-LiveHub-windows-amd64.exe
+            app/bin/SHA256SUMS
