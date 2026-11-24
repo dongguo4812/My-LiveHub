@@ -224,6 +224,7 @@ onUnmounted(() => {
 .shadow-control input { accent-color:#8da8ed; }
 .lyrics-content { display:flex; flex:1; flex-direction:column; justify-content:center; gap:7px; min-height:0; padding:4px 20px; }
 .original-lyric { margin:0; font-weight:650; line-height:1.25; overflow-wrap:anywhere; }
-.translated-lyric { margin:0; font-weight:450; line-height:1.3; overflow-wrap:anywhere; }\n.retry-lyrics { align-self:center; padding:4px 10px; border:1px solid #ffffff35; border-radius:6px; background:#ffffff14; color:#dce3f5; font-size:11px; cursor:pointer; }
+.translated-lyric { margin:0; font-weight:450; line-height:1.3; overflow-wrap:anywhere; }
+.retry-lyrics { align-self:center; padding:4px 10px; border:1px solid #ffffff35; border-radius:6px; background:#ffffff14; color:#dce3f5; font-size:11px; cursor:pointer; }
 .lyrics-footer { display:flex; justify-content:space-between; color:#9ba7bf; font-size:10px; font-variant-numeric:tabular-nums; }
 </style>
