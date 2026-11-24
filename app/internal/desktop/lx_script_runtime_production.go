@@ -103,6 +103,20 @@ func (r *productionMusicLXRuntime) loadStoreLocked() error {
 		return nil
 	}
 	if len(scripts) > 32 { return fmt.Errorf("LX script store contains %d entries; maximum is 32", len(scripts)) }
+	// Enforce the single-active-script invariant when restoring legacy stores.
+	// If older data contains multiple enabled scripts, the last enabled entry wins.
+	active := -1
+	for i := range scripts {
+		if scripts[i].Enabled { active = i }
+	}
+	if active >= 0 {
+		for i := range scripts {
+			if i != active && scripts[i].Enabled {
+				scripts[i].Enabled = false
+				scripts[i].LastError = "已被更新启用的音源脚本自动停用（同一时间只允许一个脚本启用）"
+			}
+		}
+	}
 	r.scripts = scripts
 	return nil
 }
@@ -217,13 +231,22 @@ func (r *productionMusicLXRuntime) ImportScript(ctx context.Context, name, sourc
 		if existing.Enabled { totalEnabledBytes += len(existing.Source) }
 	}
 	if totalEnabledBytes > 16<<20 { return LXScriptSummary{}, errors.New("enabled LX scripts would exceed the aggregate 16 MiB source limit") }
+	// Import-and-enable is a replacement operation: retain all scripts, but
+	// disable every previous script before activating the newly imported one.
+	previous := append([]storedLXScript(nil), r.scripts...)
+	for i := range r.scripts {
+		if r.scripts[i].Enabled {
+			r.scripts[i].Enabled = false
+			r.scripts[i].LastError = "已被新导入并启用的音源脚本自动停用"
+		}
+	}
 	r.scripts = append(r.scripts, storedLXScript{
 		ID: id, Name: info.Name, Description: info.Description, Version: info.Version,
 		Author: info.Author, Homepage: info.Homepage, Source: source,
 		ExtensionActions: append([]string(nil), capabilities.ExtensionActions...), NativeActions: append([]string(nil), capabilities.NativeActions...), SupportedSources: append([]string(nil), capabilities.SupportedSources...), Enabled: true,
 	})
 	if err := r.rebuildLocked(ctx); err != nil {
-		r.scripts = r.scripts[:len(r.scripts)-1]
+		r.scripts = previous
 		return LXScriptSummary{}, err
 	}
 	return summarizeLXScript(r.scripts[len(r.scripts)-1]), nil
@@ -246,7 +269,7 @@ func (r *productionMusicLXRuntime) SetScriptEnabled(ctx context.Context, id stri
 	if !r.started { if err := r.loadStoreLocked(); err != nil { return err } }
 	for i := range r.scripts {
 		if r.scripts[i].ID != id { continue }
-		previous := r.scripts[i].Enabled
+		previous := append([]storedLXScript(nil), r.scripts...)
 		if enabled {
 			digest := sha256.Sum256([]byte(r.scripts[i].Source))
 			if r.scripts[i].ID != hex.EncodeToString(digest[:]) {
@@ -259,9 +282,17 @@ func (r *productionMusicLXRuntime) SetScriptEnabled(ctx context.Context, id stri
 			if err != nil { return fmt.Errorf("cannot enable LX script: %w", err) }
 			_ = probe.Close()
 		}
+		if enabled {
+			for j := range r.scripts {
+				if j != i && r.scripts[j].Enabled {
+					r.scripts[j].Enabled = false
+					r.scripts[j].LastError = "已被其他音源脚本替换并自动停用"
+				}
+			}
+		}
 		r.scripts[i].Enabled = enabled
 		r.scripts[i].LastError = ""
-		if err := r.rebuildLocked(ctx); err != nil { r.scripts[i].Enabled = previous; return err }
+		if err := r.rebuildLocked(ctx); err != nil { r.scripts = previous; return err }
 		return nil
 	}
 	return fmt.Errorf("LX script %q was not found", id)
