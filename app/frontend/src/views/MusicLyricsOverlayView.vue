@@ -59,7 +59,7 @@ const activeLyric = computed(() => {
   if (lyricsStatus.value === 'loading' || lyricsStatus.value === 'idle') return { text: '歌词加载中…', translation: '' }
   if (lyricsStatus.value === 'error') return { text: '歌词获取失败，稍后重试', translation: '' }
   if (lyricsStatus.value === 'empty' || syncedLyrics.value.length === 0) return { text: '暂无歌词', translation: '' }
-  return getActiveSyncedLyric(syncedLyrics.value, lyricPosition.value) ?? { text: '歌词加载中…', translation: '' }
+  return getActiveSyncedLyric(syncedLyrics.value, lyricPosition.value) ?? { text: '', translation: '' }
 })
 const trackTitle = computed(() => playback.value?.track
   ? `${playback.value.track.title} - ${playback.value.track.artist || '未知歌手'}`
