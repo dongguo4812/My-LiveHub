@@ -62,7 +62,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: app/bin/lxqjs.dll
-          key: quickjs-ng-v0.18.0-ucrt64-${{ runner.os }}-${{ hashFiles('app/internal/music/lxruntime/poc/native/CMakeLists.txt') }}-v1
+          key: quickjs-ng-v0.18.0-ucrt64-${{ runner.os }}-${{ hashFiles('app/internal/music/lxruntime/poc/native/**') }}-v1
 
       - name: Set up MSYS2 UCRT64 toolchain for production QuickJS
         if: steps.quickjs-cache.outputs.cache-hit != 'true'
@@ -96,7 +96,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: app/bin/lxqjs.dll
-          key: quickjs-ng-v0.18.0-ucrt64-${{ runner.os }}-${{ hashFiles('app/internal/music/lxruntime/poc/native/CMakeLists.txt') }}-v1
+          key: quickjs-ng-v0.18.0-ucrt64-${{ runner.os }}-${{ hashFiles('app/internal/music/lxruntime/poc/native/**') }}-v1
 
       - name: Configure production QuickJS runtime
         shell: pwsh
@@ -229,12 +229,8 @@ jobs:
         env:
           MYLIVEHUB_PLAYBACK_URL_FILE: ${{ runner.temp }}\my-livehub-playback-url.txt
         run: |
-          $browserCache = Join-Path $env:LOCALAPPDATA 'ms-playwright'
-          $cachedChromium = Get-ChildItem $browserCache -Directory -Filter 'chromium-*' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (!$cachedChromium) {
-            npx playwright install chromium
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
+          npx playwright install chromium
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node ../../.github/scripts/music-htmlaudio-browser-smoke.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node ../../.github/scripts/music-lyrics-overlay-browser-smoke.mjs
