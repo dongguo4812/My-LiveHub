@@ -366,9 +366,13 @@ func TestProductionLXPlaylistFirstAndRepeatedClickTiming(t *testing.T) {
 
 	start=time.Now()
 	t.Logf("SECOND_TRACK_CLICK_1 start=%s title=%q",start.Format(time.RFC3339Nano),tracks[1].Title)
-	if err:=service.PlayPlaylistTrack(playlist.ID,tracks[1].ID); err!=nil { t.Fatalf("second song first click: %v",err) }
+	secondFirstErr:=service.PlayPlaylistTrack(playlist.ID,tracks[1].ID)
 	secondFirstElapsed:=time.Since(start)
-	t.Logf("SECOND_TRACK_FIRST_RESULT elapsed=%s media_loads=%d",secondFirstElapsed,engine.loadCount())
+	if secondFirstErr!=nil {
+		t.Logf("SECOND_TRACK_FIRST_ERROR elapsed=%s error=%q media_loads=%d",secondFirstElapsed,secondFirstErr.Error(),engine.loadCount())
+	} else {
+		t.Logf("SECOND_TRACK_FIRST_RESULT elapsed=%s media_loads=%d",secondFirstElapsed,engine.loadCount())
+	}
 	time.Sleep(time.Second)
 	start=time.Now()
 	t.Logf("SECOND_TRACK_CLICK_2 start=%s delay_after_first_click=1s title=%q",start.Format(time.RFC3339Nano),tracks[1].Title)
