@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { Loading } from '@element-plus/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
 import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
 
@@ -107,7 +108,7 @@ onMounted(async () => { await loadOriginal(); if (original.value) await searchAl
       </div>
       <el-alert v-if="activeSourceError" :title="`${selectedSourceName}搜索失败：${activeSourceError}`" type="warning" :closable="false" show-icon />
       <el-table v-if="visibleCandidates.length" :data="visibleCandidates" row-key="id" highlight-current-row @current-change="selectCandidate" style="width:100%;margin-top:12px">
-        <el-table-column label="选择" width="62"><template #default="scope"><el-radio :model-value="selectedCandidate?.id === scope.row.id && selectedCandidate?.source_id === scope.row.source_id" @change="selectCandidate(scope.row)" /></template></el-table-column>
+        <el-table-column label="选择" width="62"><template #default="scope"><el-button size="small" :type="selectedCandidate?.id === scope.row.id && selectedCandidate?.source_id === scope.row.source_id ? 'primary' : 'default'" @click="selectCandidate(scope.row)">选择</el-button></template></el-table-column>
         <el-table-column prop="title" label="歌曲" min-width="170" /><el-table-column prop="artist" label="歌手" min-width="130" /><el-table-column prop="album" label="专辑" min-width="130" /><el-table-column label="音质" min-width="130"><template #default="scope">{{ (scope.row.qualities ?? []).map(item => item.type).join(' / ') || '未知' }}</template></el-table-column><el-table-column label="时长" width="82"><template #default="scope">{{ duration(scope.row.duration_ms) }}</template></el-table-column>
         <el-table-column label="操作" width="90"><template #default="scope"><el-button link type="success" @click="previewCandidate(scope.row)">试听</el-button></template></el-table-column>
       </el-table>
@@ -118,10 +119,6 @@ onMounted(async () => { await loadOriginal(); if (original.value) await searchAl
   </section>
 </template>
 
-<script lang="ts">
-import { Loading } from '@element-plus/icons-vue'
-export default { components: { Loading } }
-</script>
 
 <style scoped>
 .music-page{display:flex;flex-direction:column;gap:18px;min-height:calc(100vh - 146px)}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.hint{color:var(--el-text-color-secondary);font-size:13px}.track-compare{display:grid;grid-template-columns:minmax(0,1fr) 40px minmax(0,1fr);align-items:center;gap:14px}.track-compare>div:not(.compare-arrow){display:flex;flex-direction:column;align-items:flex-start;gap:7px;min-width:0;padding:13px;border:1px solid var(--app-border);border-radius:9px;background:var(--el-fill-color-lighter)}.track-compare small,.track-compare span{font-size:12px;color:var(--el-text-color-secondary)}.track-compare strong{font-size:16px}.compare-arrow{text-align:center;font-size:24px;color:var(--app-accent)}.candidate-placeholder{min-height:105px;justify-content:center}.action-row{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.source-tabs{display:flex;gap:6px;overflow-x:auto;border-bottom:1px solid var(--app-border)}.source-tabs button{padding:10px 12px;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--el-text-color-secondary);white-space:nowrap;cursor:pointer}.source-tabs button.active{color:var(--app-accent);border-bottom-color:var(--app-accent)}.source-tabs span{margin-left:5px;font-size:11px}.card-heading{display:flex;justify-content:space-between;align-items:center}.searching-note{padding:28px;text-align:center;color:var(--el-text-color-secondary)}.hint{margin:0}@media(max-width:760px){.track-compare{grid-template-columns:1fr}.compare-arrow{transform:rotate(90deg)}.page-heading{align-items:flex-start;flex-direction:column}}
