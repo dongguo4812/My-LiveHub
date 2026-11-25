@@ -21,6 +21,7 @@ import (
 
 const musicRequestQueueCapacity = 100
 const searchPlayMarker = "__my_livehub_search_play__"
+const playlistPlayMarker = "__my_livehub_playlist_play__"
 
 type MusicSearchResponse struct {
 	Tracks []music.Track `json:"tracks"`
@@ -50,6 +51,12 @@ type MusicService struct {
 	engine music.PlaybackEngine
 	queue *music.Queue
 	history []music.QueueItem
+	playlistPlaybackActive bool
+	playlistPlaybackID string
+	playlistPlaybackName string
+	playlistPlaybackTracks []music.Track
+	playlistPlaybackIndex int
+	playlistPlaybackMode string
 
 	started bool
 	ctx context.Context
@@ -796,6 +803,13 @@ func (s *MusicService) Enqueue(track music.Track, requestedBy string) (music.Que
 }
 
 func (s *MusicService) PlayTrackNow(track music.Track) error {
+	// Manual one-off playback leaves playlist mode; audience requests remain in their own queue.
+	s.mu.Lock()
+	s.playlistPlaybackActive = false
+	s.playlistPlaybackTracks = nil
+	s.playlistPlaybackID = ""
+	s.playlistPlaybackName = ""
+	s.mu.Unlock()
 	if s == nil || s.queue == nil || s.engine == nil { return errors.New("music playback service is unavailable") }
 	s.mu.RLock(); enabled := s.value.Enabled; s.mu.RUnlock()
 	if !enabled { return errors.New("music module is disabled") }
@@ -854,6 +868,12 @@ func (s *MusicService) playNext(parent context.Context) error {
 		current := s.queue.Snapshot().Current
 		if current == nil {
 			item, ok := s.queue.TakeNext()
+			if !ok {
+				if playlistItem, active := s.takeNextPlaylistTrack(); active {
+					item = playlistItem
+					ok = true
+				}
+			}
 			if !ok {
 				if lastStartErr != nil {
 					if nextTrack, supported := s.engine.(interface { NextTrack(context.Context) error }); supported {
@@ -914,7 +934,7 @@ func (s *MusicService) Next() error {
 	s.cancelPlaybackWatcher()
 	if current := snapshot.Current; current != nil { s.pushHistory(*current) }
 	s.queue.FinishCurrent()
-	if len(snapshot.Items) > 0 { return s.PlayNext() }
+	if len(snapshot.Items) > 0 || s.hasActivePlaylistPlayback() { return s.PlayNext() }
 	// When the My-LiveHub request queue is empty, advance 洛雪's own playlist.
 	if err := nextTrack.NextTrack(context.Background()); err != nil {
 		s.startPlaybackWatcher()
@@ -1346,7 +1366,7 @@ func (s *MusicService) advanceAfterPlaybackEnd(snapshot music.PlaybackSnapshot, 
 	if s == nil || s.engine == nil || s.queue == nil {
 		return errors.New("music playback service is unavailable")
 	}
-	if len(s.queue.Snapshot().Items) > 0 {
+	if len(s.queue.Snapshot().Items) > 0 || s.hasActivePlaylistPlayback() {
 		return s.PlayNext()
 	}
 	// HTMLAudio owns only My-LiveHub's queue. An empty queue is a normal end,
