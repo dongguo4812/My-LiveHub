@@ -10,7 +10,6 @@ const route = useRoute()
 const playlists = ref<Playlist[]>([])
 const selectedPlaylistID = ref('')
 const selectedPlaylist = computed(() => playlists.value.find(item => item.id === selectedPlaylistID.value) ?? null)
-const loading = ref(false)
 const importing = ref(false)
 const searching = ref(false)
 const query = ref('')
@@ -127,7 +126,7 @@ async function moveTrack(track: Track, direction: -1 | 1) {
 }
 function openReplace(track: Track) {
   if (!selectedPlaylist.value) return
-  void router.push({ path:'/music/replace', query:{ playlist:selectedPlaylist.value.id, track:track.id } })
+  void router.push({ path:'/music/replace', query:{ playlist:selectedPlaylist.value.id, track:track.id, source:track.source_id } })
 }
 function goMusicTab(tab: string) { void router.push({ path:'/music', query:{ tab } }) }
 onMounted(() => { void refreshPlaylists(String(route.query.id ?? '')) })
