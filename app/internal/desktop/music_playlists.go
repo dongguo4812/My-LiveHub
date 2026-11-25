@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"strconv"
 	"strings"
 	"time"
@@ -219,13 +220,112 @@ func (s *MusicService) ReplacePlaylistTrack(playlistID, oldTrackID string, repla
 	})
 }
 
-func (s *MusicService) PlayPlaylistTrack(playlistID, trackID string) error {
+// PlayPlaylist starts a playlist from the selected track. Pending audience requests
+// always take precedence; playlist mode only advances this playlist's own tracks.
+func (s *MusicService) PlayPlaylist(playlistID, startTrackID string) error {
 	playlist, err := s.GetPlaylist(playlistID)
 	if err != nil { return err }
-	for _, track := range playlist.Tracks {
-		if track.ID == trackID { return s.PlayTrackNow(track) }
+	if len(playlist.Tracks) == 0 { return errors.New("歌单为空，无法播放") }
+	start := 0
+	if startTrackID != "" {
+		start = -1
+		for i := range playlist.Tracks { if playlist.Tracks[i].ID == startTrackID { start = i; break } }
+		if start < 0 { return fmt.Errorf("歌曲不存在：%s", startTrackID) }
 	}
-	return fmt.Errorf("歌曲不存在：%s", trackID)
+	s.mu.Lock()
+	mode := s.playlistPlaybackMode
+	if mode == "" { mode = "sequential" }
+	s.playlistPlaybackActive = true
+	s.playlistPlaybackID = playlist.ID
+	s.playlistPlaybackName = playlist.Name
+	s.playlistPlaybackTracks = append([]music.Track(nil), playlist.Tracks...)
+	s.playlistPlaybackIndex = start
+	s.playlistPlaybackMode = mode
+	s.mu.Unlock()
+
+	current := s.queue.Snapshot().Current
+	// Never interrupt a song requested by an audience member. The playlist
+	// starts as soon as the complete audience queue has been served.
+	if current != nil && current.RequestedBy != playlistPlayMarker &&
+		current.RequestedBy != "" && current.RequestedBy != searchPlayMarker {
+		return nil
+	}
+	s.cancelPlaybackWatcher()
+	s.queue.FinishCurrent()
+	return s.PlayNext()
+}
+
+func (s *MusicService) PlayPlaylistTrack(playlistID, trackID string) error {
+	return s.PlayPlaylist(playlistID, trackID)
+}
+
+func (s *MusicService) hasActivePlaylistPlayback() bool {
+	if s == nil { return false }
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.playlistPlaybackActive && len(s.playlistPlaybackTracks) > 0
+}
+
+func (s *MusicService) takeNextPlaylistTrack() (music.QueueItem, bool) {
+	if s == nil { return music.QueueItem{}, false }
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.playlistPlaybackActive || len(s.playlistPlaybackTracks) == 0 {
+		return music.QueueItem{}, false
+	}
+	index := s.playlistPlaybackIndex
+	if index >= len(s.playlistPlaybackTracks) {
+		switch s.playlistPlaybackMode {
+		case "loop":
+			index = 0
+		case "random":
+			index = rand.Intn(len(s.playlistPlaybackTracks))
+		default:
+			s.playlistPlaybackActive = false
+			return music.QueueItem{}, false
+		}
+	}
+	if index < 0 || index >= len(s.playlistPlaybackTracks) {
+		s.playlistPlaybackActive = false
+		return music.QueueItem{}, false
+	}
+	track := s.playlistPlaybackTracks[index]
+	switch s.playlistPlaybackMode {
+	case "random":
+		if len(s.playlistPlaybackTracks) == 1 { s.playlistPlaybackIndex = 0 } else {
+			next := rand.Intn(len(s.playlistPlaybackTracks)-1)
+			if next >= index { next++ }
+			s.playlistPlaybackIndex = next
+		}
+	default:
+		s.playlistPlaybackIndex = index + 1
+	}
+	return music.QueueItem{
+		ID: fmt.Sprintf("playlist-%d", time.Now().UnixNano()),
+		Track: track, RequestedBy: playlistPlayMarker, AddedAt: time.Now().UTC(),
+	}, true
+}
+
+// SetPlaylistPlaybackMode changes only the active playlist session.
+func (s *MusicService) SetPlaylistPlaybackMode(mode string) error {
+	switch mode {
+	case "sequential", "loop", "random":
+	default:
+		return fmt.Errorf("不支持的歌单播放模式：%s", mode)
+	}
+	if s == nil { return errors.New("music service is unavailable") }
+	s.mu.Lock()
+	s.playlistPlaybackMode = mode
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *MusicService) GetPlaylistPlaybackMode() string {
+	if s == nil { return "sequential" }
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.playlistPlaybackMode == "" { return "sequential" }
+	return s.playlistPlaybackMode
 }
 
 func validatePlaylistTrack(track music.Track) error {
