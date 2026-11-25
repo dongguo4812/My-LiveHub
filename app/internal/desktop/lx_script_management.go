@@ -17,6 +17,7 @@ type LXScriptSummary struct {
 	ExtensionActions []string `json:"extension_actions,omitempty"`
 	NativeActions []string `json:"native_actions,omitempty"`
 	SupportedSources []string `json:"supported_sources,omitempty"`
+	SourceActions map[string][]string `json:"source_actions,omitempty"`
 	LastError string `json:"last_error,omitempty"`
 }
 
