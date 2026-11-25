@@ -14,6 +14,14 @@ const importing = ref(false)
 const error = ref('')
 const success = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
+const searchQuery = ref('')
+const searchResults = ref<Track[]>([])
+const searching = ref(false)
+const addingTrackID = ref('')
+const searchPage = ref(1)
+const searchMaxPage = ref(0)
+const searchTotal = ref(0)
+let searchRequestID = 0
 const sourceNames: Record<string,string> = { tx:'QQ 音乐',kw:'酷我音乐',kg:'酷狗音乐',wy:'网易云音乐',mg:'咪咕音乐' }
 function sourceName(id: string) { return sourceNames[id] ?? id }
 function duration(value?: number) {
@@ -79,6 +87,48 @@ async function importLXPlaylist(event: Event) {
   } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
   finally { importing.value = false; input.value = '' }
 }
+async function searchPlaylistTracks(page = 1) {
+  if (!selectedPlaylist.value || !searchQuery.value.trim()) {
+    error.value = '请输入歌曲名称或歌手'
+    return
+  }
+  const requestID = ++searchRequestID
+  searching.value = true
+  error.value = ''
+  success.value = ''
+  try {
+    const response = await MusicService.SearchAllSourcesPage(searchQuery.value.trim(), page)
+    if (requestID !== searchRequestID) return
+    searchResults.value = response.tracks ?? []
+    searchPage.value = response.page ?? page
+    searchMaxPage.value = response.max_page ?? 1
+    searchTotal.value = response.total ?? searchResults.value.length
+    if (!searchResults.value.length) success.value = '没有找到匹配歌曲'
+  } catch (reason) {
+    if (requestID === searchRequestID) error.value = reason instanceof Error ? reason.message : String(reason)
+  } finally {
+    if (requestID === searchRequestID) searching.value = false
+  }
+}
+function isTrackInSelectedPlaylist(track: Track) {
+  return selectedPlaylist.value?.tracks.some(item => item.id === track.id && item.source_id === track.source_id) ?? false
+}
+async function addSearchTrack(track: Track) {
+  const playlist = selectedPlaylist.value
+  if (!playlist || isTrackInSelectedPlaylist(track)) return
+  addingTrackID.value = `${track.source_id}:${track.id}`
+  error.value = ''
+  success.value = ''
+  try {
+    await MusicService.AddPlaylistTrack(playlist.id, track)
+    await refreshPlaylists(playlist.id)
+    success.value = `已添加到「${playlist.name}」：${track.title} - ${track.artist || '未知歌手'}`
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  } finally {
+    addingTrackID.value = ''
+  }
+}
 async function playPlaylist(startTrackID = '') {
   if (!selectedPlaylist.value) return
   error.value = ''
@@ -140,6 +190,25 @@ onMounted(() => { void refreshPlaylists(String(route.query.id ?? '')) })
       <div class="library-main">
         <el-card v-if="selectedPlaylist" class="player-card" shadow="never">
           <template #header><div class="playlist-heading"><div><strong>{{ selectedPlaylist.name }}</strong><p>{{ selectedPlaylist.tracks.length }} 首歌曲 · 最近更新 {{ new Date(selectedPlaylist.updated_at).toLocaleString() }}</p></div><div class="header-actions"><el-button size="small" type="success" :disabled="!selectedPlaylist.tracks.length" @click="playPlaylist()">播放全部</el-button><el-button size="small" plain @click="renamePlaylist(selectedPlaylist)">重命名</el-button><el-button size="small" type="danger" plain @click="deletePlaylist(selectedPlaylist)">删除歌单</el-button></div></div></template>
+          <div class="playlist-search">
+            <div class="playlist-search-heading"><strong>搜索歌曲并添加到当前歌单</strong><span>搜索全部已注册音源，结果可直接加入「{{ selectedPlaylist.name }}」</span></div>
+            <div class="search-row">
+              <el-input v-model="searchQuery" clearable placeholder="输入歌曲名或歌手，例如：稻香 周杰伦" @keyup.enter="searchPlaylistTracks(1)" />
+              <el-button type="primary" :loading="searching" @click="searchPlaylistTracks(1)">搜索歌曲</el-button>
+            </div>
+            <div v-if="searchTotal > 0" class="search-summary">共 {{ searchTotal }} 条结果 · 第 {{ searchPage }} / {{ searchMaxPage || 1 }} 页</div>
+            <el-table v-if="searchResults.length" :data="searchResults" :row-key="item => `${item.source_id}:${item.id}`" style="width:100%;margin-top:12px">
+              <el-table-column label="歌曲" min-width="170"><template #default="scope"><div class="song-cell"><strong>{{ scope.row.title }}</strong><small>{{ scope.row.artist || '未知歌手' }}<span v-if="scope.row.album"> · {{ scope.row.album }}</span></small></div></template></el-table-column>
+              <el-table-column label="音源" width="112"><template #default="scope">{{ sourceName(scope.row.source_id) }}</template></el-table-column>
+              <el-table-column label="时长" width="82"><template #default="scope">{{ duration(scope.row.duration_ms) }}</template></el-table-column>
+              <el-table-column label="操作" width="120" fixed="right"><template #default="scope"><el-button v-if="isTrackInSelectedPlaylist(scope.row)" link type="success" disabled>已添加</el-button><el-button v-else link type="primary" :loading="addingTrackID === `${scope.row.source_id}:${scope.row.id}`" :disabled="!!addingTrackID" @click="addSearchTrack(scope.row)">添加到歌单</el-button></template></el-table-column>
+            </el-table>
+            <div v-if="searchMaxPage > 1" class="search-pagination">
+              <el-pagination :current-page="searchPage" :page-count="searchMaxPage" layout="prev, pager, next" :disabled="searching" @current-change="searchPlaylistTracks" />
+            </div>
+            <el-empty v-else-if="!searching && searchQuery && !searchResults.length" description="没有找到匹配歌曲" :image-size="58" />
+          </div>
+          <el-divider />
           <el-table :data="selectedPlaylist.tracks" row-key="id" style="width:100%">
             <el-table-column type="index" label="#" width="54" />
             <el-table-column label="歌曲" min-width="190"><template #default="scope"><div class="song-cell"><strong>{{ scope.row.title }}</strong><small>{{ scope.row.artist || '未知歌手' }}<span v-if="scope.row.album"> · {{ scope.row.album }}</span></small></div></template></el-table-column>
@@ -156,5 +225,5 @@ onMounted(() => { void refreshPlaylists(String(route.query.id ?? '')) })
 </template>
 
 <style scoped>
-.music-page{display:flex;flex-direction:column;gap:20px;min-height:calc(100vh - 146px)}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.section-description{color:var(--el-text-color-secondary);font-size:13px}.header-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.hidden-file-input{display:none}.library-layout{display:grid;grid-template-columns:minmax(210px,260px) minmax(0,1fr);gap:16px;align-items:start}.playlist-sidebar{position:sticky;top:12px}.playlist-entry{display:flex;align-items:center;gap:10px;width:100%;padding:11px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--el-text-color-primary);text-align:left;cursor:pointer}.playlist-entry:hover,.playlist-entry.active{border-color:var(--app-accent);background:var(--app-bg-control)}.playlist-icon{font-size:22px;color:var(--app-accent)}.playlist-entry-copy,.song-cell{display:flex;flex-direction:column;gap:4px;min-width:0}.playlist-entry-copy small,.song-cell small,.playlist-heading p{color:var(--el-text-color-secondary);font-size:12px}.playlist-entry-copy strong,.song-cell strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.library-main{display:flex;flex-direction:column;gap:16px;min-width:0}.playlist-heading{display:flex;justify-content:space-between;align-items:center;gap:14px}.playlist-heading p{margin:5px 0 0}.row-actions{display:flex;align-items:center;gap:3px;flex-wrap:wrap}.search-row{display:flex;gap:10px}.music-tabs{display:flex;align-items:center;gap:6px;overflow-x:auto;padding:0 2px 8px;border-bottom:1px solid var(--app-border)}.music-tabs button{white-space:nowrap;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--el-text-color-secondary);padding:11px 14px;margin-bottom:-1px;font:inherit;font-size:14px;cursor:pointer}.music-tabs button.active{color:var(--app-accent);border-bottom-color:var(--app-accent);font-weight:600}.card-heading{display:flex;align-items:center;justify-content:space-between}.section-description{margin:0 0 14px}@media(max-width:900px){.library-layout{grid-template-columns:1fr}.playlist-sidebar{position:static}.page-heading,.playlist-heading{align-items:flex-start;flex-direction:column}.search-row{flex-direction:column}}
+.music-page{display:flex;flex-direction:column;gap:20px;min-height:calc(100vh - 146px)}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.section-description{color:var(--el-text-color-secondary);font-size:13px}.header-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.hidden-file-input{display:none}.library-layout{display:grid;grid-template-columns:minmax(210px,260px) minmax(0,1fr);gap:16px;align-items:start}.playlist-sidebar{position:sticky;top:12px}.playlist-entry{display:flex;align-items:center;gap:10px;width:100%;padding:11px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--el-text-color-primary);text-align:left;cursor:pointer}.playlist-entry:hover,.playlist-entry.active{border-color:var(--app-accent);background:var(--app-bg-control)}.playlist-icon{font-size:22px;color:var(--app-accent)}.playlist-entry-copy,.song-cell{display:flex;flex-direction:column;gap:4px;min-width:0}.playlist-entry-copy small,.song-cell small,.playlist-heading p{color:var(--el-text-color-secondary);font-size:12px}.playlist-entry-copy strong,.song-cell strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.library-main{display:flex;flex-direction:column;gap:16px;min-width:0}.playlist-heading{display:flex;justify-content:space-between;align-items:center;gap:14px}.playlist-heading p{margin:5px 0 0}.row-actions{display:flex;align-items:center;gap:3px;flex-wrap:wrap}.search-row{display:flex;gap:10px}.playlist-search{display:flex;flex-direction:column;gap:10px;margin-bottom:8px}.playlist-search-heading{display:flex;flex-direction:column;gap:4px}.playlist-search-heading span,.search-summary{color:var(--el-text-color-secondary);font-size:12px}.search-pagination{display:flex;justify-content:center;margin-top:12px}.music-tabs{display:flex;align-items:center;gap:6px;overflow-x:auto;padding:0 2px 8px;border-bottom:1px solid var(--app-border)}.music-tabs button{white-space:nowrap;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--el-text-color-secondary);padding:11px 14px;margin-bottom:-1px;font:inherit;font-size:14px;cursor:pointer}.music-tabs button.active{color:var(--app-accent);border-bottom-color:var(--app-accent);font-weight:600}.card-heading{display:flex;align-items:center;justify-content:space-between}.section-description{margin:0 0 14px}@media(max-width:900px){.library-layout{grid-template-columns:1fr}.playlist-sidebar{position:static}.page-heading,.playlist-heading{align-items:flex-start;flex-direction:column}.search-row{flex-direction:column}}
 </style>
