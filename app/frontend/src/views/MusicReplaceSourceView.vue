@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { prepareHTMLAudioForLoudnessNormalization } from '../services/htmlAudio'
 import { computed, onMounted, ref } from 'vue'
 import { Loading } from '@element-plus/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -62,6 +63,7 @@ function selectCandidate(track: Track | null) { if (track) selectedCandidate.val
 function candidateKey(track: Track) { return `${track.source_id}:${track.id}` }
 function qualityNames(track: Track) { return (track.qualities ?? []).map(item => item.type).join(' / ') || '未知' }
 async function previewCandidate(track: Track) {
+  prepareHTMLAudioForLoudnessNormalization()
   try { await MusicService.PlayTrackNow(track); success.value = `试听中：${track.title} - ${track.artist}` }
   catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
 }
