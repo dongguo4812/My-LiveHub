@@ -184,6 +184,12 @@ func TestPlaylistPlaybackModeSettingIsValidated(t *testing.T) {
 	if err := service.SetPlaylistPlaybackMode("audience-first-random"); err == nil {
 		t.Fatal("unsupported playlist playback mode should be rejected")
 	}
+	if err := service.SetPlaylistPlaybackMode("random"); err != nil { t.Fatal(err) }
+	persisted, err := config.LoadMusicConfig(service.manager)
+	if err != nil { t.Fatalf("reload music config: %v", err) }
+	if persisted.PlaylistPlaybackMode != "random" {
+		t.Fatalf("persisted playlist mode = %q, want random", persisted.PlaylistPlaybackMode)
+	}
 }
 
 
@@ -247,5 +253,43 @@ func TestPreviousDoesNotPutPlaylistTrackAheadOfAudienceQueue(t *testing.T) {
 	}
 	if service.playlistPlaybackIndex != 1 {
 		t.Fatalf("playlist resume index = %d, want 1", service.playlistPlaybackIndex)
+	}
+}
+
+
+func TestAudienceRequestInterruptsPlaylistAndResumesInterruptedTrack(t *testing.T) {
+	service := newPlaylistTestService(t)
+	engine := &queueAdvanceTestEngine{}
+	service.engine = engine
+	service.scriptRuntime = nil
+	service.value.Enabled = true
+	defer service.cancelPlaybackWatcher()
+
+	playlistTracks := []music.Track{
+		{ID:"playlist-current", SourceID:"tx", LXSourceKey:"tx", Title:"歌单当前歌曲", Artist:"歌手"},
+		{ID:"playlist-next", SourceID:"tx", LXSourceKey:"tx", Title:"歌单下一首", Artist:"歌手"},
+	}
+	service.playlistPlaybackActive = true
+	service.playlistPlaybackID = "playlist"
+	service.playlistPlaybackTracks = playlistTracks
+	service.playlistPlaybackIndex = 1
+	service.playlistPlaybackMode = "sequential"
+	if _, err := service.queue.SetCurrentTrack(playlistTracks[0], playlistPlayMarker); err != nil { t.Fatal(err) }
+
+	audience := music.Track{ID:"audience-priority", SourceID:"tx", LXSourceKey:"tx", Title:"观众点播歌曲", Artist:"观众"}
+	if _, err := service.Enqueue(audience, "viewer"); err != nil {
+		t.Fatalf("enqueue audience request: %v", err)
+	}
+	current := service.queue.Snapshot().Current
+	if current == nil || current.Track.ID != audience.ID || current.RequestedBy != "viewer" {
+		t.Fatalf("audience request did not immediately preempt playlist: %#v", current)
+	}
+
+	service.cancelPlaybackWatcher()
+	service.queue.FinishCurrent()
+	if err := service.PlayNext(); err != nil { t.Fatalf("resume playlist: %v", err) }
+	current = service.queue.Snapshot().Current
+	if current == nil || current.Track.ID != playlistTracks[0].ID || current.RequestedBy != playlistPlayMarker {
+		t.Fatalf("interrupted playlist track was not resumed after audience request: %#v", current)
 	}
 }
