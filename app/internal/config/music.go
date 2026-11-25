@@ -53,8 +53,9 @@ func MigrateMusicConfig(c MusicConfig) (MusicConfig, bool) {
 		return c, false
 	}
 	n := DefaultMusicConfig()
-	// Volume did not exist before v15; preserve the historical 100% default.
+	// Volume did not exist before v15; preserve the historical 100% default for older configs.
 	n.Volume = 1
+	if c.ConfigVersion >= 15 { n.Volume = c.Volume }
 	n.LoudnessNormalization = c.LoudnessNormalization
 	n.Enabled = c.Enabled
 	n.CommandEnabled = c.CommandEnabled
