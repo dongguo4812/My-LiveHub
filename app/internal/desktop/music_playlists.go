@@ -4,14 +4,14 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"crypto/rand"
+	crand "crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"math/rand"
+	mathrand "math/rand"
 	"strconv"
 	"strings"
 	"time"
@@ -36,7 +36,7 @@ type MusicPlaylist struct {
 
 func newMusicPlaylistID() (string, error) {
 	var raw [16]byte
-	if _, err := rand.Read(raw[:]); err != nil { return "", fmt.Errorf("generate playlist ID: %w", err) }
+	if _, err := crand.Read(raw[:]); err != nil { return "", fmt.Errorf("generate playlist ID: %w", err) }
 	return hex.EncodeToString(raw[:]), nil
 }
 
@@ -279,7 +279,7 @@ func (s *MusicService) takeNextPlaylistTrack() (music.QueueItem, bool) {
 		case "loop":
 			index = 0
 		case "random":
-			index = rand.Intn(len(s.playlistPlaybackTracks))
+			index = mathrand.Intn(len(s.playlistPlaybackTracks))
 		default:
 			s.playlistPlaybackActive = false
 			return music.QueueItem{}, false
