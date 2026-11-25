@@ -141,7 +141,7 @@ onMounted(() => { void refreshPlaylists(String(route.query.id ?? '')) })
             <el-table-column label="时长" width="82"><template #default="scope">{{ duration(scope.row.duration_ms) }}</template></el-table-column>
             <el-table-column label="操作" min-width="230" fixed="right"><template #default="scope"><div class="row-actions"><el-button link type="success" @click="playTrack(scope.row)">播放</el-button><el-button link type="primary" @click="openReplace(scope.row)">换源</el-button><el-button link @click="moveTrack(scope.row,-1)">上移</el-button><el-button link @click="moveTrack(scope.row,1)">下移</el-button><el-button link type="danger" @click="removeTrack(scope.row)">删除</el-button></div></template></el-table-column>
           </el-table>
-          <el-empty v-if="!selectedPlaylist.tracks.length" description="歌单为空，可从下方搜索添加歌曲" :image-size="68" />
+          <el-empty v-if="!selectedPlaylist.tracks.length" description="歌单为空，请前往歌曲搜索添加歌曲" :image-size="68" />
         </el-card>
         <el-card v-else class="player-card" shadow="never"><el-empty description="请选择歌单，或先新建/导入一个歌单" /></el-card>
       </div>
