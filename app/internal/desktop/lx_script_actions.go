@@ -48,7 +48,7 @@ func (s *MusicService) dispatchLXExtension(ctx context.Context, source, action s
 
 // scriptAwareSourceSearcher routes explicitly declared community actions to
 // imported scripts; native provider implementations remain a separate fallback.
-type scriptAwareSourceSearcher struct { base *music.LXSearchClient; service *MusicService }
+type scriptAwareSourceSearcher struct { base music.SourceSearcher; service *MusicService }
 func (a scriptAwareSourceSearcher) Sources() []music.SourceSnapshot { return a.base.Sources() }
 func (a scriptAwareSourceSearcher) SearchProvider(ctx context.Context, source, keyword string, page int) (music.SearchPage, error) {
  // LX production scripts use the native request payload names text/page/limit.
