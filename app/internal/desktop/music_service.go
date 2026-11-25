@@ -43,6 +43,7 @@ type MusicService struct {
 	manager *config.Manager
 	buffer *events.Buffer
 	mu sync.RWMutex
+	playlistMu sync.Mutex
 	lifecycleMu sync.Mutex
 	value config.MusicConfig
 	sources *music.SourceRegistry
