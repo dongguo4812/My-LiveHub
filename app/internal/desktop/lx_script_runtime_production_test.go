@@ -109,6 +109,42 @@ func TestProductionLXScriptTestResultPersistsAndReplacesLatest(t *testing.T) {
 	latest := restored.ListScripts()[0].LastTest
 	if latest == nil || latest.Platforms[0].Message != "second" { t.Fatalf("latest result was not replaced: %#v", latest) }
 }
+func TestProductionLXStartupInitializesOnlyEnabledScriptsAndPersistsFailureDetails(t *testing.T) {
+	manager := testLXConfigManager(t)
+	badSource := `throw new Error("persisted startup failure");`
+	goodSource := `lx.on(lx.EVENT_NAMES.request, () => "https://1.1.1.1/ok.mp3"); lx.send(lx.EVENT_NAMES.inited, {sources:{kw:{type:"music",actions:["musicUrl"]}}});`
+	digest := func(source string) string { sum := sha256.Sum256([]byte(source)); return hex.EncodeToString(sum[:]) }
+	records := []storedLXScript{
+		{ID:digest(badSource), Name:"enabled-broken", Source:badSource, Enabled:true},
+		{ID:digest(goodSource), Name:"disabled-broken", Source:badSource, Enabled:false},
+	}
+	data, err := json.Marshal(records); if err != nil { t.Fatal(err) }
+	if err := manager.WriteLocalJSON(lxScriptStoreFile, data, lxScriptStoreLimit); err != nil { t.Fatal(err) }
+	runtime := newLXScriptRuntime(manager).(*productionMusicLXRuntime)
+	if err := runtime.Start(context.Background()); err != nil { t.Fatalf("music module should start despite an individual source failure: %v", err) }
+	defer runtime.Close()
+	list := runtime.ListScripts()
+	if len(list) != 2 { t.Fatalf("script list = %#v", list) }
+	if list[0].InitializationStatus != "failed" || list[0].InitializationStage != "initialize_script" || !strings.Contains(list[0].LastError, "persisted startup failure") || list[0].InitializationAt.IsZero() {
+		t.Fatalf("enabled script failure diagnostics = %#v", list[0])
+	}
+	if list[1].InitializationStatus != "" || list[1].LastError != "" {
+		t.Fatalf("disabled script should not be initialized or receive an initialization error: %#v", list[1])
+	}
+	_, err = runtime.ResolvePlaybackURL(context.Background(), "kw", map[string]any{})
+	if err == nil || !strings.Contains(err.Error(), "persisted startup failure") {
+		t.Fatalf("failed startup source should not be initialized lazily during playback: %v", err)
+	}
+	// The diagnostic is persisted and survives recreating the production runtime.
+	if err := runtime.Close(); err != nil { t.Fatal(err) }
+	restored := newLXScriptRuntime(manager).(*productionMusicLXRuntime)
+	if err := restored.Start(context.Background()); err != nil { t.Fatal(err) }
+	defer restored.Close()
+	if got := restored.ListScripts()[0]; got.InitializationStatus != "failed" || !strings.Contains(got.LastError, "persisted startup failure") {
+		t.Fatalf("startup diagnostic was not restored: %#v", got)
+	}
+}
+
 func TestProductionLXScriptRuntimeQuarantinesMalformedStore(t *testing.T) {
 	manager := testLXConfigManager(t)
 	if err := manager.WriteLocalJSON(lxScriptStoreFile, []byte("{}"), lxScriptStoreLimit); err != nil { t.Fatal(err) }

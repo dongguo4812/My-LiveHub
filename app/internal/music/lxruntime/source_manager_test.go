@@ -165,6 +165,20 @@ setTimeout(() => lx.send(lx.EVENT_NAMES.inited, {
 	if err := manager.Close(); err != nil { t.Fatal(err) }
 }
 
+func TestSourceManagerRetainsStartupInitializationFailureAndNeverRetriesOnPlayback(t *testing.T) {
+	source := `throw new Error("fixture startup exploded");`
+	manager := newTestSourceManager(t, []LXSourceScript{{Info:ScriptInfo{Name:"broken-startup"}, Source:source}})
+	if err := manager.Start(context.Background()); err != nil { t.Fatalf("per-script failure should not abort music module startup: %v", err) }
+	results := manager.InitializationResults()
+	if len(results) != 1 || results[0].Status != "failed" || results[0].Stage != "initialize_script" || !strings.Contains(results[0].Error, "fixture startup exploded") {
+		t.Fatalf("startup initialization result = %#v", results)
+	}
+	if _, err := manager.ResolvePlaybackURL(context.Background(), "kw", map[string]any{}); err == nil || !strings.Contains(err.Error(), "fixture startup exploded") {
+		t.Fatalf("playback should report retained startup failure, not retry initialization: %v", err)
+	}
+	_ = manager.Close()
+}
+
 func TestProductionSourceManagerRejectsLoopbackPlaybackURL(t *testing.T) {
 	source := `
 lx.on(lx.EVENT_NAMES.request, async () => 'http://127.0.0.1:23330/private-audio');
