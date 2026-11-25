@@ -1,5 +1,6 @@
 {
-  "config_version": 16,
+  "config_version": 17,
+  "loudness_normalization": false,
   "enabled": true,
   "command_enabled": true,
   "skip_command_enabled": true,
