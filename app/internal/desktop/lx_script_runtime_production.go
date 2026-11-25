@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
+	"github.com/dongguo4812/My-LiveHub/app/internal/music"
 	"github.com/dongguo4812/My-LiveHub/app/internal/music/lxruntime"
 )
 
