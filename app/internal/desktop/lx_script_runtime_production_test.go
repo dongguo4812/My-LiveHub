@@ -161,7 +161,7 @@ func TestProductionLXScriptRuntimeQuarantinesMalformedStore(t *testing.T) {
 
 func TestProductionLXScriptRuntimeIsolatesInvalidPersistedScript(t *testing.T) {
 	manager := testLXConfigManager(t)
-	validSource := "lx.send('inited', {});"
+	validSource := `lx.on(lx.EVENT_NAMES.request, () => "https://1.1.1.1/valid-source.mp3"); lx.send(lx.EVENT_NAMES.inited, {sources:{kw:{type:"music",actions:["musicUrl"]}}});`
 	validDigest := sha256.Sum256([]byte(validSource))
 	records := []storedLXScript{
 		{ID:"broken", Name:"broken source", Source:"  ", Enabled:true},
