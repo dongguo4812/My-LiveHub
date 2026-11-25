@@ -37,9 +37,15 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 		"独家音源-v8.js",
 		"裤佬SVIP音源(二改整合版) v3.0.0.js",
 	}
+	// Run independent script runtimes concurrently, but cap outbound provider
+	// traffic so CI does not overload upstream music APIs.
+	slots := make(chan struct{}, 3)
 	for _, filename := range scripts {
 		filename := filename
 		t.Run(filename, func(t *testing.T) {
+			t.Parallel()
+			slots <- struct{}{}
+			defer func() { <-slots }()
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
 
@@ -182,7 +188,8 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 							if strings.Contains(strings.ToLower(resolveErr.Error()), "block ip") {
 								upstreamIPBlocked = true
 								failures = append(failures, sourceID+"/"+quality+" musicUrl: upstream explicitly blocked CI runner IP")
-								continue
+								// The same endpoint block applies to every quality variant.
+								break
 							}
 							otherPlaybackFailure = true
 							failures = append(failures, sourceID+"/"+quality+" musicUrl: "+resolveErr.Error())
@@ -228,7 +235,9 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 						break
 					}
 					if success { break }
+					if upstreamIPBlocked { break }
 				}
+				if upstreamIPBlocked { break }
 			}
 			if success && communitySearchDNSUnavailable {
 				t.Log("uploaded script musicUrl playback passed; its independent QSVIP search remains unverified because both QSVIP API hostnames failed DNS resolution on the GitHub runner")
