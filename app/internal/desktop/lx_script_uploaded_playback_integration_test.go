@@ -256,3 +256,110 @@ func errorTextForLXTest(err error) string {
 	if err == nil { return "no error" }
 	return err.Error()
 }
+
+
+// playlistResolutionProbeEngine opens the resolved media URL on the real
+// resource-aware engine path and records successful stream starts.
+type playlistResolutionProbeEngine struct {
+	mu sync.Mutex
+	track music.Track
+	loads int
+}
+func (e *playlistResolutionProbeEngine) Load(context.Context, music.Track) error { return fmt.Errorf("expected resource-aware playback") }
+func (e *playlistResolutionProbeEngine) LoadResource(ctx context.Context, track music.Track, resource music.PlaybackResource) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, resource.URL, nil)
+	if err != nil { return err }
+	req.Header.Set("Range", "bytes=0-63")
+	req.Header.Set("User-Agent", "Mozilla/5.0 My-LiveHub playlist playback integration")
+	resp, err := (&http.Client{Timeout:25*time.Second}).Do(req)
+	if err != nil { return err }
+	defer resp.Body.Close()
+	buf := make([]byte,64)
+	n, readErr := resp.Body.Read(buf)
+	if (resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent) || n == 0 {
+		return fmt.Errorf("media stream probe status=%s bytes=%d read=%v",resp.Status,n,readErr)
+	}
+	e.mu.Lock(); e.track=track; e.loads++; e.mu.Unlock()
+	return nil
+}
+func (e *playlistResolutionProbeEngine) Pause(context.Context) error { return nil }
+func (e *playlistResolutionProbeEngine) Resume(context.Context) error { return nil }
+func (e *playlistResolutionProbeEngine) Stop(context.Context) error { return nil }
+func (e *playlistResolutionProbeEngine) Snapshot(context.Context) (music.PlaybackSnapshot,error) {
+	e.mu.Lock(); defer e.mu.Unlock()
+	if e.loads==0 { return music.PlaybackSnapshot{State:music.PlaybackIdle},nil }
+	track:=e.track
+	return music.PlaybackSnapshot{State:music.PlaybackPlaying,Track:&track},nil
+}
+func (e *playlistResolutionProbeEngine) loadCount() int { e.mu.Lock(); defer e.mu.Unlock(); return e.loads }
+
+// TestProductionLXPlaylistFirstAndRepeatedClickTiming creates a real two-song
+// playlist from the uploaded aggregate script and times the requested clicks.
+func TestProductionLXPlaylistFirstAndRepeatedClickTiming(t *testing.T) {
+	if os.Getenv("MYLIVEHUB_LX_UPLOADED_PLAYBACK_INTEGRATION")!="1" { t.Skip("requires live uploaded-script integration CI") }
+	ctx,cancel:=context.WithTimeout(context.Background(),4*time.Minute); defer cancel()
+	const filename="回避聚合V0.0.1.js"
+	scriptPath:=filepath.Join("..","..","..","lx-js",filename)
+	source,err:=os.ReadFile(scriptPath); if err!=nil { t.Fatal(err) }
+	manager:=testLXConfigManager(t)
+	runtime:=newLXScriptRuntime(manager).(*productionMusicLXRuntime)
+	if err:=runtime.Start(ctx); err!=nil { t.Fatal(err) }
+	defer runtime.Close()
+	imported,err:=runtime.ImportScript(ctx,filename,string(source)); if err!=nil { t.Fatalf("import %s: %v",filename,err) }
+	if !imported.Enabled || len(imported.NativeActions)==0 || imported.NativeActions[0]!="musicUrl" { t.Fatalf("unexpected script capabilities: %#v",imported) }
+	enabled:=make([]string,0,len(imported.SupportedSources))
+	for _,id:=range imported.SupportedSources { switch id { case "kw","kg","tx","wy","mg": enabled=append(enabled,id) } }
+	if len(enabled)==0 { t.Fatalf("no supported source: %#v",imported) }
+	engine:=&playlistResolutionProbeEngine{}
+	service:=NewMusicServiceWithDependencies(manager,config.MusicConfig{Enabled:true,EnabledSearchSources:enabled},nil,engine)
+	service.scriptRuntime=runtime
+	defer service.Shutdown()
+
+	var tracks []music.Track
+	var selectedSource string
+	for _,sourceID:=range enabled {
+		candidates:=make([]music.Track,0,2); ok:=true
+		for _,query:=range []string{"稻香","晴天"} {
+			page,searchErr:=service.SearchSourcePage(query,sourceID,1)
+			if searchErr!=nil { t.Logf("SEARCH source=%s query=%q error=%v",sourceID,query,searchErr); ok=false; break }
+			var match *music.Track
+			for i:=range page.Tracks {
+				item:=page.Tracks[i]
+				if strings.Contains(item.Title,query) && (strings.Contains(item.Artist,"周杰伦") || strings.Contains(strings.ToLower(item.Artist),"jay chou") || strings.Contains(item.Artist,"周董")) { match=&item; break }
+			}
+			if match==nil { t.Logf("SEARCH source=%s query=%q no canonical artist match results=%d",sourceID,query,len(page.Tracks)); ok=false; break }
+			candidates=append(candidates,*match)
+		}
+		if ok && len(candidates)==2 { tracks=candidates; selectedSource=sourceID; break }
+	}
+	if len(tracks)!=2 { t.Fatalf("cannot create two-track playlist: no same-source results for 稻香 and 晴天; enabled=%v",enabled) }
+	playlist,err:=service.CreatePlaylist("CI首次播放与重复点击诊断"); if err!=nil { t.Fatal(err) }
+	for _,track:=range tracks { if err:=service.AddPlaylistTrack(playlist.ID,track); err!=nil { t.Fatal(err) } }
+	saved,err:=service.GetPlaylist(playlist.ID)
+	if err!=nil || len(saved.Tracks)!=2 { t.Fatalf("playlist tracks=%d err=%v",len(saved.Tracks),err) }
+	t.Logf("PLAYLIST_CREATED id=%s name=%q provider=%s track1=%q track2=%q",playlist.ID,playlist.Name,selectedSource,saved.Tracks[0].Title,saved.Tracks[1].Title)
+
+	start:=time.Now()
+	t.Logf("FIRST_TRACK_CLICK_1 start=%s title=%q",start.Format(time.RFC3339Nano),tracks[0].Title)
+	if err:=service.PlayPlaylistTrack(playlist.ID,tracks[0].ID); err!=nil { t.Fatalf("first song first click: %v",err) }
+	firstSongElapsed:=time.Since(start)
+	status,err:=service.GetPlaybackStatus(); if err!=nil { t.Fatal(err) }
+	if status.Track==nil || !sameLXTrackIdentity(*status.Track,tracks[0]) { t.Fatalf("first song not playing after one click: %#v",status) }
+	t.Logf("FIRST_TRACK_RESULT elapsed=%s state=%s title=%q media_loads=%d",firstSongElapsed,status.State,status.Track.Title,engine.loadCount())
+
+	start=time.Now()
+	t.Logf("SECOND_TRACK_CLICK_1 start=%s title=%q",start.Format(time.RFC3339Nano),tracks[1].Title)
+	if err:=service.PlayPlaylistTrack(playlist.ID,tracks[1].ID); err!=nil { t.Fatalf("second song first click: %v",err) }
+	secondFirstElapsed:=time.Since(start)
+	t.Logf("SECOND_TRACK_FIRST_RESULT elapsed=%s media_loads=%d",secondFirstElapsed,engine.loadCount())
+	time.Sleep(time.Second)
+	start=time.Now()
+	t.Logf("SECOND_TRACK_CLICK_2 start=%s delay_after_first_click=1s title=%q",start.Format(time.RFC3339Nano),tracks[1].Title)
+	if err:=service.PlayPlaylistTrack(playlist.ID,tracks[1].ID); err!=nil { t.Fatalf("second song second click: %v",err) }
+	secondSecondElapsed:=time.Since(start)
+	status,err=service.GetPlaybackStatus(); if err!=nil { t.Fatal(err) }
+	if status.Track==nil || !sameLXTrackIdentity(*status.Track,tracks[1]) { t.Fatalf("second song not playing after second click: %#v",status) }
+	t.Logf("SECOND_TRACK_SECOND_RESULT elapsed=%s state=%s title=%q media_loads=%d",secondSecondElapsed,status.State,status.Track.Title,engine.loadCount())
+	ratio:=float64(secondFirstElapsed)/float64(max(secondSecondElapsed,time.Nanosecond))
+	t.Logf("TIMING_COMPARISON first_song_single_click=%s second_song_click1=%s second_song_click2=%s click2_vs_click1=%.2fx",firstSongElapsed,secondFirstElapsed,secondSecondElapsed,ratio)
+}
