@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Headset, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import '../styles/player-center.css'
-import { getHTMLAudioVolume } from '../services/htmlAudio'
+import { getHTMLAudioVolume, prepareHTMLAudioForLoudnessNormalization } from '../services/htmlAudio'
 import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
 import * as MusicLyricsWindowService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musiclyricswindowservice.js'
 
@@ -220,6 +220,7 @@ async function refreshPlayback() {
 }
 async function saveConfig() {
   if (!config.value) return
+  if (config.value.loudness_normalization) prepareHTMLAudioForLoudnessNormalization()
   saving.value = true
   error.value = ''
   success.value = ''
@@ -314,6 +315,7 @@ async function addToQueue(track: Track) {
 }
 async function playSearchTrackNow(track: Track) {
   error.value = ''
+  if (config.value?.loudness_normalization) prepareHTMLAudioForLoudnessNormalization()
   try {
     const selectedQuality = qualitySelections.value[trackRowKey(track)] ?? ''
     const immediateTrack = Object.assign({}, track, { selected_quality: selectedQuality })
