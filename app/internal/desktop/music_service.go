@@ -877,6 +877,10 @@ func (s *MusicService) playNext(parent context.Context) error {
 				}
 			}
 			if !ok {
+				// A failed playlist item must not be reported as a successful
+				// empty-queue transition. Preserve and return the real resolve/load
+				// failure so the caller and UI can explain why playback did not start.
+				if lastStartErr != nil { return lastStartErr }
 				if playlistWasActive { return nil }
 				if lastStartErr != nil {
 					if nextTrack, supported := s.engine.(interface { NextTrack(context.Context) error }); supported {
