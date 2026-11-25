@@ -230,7 +230,7 @@ func TestMusicConfigV14MigrationAddsPersistentVolumeDefault(t *testing.T) {
 	})
 	if !changed { t.Fatal("expected v14 configuration migration") }
 	if err := got.Validate(); err != nil { t.Fatal(err) }
-	if got.ConfigVersion != 15 || got.Volume != 1 {
+	if got.ConfigVersion != CurrentMusicConfigVersion || got.Volume != 1 {
 		t.Fatalf("v14 migration should default volume to 100%%, got version=%d volume=%v", got.ConfigVersion, got.Volume)
 	}
 }
