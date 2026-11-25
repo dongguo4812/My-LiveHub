@@ -284,3 +284,27 @@ func TestMusicConfigRejectsUnsupportedPlaylistPlaybackMode(t *testing.T) {
 	value.PlaylistPlaybackMode = "unsupported"
 	if err := value.Validate(); err == nil { t.Fatal("unsupported playlist playback mode should be rejected") }
 }
+
+
+func TestMusicConfigV16MigrationAddsLoudnessNormalizationOffByDefault(t *testing.T) {
+	got, changed := MigrateMusicConfig(MusicConfig{
+		ConfigVersion: 16, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
+		SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100, Volume: 0.65,
+	})
+	if !changed { t.Fatal("expected v16 configuration migration") }
+	if err := got.Validate(); err != nil { t.Fatal(err) }
+	if got.ConfigVersion != CurrentMusicConfigVersion || got.LoudnessNormalization {
+		t.Fatalf("v16 migration should default normalization off, got version=%d enabled=%v", got.ConfigVersion, got.LoudnessNormalization)
+	}
+	if got.Volume != 0.65 { t.Fatalf("v16 migration lost saved volume: %v", got.Volume) }
+}
+
+func TestMusicConfigMigrationPreservesLoudnessNormalization(t *testing.T) {
+	got, changed := MigrateMusicConfig(MusicConfig{
+		ConfigVersion: 16, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
+		SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100,
+		LoudnessNormalization: true,
+	})
+	if !changed { t.Fatal("expected v16 configuration migration") }
+	if !got.LoudnessNormalization { t.Fatal("explicit loudness normalization setting was not preserved") }
+}
