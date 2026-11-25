@@ -72,7 +72,6 @@ async function execute(command: Command) {
     audio.removeAttribute('src')
     audio.load()
     activeSession = command.session_id
-    loudnessNormalizationEnabled = command.loudness_normalization ?? loudnessNormalizationEnabled
     // Native HTMLAudio playback is required for cross-origin provider URLs.
     audio.volume = Math.min(1, Math.max(0, command.volume ?? 1))
     audio.src = command.resource.url
