@@ -239,15 +239,49 @@ func (m *SourceManager) Start(ctx context.Context) error {
 		m.started = true
 		return nil
 	}
-	runtime, err := New(Options{})
-	if err != nil {
-		return fmt.Errorf("create production QuickJS runtime for %s: %w", m.scripts[0].info.Name, err)
+
+	// Initialize the enabled source script before the player becomes available.
+	// Previously this handshake was deferred until the first musicUrl request,
+	// making the first "Play all" action pay the entire QuickJS bootstrap cost.
+	for _, script := range m.scripts {
+		if err := ctx.Err(); err != nil { return err }
+		runtime, err := New(Options{EvalTimeout: lxCapabilityProbeEvalTimeout})
+		if err != nil {
+			return fmt.Errorf("create production QuickJS runtime for %s: %w", script.info.Name, err)
+		}
+		initCtx, cancel := context.WithTimeout(ctx, lxMaxRequestTimeout)
+		err = runtime.InitializeLXSource(initCtx, script.info, script.source, m.client)
+		cancel()
+		if err != nil {
+			_ = runtime.Close()
+			return fmt.Errorf("%s 启动初始化失败：%w", script.info.Name, err)
+		}
+		sourcesText, err := runtime.Eval(ctx, `JSON.stringify((globalThis.__lxHostState && globalThis.__lxHostState.initInfo && globalThis.__lxHostState.initInfo.sources) || {})`, "lx-source-capabilities.js")
+		if err != nil {
+			_ = runtime.Close()
+			return fmt.Errorf("%s 读取音源能力失败：%w", script.info.Name, err)
+		}
+		var sourceCapabilities map[string]struct { Actions []string `json:"actions"` }
+		if err := json.Unmarshal([]byte(sourcesText), &sourceCapabilities); err != nil {
+			_ = runtime.Close()
+			return fmt.Errorf("%s 音源能力格式无效：%w", script.info.Name, err)
+		}
+		if len(sourceCapabilities) == 0 {
+			_ = runtime.Close()
+			return fmt.Errorf("%s 初始化成功，但没有声明任何可用音源", script.info.Name)
+		}
+		supported := make(map[string]struct{}, len(sourceCapabilities))
+		actions := make(map[string]map[string]struct{}, len(sourceCapabilities))
+		for name, capability := range sourceCapabilities {
+			supported[name] = struct{}{}
+			actions[name] = make(map[string]struct{}, len(capability.Actions))
+			for _, action := range capability.Actions { actions[name][action] = struct{}{} }
+		}
+		script.runtime = runtime
+		script.initialized = true
+		script.supportedSources = supported
+		script.supportedActions = actions
 	}
-	if err := ctx.Err(); err != nil {
-		_ = runtime.Close()
-		return err
-	}
-	m.scripts[0].runtime = runtime
 	m.started = true
 	return nil
 }
