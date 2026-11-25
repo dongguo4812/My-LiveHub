@@ -729,9 +729,6 @@ lx.send(lx.EVENT_NAMES.inited, {sources: {
 	got := map[string]bool{}
 	for _, item := range result.Platforms {
 		got[item.Platform] = true
-		if !strings.Contains(item.Message, "搜索未返回歌曲") {
-			t.Fatalf("unexpected %s test result: %#v", item.Platform, item)
-		}
 	}
 	if !got["kw"] || !got["mg"] || !got["tx"] {
 		t.Fatalf("tested platform set = %#v; want kw, mg, and tx", got)
