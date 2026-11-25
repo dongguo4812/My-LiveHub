@@ -309,9 +309,12 @@ func TestProductionLXPlaylistFirstAndRepeatedClickTiming(t *testing.T) {
 	defer runtime.Close()
 	imported,err:=runtime.ImportScript(ctx,filename,string(source)); if err!=nil { t.Fatalf("import %s: %v",filename,err) }
 	if !imported.Enabled || len(imported.NativeActions)==0 || imported.NativeActions[0]!="musicUrl" { t.Fatalf("unexpected script capabilities: %#v",imported) }
-	enabled:=make([]string,0,len(imported.SupportedSources))
-	for _,id:=range imported.SupportedSources { switch id { case "kw","kg","tx","wy","mg": enabled=append(enabled,id) } }
-	if len(enabled)==0 { t.Fatalf("no supported source: %#v",imported) }
+	enabled:=make([]string,0,1)
+	// Keep this timing experiment on one stable provider. Mixing providers
+	// makes a transient outage on the first provider contaminate the measured
+	// playlist-click sequence with fallback searches and unrelated latency.
+	for _,id:=range imported.SupportedSources { if id=="kw" { enabled=append(enabled,id); break } }
+	if len(enabled)==0 { t.Fatalf("uploaded aggregate source does not support kw: %#v",imported.SupportedSources) }
 	engine:=&playlistResolutionProbeEngine{}
 	service:=NewMusicServiceWithDependencies(manager,config.MusicConfig{Enabled:true,EnabledSearchSources:enabled},nil,engine)
 	service.scriptRuntime=runtime
