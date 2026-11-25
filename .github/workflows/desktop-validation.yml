@@ -56,7 +56,16 @@ jobs:
           cache: true
           cache-dependency-path: app/go.sum
 
+      # Cache hit skips MSYS2 setup, upstream clone, and the CMake build.
+      - name: Restore production QuickJS runtime cache
+        id: quickjs-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: app/bin/lxqjs.dll
+          key: quickjs-ng-v0.18.0-ucrt64-${{ runner.os }}-${{ hashFiles('app/internal/music/lxruntime/poc/native/CMakeLists.txt') }}-v1
+
       - name: Set up MSYS2 UCRT64 toolchain for production QuickJS
+        if: steps.quickjs-cache.outputs.cache-hit != 'true'
         uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
@@ -69,6 +78,7 @@ jobs:
             mingw-w64-ucrt-x86_64-ninja
 
       - name: Build pinned QuickJS-NG shared runtime for production tests
+        if: steps.quickjs-cache.outputs.cache-hit != 'true'
         shell: msys2 {0}
         run: |
           WORKSPACE="$(cygpath -u "$GITHUB_WORKSPACE")"
@@ -80,8 +90,20 @@ jobs:
           test -n "$DLL"
           mkdir -p "$WORKSPACE/app/bin"
           cp "$DLL" "$WORKSPACE/app/bin/lxqjs.dll"
-          GITHUB_ENV_PATH="$(cygpath -u "$GITHUB_ENV")"
-          printf 'CGO_ENABLED=0\nMYLIVEHUB_QUICKJS_LIB=%s\\app\\bin\\lxqjs.dll\n' "$GITHUB_WORKSPACE" >> "$GITHUB_ENV_PATH"
+
+      - name: Save production QuickJS runtime cache
+        if: steps.quickjs-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/bin/lxqjs.dll
+          key: quickjs-ng-v0.18.0-ucrt64-${{ runner.os }}-${{ hashFiles('app/internal/music/lxruntime/poc/native/CMakeLists.txt') }}-v1
+
+      - name: Configure production QuickJS runtime
+        shell: pwsh
+        run: |
+          if (!(Test-Path "bin/lxqjs.dll")) { throw "Cached or built QuickJS runtime is missing: app/bin/lxqjs.dll" }
+          "CGO_ENABLED=0" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "MYLIVEHUB_QUICKJS_LIB=$env:GITHUB_WORKSPACE\app\bin\lxqjs.dll" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Verify Go modules
         shell: pwsh
@@ -121,9 +143,24 @@ jobs:
         shell: pwsh
         run: wails3 generate bindings -ts
 
+      - name: Restore frontend node_modules cache
+        id: frontend-deps-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: app/frontend/node_modules
+          key: frontend-node26-${{ runner.os }}-${{ hashFiles('app/frontend/package-lock.json') }}-v1
+
       - name: Install frontend dependencies
+        if: steps.frontend-deps-cache.outputs.cache-hit != 'true'
         working-directory: app/frontend
         run: npm ci
+
+      - name: Save frontend node_modules cache
+        if: steps.frontend-deps-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/frontend/node_modules
+          key: frontend-node26-${{ runner.os }}-${{ hashFiles('app/frontend/package-lock.json') }}-v1
 
       - name: Build frontend
         working-directory: app/frontend
@@ -192,8 +229,12 @@ jobs:
         env:
           MYLIVEHUB_PLAYBACK_URL_FILE: ${{ runner.temp }}\my-livehub-playback-url.txt
         run: |
-          npx playwright install chromium
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $browserCache = Join-Path $env:LOCALAPPDATA 'ms-playwright'
+          $cachedChromium = Get-ChildItem $browserCache -Directory -Filter 'chromium-*' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (!$cachedChromium) {
+            npx playwright install chromium
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
           node ../../.github/scripts/music-htmlaudio-browser-smoke.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node ../../.github/scripts/music-lyrics-overlay-browser-smoke.mjs
