@@ -20,7 +20,7 @@ const (
 	// Aggregate LX sources may intentionally wait up to 8 seconds for a high-quality
 	// backend before falling back. A 5-second host deadline cut that script off
 	// before its own timeout and made first-click playlist playback fail.
-	fallbackSourceResolveTimeout = 10 * time.Second
+	fallbackSourceResolveTimeout = 25 * time.Second
 )
 
 func (s *MusicService) resolvePlaybackResource(ctx context.Context, track music.Track) (music.PlaybackResource, error) {
@@ -96,7 +96,7 @@ func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original m
 			if resolveErr != nil {
 				if ctx.Err() != nil { return music.Track{}, context.Canceled }
 				if errors.Is(resolveErr, context.DeadlineExceeded) {
-					failures = append(failures, source+": 播放资源解析超时（单音源上限 5 秒）")
+					failures = append(failures, fmt.Sprintf("%s: 播放资源解析超时（单音源上限 %s）", source, fallbackSourceResolveTimeout))
 				} else {
 					failures = append(failures, source+": 播放资源解析失败："+resolveErr.Error())
 				}
