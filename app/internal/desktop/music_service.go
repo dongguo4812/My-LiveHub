@@ -125,6 +125,7 @@ func (s *MusicService) useHTMLAudioPlayback() {
 	s.mu.Lock()
 	bridge := newHTMLAudioPlaybackEngine(s.HandlePlaybackResourceFailure)
 	bridge.volume = s.value.Volume
+	bridge.loudnessNormalization = s.value.LoudnessNormalization
 	s.engine = bridge
 	s.mu.Unlock()
 }
@@ -635,10 +636,14 @@ func (s *MusicService) SaveConfig(value config.MusicConfig) error {
 	}
 	s.mu.Lock()
 	wasEnabled := s.value.Enabled
+	wasLoudnessNormalization := s.value.LoudnessNormalization
 	s.value = cloneMusicConfig(value)
 	s.playlistPlaybackMode = value.PlaylistPlaybackMode
 	s.mu.Unlock()
 	if player, ok := s.engine.(*LXPlaybackEngine); ok { player.SetEndpoints(value.LXAPIEndpoints) }
+	if bridge, ok := s.engine.(*htmlAudioPlaybackEngine); ok && wasLoudnessNormalization != value.LoudnessNormalization {
+		if err := bridge.SetLoudnessNormalization(value.LoudnessNormalization); err != nil { return fmt.Errorf("应用响度标准化设置失败：%w", err) }
+	}
 	if !wasEnabled && value.Enabled {
 		s.mu.RLock()
 		started := s.started
