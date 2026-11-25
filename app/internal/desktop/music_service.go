@@ -636,6 +636,7 @@ func (s *MusicService) SaveConfig(value config.MusicConfig) error {
 	s.mu.Lock()
 	wasEnabled := s.value.Enabled
 	s.value = cloneMusicConfig(value)
+	s.playlistPlaybackMode = value.PlaylistPlaybackMode
 	s.mu.Unlock()
 	if player, ok := s.engine.(*LXPlaybackEngine); ok { player.SetEndpoints(value.LXAPIEndpoints) }
 	if !wasEnabled && value.Enabled {
