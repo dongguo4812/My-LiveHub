@@ -104,6 +104,22 @@ func TestLXPlaylistImportGzipFullExportImportsAllLists(t *testing.T) {
 }
 
 
+func TestPlaylistPlaybackActiveIsExposedToPlayerControls(t *testing.T) {
+	service := newPlaylistTestService(t)
+	if service.GetPlaylistPlaybackActive() {
+		t.Fatal("playlist playback must be inactive before a playlist starts")
+	}
+	service.playlistPlaybackActive = true
+	service.playlistPlaybackTracks = []music.Track{{ID:"one", SourceID:"tx", Title:"One"}}
+	if !service.GetPlaylistPlaybackActive() {
+		t.Fatal("active playlist session must be exposed to the player controls")
+	}
+	service.playlistPlaybackActive = false
+	if service.GetPlaylistPlaybackActive() {
+		t.Fatal("stopped playlist session must not enable the next button")
+	}
+}
+
 func TestPlaylistPlaybackModesAdvanceOnlyPlaylistTracks(t *testing.T) {
 	service := newPlaylistTestService(t)
 	service.playlistPlaybackActive = true
