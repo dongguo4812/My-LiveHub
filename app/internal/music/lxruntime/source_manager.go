@@ -275,14 +275,14 @@ func (m *SourceManager) Start(ctx context.Context) error {
 		if err != nil { script.initError = "创建 QuickJS Runtime 失败：" + err.Error(); continue }
 		script.runtime = runtime
 		script.initStage = "initialize_script"
-		initCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		initCtx, cancel := context.WithTimeout(ctx, lxMaxRequestTimeout)
 		err = runtime.InitializeLXSource(initCtx, script.info, script.source, m.client)
 		timedOut := errors.Is(initCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
 		cancel()
 		if err != nil {
 			_ = runtime.Close(); script.runtime = nil
 			if ctxErr := ctx.Err(); ctxErr != nil { return ctxErr }
-			if timedOut { script.initError = "初始化超时（单个已启用 JS 音源启动初始化时限为 5 秒）：" + err.Error() } else { script.initError = "执行 JS 音源初始化失败：" + err.Error() }
+			if timedOut { script.initError = "初始化超时（单个已启用 JS 音源启动初始化时限为 60 秒）：" + err.Error() } else { script.initError = "执行 JS 音源初始化失败：" + err.Error() }
 			continue
 		}
 		script.initStage = "read_capabilities"
