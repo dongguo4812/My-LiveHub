@@ -74,6 +74,10 @@ lx.send(lx.EVENT_NAMES.inited, {
 	if len(list) != 1 || !list[0].Enabled || list[0].Name != "Fixture Source" || list[0].Version != "1.2.3" || list[0].Author != "My-LiveHub tests" || list[0].Homepage != "https://example.test/source" { t.Fatalf("imported script metadata = %#v", list) }
 	id := list[0].ID
 	if err := runtime.Start(context.Background()); err != nil { t.Fatalf("start and restore scripts: %v", err) }
+	startupSummary := runtime.ListScripts()[0]
+	if startupSummary.InitializationStatus != "ready" || startupSummary.InitializationAt.IsZero() || startupSummary.LastError != "" {
+		t.Fatalf("successful startup initialization status = %#v", startupSummary)
+	}
 	if !runtime.Available() { t.Fatal("restored script runtime should be available") }
 	if got, err := runtime.ResolvePlaybackURL(context.Background(), "kw", map[string]any{}); err != nil || got != "https://1.1.1.1/song.mp3" { t.Fatalf("restored script URL = %q, %v", got, err) }
 	if err := runtime.SetScriptEnabled(context.Background(), id, false); err != nil { t.Fatalf("disable script: %v", err) }

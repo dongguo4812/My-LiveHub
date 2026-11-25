@@ -165,7 +165,7 @@ setTimeout(() => lx.send(lx.EVENT_NAMES.inited, {
 	if err := manager.Close(); err != nil { t.Fatal(err) }
 }
 
-func TestSourceManagerRetainsStartupInitializationFailureAndNeverRetriesOnPlayback(t *testing.T) {
+func TestProductionLXSourceManagerRetainsStartupInitializationFailureAndNeverRetriesOnPlayback(t *testing.T) {
 	source := `throw new Error("fixture startup exploded");`
 	manager := newTestSourceManager(t, []LXSourceScript{{Info:ScriptInfo{Name:"broken-startup"}, Source:source}})
 	if err := manager.Start(context.Background()); err != nil { t.Fatalf("per-script failure should not abort music module startup: %v", err) }
