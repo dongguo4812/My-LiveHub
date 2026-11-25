@@ -93,10 +93,14 @@ async function importLXPlaylist(event: Event) {
 }
 async function playPlaylist(startTrackID = '') {
   if (!selectedPlaylist.value) return
+  const playlist = selectedPlaylist.value
+  const firstTrackID = playlist.tracks[0]?.id ?? ''
+  const requestedTrackID = startTrackID || firstTrackID
+  if (!requestedTrackID) return
   error.value = ''
   try {
-    await MusicService.PlayPlaylist(selectedPlaylist.value.id, startTrackID)
-    success.value = startTrackID ? '已从选中歌曲开始播放歌单' : `开始播放歌单：${selectedPlaylist.value.name}`
+    await MusicService.PlayPlaylist(playlist.id, requestedTrackID)
+    success.value = startTrackID ? '已从选中歌曲开始播放歌单' : `开始播放歌单：${playlist.name}`
   } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
 }
 async function playTrack(track: PlaylistTrack) {
