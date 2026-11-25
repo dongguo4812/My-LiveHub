@@ -9,6 +9,7 @@ import * as MusicLyricsWindowService from '../../bindings/github.com/dongguo4812
 
 type MusicConfig = Awaited<ReturnType<typeof MusicService.GetConfig>>
 type Track = Awaited<ReturnType<typeof MusicService.Search>>['tracks'][number]
+type Playlist = Awaited<ReturnType<typeof MusicService.ListPlaylists>>[number]
 type QueueSnapshot = Awaited<ReturnType<typeof MusicService.GetQueue>>
 type PlaybackSnapshot = Awaited<ReturnType<typeof MusicService.GetPlaybackStatus>>
 
@@ -70,6 +71,12 @@ const queue = ref<QueueSnapshot | null>(null)
 const draggedQueueItemID = ref('')
 const playback = ref<PlaybackSnapshot | null>(null)
 const results = ref<Track[]>([])
+const playlists = ref<Playlist[]>([])
+const playlistDialogVisible = ref(false)
+const playlistLoading = ref(false)
+const playlistAdding = ref(false)
+const selectedPlaylistID = ref('')
+const trackToAdd = ref<Track | null>(null)
 const searchErrors = ref<Record<string, string>>({})
 const qualitySelections = ref<Record<string, string>>({})
 const query = ref('')
@@ -255,6 +262,38 @@ function search() {
   maxPage.value = 0
   total.value = 0
   void loadSearchPage(1)
+}
+async function openAddToPlaylist(track: Track) {
+  trackToAdd.value = track
+  selectedPlaylistID.value = ''
+  playlistDialogVisible.value = true
+  playlistLoading.value = true
+  error.value = ''
+  try {
+    playlists.value = await MusicService.ListPlaylists()
+    selectedPlaylistID.value = playlists.value[0]?.id ?? ''
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  } finally {
+    playlistLoading.value = false
+  }
+}
+async function confirmAddToPlaylist() {
+  if (!trackToAdd.value || !selectedPlaylistID.value) return
+  const playlist = playlists.value.find(item => item.id === selectedPlaylistID.value)
+  if (!playlist) return
+  playlistAdding.value = true
+  error.value = ''
+  try {
+    await MusicService.AddPlaylistTrack(playlist.id, trackToAdd.value)
+    success.value = `已添加到歌单「${playlist.name}」：${trackToAdd.value.title} - ${trackToAdd.value.artist || '未知歌手'}`
+    playlistDialogVisible.value = false
+    trackToAdd.value = null
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  } finally {
+    playlistAdding.value = false
+  }
 }
 async function addToQueue(track: Track) {
   error.value = ''
@@ -456,7 +495,7 @@ onUnmounted(() => {
         <el-table-column label="可用音质" min-width="150"><template #default="scope">{{ qualityNames(scope.row) }}</template></el-table-column>
         <el-table-column label="播放音质" min-width="135"><template #default="scope"><el-select v-model="qualitySelections[trackRowKey(scope.row)]" size="small" clearable placeholder="自动"><el-option v-for="quality in (scope.row.qualities ?? [])" :key="quality.type" :label="quality.type" :value="quality.type" /></el-select></template></el-table-column>
         <el-table-column label="时长" width="90"><template #default="scope">{{ formatDuration(scope.row.duration_ms) }}</template></el-table-column>
-        <el-table-column label="操作" width="170" fixed="right"><template #default="scope"><el-button link type="success" @click="playSearchTrackNow(scope.row)">立即播放</el-button><el-button link type="primary" @click="addToQueue(scope.row)">加入队列</el-button></template></el-table-column>
+        <el-table-column label="操作" width="250" fixed="right"><template #default="scope"><el-button link type="success" @click="playSearchTrackNow(scope.row)">立即播放</el-button><el-button link type="primary" @click="addToQueue(scope.row)">加入队列</el-button><el-button link type="warning" @click="openAddToPlaylist(scope.row)">添加歌单</el-button></template></el-table-column>
       </el-table>
       <div v-if="maxPage > 1" class="search-pagination">
         <el-pagination
@@ -470,6 +509,26 @@ onUnmounted(() => {
       </div>
       <el-empty v-else-if="!searching && results.length === 0" description="搜索结果将在这里显示" :image-size="76" />
     </el-card>
+
+    <el-dialog v-model="playlistDialogVisible" title="添加到歌单" width="420px">
+      <div v-if="trackToAdd" class="playlist-add-track">
+        <strong>{{ trackToAdd.title }}</strong>
+        <span>{{ trackToAdd.artist || '未知歌手' }} · {{ sourceName(trackToAdd.source_id) }}</span>
+      </div>
+      <el-skeleton v-if="playlistLoading" :rows="2" animated />
+      <template v-else>
+        <el-select v-if="playlists.length" v-model="selectedPlaylistID" style="width:100%" placeholder="选择目标歌单">
+          <el-option v-for="playlist in playlists" :key="playlist.id" :label="`${playlist.name}（${playlist.tracks.length} 首）`" :value="playlist.id" />
+        </el-select>
+        <el-empty v-else description="还没有歌单，请先创建一个歌单" :image-size="72">
+          <el-button type="primary" @click="playlistDialogVisible = false; $router.push('/music/playlists')">前往我的列表创建</el-button>
+        </el-empty>
+      </template>
+      <template #footer>
+        <el-button @click="playlistDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="playlistAdding" :disabled="playlistLoading || !playlists.length || !selectedPlaylistID" @click="confirmAddToPlaylist">确认添加</el-button>
+      </template>
+    </el-dialog>
 
     <el-card v-if="activeTab === 'visitor-requests'" class="player-card" shadow="never">
       <template #header>
@@ -598,5 +657,5 @@ onUnmounted(() => {
 .mini-player-track strong,.mini-player-track span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:280px}
 .mini-player-track span,.mini-player-actions>span{font-size:12px;color:var(--el-text-color-secondary)}
 .music-page{display:flex;flex-direction:column;gap:20px;min-height:calc(100vh - 146px)}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.section-description,.source-copy span,.setting-row p,.hint{color:var(--el-text-color-secondary);font-size:13px}.section-description{margin:0 0 16px}.card-heading{display:flex;align-items:center;justify-content:space-between}.source-list,.setting-list{display:flex;flex-direction:column}.source-row,.setting-row{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:14px 0;border-bottom:1px solid var(--app-border)}.source-row:last-child{border-bottom:0}.source-copy,.track-info{display:flex;flex-direction:column;gap:5px}.source-copy span,.track-info span,.track-info small{font-size:12px;color:var(--el-text-color-secondary)}.setting-row p{margin:6px 0 0}.card-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}.now-playing-list{margin-top:22px;padding-top:18px;border-top:1px solid var(--app-border)}.now-playing-list-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.now-playing-list-header>div{display:flex;flex-direction:column;gap:4px}.now-playing-list-header strong{font-size:15px}.now-playing-list-header span{font-size:12px;color:var(--el-text-color-secondary)}.now-playing-track-list{display:flex;flex-direction:column;gap:6px}.now-playing-track{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid transparent;border-radius:8px;background:var(--el-fill-color-lighter)}.now-playing-track-active{border-color:var(--app-accent);background:var(--app-bg-control)}.now-playing-track-index{width:28px;color:var(--el-text-color-secondary);font-size:12px;font-variant-numeric:tabular-nums;text-align:center}.now-playing-track-info{display:flex;flex:1;flex-direction:column;gap:3px;min-width:0}.now-playing-track-info strong,.now-playing-track-info span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.now-playing-track-info strong{font-size:13px}.now-playing-track-info span{font-size:12px;color:var(--el-text-color-secondary)}.now-playing{display:flex;align-items:center;gap:16px}.track-cover{width:76px;height:76px;border-radius:10px;background:var(--app-bg-control);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--el-text-color-secondary);font-size:30px}.track-cover img{width:100%;height:100%;object-fit:cover}.track-info strong{font-size:17px}.time-row{display:flex;justify-content:space-between;color:var(--el-text-color-secondary);font-size:12px;font-variant-numeric:tabular-nums}.player-controls{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:14px 0}.playback-order-row{display:flex;align-items:center;justify-content:center;gap:12px;margin:8px 0 14px}.playback-order-row span{font-size:13px;color:var(--el-text-color-secondary)}.volume-row{display:grid;grid-template-columns:50px 1fr;align-items:center;gap:12px}.volume-row span{font-size:13px;color:var(--el-text-color-secondary)}.hint{margin:12px 0 0}.search-row{display:flex;gap:10px}.lx-import-row{display:flex;gap:10px;align-items:center;min-width:min(520px,55%)}.lx-import-row :deep(.el-input){flex:1;min-width:180px}.lx-import-mode-row :deep(.el-radio-group){flex-shrink:0}.hidden-file-input{display:none}.lx-source-list{display:flex;flex-direction:column;margin-top:16px}.lx-source-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-top:1px solid var(--app-border)}.lx-source-row .source-copy{min-width:0}.lx-source-row .source-copy span{overflow-wrap:anywhere}.lx-search-source-settings{display:flex;flex-direction:column;gap:6px;margin-top:8px}.lx-search-source-checkboxes{display:flex;flex-wrap:wrap;gap:8px 12px}.lx-search-source-toggle{display:inline-flex;align-items:center;gap:7px;padding:4px 9px;border:1px solid var(--app-border);border-radius:6px;background:var(--el-bg-color);color:var(--el-text-color-regular);font:inherit;font-size:13px;cursor:pointer;transition:border-color .15s,background .15s,color .15s}.lx-search-source-toggle:hover{border-color:var(--app-accent)}.lx-search-source-toggle:has(.lx-search-source-checkbox:checked){border-color:var(--app-accent);background:var(--app-bg-control);color:var(--app-accent)}.lx-search-source-checkbox{width:15px;height:15px;margin:0;flex:0 0 15px;accent-color:var(--app-accent);cursor:pointer}.lx-search-priority-list{display:flex;flex-direction:column;align-items:stretch;gap:5px;margin-top:10px;padding:9px 10px;max-width:360px;border:1px solid var(--app-border);border-radius:7px;background:var(--el-fill-color-lighter)}.lx-search-priority-list>strong{font-size:13px}.lx-search-priority-empty{font-size:12px;color:var(--el-text-color-secondary)}.lx-search-priority-row{display:flex;align-items:center;justify-content:space-between;padding:5px 9px;border:1px solid var(--app-border);border-radius:6px;background:var(--el-bg-color)}.lx-search-priority-row strong{font-size:12px}.lx-search-priority-actions{display:flex;gap:6px}
-.lx-proxy-fields{display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:16px}.lx-proxy-fields label{display:flex;flex-direction:column;gap:8px;color:var(--el-text-color-regular);font-size:13px}.lx-source-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}.lx-source-test-results{display:flex;flex-direction:column;gap:6px;width:100%;padding:8px 0 4px;border-top:1px dashed var(--app-border)}.lx-source-test-result{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:12px}.lx-source-test-result>span{color:var(--el-text-color-secondary)}.lx-source-test-result small{color:var(--el-text-color-secondary)}.search-summary{margin-top:12px;color:var(--el-text-color-secondary);font-size:12px}.search-pagination{display:flex;justify-content:center;margin-top:18px}.queue-current{padding:10px 12px;margin-bottom:12px;border-radius:8px;background:var(--app-bg-control);font-size:13px}.queue-list{display:flex;flex-direction:column;gap:8px}.queue-item{display:flex;align-items:center;gap:12px;padding:11px 12px;border:1px solid var(--app-border);border-radius:9px;background:var(--el-bg-color);transition:border-color .15s,opacity .15s}.queue-item:hover{border-color:var(--app-accent)}.queue-item-dragging{opacity:.45}.queue-drag-handle{display:flex;align-items:center;color:var(--el-text-color-secondary);cursor:grab;touch-action:none}.queue-drag-handle:active{cursor:grabbing}.queue-index{width:24px;color:var(--el-text-color-secondary);font-size:12px;text-align:center}.queue-track{display:flex;flex:1;flex-direction:column;gap:4px;min-width:0}.queue-track strong,.queue-track span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.queue-track span,.queue-requester{color:var(--el-text-color-secondary);font-size:12px}.queue-requester{max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.setting-row p{margin:6px 0 0}@media(max-width:800px){.music-page{min-height:calc(100vh - 126px)}.mini-player{margin-left:-22px;margin-right:-22px;margin-bottom:-22px;padding-left:22px;padding-right:22px}.source-row,.setting-row{align-items:flex-start;flex-direction:column}.search-row,.lx-import-row{flex-direction:column;align-items:stretch}.lx-source-row{align-items:flex-start}.mini-player{align-items:flex-start;flex-direction:column}.mini-player-actions{width:100%;justify-content:space-between}}
+.lx-proxy-fields{display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:16px}.lx-proxy-fields label{display:flex;flex-direction:column;gap:8px;color:var(--el-text-color-regular);font-size:13px}.lx-source-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}.lx-source-test-results{display:flex;flex-direction:column;gap:6px;width:100%;padding:8px 0 4px;border-top:1px dashed var(--app-border)}.lx-source-test-result{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:12px}.lx-source-test-result>span{color:var(--el-text-color-secondary)}.lx-source-test-result small{color:var(--el-text-color-secondary)}.search-summary{margin-top:12px;color:var(--el-text-color-secondary);font-size:12px}.search-pagination{display:flex;justify-content:center;margin-top:18px}.playlist-add-track{display:flex;flex-direction:column;gap:5px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--app-bg-control)}.playlist-add-track span{color:var(--el-text-color-secondary);font-size:12px}.queue-current{padding:10px 12px;margin-bottom:12px;border-radius:8px;background:var(--app-bg-control);font-size:13px}.queue-list{display:flex;flex-direction:column;gap:8px}.queue-item{display:flex;align-items:center;gap:12px;padding:11px 12px;border:1px solid var(--app-border);border-radius:9px;background:var(--el-bg-color);transition:border-color .15s,opacity .15s}.queue-item:hover{border-color:var(--app-accent)}.queue-item-dragging{opacity:.45}.queue-drag-handle{display:flex;align-items:center;color:var(--el-text-color-secondary);cursor:grab;touch-action:none}.queue-drag-handle:active{cursor:grabbing}.queue-index{width:24px;color:var(--el-text-color-secondary);font-size:12px;text-align:center}.queue-track{display:flex;flex:1;flex-direction:column;gap:4px;min-width:0}.queue-track strong,.queue-track span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.queue-track span,.queue-requester{color:var(--el-text-color-secondary);font-size:12px}.queue-requester{max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.setting-row p{margin:6px 0 0}@media(max-width:800px){.music-page{min-height:calc(100vh - 126px)}.mini-player{margin-left:-22px;margin-right:-22px;margin-bottom:-22px;padding-left:22px;padding-right:22px}.source-row,.setting-row{align-items:flex-start;flex-direction:column}.search-row,.lx-import-row{flex-direction:column;align-items:stretch}.lx-source-row{align-items:flex-start}.mini-player{align-items:flex-start;flex-direction:column}.mini-player-actions{width:100%;justify-content:space-between}}
 .replace-track-original,.replace-track-comparison{display:flex;flex-direction:column;gap:6px;padding:12px 14px;margin-bottom:14px;border:1px solid var(--app-border);border-radius:9px;background:var(--el-fill-color-lighter)}.replace-track-original small,.replace-track-comparison small{color:var(--el-text-color-secondary);font-size:12px}.replace-candidate-list{display:flex;flex-direction:column;align-items:stretch;width:100%;gap:4px}.replace-candidate{display:flex;align-items:flex-start;width:100%;height:auto;margin:0;padding:9px 10px;border-bottom:1px solid var(--app-border)}.replace-candidate-main{display:flex;flex-direction:column;gap:4px;min-width:0}.replace-candidate-main small{color:var(--el-text-color-secondary);font-size:12px}</style>
