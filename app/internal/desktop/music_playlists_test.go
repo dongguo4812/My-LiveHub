@@ -1,6 +1,8 @@
 package desktop
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"testing"
 	"testing/fstest"
@@ -81,4 +83,21 @@ func TestPlaylistPersistenceDoesNotStoreTemporaryPlaybackResource(t *testing.T) 
 	if saved.PlaybackResource != nil || saved.SourceData["play_url"] != "" || saved.SourceData["lrc_url"] == "" {
 		t.Fatalf("temporary playback data was persisted or provider metadata was lost: %#v", saved)
 	}
+}
+
+
+func TestLXPlaylistImportGzipFullExportImportsAllLists(t *testing.T) {
+	service := newPlaylistTestService(t)
+	plain := "{\"type\":\"playList_v2\",\"data\":[{\"id\":\"default\",\"name\":\"默认列表\",\"list\":[{\"id\":\"wy_1\",\"source\":\"wy\",\"name\":\"歌曲一\",\"singer\":\"歌手一\",\"interval\":\"03:00\",\"meta\":{\"songId\":1}}]},{\"id\":\"wy_favorites\",\"name\":\"我的收藏\",\"list\":[{\"id\":\"kg_2_hash\",\"source\":\"kg\",\"name\":\"歌曲二\",\"singer\":\"歌手二\",\"interval\":\"04:00\",\"meta\":{\"songId\":2,\"hash\":\"hash\"}}]},{\"id\":\"empty\",\"name\":\"空列表\",\"list\":[]}]}"
+	var compressed bytes.Buffer
+	writer := gzip.NewWriter(&compressed)
+	if _, err := writer.Write([]byte(plain)); err != nil { t.Fatal(err) }
+	if err := writer.Close(); err != nil { t.Fatal(err) }
+	playlists, err := service.ImportLXPlaylists(string(compressed.Bytes()))
+	if err != nil { t.Fatal(err) }
+	if len(playlists) != 2 { t.Fatalf("expected 2 non-empty playlists, got %d", len(playlists)) }
+	if playlists[0].Name != "默认列表" || len(playlists[0].Tracks) != 1 || playlists[1].Name != "我的收藏" || len(playlists[1].Tracks) != 1 {
+		t.Fatalf("unexpected imported playlists: %#v", playlists)
+	}
+	if playlists[1].Tracks[0].SourceData["hash"] != "hash" { t.Fatalf("native source metadata lost: %#v", playlists[1].Tracks[0]) }
 }
