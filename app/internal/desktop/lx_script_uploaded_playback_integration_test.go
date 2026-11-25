@@ -322,17 +322,16 @@ func TestProductionLXPlaylistFirstAndRepeatedClickTiming(t *testing.T) {
 	for _,preferred:=range []string{"mg","tx","wy","kw","kg","local"} {
 		for _,id:=range enabled { if id==preferred { searchOrder=append(searchOrder,id); break } }
 	}
-	engine:=&playlistResolutionProbeEngine{}
-	service:=NewMusicServiceWithDependencies(manager,config.MusicConfig{Enabled:true,EnabledSearchSources:[]string{selectedSource}},nil,engine)
-	service.scriptRuntime=runtime
-	defer service.Shutdown()
+	searchService:=NewMusicServiceWithDependencies(manager,config.MusicConfig{Enabled:true,EnabledSearchSources:enabled},nil,nil)
+	searchService.scriptRuntime=runtime
+	defer searchService.Shutdown()
 
 	var tracks []music.Track
 	var selectedSource string
 	for _,sourceID:=range searchOrder {
 		candidates:=make([]music.Track,0,2); ok:=true
 		for _,query:=range []string{"稻香","晴天"} {
-			page,searchErr:=service.SearchSourcePage(query,sourceID,1)
+			page,searchErr:=searchService.SearchSourcePage(query,sourceID,1)
 			if searchErr!=nil { t.Logf("SEARCH source=%s query=%q error=%v",sourceID,query,searchErr); ok=false; break }
 			var match *music.Track
 			for i:=range page.Tracks {
@@ -345,6 +344,10 @@ func TestProductionLXPlaylistFirstAndRepeatedClickTiming(t *testing.T) {
 		if ok && len(candidates)==2 { tracks=candidates; selectedSource=sourceID; break }
 	}
 	if len(tracks)!=2 { t.Fatalf("cannot create two-track playlist: no same-source results for 稻香 and 晴天; enabled=%v",enabled) }
+	engine:=&playlistResolutionProbeEngine{}
+	service:=NewMusicServiceWithDependencies(manager,config.MusicConfig{Enabled:true,EnabledSearchSources:[]string{selectedSource}},nil,engine)
+	service.scriptRuntime=runtime
+	defer service.Shutdown()
 	playlist,err:=service.CreatePlaylist("CI首次播放与重复点击诊断"); if err!=nil { t.Fatal(err) }
 	for _,track:=range tracks { if err:=service.AddPlaylistTrack(playlist.ID,track); err!=nil { t.Fatal(err) } }
 	saved,err:=service.GetPlaylist(playlist.ID)
