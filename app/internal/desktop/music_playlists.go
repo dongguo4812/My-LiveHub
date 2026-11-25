@@ -293,7 +293,7 @@ func (s *MusicService) takeNextPlaylistTrack() (music.QueueItem, bool) {
 	switch s.playlistPlaybackMode {
 	case "random":
 		if len(s.playlistPlaybackTracks) == 1 { s.playlistPlaybackIndex = 0 } else {
-			next := rand.Intn(len(s.playlistPlaybackTracks)-1)
+			next := mathrand.Intn(len(s.playlistPlaybackTracks)-1)
 			if next >= index { next++ }
 			s.playlistPlaybackIndex = next
 		}
