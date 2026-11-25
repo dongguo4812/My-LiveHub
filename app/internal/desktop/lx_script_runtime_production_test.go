@@ -679,3 +679,38 @@ func containsLXXinghaiSource(values []string, target string) bool {
 	for _, value := range values { if value == target { return true } }
 	return false
 }
+
+
+func TestProductionLXScriptTestOnlyChecksPlatformsWithSearchAndMusicURL(t *testing.T) {
+	manager := testLXConfigManager(t)
+	runtime := newLXScriptRuntime(manager).(*productionMusicLXRuntime)
+	source := `
+lx.on(lx.EVENT_NAMES.request, async ({source, action}) => {
+  if (action === "search") return {tracks: [], total: 0, page: 1, page_size: 30, max_page: 1};
+  if (action === "musicUrl") return "https://example.com/song.mp3";
+  throw new Error("unexpected action " + action);
+});
+lx.send(lx.EVENT_NAMES.inited, {sources: {
+  kw: {type:"music", actions:["musicUrl"]},
+  tx: {type:"music", actions:["search"]},
+  mg: {type:"music", actions:["search","musicUrl"]}
+}});
+`
+	added, err := runtime.ImportScript(context.Background(), "per-platform action test", source)
+	if err != nil { t.Fatal(err) }
+	if err := runtime.Start(context.Background()); err != nil { t.Fatal(err) }
+	defer runtime.Close()
+
+	result, err := runtime.TestScript(context.Background(), added.ID)
+	if err != nil { t.Fatal(err) }
+	if len(result.Platforms) != 1 {
+		t.Fatalf("tested platforms = %#v; want only mg with both required actions", result.Platforms)
+	}
+	if result.Platforms[0].Platform != "mg" || !strings.Contains(result.Platforms[0].Message, "搜索未返回歌曲") {
+		t.Fatalf("unexpected platform result: %#v", result.Platforms[0])
+	}
+	latest := runtime.ListScripts()[0].LastTest
+	if latest == nil || len(latest.Platforms) != 1 || latest.Platforms[0].Platform != "mg" {
+		t.Fatalf("latest test result was not persisted correctly: %#v", latest)
+	}
+}

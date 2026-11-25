@@ -140,8 +140,12 @@ func (r *productionMusicLXRuntime) TestScript(ctx context.Context, id string) (L
 	for platform := range selected.SourceActions { platforms = append(platforms, platform) }
 	sort.Strings(platforms)
 	for _, platform := range platforms {
+		// A platform is testable only when this exact script declares both
+		// community search and native playback URL resolution for it. Do not
+		// silently fall back to the built-in provider search: that would test a
+		// different implementation and could report a false positive.
 		actions := selected.SourceActions[platform]
-		if !containsLXAction(actions, "musicUrl") { continue }
+		if !containsLXAction(actions, "search") || !containsLXAction(actions, "musicUrl") { continue }
 		item := LXSourcePlatformTest{Platform:platform, Name:platform, Status:"failed"}
 		for _, source := range service.searcher.Sources() { if source.ID == platform { item.Name = source.Name; break } }
 		page, searchErr := unified.SearchSource(ctx, platform, "稻香 周杰伦", 1)
@@ -153,13 +157,16 @@ func (r *productionMusicLXRuntime) TestScript(ctx context.Context, id string) (L
 		request, requestErr := http.NewRequestWithContext(ctx, http.MethodGet, playURL, nil)
 		if requestErr != nil { item.Message = "构造音频请求失败：" + requestErr.Error(); result.Platforms = append(result.Platforms, item); continue }
 		request.Header.Set("Range", "bytes=0-1023")
-		response, requestErr := (&http.Client{Timeout:15*time.Second}).Do(request)
+		// Do not follow redirects: the source URL has already passed the
+		// LX SSRF guard, but a redirect could otherwise escape that check.
+		probeClient := &http.Client{Timeout:15*time.Second, CheckRedirect:func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+		response, requestErr := probeClient.Do(request)
 		if requestErr != nil { item.Message = "音频请求失败：" + requestErr.Error(); result.Platforms = append(result.Platforms, item); continue }
 		body, readErr := io.ReadAll(io.LimitReader(response.Body, 1024)); _ = response.Body.Close()
 		if readErr != nil { item.Message = "读取音频数据失败：" + readErr.Error() } else if response.StatusCode < 200 || response.StatusCode >= 300 { item.Message = fmt.Sprintf("音频服务器返回 HTTP %d", response.StatusCode) } else if len(body) == 0 { item.Message = "播放地址未返回音频数据" } else { item.Status = "passed"; item.Message = fmt.Sprintf("播放地址可访问，已读取 %d 字节音频数据", len(body)) }
 		result.Platforms = append(result.Platforms, item)
 	}
-	if len(result.Platforms) == 0 { result.Status = "failed"; if result.Message == "" { result.Message = "脚本未声明任何具备 musicUrl 能力的平台" } } else { for _, item := range result.Platforms { if item.Status != "passed" { result.Status = "failed"; break } } }
+	if len(result.Platforms) == 0 { result.Status = "failed"; if result.Message == "" { result.Message = "脚本没有声明同时具备 search 和 musicUrl 能力的平台" } } else { for _, item := range result.Platforms { if item.Status != "passed" { result.Status = "failed"; break } } }
 	r.mu.Lock(); defer r.mu.Unlock()
 	for i := range r.scripts { if r.scripts[i].ID == id { r.scripts[i].SourceActions = cloneLXSourceActions(selected.SourceActions); r.scripts[i].LastTest = cloneLXScriptTestResult(&result); if err := r.persistLocked(); err != nil { return result, fmt.Errorf("persist latest LX test result: %w", err) }; return result, nil } }
 	return result, fmt.Errorf("LX script %q was deleted while its test was running", id)
