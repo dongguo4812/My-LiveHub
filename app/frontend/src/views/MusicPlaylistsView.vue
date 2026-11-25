@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
 
 type Playlist = Awaited<ReturnType<typeof MusicService.ListPlaylists>>[number]
 type Track = Awaited<ReturnType<typeof MusicService.SearchAllSourcesPage>>['tracks'][number]
 const router = useRouter()
+const route = useRoute()
 const playlists = ref<Playlist[]>([])
 const selectedPlaylistID = ref('')
 const selectedPlaylist = computed(() => playlists.value.find(item => item.id === selectedPlaylistID.value) ?? null)
@@ -129,7 +130,7 @@ function openReplace(track: Track) {
   void router.push({ path:'/music/replace', query:{ playlist:selectedPlaylist.value.id, track:track.id } })
 }
 function goMusicTab(tab: string) { void router.push({ path:'/music', query:{ tab } }) }
-onMounted(() => { void refreshPlaylists() })
+onMounted(() => { void refreshPlaylists(String(route.query.id ?? '')) })
 </script>
 
 <template>
