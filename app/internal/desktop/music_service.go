@@ -803,6 +803,7 @@ func (s *MusicService) Enqueue(track music.Track, requestedBy string) (music.Que
 }
 
 func (s *MusicService) PlayTrackNow(track music.Track) error {
+	if s == nil { return errors.New("music playback service is unavailable") }
 	// Manual one-off playback leaves playlist mode; audience requests remain in their own queue.
 	s.mu.Lock()
 	s.playlistPlaybackActive = false
@@ -867,6 +868,7 @@ func (s *MusicService) playNext(parent context.Context) error {
 	for {
 		current := s.queue.Snapshot().Current
 		if current == nil {
+			playlistWasActive := s.hasActivePlaylistPlayback()
 			item, ok := s.queue.TakeNext()
 			if !ok {
 				if playlistItem, active := s.takeNextPlaylistTrack(); active {
@@ -875,6 +877,7 @@ func (s *MusicService) playNext(parent context.Context) error {
 				}
 			}
 			if !ok {
+				if playlistWasActive { return nil }
 				if lastStartErr != nil {
 					if nextTrack, supported := s.engine.(interface { NextTrack(context.Context) error }); supported {
 						if err := nextTrack.NextTrack(context.Background()); err == nil { return nil } else {
@@ -990,7 +993,13 @@ func (s *MusicService) pushHistory(item music.QueueItem) {
 }
 func (s *MusicService) Stop() error {
 	if s == nil || s.engine == nil || s.queue == nil { return nil }
-	s.mu.Lock(); if s.playResolveCancel != nil { s.playResolveCancel(); s.playResolveCancel = nil; s.playResolveGeneration++ }; s.mu.Unlock()
+	s.mu.Lock()
+	s.playlistPlaybackActive = false
+	s.playlistPlaybackTracks = nil
+	s.playlistPlaybackID = ""
+	s.playlistPlaybackName = ""
+	if s.playResolveCancel != nil { s.playResolveCancel(); s.playResolveCancel = nil; s.playResolveGeneration++ }
+	s.mu.Unlock()
 	s.cancelPlaybackWatcher()
 	err := s.engine.Stop(context.Background())
 	s.queue.FinishCurrent()
