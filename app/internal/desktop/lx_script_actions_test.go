@@ -103,6 +103,10 @@ func TestDispatchLXExtensionClassifiesCancellation(t *testing.T) {
 
 // captureLXSearchRuntime records the exact request payload sent to a community search action.
 type captureLXSearchRuntime struct { info any }
+func (*captureLXSearchRuntime) Available() bool { return true }
+func (*captureLXSearchRuntime) Start(context.Context) error { return nil }
+func (*captureLXSearchRuntime) ResolvePlaybackURL(context.Context, string, any) (string, error) { return "", nil }
+func (*captureLXSearchRuntime) Close() error { return nil }
 func (*captureLXSearchRuntime) HasExtensionAction(string, string) bool { return true }
 func (r *captureLXSearchRuntime) DispatchExtensionAction(_ context.Context, _, _ string, info any) (any, error) {
  r.info = info
