@@ -29,8 +29,6 @@ let disposed = false
 // routes it through Web Audio, where the browser is required to output silence.
 // Keep the media element on its native HTMLAudio path until playback is served
 // through a same-origin/CORS-enabled transport.
-let loudnessNormalizationEnabled = false
-
 export function prepareHTMLAudioForLoudnessNormalization() {
   // Intentionally do not create an AudioContext or MediaElementAudioSourceNode.
   // Doing so would mute providers whose playback URLs do not return CORS headers.
@@ -124,8 +122,7 @@ async function execute(command: Command) {
       break
     }
     case 'loudness-normalization':
-      loudnessNormalizationEnabled = command.loudness_normalization ?? false
-      // Retain the preference, but never attach Web Audio to cross-origin media.
+      // Retain the preference in configuration, but never attach Web Audio to cross-origin media.
       break
     case 'volume':
       audio.volume = Math.min(1, Math.max(0, command.volume ?? 1))
