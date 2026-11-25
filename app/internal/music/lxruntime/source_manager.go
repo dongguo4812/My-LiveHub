@@ -60,6 +60,7 @@ type LXSourceScript struct {
 // community actions.
 type LXScriptCapabilities struct {
 	SupportedSources []string
+	SourceActions map[string][]string
 	ExtensionActions []string
 	NativeActions []string
 }
@@ -85,13 +86,16 @@ func DetectLXScriptCapabilities(ctx context.Context, info ScriptInfo, source str
 		return LXScriptCapabilities{}, fmt.Errorf("decode inited.sources capabilities: %w", err)
 	}
 	if len(sources) == 0 { return LXScriptCapabilities{}, errors.New("脚本初始化成功，但没有在 inited.sources 中声明任何音源") }
-	capabilities := LXScriptCapabilities{}
+	capabilities := LXScriptCapabilities{SourceActions: make(map[string][]string, len(sources))}
 	communitySet, nativeSet := map[string]struct{}{}, map[string]struct{}{}
 	for sourceName, declaration := range sources {
 		sourceName = strings.TrimSpace(sourceName)
 		if sourceName == "" { continue }
 		capabilities.SupportedSources = append(capabilities.SupportedSources, sourceName)
+		actionSet := make(map[string]struct{}, len(declaration.Actions))
 		for _, rawAction := range declaration.Actions {
+			action := strings.TrimSpace(rawAction)
+			if action != "" { actionSet[action] = struct{}{} }
 			action := strings.TrimSpace(rawAction)
 			switch {
 			case isLXCommunityExtensionAction(action):
@@ -100,6 +104,8 @@ func DetectLXScriptCapabilities(ctx context.Context, info ScriptInfo, source str
 				nativeSet[action] = struct{}{}
 			}
 		}
+		for action := range actionSet { capabilities.SourceActions[sourceName] = append(capabilities.SourceActions[sourceName], action) }
+		sort.Strings(capabilities.SourceActions[sourceName])
 	}
 	for action := range communitySet { capabilities.ExtensionActions = append(capabilities.ExtensionActions, action) }
 	for action := range nativeSet { capabilities.NativeActions = append(capabilities.NativeActions, action) }
