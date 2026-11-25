@@ -98,3 +98,37 @@ func TestMediaProxyRedirectPolicy(t *testing.T) {
 	private, _ := http.NewRequest(http.MethodGet, "http://127.0.0.1/private", nil)
 	if err := client.CheckRedirect(private, []*http.Request{previous}); err == nil { t.Fatal("redirect to loopback was accepted") }
 }
+
+func TestMediaProxyServesRegisteredResourceOverLoopback(t *testing.T) {
+	proxy, err := newMediaProxy()
+	if err != nil { t.Fatal(err) }
+	defer func() { if err := proxy.Close(); err != nil { t.Errorf("close media proxy: %v", err) } }()
+	proxy.client = &http.Client{Transport: mediaProxyRoundTripper(func(request *http.Request) (*http.Response, error) {
+		if got := request.Header.Get("Range"); got != "bytes=0-12" { t.Fatalf("upstream Range = %q", got) }
+		return &http.Response{
+			StatusCode: http.StatusPartialContent,
+			Header: http.Header{
+				"Accept-Ranges": {"bytes"},
+				"Content-Range": {"bytes 0-12/100"},
+				"Content-Length": {"13"},
+				"Content-Type": {"audio/mpeg"},
+			},
+			Body: io.NopCloser(strings.NewReader("partial-audio")),
+		}, nil
+	})}
+	proxyURL, err := proxy.Register(music.PlaybackResource{URL: "https://media.example.test/song.mp3"})
+	if err != nil { t.Fatal(err) }
+	request, err := http.NewRequest(http.MethodGet, proxyURL, nil)
+	if err != nil { t.Fatal(err) }
+	request.Header.Set("Range", "bytes=0-12")
+	client := &http.Client{Transport: &http.Transport{Proxy: nil}}
+	response, err := client.Do(request)
+	if err != nil { t.Fatal(err) }
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil { t.Fatal(err) }
+	if response.StatusCode != http.StatusPartialContent { t.Fatalf("status = %d, want 206", response.StatusCode) }
+	if response.Header.Get("Access-Control-Allow-Origin") != "*" { t.Fatal("loopback response is missing CORS allow-origin") }
+	if response.Header.Get("Content-Range") != "bytes 0-12/100" { t.Fatalf("Content-Range = %q", response.Header.Get("Content-Range")) }
+	if string(body) != "partial-audio" { t.Fatalf("body = %q", body) }
+}

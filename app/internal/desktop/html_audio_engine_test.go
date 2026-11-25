@@ -285,3 +285,27 @@ func TestHTMLAudioPlaybackEngineAppliesLoudnessNormalizationToCurrentAndNextTrac
 	}
 	if err := engine.Close(); err != nil { t.Fatal(err) }
 }
+
+func TestHTMLAudioPlaybackEnginePreservesPausedStateWhenTogglingNormalization(t *testing.T) {
+	var commands []htmlAudioCommand
+	engine := newHTMLAudioPlaybackEngine(nil)
+	engine.setEmitter(func(_ string, payload any) { commands = append(commands, payload.(htmlAudioCommand)) })
+	if err := engine.Start(context.Background()); err != nil { t.Fatal(err) }
+	if err := engine.SetLoudnessNormalization(true); err != nil { t.Fatal(err) }
+	track := music.Track{ID: "paused-track", SourceID: "tx"}
+	resource := music.PlaybackResource{URL: "https://media.example/song.mp3", SourceID: "tx", TrackID: "paused-track"}
+	if err := engine.LoadResource(context.Background(), track, resource); err != nil { t.Fatal(err) }
+	session := commands[len(commands)-1].SessionID
+	if err := engine.Report(session, "pause", 0, 180000, ""); err != nil { t.Fatal(err) }
+	if err := engine.Report(session, "timeupdate", 42000, 180000, ""); err != nil { t.Fatal(err) }
+	if err := engine.SetLoudnessNormalization(false); err != nil { t.Fatal(err) }
+	command := commands[len(commands)-1]
+	if command.Autoplay || command.PositionMS != 42000 || command.Resource.URL != resource.URL {
+		t.Fatalf("paused normalization toggle did not preserve playback state: %#v", command)
+	}
+	if err := engine.Report(command.SessionID, "loadstart", 42000, 180000, ""); err != nil { t.Fatal(err) }
+	snapshot, err := engine.Snapshot(context.Background())
+	if err != nil { t.Fatal(err) }
+	if snapshot.State != music.PlaybackPaused { t.Fatalf("loadstart changed paused state to %s", snapshot.State) }
+	if err := engine.Close(); err != nil { t.Fatal(err) }
+}

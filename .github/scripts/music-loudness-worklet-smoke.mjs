@@ -44,11 +44,13 @@ try {
       channelCountMode: 'explicit',
       outputChannelCount: [2],
     })
+    const outputGain = context.createGain()
+    outputGain.gain.value = 1
     const analyser = context.createAnalyser()
     analyser.fftSize = 4096
     inputGain.gain.value = 0.01
     oscillator.frequency.value = 440
-    oscillator.connect(inputGain).connect(normalizer).connect(analyser).connect(context.destination)
+    oscillator.connect(inputGain).connect(normalizer).connect(outputGain).connect(analyser).connect(context.destination)
     oscillator.start()
     await new Promise(resolveWait => setTimeout(resolveWait, 2600))
     const samples = new Float32Array(analyser.fftSize)
@@ -59,12 +61,26 @@ try {
       squareSum += sample * sample
       peak = Math.max(peak, Math.abs(sample))
     }
+    outputGain.gain.value = 0.35
+    await new Promise(resolveWait => setTimeout(resolveWait, 100))
+    const attenuatedSamples = new Float32Array(analyser.fftSize)
+    analyser.getFloatTimeDomainData(attenuatedSamples)
+    let attenuatedSquareSum = 0
+    for (const sample of attenuatedSamples) attenuatedSquareSum += sample * sample
     oscillator.stop()
     await context.close()
-    return { rms: Math.sqrt(squareSum / samples.length), peak }
+    return {
+      rms: Math.sqrt(squareSum / samples.length),
+      peak,
+      attenuatedRms: Math.sqrt(attenuatedSquareSum / attenuatedSamples.length),
+    }
   })
   if (!(normalized.rms > 0.01 && normalized.rms < 0.2)) {
     throw new Error('quiet media was not raised toward the configured loudness target: ' + JSON.stringify(normalized))
+  }
+  const volumeRatio = normalized.attenuatedRms / normalized.rms
+  if (!(volumeRatio > 0.30 && volumeRatio < 0.40)) {
+    throw new Error('post-normalization user volume gain was not preserved: ' + JSON.stringify({ normalized, volumeRatio }))
   }
 
   const limited = await page.evaluate(async () => {

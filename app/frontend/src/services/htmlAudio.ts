@@ -27,6 +27,8 @@ let disposed = false
 let audioContext: AudioContext | null = null
 let mediaSource: MediaElementAudioSourceNode | null = null
 let normalizerNode: AudioWorkletNode | null = null
+let outputGain: GainNode | null = null
+let userVolume = 1
 let webAudioAttached = false
 
 function report(event: string, message = '', source: HTMLAudioElement = audio) {
@@ -76,7 +78,18 @@ audio = createAudioElement()
 // rather than leaving a disconnected Web Audio node that would mute playback.
 async function switchAudioMode(enabled: boolean) {
   if (enabled && webAudioAttached) {
-    if (audioContext?.state === 'suspended') await audioContext.resume()
+    if (!audioContext || audioContext.state === 'closed') {
+      await switchAudioMode(false)
+      throw new Error('audio context closed; switched back to native HTMLAudio')
+    }
+    if (audioContext.state === 'suspended') {
+      try {
+        await audioContext.resume()
+      } catch (error) {
+        await switchAudioMode(false)
+        throw error
+      }
+    }
     return
   }
   if (!enabled && !webAudioAttached) {
@@ -86,20 +99,21 @@ async function switchAudioMode(enabled: boolean) {
 
   if (!enabled && webAudioAttached) {
     const previous = audio
-    const volume = previous.volume
     previous.pause()
     previous.removeAttribute('src')
     previous.load()
     try { mediaSource?.disconnect() } catch { /* already disconnected */ }
     try { normalizerNode?.disconnect() } catch { /* already disconnected */ }
+    try { outputGain?.disconnect() } catch { /* already disconnected */ }
     const oldContext = audioContext
     mediaSource = null
     normalizerNode = null
+    outputGain = null
     audioContext = null
     webAudioAttached = false
     if (oldContext && oldContext.state !== 'closed') await oldContext.close()
     audio = createAudioElement()
-    audio.volume = volume
+    audio.volume = userVolume
     return
   }
 
@@ -108,6 +122,7 @@ async function switchAudioMode(enabled: boolean) {
   audioContext = context
   let source: MediaElementAudioSourceNode | null = null
   let normalizer: AudioWorkletNode | null = null
+  let gainNode: GainNode | null = null
   try {
     await context.resume()
     await context.audioWorklet.addModule('/music-loudness-worklet.js')
@@ -118,18 +133,28 @@ async function switchAudioMode(enabled: boolean) {
       channelCountMode: 'explicit',
       outputChannelCount: [2],
     })
+    gainNode = context.createGain()
+    gainNode.gain.value = userVolume
     source = context.createMediaElementSource(audio)
     source.connect(normalizer)
-    normalizer.connect(context.destination)
+    normalizer.connect(gainNode)
+    gainNode.connect(context.destination)
     mediaSource = source
     normalizerNode = normalizer
+    outputGain = gainNode
+    audio.volume = 1
     webAudioAttached = true
   } catch (error) {
     if (source) {
       try { normalizer?.disconnect() } catch { /* not connected */ }
-      try { source.connect(context.destination) } catch { /* context is unavailable */ }
+      gainNode ??= context.createGain()
+      gainNode.gain.value = userVolume
+      try { source.connect(gainNode) } catch { /* context is unavailable */ }
+      try { gainNode.connect(context.destination) } catch { /* context is unavailable */ }
       mediaSource = source
       normalizerNode = null
+      outputGain = gainNode
+      audio.volume = 1
       webAudioAttached = true
       console.error('normalizer graph failed; using Web Audio bypass', error)
       return
@@ -142,7 +167,7 @@ async function switchAudioMode(enabled: boolean) {
 }
 
 export function getHTMLAudioVolume(): number {
-  return Math.round(audio.volume * 100)
+  return Math.round(userVolume * 100)
 }
 
 export async function prepareHTMLAudioForLoudnessNormalization() {
@@ -163,7 +188,9 @@ async function execute(command: Command) {
     }
     if (command.loudness_normalization) normalizerNode?.port.postMessage({ type: 'reset' })
     activeSession = command.session_id
-    audio.volume = Math.min(1, Math.max(0, command.volume ?? 1))
+    userVolume = Math.min(1, Math.max(0, command.volume ?? userVolume))
+    audio.volume = webAudioAttached ? 1 : userVolume
+    if (outputGain) outputGain.gain.value = userVolume
     audio.src = command.resource.url
     const requestedTime = Math.max(0, (command.position_ms ?? 0) / 1000)
     if (requestedTime > 0) audio.currentTime = requestedTime
@@ -183,7 +210,9 @@ async function execute(command: Command) {
     return
   }
   if (command.command === 'volume' && command.session_id === 0) {
-    audio.volume = Math.min(1, Math.max(0, command.volume ?? 1))
+    userVolume = Math.min(1, Math.max(0, command.volume ?? userVolume))
+    if (webAudioAttached && outputGain) outputGain.gain.value = userVolume
+    else audio.volume = userVolume
     return
   }
   if (command.session_id !== activeSession) return
@@ -216,7 +245,9 @@ async function execute(command: Command) {
       // session so mode changes preserve position and paused/playing state.
       break
     case 'volume':
-      audio.volume = Math.min(1, Math.max(0, command.volume ?? 1))
+      userVolume = Math.min(1, Math.max(0, command.volume ?? userVolume))
+      if (webAudioAttached && outputGain) outputGain.gain.value = userVolume
+      else audio.volume = userVolume
       break
   }
 }
@@ -235,9 +266,11 @@ export function disposeHTMLAudioForShutdown() {
   audio.load()
   try { mediaSource?.disconnect() } catch { /* already disconnected */ }
   try { normalizerNode?.disconnect() } catch { /* already disconnected */ }
+  try { outputGain?.disconnect() } catch { /* already disconnected */ }
   if (audioContext && audioContext.state !== 'closed') void audioContext.close()
   mediaSource = null
   normalizerNode = null
+  outputGain = null
   audioContext = null
   webAudioAttached = false
 }
