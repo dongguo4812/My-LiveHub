@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { prepareHTMLAudioForLoudnessNormalization } from '../services/htmlAudio'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
@@ -93,6 +94,7 @@ async function importLXPlaylist(event: Event) {
 }
 async function playPlaylist(startTrackID = '') {
   if (!selectedPlaylist.value) return
+  prepareHTMLAudioForLoudnessNormalization()
   const playlist = selectedPlaylist.value
   const firstTrackID = playlist.tracks[0]?.id ?? ''
   const requestedTrackID = startTrackID || firstTrackID
