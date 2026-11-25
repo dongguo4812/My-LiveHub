@@ -51,7 +51,7 @@ async function searchAllSources() {
     const keyword = `${original.value.title} ${original.value.artist}`.trim()
     const response = await MusicService.SearchAllSourcesPage(keyword, 1)
     candidates.value = (response.tracks ?? []).filter(item => item.source_id !== original.value?.source_id)
-    errors.value = response.errors ?? {}
+    errors.value = Object.fromEntries(Object.entries(response.errors ?? {}).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
     const first = sources.find(source => candidates.value.some(item => item.source_id === source.id))
     if (first) activeSource.value = first.id
     if (!candidates.value.length && !Object.keys(errors.value).length) success.value = '其他平台均未找到匹配歌曲'
@@ -60,6 +60,7 @@ async function searchAllSources() {
 }
 function selectCandidate(track: Track | null) { if (track) selectedCandidate.value = track }
 function candidateKey(track: Track) { return `${track.source_id}:${track.id}` }
+function qualityNames(track: Track) { return (track.qualities ?? []).map(item => item.type).join(' / ') || '未知' }
 async function previewCandidate(track: Track) {
   try { await MusicService.PlayTrackNow(track); success.value = `试听中：${track.title} - ${track.artist}` }
   catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
@@ -110,7 +111,7 @@ onMounted(async () => { await loadOriginal(); if (original.value) await searchAl
       <el-alert v-if="activeSourceError" :title="`${selectedSourceName}搜索失败：${activeSourceError}`" type="warning" :closable="false" show-icon />
       <el-table v-if="visibleCandidates.length" :data="visibleCandidates"  :row-key="candidateKey" highlight-current-row @current-change="selectCandidate" style="width:100%;margin-top:12px">
         <el-table-column label="选择" width="62"><template #default="scope"><el-button size="small" :type="selectedCandidate?.id === scope.row.id && selectedCandidate?.source_id === scope.row.source_id ? 'primary' : 'default'" @click="selectCandidate(scope.row)">选择</el-button></template></el-table-column>
-        <el-table-column prop="title" label="歌曲" min-width="170" /><el-table-column prop="artist" label="歌手" min-width="130" /><el-table-column prop="album" label="专辑" min-width="130" /><el-table-column label="音质" min-width="130"><template #default="scope">{{ (scope.row.qualities ?? []).map(item => item.type).join(' / ') || '未知' }}</template></el-table-column><el-table-column label="时长" width="82"><template #default="scope">{{ duration(scope.row.duration_ms) }}</template></el-table-column>
+        <el-table-column prop="title" label="歌曲" min-width="170" /><el-table-column prop="artist" label="歌手" min-width="130" /><el-table-column prop="album" label="专辑" min-width="130" /><el-table-column label="音质" min-width="130"><template #default="scope">{{ qualityNames(scope.row) }}</template></el-table-column><el-table-column label="时长" width="82"><template #default="scope">{{ duration(scope.row.duration_ms) }}</template></el-table-column>
         <el-table-column label="操作" width="90"><template #default="scope"><el-button link type="success" @click="previewCandidate(scope.row)">试听</el-button></template></el-table-column>
       </el-table>
       <el-empty v-else-if="!searching" :description="activeSourceError ? '该平台暂时无法返回结果' : '该平台没有找到候选歌曲'" :image-size="68" />
