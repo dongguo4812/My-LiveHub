@@ -17,7 +17,7 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const searchQuery = ref('')
 const filteredPlaylistTracks = computed(() => {
   const tracks = selectedPlaylist.value?.tracks ?? []
-  const terms = searchQuery.value.trim().toLocaleLowerCase().split(/\\s+/).filter(Boolean)
+  const terms = searchQuery.value.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
   if (!terms.length) return tracks
   return tracks.filter((track: PlaylistTrack) => {
     const searchable = [track.title, track.artist, track.album, track.source_id].filter(Boolean).join(' ').toLocaleLowerCase()
