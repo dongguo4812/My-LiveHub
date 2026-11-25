@@ -51,7 +51,13 @@ func (s *MusicService) dispatchLXExtension(ctx context.Context, source, action s
 type scriptAwareSourceSearcher struct { base *music.LXSearchClient; service *MusicService }
 func (a scriptAwareSourceSearcher) Sources() []music.SourceSnapshot { return a.base.Sources() }
 func (a scriptAwareSourceSearcher) SearchProvider(ctx context.Context, source, keyword string, page int) (music.SearchPage, error) {
- value, handled, err := a.service.dispatchLXExtension(ctx, source, "search", map[string]any{"keyword":keyword,"page":page,"pageSize":30})
+ // LX production scripts use the native request payload names text/page/limit.
+	// Keep keyword/pageSize aliases as well for community scripts written
+	// against earlier My-LiveHub prototypes.
+	value, handled, err := a.service.dispatchLXExtension(ctx, source, "search", map[string]any{
+		"text": keyword, "page": page, "limit": 30,
+		"keyword": keyword, "pageSize": 30,
+	})
  if handled { if err != nil { return music.SearchPage{},err }; return normalizeLXScriptSearchResult(source,keyword,page,value) }
  return a.base.SearchProvider(ctx,source,keyword,page)
 }
