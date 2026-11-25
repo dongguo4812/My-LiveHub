@@ -259,13 +259,14 @@ async function resolveTxChksz(info, quality) {
 async function searchQsVip(keywords, page = 1, pageSize = 30) {
   if (!keywords) return { isEnd: true, list: [] };
   const urls = [API.qsVip, API.qsVipFallback];
-  let lastErr = null;
+  const failures = [];
   for (const baseUrl of urls) {
     try {
       const url = `${baseUrl}?act=search&keywords=${encodeURIComponent(keywords)}&page=${page}&pagesize=${pageSize}&type=music`;
       const resp = await httpFetch(url);
       const data = resp.body;
-      if (data?.code === 200 && Array.isArray(data?.data?.list)) {
+      if (resp.statusCode >= 200 && resp.statusCode < 300 &&
+          data?.code === 200 && Array.isArray(data?.data?.list)) {
         const list = data.data.list.map(item => ({
           id: item.id || '',
           songmid: item.id || '',
@@ -279,12 +280,14 @@ async function searchQsVip(keywords, page = 1, pageSize = 30) {
         const total = Number(data.data.total) || list.length;
         return { isEnd: list.length < pageSize, list, total };
       }
-      lastErr = new Error(data?.msg || 'QSVIP搜索异常');
+      const detail = data?.msg || data?.message || data?.error ||
+        (typeof data === 'string' ? data.slice(0, 160) : JSON.stringify(data).slice(0, 160));
+      failures.push(`${baseUrl}: HTTP ${resp.statusCode}, API code ${data?.code ?? 'n/a'}, ${detail || 'unexpected response'}`);
     } catch (e) {
-      lastErr = e;
+      failures.push(`${baseUrl}: ${e?.message || String(e)}`);
     }
   }
-  throw lastErr || new Error('QSVIP搜索全部失败');
+  throw new Error(`QSVIP搜索全部接口失败：${failures.join('；') || 'unknown error'}`);
 }
 
 /* ---- 歌词/封面缓存 ---- */
