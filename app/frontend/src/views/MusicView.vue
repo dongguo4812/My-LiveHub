@@ -589,7 +589,7 @@ onUnmounted(() => {
       <div v-if="config" class="setting-list">
         <div class="setting-row"><div><strong>启用音乐模块</strong><p>关闭后无法加入歌曲队列或播放歌曲，也不会处理弹幕点歌；MV 视频播放不受影响。</p></div><el-switch v-model="config.enabled" /></div>
         <el-divider />
-        <div class="setting-row"><div><strong>响度标准化（暂不可用）</strong><p>已暂时停用音频处理链。当前 QQ、酷我等音源多为跨域直链，Web Audio 接管后浏览器会因缺少 CORS 授权输出静音。为保证播放正常，暂时保持原生音频直通；待接入支持跨域的媒体代理后再恢复此功能。</p></div><el-switch v-model="config.loudness_normalization" disabled /></div>
+        <div class="setting-row"><div><strong>响度标准化</strong><p>实时测量播放响度并平滑调整增益，使用本地媒体代理解决跨域音频接入，并通过峰值限制减少突然过响；关闭后恢复原生 HTMLAudio 播放。</p></div><el-switch v-model="config.loudness_normalization" /></div>
         <el-divider />
         <div class="setting-row"><div><strong>允许弹幕点歌</strong><p>收到点歌指令后搜索已启用的音源并加入统一队列。</p></div><el-switch v-model="config.command_enabled" /></div>
         <el-divider />

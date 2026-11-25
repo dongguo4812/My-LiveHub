@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/music"
@@ -107,16 +108,19 @@ func TestMusicServiceBeginPlaybackResolutionCancelsPreviousRequest(t *testing.T)
 	if !service.playbackResolutionCurrent(secondGeneration) { t.Fatal("finishing stale generation invalidated the active resolution") }
 }
 
-func TestHTMLAudioPlaybackEngineRejectsResourcesRequiringMediaHeadersOrProxy(t *testing.T) {
+func TestHTMLAudioPlaybackEngineProxiesResourcesRequiringMediaTransport(t *testing.T) {
+	var commands []htmlAudioCommand
 	engine := newHTMLAudioPlaybackEngine(nil)
+	engine.setEmitter(func(_ string, payload any) { commands = append(commands, payload.(htmlAudioCommand)) })
+	if err := engine.Start(context.Background()); err != nil { t.Fatal(err) }
 	track := music.Track{ID:"track-1", SourceID:"tx"}
-	cases := []music.PlaybackResource{
-		{URL:"https://media.example/a.mp3", SourceID:"tx", TrackID:"track-1", Headers:map[string]string{"Referer":"https://source.example/"}},
-		{URL:"https://media.example/a.mp3", SourceID:"tx", TrackID:"track-1", RequiresProxy:true},
+	resource := music.PlaybackResource{URL:"https://media.example/a.mp3", SourceID:"tx", TrackID:"track-1", RequiresProxy:true}
+	if err := engine.LoadResource(context.Background(), track, resource); err != nil { t.Fatal(err) }
+	got := commands[len(commands)-1].Resource.URL
+	if !strings.HasPrefix(got, "http://127.0.0.1:") || got == resource.URL {
+		t.Fatalf("media resource was not replaced with a loopback proxy URL: %q", got)
 	}
-	for _, resource := range cases {
-		if err := engine.LoadResource(context.Background(), track, resource); err == nil { t.Fatal("expected unsupported media request context to fail closed") }
-	}
+	if err := engine.Close(); err != nil { t.Fatal(err) }
 }
 
 func TestHTMLAudioQueueEndDoesNotFallBackToLegacyPlayer(t *testing.T) {
@@ -263,22 +267,21 @@ func TestHTMLAudioPlaybackEngineAppliesLoudnessNormalizationToCurrentAndNextTrac
 	var commands []htmlAudioCommand
 	engine := newHTMLAudioPlaybackEngine(nil)
 	engine.setEmitter(func(_ string, payload any) { commands = append(commands, payload.(htmlAudioCommand)) })
+	if err := engine.Start(context.Background()); err != nil { t.Fatal(err) }
 	if err := engine.SetLoudnessNormalization(true); err != nil { t.Fatal(err) }
-	if got := commands[len(commands)-1]; got.Command != "loudness-normalization" || !got.LoudnessNormalization {
-		t.Fatalf("normalization toggle command = %#v", got)
-	}
+	if len(commands) != 0 { t.Fatal("normalization preference without an active track emitted a playback command") }
 	track := music.Track{ID:"normalized-track", SourceID:"tx"}
 	resource := music.PlaybackResource{URL:"https://media.example/song.mp3", SourceID:"tx", TrackID:"normalized-track"}
 	if err := engine.LoadResource(context.Background(), track, resource); err != nil { t.Fatal(err) }
-	if got := commands[len(commands)-1]; got.Command != "load" || !got.LoudnessNormalization {
-		t.Fatalf("new track did not inherit normalization setting: %#v", got)
+	if got := commands[len(commands)-1]; got.Command != "load" || !got.LoudnessNormalization || !strings.HasPrefix(got.Resource.URL, "http://127.0.0.1:") || !got.Autoplay {
+		t.Fatalf("new track did not use normalized proxy playback: %#v", got)
 	}
+	session := commands[len(commands)-1].SessionID
+	if err := engine.Report(session, "playing", 0, 180000, ""); err != nil { t.Fatal(err) }
+	if err := engine.Report(session, "timeupdate", 12000, 180000, ""); err != nil { t.Fatal(err) }
 	if err := engine.SetLoudnessNormalization(false); err != nil { t.Fatal(err) }
-	if got := commands[len(commands)-1]; got.Command != "loudness-normalization" || got.LoudnessNormalization {
-		t.Fatalf("normalization disable command = %#v", got)
+	if got := commands[len(commands)-1]; got.Command != "load" || got.LoudnessNormalization || got.Resource.URL != resource.URL || !got.Autoplay || got.PositionMS != 12000 {
+		t.Fatalf("normalization disable did not restore direct playback at the current position: %#v", got)
 	}
-	if err := engine.LoadResource(context.Background(), track, resource); err != nil { t.Fatal(err) }
-	if got := commands[len(commands)-1]; got.LoudnessNormalization {
-		t.Fatalf("disabled normalization leaked into next track: %#v", got)
-	}
+	if err := engine.Close(); err != nil { t.Fatal(err) }
 }

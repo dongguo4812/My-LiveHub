@@ -18,6 +18,7 @@ type htmlAudioCommand struct {
 	Track music.Track `json:"track"`
 	Resource music.PlaybackResource `json:"resource"`
 	PositionMS int64 `json:"position_ms,omitempty"`
+	Autoplay bool `json:"autoplay"`
 	Volume float64 `json:"volume"`
 	LoudnessNormalization bool `json:"loudness_normalization"`
 }
@@ -34,20 +35,40 @@ type htmlAudioPlaybackEngine struct {
 	refreshing bool
 	volume float64
 	loudnessNormalization bool
+	proxy *mediaProxy
 }
 
 func newHTMLAudioPlaybackEngine(refresh func(music.Track, music.PlaybackResource) (music.PlaybackResource, error)) *htmlAudioPlaybackEngine {
 	return &htmlAudioPlaybackEngine{refresh: refresh, volume: 1, snapshot: music.PlaybackSnapshot{State: music.PlaybackIdle}}
 }
 
-// Start satisfies PlaybackEngineLifecycle. HTMLAudio is owned by the main
-// WebView and becomes active only when a validated resource is loaded.
-func (e *htmlAudioPlaybackEngine) Start(context.Context) error { return nil }
+// Start creates the loopback transport used by Web Audio normalization. It is
+// started with the music module and remains alive for the lifetime of the player.
+func (e *htmlAudioPlaybackEngine) Start(context.Context) error {
+	proxy, err := newMediaProxy()
+	if err != nil { return err }
+	e.mu.Lock()
+	if e.proxy != nil {
+		e.mu.Unlock()
+		_ = proxy.Close()
+		return nil
+	}
+	e.proxy = proxy
+	e.mu.Unlock()
+	return nil
+}
 
-// Close stops the WebView-owned media element while the Wails window is still
-// available. The frontend also has pagehide/beforeunload cleanup as a fallback.
+// Close stops playback and releases the loopback media transport.
 func (e *htmlAudioPlaybackEngine) Close() error {
-	return e.Stop(context.Background())
+	stopErr := e.Stop(context.Background())
+	e.mu.Lock()
+	proxy := e.proxy
+	e.proxy = nil
+	e.mu.Unlock()
+	if proxy != nil {
+		if err := proxy.Close(); err != nil { return errors.Join(stopErr, err) }
+	}
+	return stopErr
 }
 
 func (e *htmlAudioPlaybackEngine) setEmitter(emit func(string, any)) {
@@ -56,11 +77,28 @@ func (e *htmlAudioPlaybackEngine) setEmitter(emit func(string, any)) {
 	e.mu.Unlock()
 }
 
+func (e *htmlAudioPlaybackEngine) commandLoadLocked(position int64, autoplay bool) error {
+	if e.emit == nil { return errors.New("HTMLAudio bridge is not attached to the Wails window") }
+	resource := e.resource
+	if e.loudnessNormalization || resource.RequiresProxy || len(resource.Headers) > 0 {
+		if e.proxy == nil { return errors.New("music media proxy is not running") }
+		proxyURL, err := e.proxy.Register(resource)
+		if err != nil { return err }
+		resource.URL = proxyURL
+	}
+	payload := htmlAudioCommand{
+		Command: "load", SessionID: e.sessionID, Track: e.track, Resource: resource,
+		PositionMS: position, Autoplay: autoplay, Volume: e.volume,
+		LoudnessNormalization: e.loudnessNormalization,
+	}
+	e.emit(musicHTMLAudioCommandEvent, payload)
+	return nil
+}
+
 func (e *htmlAudioPlaybackEngine) commandLocked(command string, position int64, volume float64) error {
+	if command == "load" { return e.commandLoadLocked(position, true) }
 	if e.emit == nil { return errors.New("HTMLAudio bridge is not attached to the Wails window") }
 	payload := htmlAudioCommand{Command:command, SessionID:e.sessionID, PositionMS:position, Volume:volume, LoudnessNormalization:e.loudnessNormalization}
-	if command == "load" { payload.Volume = e.volume }
-	if command == "load" { payload.Track, payload.Resource = e.track, e.resource }
 	e.emit(musicHTMLAudioCommandEvent, payload)
 	return nil
 }
@@ -75,14 +113,15 @@ func (e *htmlAudioPlaybackEngine) LoadResource(ctx context.Context, track music.
 		resource.SourceID != firstNonEmpty(track.LXSourceKey, track.SourceID) || resource.TrackID != track.ID {
 		return errors.New("HTMLAudio received a playback resource that does not match the track")
 	}
-	if resource.RequiresProxy || len(resource.Headers) > 0 {
-		return errors.New("HTMLAudio direct playback cannot satisfy media headers or proxy requirements; media transport adaptation is required")
-	}
 	e.mu.Lock()
 	e.sessionID++
 	e.track, e.resource, e.retried, e.refreshing = track, resource, false, false
 	e.snapshot = music.PlaybackSnapshot{State:music.PlaybackLoading, Track:&track, DurationMS:track.DurationMS}
-	err := e.commandLocked("load", 0, 0)
+	err := e.commandLoadLocked(0, true)
+	if err != nil {
+		e.snapshot.State = music.PlaybackError
+		e.snapshot.Error = err.Error()
+	}
 	e.mu.Unlock()
 	return err
 }
@@ -129,9 +168,22 @@ func (e *htmlAudioPlaybackEngine) Seek(positionMS int64) error {
 func (e *htmlAudioPlaybackEngine) SetLoudnessNormalization(enabled bool) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if e.loudnessNormalization == enabled { return nil }
+	previousEnabled, previousSession, previousState, previousRetried := e.loudnessNormalization, e.sessionID, e.snapshot.State, e.retried
 	e.loudnessNormalization = enabled
-	if e.emit == nil { return nil }
-	return e.commandLocked("loudness-normalization", 0, 0)
+	if e.emit == nil || e.snapshot.Track == nil || e.snapshot.State == music.PlaybackIdle || e.snapshot.State == music.PlaybackStopped {
+		return nil
+	}
+	position := e.snapshot.PositionMS
+	autoplay := e.snapshot.State == music.PlaybackPlaying || e.snapshot.State == music.PlaybackLoading
+	e.sessionID++
+	e.retried = false
+	if autoplay { e.snapshot.State = music.PlaybackLoading } else { e.snapshot.State = music.PlaybackPaused }
+	if err := e.commandLoadLocked(position, autoplay); err != nil {
+		e.loudnessNormalization, e.sessionID, e.snapshot.State, e.retried = previousEnabled, previousSession, previousState, previousRetried
+		return err
+	}
+	return nil
 }
 
 func (e *htmlAudioPlaybackEngine) SetVolume(volume float64) error {
@@ -150,7 +202,9 @@ func (e *htmlAudioPlaybackEngine) Report(sessionID uint64, event string, positio
 	if durationMS < 0 { durationMS = 0 }
 	switch event {
 	case "loadstart":
-		e.snapshot.State = music.PlaybackLoading
+		if e.snapshot.State != music.PlaybackPaused {
+			e.snapshot.State = music.PlaybackLoading
+		}
 	case "autoplayblocked":
 		e.snapshot.State = music.PlaybackPaused
 		e.snapshot.Error = strings.TrimSpace(message)
@@ -193,7 +247,11 @@ func (e *htmlAudioPlaybackEngine) Report(sessionID uint64, event string, positio
 			}
 			e.resource = refreshed
 			e.snapshot = music.PlaybackSnapshot{State:music.PlaybackLoading, Track:&track}
-			emitErr := e.commandLocked("load", 0, 0)
+			emitErr := e.commandLoadLocked(0, true)
+			if emitErr != nil {
+				e.snapshot.State = music.PlaybackError
+				e.snapshot.Error = emitErr.Error()
+			}
 			e.mu.Unlock()
 			return emitErr
 		}

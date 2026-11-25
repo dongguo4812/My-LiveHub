@@ -305,6 +305,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node ../../.github/scripts/music-htmlaudio-browser-smoke.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node ../../.github/scripts/music-loudness-worklet-smoke.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node ../../.github/scripts/music-lyrics-overlay-browser-smoke.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
