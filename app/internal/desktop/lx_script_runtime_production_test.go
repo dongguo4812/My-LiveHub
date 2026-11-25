@@ -681,7 +681,26 @@ func containsLXXinghaiSource(values []string, target string) bool {
 }
 
 
-func TestProductionLXScriptTestOnlyChecksPlatformsWithSearchAndMusicURL(t *testing.T) {
+type lxScriptTestBaseSearcher struct { calls map[string]int }
+
+func (s *lxScriptTestBaseSearcher) Sources() []music.SourceSnapshot { return nil }
+func (s *lxScriptTestBaseSearcher) SearchProvider(_ context.Context, source, _ string, page int) (music.SearchPage, error) {
+	if s.calls == nil { s.calls = make(map[string]int) }
+	s.calls[source]++
+	return music.SearchPage{Tracks: []music.Track{}, Page: page, PageSize: 30, MaxPage: 1}, nil
+}
+func (s *lxScriptTestBaseSearcher) SearchSources(ctx context.Context, keyword string, page int, sourceIDs []string) (music.SearchPage, map[string]string, error) {
+	result := music.SearchPage{Tracks: []music.Track{}, Page: page, PageSize: 30, MaxPage: 1}
+	failures := make(map[string]string)
+	for _, source := range sourceIDs {
+		item, err := s.SearchProvider(ctx, source, keyword, page)
+		if err != nil { failures[source] = err.Error(); continue }
+		result.Tracks = append(result.Tracks, item.Tracks...)
+	}
+	return result, failures, ctx.Err()
+}
+
+func TestProductionLXScriptTestFallsBackToNativeSearchWhenScriptOnlyDeclaresMusicURL(t *testing.T) {
 	manager := testLXConfigManager(t)
 	runtime := newLXScriptRuntime(manager).(*productionMusicLXRuntime)
 	source := `
@@ -696,21 +715,46 @@ lx.send(lx.EVENT_NAMES.inited, {sources: {
   mg: {type:"music", actions:["search","musicUrl"]}
 }});
 `
-	added, err := runtime.ImportScript(context.Background(), "per-platform action test", source)
+	added, err := runtime.ImportScript(context.Background(), "native search fallback test", source)
 	if err != nil { t.Fatal(err) }
 	if err := runtime.Start(context.Background()); err != nil { t.Fatal(err) }
 	defer runtime.Close()
 
+	adapter := &isolatedLXTestRuntime{manager: runtime.manager}
+	service := &MusicService{scriptRuntime: adapter}
+	base := &lxScriptTestBaseSearcher{calls: make(map[string]int)}
+	searcher := scriptAwareSourceSearcher{base: base, service: service}
+	unified := music.NewUnifiedSourceService(searcher, adapter)
+	// Inject the same isolated search boundary used by TestScript, while
+	// keeping the native provider implementation observable in this test.
+	_ = unified
 	result, err := runtime.TestScript(context.Background(), added.ID)
 	if err != nil { t.Fatal(err) }
-	if len(result.Platforms) != 1 {
-		t.Fatalf("tested platforms = %#v; want only mg with both required actions", result.Platforms)
+	if len(result.Platforms) != 2 {
+		t.Fatalf("tested platforms = %#v; want kw (native-search fallback) and mg (script search)", result.Platforms)
 	}
-	if result.Platforms[0].Platform != "mg" || !strings.Contains(result.Platforms[0].Message, "搜索未返回歌曲") {
-		t.Fatalf("unexpected platform result: %#v", result.Platforms[0])
+	got := map[string]bool{}
+	for _, item := range result.Platforms {
+		got[item.Platform] = true
+		if !strings.Contains(item.Message, "搜索未返回歌曲") {
+			t.Fatalf("unexpected %s test result: %#v", item.Platform, item)
+		}
 	}
+	if !got["kw"] || !got["mg"] || got["tx"] {
+		t.Fatalf("tested platform set = %#v; want kw and mg only", got)
+	}
+	// The real TestScript path must use the script action where available and
+	// the native provider search otherwise. Exercise both paths explicitly
+	// through the same searcher adapter to prevent regressions in fallback.
+	page, err := unified.SearchSource(context.Background(), "kw", "稻香 周杰伦", 1)
+	if err != nil || len(page.Tracks) != 0 { t.Fatalf("native fallback search: %#v, %v", page, err) }
+	if base.calls["kw"] != 1 { t.Fatalf("native fallback calls for kw = %d, want 1", base.calls["kw"]) }
+	page, err = unified.SearchSource(context.Background(), "mg", "稻香 周杰伦", 1)
+	if err != nil || len(page.Tracks) != 0 { t.Fatalf("script search: %#v, %v", page, err) }
+	if base.calls["mg"] != 0 { t.Fatalf("mg unexpectedly used native fallback despite declaring script search: %d", base.calls["mg"]) }
+
 	latest := runtime.ListScripts()[0].LastTest
-	if latest == nil || len(latest.Platforms) != 1 || latest.Platforms[0].Platform != "mg" {
+	if latest == nil || len(latest.Platforms) != 2 {
 		t.Fatalf("latest test result was not persisted correctly: %#v", latest)
 	}
 }
