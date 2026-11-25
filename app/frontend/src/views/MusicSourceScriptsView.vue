@@ -157,7 +157,7 @@ onMounted(() => { void refreshLXScripts() })
             <div v-if="script.last_test" class="lx-source-test-results"><div v-for="item in script.last_test.platforms" :key="item.platform" class="lx-source-test-result"><strong>{{ item.name || item.platform }}</strong><el-tag size="small" :type="item.status === 'passed' ? 'success' : item.status === 'unsupported' ? 'info' : 'danger'">{{ item.status === 'passed' ? '可播放' : item.status === 'unsupported' ? '不支持' : '失败' }}</el-tag><span>{{ item.message }}</span><small v-if="item.song">{{ item.song }}</small></div><small>最近检测：{{ new Date(script.last_test.tested_at).toLocaleString() }}</small></div>
             <div v-if="script.enabled" class="lx-init-status">
               <el-tag size="small" :type="script.initialization_status === 'ready' ? 'success' : script.initialization_status === 'failed' ? 'danger' : 'warning'">{{ script.initialization_status === 'ready' ? '启动初始化成功' : script.initialization_status === 'failed' ? '启动初始化失败' : '等待启动初始化' }}</el-tag>
-              <span v-if="script.initialization_stage">阶段：{{ script.initialization_stage }}</span>
+              <span v-if="script.initialization_stage">阶段：{{ ({ create_runtime: '创建运行环境', initialize_script: '执行脚本初始化', read_capabilities: '读取平台能力', ready: '完成' } as Record<string, string>)[script.initialization_stage] ?? script.initialization_stage }}</span>
               <small v-if="script.initialization_at">最近初始化：{{ new Date(script.initialization_at).toLocaleString() }}</small>
             </div>
             <el-text v-if="script.last_error" type="danger" size="small">{{ script.last_error }}</el-text>

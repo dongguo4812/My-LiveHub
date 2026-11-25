@@ -116,7 +116,7 @@ func TestProductionLXStartupInitializesOnlyEnabledScriptsAndPersistsFailureDetai
 	digest := func(source string) string { sum := sha256.Sum256([]byte(source)); return hex.EncodeToString(sum[:]) }
 	records := []storedLXScript{
 		{ID:digest(badSource), Name:"enabled-broken", Source:badSource, Enabled:true},
-		{ID:digest(goodSource), Name:"disabled-broken", Source:badSource, Enabled:false},
+		{ID:digest(badSource), Name:"disabled-broken", Source:badSource, Enabled:false},
 	}
 	data, err := json.Marshal(records); if err != nil { t.Fatal(err) }
 	if err := manager.WriteLocalJSON(lxScriptStoreFile, data, lxScriptStoreLimit); err != nil { t.Fatal(err) }
