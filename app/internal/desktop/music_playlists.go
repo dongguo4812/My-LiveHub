@@ -269,7 +269,16 @@ func (s *MusicService) hasActivePlaylistPlayback() bool {
 // GetPlaylistPlaybackActive exposes whether the playlist scheduler can advance.
 // The UI uses this alongside the audience queue to enable the shared Next button.
 func (s *MusicService) GetPlaylistPlaybackActive() bool {
-	return s.hasActivePlaylistPlayback()
+	if s == nil { return false }
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if !s.playlistPlaybackActive || len(s.playlistPlaybackTracks) == 0 { return false }
+	switch s.playlistPlaybackMode {
+	case "loop", "random":
+		return true
+	default:
+		return s.playlistPlaybackIndex < len(s.playlistPlaybackTracks)
+	}
 }
 
 func (s *MusicService) takeNextPlaylistTrack() (music.QueueItem, bool) {
