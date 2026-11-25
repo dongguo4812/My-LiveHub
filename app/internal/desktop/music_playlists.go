@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -301,44 +302,44 @@ func (s *MusicService) ImportLXPlaylist(raw string) (MusicPlaylist, error) {
 
 func parseLXExportTrack(item map[string]any) (music.Track, error) {
 	meta, _ := item["meta"].(map[string]any)
-	source := lxString(item["source"])
-	if source == "" { source = lxString(meta["source"]) }
+	source := playlistLXString(item["source"])
+	if source == "" { source = playlistLXString(meta["source"]) }
 	if source == "" { return music.Track{}, errors.New("missing source") }
-	title := lxString(item["name"])
-	artist := lxString(item["singer"])
-	album := lxString(item["albumName"])
-	cover := lxString(item["img"])
-	songID := lxString(item["songmid"])
+	title := playlistLXString(item["name"])
+	artist := playlistLXString(item["singer"])
+	album := playlistLXString(item["albumName"])
+	cover := playlistLXString(item["img"])
+	songID := playlistLXString(item["songmid"])
 	if len(meta) > 0 {
-		if album == "" { album = lxString(meta["albumName"]) }
-		if cover == "" { cover = lxString(meta["picUrl"]) }
-		if songID == "" { songID = lxString(meta["songId"]) }
+		if album == "" { album = playlistLXString(meta["albumName"]) }
+		if cover == "" { cover = playlistLXString(meta["picUrl"]) }
+		if songID == "" { songID = playlistLXString(meta["songId"]) }
 	}
-	if title == "" { title = lxString(item["title"]) }
+	if title == "" { title = playlistLXString(item["title"]) }
 	if title == "" || songID == "" { return music.Track{}, errors.New("missing title or song ID") }
-	id := lxString(item["id"])
+	id := playlistLXString(item["id"])
 	if id == "" { id = source + "_" + songID }
 	sourceData := map[string]string{"songmid":songID}
-	albumID := lxString(item["albumId"])
-	if albumID == "" { albumID = lxString(meta["albumId"]) }
+	albumID := playlistLXString(item["albumId"])
+	if albumID == "" { albumID = playlistLXString(meta["albumId"]) }
 	if albumID != "" { sourceData["album_id"] = albumID }
 	if source == "kg" {
-		hash := lxString(item["hash"]); if hash == "" { hash = lxString(meta["hash"]) }
+		hash := playlistLXString(item["hash"]); if hash == "" { hash = playlistLXString(meta["hash"]) }
 		if hash != "" { sourceData["hash"] = hash }
-		albumAudioID := lxString(item["albumAudioId"]); if albumAudioID == "" { albumAudioID = lxString(meta["albumAudioId"]) }
+		albumAudioID := playlistLXString(item["albumAudioId"]); if albumAudioID == "" { albumAudioID = playlistLXString(meta["albumAudioId"]) }
 		if albumAudioID != "" { sourceData["album_audio_id"] = albumAudioID }
 	}
 	if source == "tx" {
-		mediaMID := lxString(item["strMediaMid"]); if mediaMID == "" { mediaMID = lxString(meta["strMediaMid"]) }
+		mediaMID := playlistLXString(item["strMediaMid"]); if mediaMID == "" { mediaMID = playlistLXString(meta["strMediaMid"]) }
 		if mediaMID != "" { sourceData["media_mid"] = mediaMID }
-		albumMID := lxString(item["albumMid"]); if albumMID == "" { albumMID = lxString(meta["albumMid"]) }
+		albumMID := playlistLXString(item["albumMid"]); if albumMID == "" { albumMID = playlistLXString(meta["albumMid"]) }
 		if albumMID != "" { sourceData["album_mid"] = albumMID }
-		songNativeID := lxString(item["songId"]); if songNativeID == "" { songNativeID = lxString(meta["id"]) }
+		songNativeID := playlistLXString(item["songId"]); if songNativeID == "" { songNativeID = playlistLXString(meta["id"]) }
 		if songNativeID != "" { sourceData["song_id"] = songNativeID }
 	}
 	if source == "mg" {
 		for from, to := range map[string]string{"copyrightId":"copyright_id","lrcUrl":"lrc_url","mrcUrl":"mrc_url","trcUrl":"trc_url"} {
-			value := lxString(item[from]); if value == "" { value = lxString(meta[from]) }; if value != "" { sourceData[to] = value }
+			value := playlistLXString(item[from]); if value == "" { value = playlistLXString(meta[from]) }; if value != "" { sourceData[to] = value }
 		}
 	}
 	qualityValues := item["types"]
@@ -347,8 +348,8 @@ func parseLXExportTrack(item map[string]any) (music.Track, error) {
 	if values, ok := qualityValues.([]any); ok {
 		for _, raw := range values {
 			entry, ok := raw.(map[string]any); if !ok { continue }
-			kind := lxString(entry["type"]); if kind == "" { continue }
-			qualities = append(qualities, music.TrackQuality{Type:kind, Size:lxString(entry["size"])})
+			kind := playlistLXString(entry["type"]); if kind == "" { continue }
+			qualities = append(qualities, music.TrackQuality{Type:kind, Size:playlistLXString(entry["size"])})
 		}
 	}
 	if len(qualities) == 0 {
@@ -358,7 +359,7 @@ func parseLXExportTrack(item map[string]any) (music.Track, error) {
 	}
 	return music.Track{
 		ID:id, SourceID:source, LXSourceKey:source, SourceData:sourceData,
-		Title:title, Artist:artist, Album:album, DurationMS:parseLXInterval(lxString(item["interval"])),
+		Title:title, Artist:artist, Album:album, DurationMS:parseLXInterval(playlistLXString(item["interval"])),
 		CoverURL:cover, Qualities:qualities,
 	}, nil
 }
@@ -375,7 +376,7 @@ func parseLXInterval(value string) int64 {
 	return total * 1000
 }
 
-func lxString(value any) string {
+func playlistLXString(value any) string {
 	switch v := value.(type) {
 	case string: return strings.TrimSpace(v)
 	case json.Number: return v.String()
