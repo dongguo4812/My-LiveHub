@@ -213,6 +213,7 @@ async function toggleLXScript(script: LXScriptSummary, enabled: boolean) {
 }
 async function testLXScript(script: LXScriptSummary) {
   testingLXScriptID.value = script.id
+  lxScriptBusy.value = true
   error.value = '';
   try {
     await MusicService.TestLXScript(script.id)
@@ -222,7 +223,7 @@ async function testLXScript(script: LXScriptSummary) {
     const total = latest?.platforms?.length ?? 0
     success.value = latest?.message || `音源测试完成：${script.name}，${passed}/${total} 个平台通过`
   } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
-  finally { testingLXScriptID.value = '' }
+  finally { testingLXScriptID.value = ''; lxScriptBusy.value = false }
 }
 async function deleteLXScript(script: LXScriptSummary) {
   if (!window.confirm(`确定删除音源脚本“${script.name}”吗？此操作不可撤销。`)) return
