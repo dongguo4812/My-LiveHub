@@ -79,10 +79,16 @@ async function importLXPlaylist(event: Event) {
   } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
   finally { importing.value = false; input.value = '' }
 }
-async function playTrack(track: Track) {
+async function playPlaylist(startTrackID = '') {
+  if (!selectedPlaylist.value) return
   error.value = ''
-  try { await MusicService.PlayTrackNow(track); success.value = `正在播放：${track.title} - ${track.artist}` }
-  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+  try {
+    await MusicService.PlayPlaylist(selectedPlaylist.value.id, startTrackID)
+    success.value = startTrackID ? '已从选中歌曲开始播放歌单' : `开始播放歌单：${selectedPlaylist.value.name}`
+  } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+}
+async function playTrack(track: Track) {
+  await playPlaylist(track.id)
 }
 async function removeTrack(track: Track) {
   if (!selectedPlaylist.value) return
@@ -133,7 +139,7 @@ onMounted(() => { void refreshPlaylists(String(route.query.id ?? '')) })
       </el-card>
       <div class="library-main">
         <el-card v-if="selectedPlaylist" class="player-card" shadow="never">
-          <template #header><div class="playlist-heading"><div><strong>{{ selectedPlaylist.name }}</strong><p>{{ selectedPlaylist.tracks.length }} 首歌曲 · 最近更新 {{ new Date(selectedPlaylist.updated_at).toLocaleString() }}</p></div><div class="header-actions"><el-button size="small" plain @click="renamePlaylist(selectedPlaylist)">重命名</el-button><el-button size="small" type="danger" plain @click="deletePlaylist(selectedPlaylist)">删除歌单</el-button></div></div></template>
+          <template #header><div class="playlist-heading"><div><strong>{{ selectedPlaylist.name }}</strong><p>{{ selectedPlaylist.tracks.length }} 首歌曲 · 最近更新 {{ new Date(selectedPlaylist.updated_at).toLocaleString() }}</p></div><div class="header-actions"><el-button size="small" type="success" :disabled="!selectedPlaylist.tracks.length" @click="playPlaylist()">播放全部</el-button><el-button size="small" plain @click="renamePlaylist(selectedPlaylist)">重命名</el-button><el-button size="small" type="danger" plain @click="deletePlaylist(selectedPlaylist)">删除歌单</el-button></div></div></template>
           <el-table :data="selectedPlaylist.tracks" row-key="id" style="width:100%">
             <el-table-column type="index" label="#" width="54" />
             <el-table-column label="歌曲" min-width="190"><template #default="scope"><div class="song-cell"><strong>{{ scope.row.title }}</strong><small>{{ scope.row.artist || '未知歌手' }}<span v-if="scope.row.album"> · {{ scope.row.album }}</span></small></div></template></el-table-column>
