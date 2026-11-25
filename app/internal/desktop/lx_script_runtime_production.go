@@ -142,17 +142,29 @@ func (r *productionMusicLXRuntime) testScriptWithSearcher(ctx context.Context, i
 	service := &MusicService{scriptRuntime:adapter}
 	searcher := scriptAwareSourceSearcher{base:base, service:service}
 	unified := music.NewUnifiedSourceService(searcher, adapter)
-	platforms := make([]string, 0, len(selected.SourceActions))
-	for platform := range selected.SourceActions { platforms = append(platforms, platform) }
+	// Include every platform declared by the script, even when it does not
+	// expose musicUrl. Keep the action map as a compatibility fallback for
+	// older stored scripts whose SupportedSources snapshot is empty.
+	platformSet := make(map[string]struct{}, len(selected.SupportedSources)+len(selected.SourceActions))
+	for _, platform := range selected.SupportedSources {
+		if strings.TrimSpace(platform) != "" { platformSet[platform] = struct{}{} }
+	}
+	for platform := range selected.SourceActions { platformSet[platform] = struct{}{} }
+	platforms := make([]string, 0, len(platformSet))
+	for platform := range platformSet { platforms = append(platforms, platform) }
 	sort.Strings(platforms)
 	for _, platform := range platforms {
-		// The script must provide musicUrl for this platform. Search is a
-		// separate capability: use the script's search action when declared,
-		// otherwise scriptAwareSourceSearcher falls back to the built-in
-		// provider search implementation.
+		// Search is independent from musicUrl: use the script search action
+		// when present, otherwise scriptAwareSourceSearcher uses native search.
 		actions := selected.SourceActions[platform]
-		if !containsLXAction(actions, "musicUrl") { continue }
 		item := LXSourcePlatformTest{Platform:platform, Name:platform, Status:"failed"}
+		for _, source := range searcher.Sources() { if source.ID == platform { item.Name = source.Name; break } }
+		if !containsLXAction(actions, "musicUrl") {
+			item.Status = "unsupported"
+			item.Message = "该平台未声明 musicUrl，无法检测播放地址"
+			result.Platforms = append(result.Platforms, item)
+			continue
+		}
 		for _, source := range searcher.Sources() { if source.ID == platform { item.Name = source.Name; break } }
 		page, searchErr := unified.SearchSource(ctx, platform, "稻香 周杰伦", 1)
 		if searchErr != nil { item.Message = "搜索失败：" + searchErr.Error(); result.Platforms = append(result.Platforms, item); continue }
