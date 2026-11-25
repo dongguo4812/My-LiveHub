@@ -96,7 +96,6 @@ func DetectLXScriptCapabilities(ctx context.Context, info ScriptInfo, source str
 		for _, rawAction := range declaration.Actions {
 			action := strings.TrimSpace(rawAction)
 			if action != "" { actionSet[action] = struct{}{} }
-			action := strings.TrimSpace(rawAction)
 			switch {
 			case isLXCommunityExtensionAction(action):
 				communitySet[action] = struct{}{}
