@@ -394,6 +394,7 @@ onUnmounted(() => {
       <button :class="{ active: activeTab === 'now-playing' }" @click="activeTab = 'now-playing'">正在播放</button>
       <button :class="{ active: activeTab === 'search' }" @click="activeTab = 'search'">歌曲搜索</button>
       <button :class="{ active: activeTab === 'visitor-requests' }" @click="activeTab = 'visitor-requests'">观众点播 <span>{{ queue?.items.length ?? 0 }}</span></button>
+      <button @click="$router.push('/music/playlists')">我的列表</button>
       <button :class="{ active: activeTab === 'settings' }" @click="activeTab = 'settings'">音乐设置</button>
       <button @click="$router.push('/music/sources')">JS 音源脚本管理</button>
     </nav>
