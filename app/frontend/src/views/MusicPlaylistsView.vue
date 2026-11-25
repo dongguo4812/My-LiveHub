@@ -11,10 +11,6 @@ const playlists = ref<Playlist[]>([])
 const selectedPlaylistID = ref('')
 const selectedPlaylist = computed(() => playlists.value.find(item => item.id === selectedPlaylistID.value) ?? null)
 const importing = ref(false)
-const searching = ref(false)
-const query = ref('')
-const searchResults = ref<Track[]>([])
-const searchErrors = ref<Record<string,string>>({})
 const error = ref('')
 const success = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -83,28 +79,6 @@ async function importLXPlaylist(event: Event) {
   } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
   finally { importing.value = false; input.value = '' }
 }
-async function searchTracks() {
-  if (!query.value.trim()) { error.value = '请输入歌曲名称或歌手'; return }
-  searching.value = true
-  error.value = ''
-  searchErrors.value = {}
-  try {
-    const response = await MusicService.SearchAllSourcesPage(query.value.trim(), 1)
-    searchResults.value = response.tracks ?? []
-    searchErrors.value = Object.fromEntries(Object.entries(response.errors ?? {}).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
-    if (!searchResults.value.length && !Object.keys(searchErrors.value).length) success.value = '所有平台均未找到匹配歌曲'
-  } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
-  finally { searching.value = false }
-}
-async function addTrack(track: Track) {
-  if (!selectedPlaylist.value) { error.value = '请先创建或选择一个歌单'; return }
-  error.value = ''
-  try {
-    await MusicService.AddPlaylistTrack(selectedPlaylist.value.id, track)
-    await refreshPlaylists(selectedPlaylist.value.id)
-    success.value = `已添加：${track.title} - ${track.artist}`
-  } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
-}
 async function playTrack(track: Track) {
   error.value = ''
   try { await MusicService.PlayTrackNow(track); success.value = `正在播放：${track.title} - ${track.artist}` }
@@ -170,16 +144,6 @@ onMounted(() => { void refreshPlaylists(String(route.query.id ?? '')) })
           <el-empty v-if="!selectedPlaylist.tracks.length" description="歌单为空，可从下方搜索添加歌曲" :image-size="68" />
         </el-card>
         <el-card v-else class="player-card" shadow="never"><el-empty description="请选择歌单，或先新建/导入一个歌单" /></el-card>
-        <el-card class="player-card" shadow="never">
-          <template #header><strong>添加歌曲</strong></template>
-          <p class="section-description">按歌曲名或歌手搜索所有平台，选择结果添加到当前歌单。</p>
-          <div class="search-row"><el-input v-model="query" placeholder="例如：稻香 周杰伦" clearable @keyup.enter="searchTracks" /><el-button type="primary" :loading="searching" @click="searchTracks">搜索所有平台</el-button></div>
-          <el-alert v-for="(message, source) in searchErrors" :key="source" :title="`${sourceName(source)}：${message}`" type="warning" :closable="false" show-icon />
-          <el-table v-if="searchResults.length" :data="searchResults" row-key="id" style="width:100%;margin-top:14px">
-            <el-table-column prop="title" label="歌曲" min-width="170" /><el-table-column prop="artist" label="歌手" min-width="120" /><el-table-column label="音源" width="110"><template #default="scope">{{ sourceName(scope.row.source_id) }}</template></el-table-column><el-table-column label="操作" width="150"><template #default="scope"><el-button link type="success" @click="addTrack(scope.row)">加入歌单</el-button><el-button link @click="playTrack(scope.row)">试听</el-button></template></el-table-column>
-          </el-table>
-          <el-empty v-else-if="!searching" description="搜索结果将在这里显示" :image-size="64" />
-        </el-card>
       </div>
     </div>
   </section>
