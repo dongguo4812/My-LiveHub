@@ -314,16 +314,16 @@ func TestProductionLXPlaylistFirstAndRepeatedClickTiming(t *testing.T) {
 		switch id { case "kg","kw","local","mg","tx","wy": enabled=append(enabled,id) }
 	}
 	if len(enabled)==0 { t.Fatalf("uploaded aggregate source has no supported playback providers: %#v",imported.SupportedSources) }
-	// Prefer Migu for the timing pair: this uploaded script's real CI playback
-	// checks confirmed its media endpoint is reachable, while Kuwo may return
-	// region/runner-specific timeouts. Keep every supported source enabled so
-	// the normal production fallback path remains under test.
+	// Search providers in a stable order to find both tracks, but constrain
+	// playback to the provider selected for this timing experiment. Otherwise a
+	// transient outage triggers five-second fallbacks across every enabled
+	// provider and measures network retry policy instead of the first click.
 	searchOrder:=make([]string,0,len(enabled))
 	for _,preferred:=range []string{"mg","tx","wy","kw","kg","local"} {
 		for _,id:=range enabled { if id==preferred { searchOrder=append(searchOrder,id); break } }
 	}
 	engine:=&playlistResolutionProbeEngine{}
-	service:=NewMusicServiceWithDependencies(manager,config.MusicConfig{Enabled:true,EnabledSearchSources:enabled},nil,engine)
+	service:=NewMusicServiceWithDependencies(manager,config.MusicConfig{Enabled:true,EnabledSearchSources:[]string{selectedSource}},nil,engine)
 	service.scriptRuntime=runtime
 	defer service.Shutdown()
 
