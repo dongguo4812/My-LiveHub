@@ -828,6 +828,7 @@ func (s *MusicService) PlayTrackNow(track music.Track) error {
 	s.playlistPlaybackTracks = nil
 	s.playlistPlaybackID = ""
 	s.playlistPlaybackName = ""
+	s.playlistPlaybackResumeTrack = nil
 	s.mu.Unlock()
 	if s == nil || s.queue == nil || s.engine == nil { return errors.New("music playback service is unavailable") }
 	s.mu.RLock(); enabled := s.value.Enabled; s.mu.RUnlock()
@@ -1031,6 +1032,7 @@ func (s *MusicService) Stop() error {
 	s.playlistPlaybackTracks = nil
 	s.playlistPlaybackID = ""
 	s.playlistPlaybackName = ""
+	s.playlistPlaybackResumeTrack = nil
 	if s.playResolveCancel != nil { s.playResolveCancel(); s.playResolveCancel = nil; s.playResolveGeneration++ }
 	s.mu.Unlock()
 	s.cancelPlaybackWatcher()
