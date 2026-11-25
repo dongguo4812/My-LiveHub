@@ -5,14 +5,14 @@
 > 最终架构：Go + QuickJS-NG + HTMLAudio + Vue/Wails WebView  
 > 核心架构约束：继续使用洛雪 JS 音源脚本；通过 QuickJS-NG 模拟洛雪 JS 运行时环境，兼容导入脚本所需的宿主 API/全局对象/请求行为，实现搜索、详情、播放 URL、歌词等能力；HTMLAudio 只负责最终音频播放。复用现有音乐业务层，不引入独立播放器进程。
 
-> **当前执行快照（2026-11-25，按开发分支最新代码与 CI 证据更新）**
+> **当前执行快照（2026-11-25，按开发分支最新代码、真实浏览器集成测试及 CI 证据更新）**
 > - 当前开发分支：`feat/lx-js-runtime-quickjs-poc`；本方案仍是该分支音乐模块迁移的唯一开发依据。最新分支提交：`99eb6da35d1e481e7f6c3b4a309b922f3a5c110e`。
 > - A 阶段生产脚本导入、持久化、启停/删除、损坏脚本隔离及 QuickJS production runtime 生命周期已完成并通过 CI Run #544。
 > - B 阶段统一 action 调度与歌曲模型接线已完成并通过 CI Run #567：生产搜索/详情/歌词/封面扩展 action 已接线；按脚本 inited.sources 做音源范围路由；原生 musicUrl 仅按原生声明执行，不与社区扩展 action 混用；Track 映射、错误分类、多脚本隔离及 production fixture 已通过测试。
 > - C 阶段 Go 侧结构化播放资源、音质回退、TTL 缓存、资源身份校验、资源感知端口和幂等媒体失败刷新已完成（CI Run 45142573201）。HTMLAudio 已消费结构化资源并接入媒体错误刷新。
-> - D 阶段生产 HTMLAudio PlaybackEngine、Wails 命令/事件桥、应用级单例 Audio、播放控制、错误回传、失效 URL 单次刷新及切歌取消已实现。早期 CI Run 45149682218、Windows PoC 构建 Run 45150651612 已通过；2026-11-25 最新 Desktop validation Run [45602383401](https://github.com/dongguo4812/My-LiveHub/actions/runs/45602383401) 的真实音源与浏览器集成、正式客户端前端及 Go 验证两个 job 均成功。**但目标 Windows/WebView 设备的真实可听播放及设备信息尚无实测记录，D 阶段整体仍未完成。**
+> - D 阶段生产 HTMLAudio PlaybackEngine、Wails 命令/事件桥、应用级单例 Audio、播放控制、错误回传、失效 URL 单次刷新及切歌取消已实现。CI Run [45602383401](https://github.com/dongguo4812/My-LiveHub/actions/runs/45602383401) 已通过真实 HuiBi 聚合音源播放地址解析、同步歌词解析/当前行时序、Chromium HTMLAudio 实际播放与歌词测试，以及正式客户端前端、Go、production runtime 和 Windows 可执行文件验证。**代码与自动化验收已完成；仅目标 Windows/WebView 设备实测及设备信息记录未完成，因此 D 阶段整体仍未完成。**
 > - 近期已补充并通过最新 CI 的播放业务修复：首次播放/聚合音源解析的超时与回退链路；歌单播放模式持久化；观众点播优先于歌单播放，并在点播完成后恢复歌单；中断歌单恢复状态；对应迁移、队列优先级及首次点击集成测试。最新提交 `99eb6da` 修复聚合音源解析在 fallback deadline 前被过早终止的问题。
-> - 阶段门仍按 A→B→C→D→E→F→G 执行。A/B/C 完成；D 自动化代码/CI 子门通过，设备实播门未通过；因此不得宣称整体迁移完成，也不得将 E/G 标为完成。测试证据只覆盖明确列出的契约，不扩大为“完全兼容洛雪”。
+> - 阶段门仍按 A→B→C→D→E→F→G 执行。**已完成：A、B、C；D 的生产代码、自动化测试和 CI 验收。未完成：D 的目标设备实播验收、E 全阶段、F 的五平台真实歌词及多视图/队列完整验收、G 的设备稳定性与性能验收。** 因此整体迁移未完成。测试证据只覆盖明确列出的契约，不扩大为“完全兼容洛雪”。
 
 ## 1. 项目目标与最终边界
 
@@ -161,7 +161,7 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 
 ### D. HTMLAudio PoC 与正式播放桥接
 
-**当前代码状态：代码与自动化 CI 子门通过；D 阶段整体仍未完成。** `main.go` 生产构造路径已通过 `AttachHTMLAudioPlayback` 切换到 session-aware HTMLAudio PlaybackEngine；单例 Audio、Wails 命令/事件桥、播放控制、媒体失败刷新和切歌取消已接通。CI Run 45149682218 全部通过；Windows 目标 WebView 的真实音源可听播放及设备信息仍待实测。
+**当前代码状态：生产代码与自动化验收已完成；D 阶段只剩目标设备验收。** `main.go` 生产构造路径已通过 `AttachHTMLAudioPlayback` 切换到 session-aware HTMLAudio PlaybackEngine；单例 Audio、Wails 命令/事件桥、播放控制、媒体失败刷新和切歌取消已接通。CI Run 45602383401 的真实音源解析、Chromium HTMLAudio 播放/歌词测试和正式客户端构建验证均成功；Windows 目标设备的实际扬声器输出、WebView 版本及设备信息记录仍待完成。
 
 **工作内容**
 - 在现有 Wails WebView/Vue 页面创建唯一、可复用的 HTMLAudio 实例，使用 C 阶段真实脚本解析资源验证可听见播放。
@@ -193,7 +193,7 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 
 ### F. 歌词、封面、队列与多视图整合
 
-**当前代码状态：部分完成，队列业务已有实质进展。** QuickJS 社区 lyric/pic action、独立五平台歌词适配器及 HTMLAudio 同步 LRC/桌面歌词链路已有代码和自动化覆盖；但五个平台真实歌词响应、翻译/时间戳质量、桌面歌词与真实播放时钟同步仍需完整验收。队列侧已实现歌单播放模式持久化、观众点播抢占歌单播放并在点播结束后恢复歌单，以及中断歌单恢复；2026-11-25 最新 Desktop validation CI 已通过相关配置迁移、队列优先级和首次点击集成测试。
+**当前代码状态：部分完成。** QuickJS 社区 lyric/pic action、QQ/酷狗/酷我/网易云/咪咕五平台歌词适配器、统一同步 LRC 解析和桌面歌词链路已有实现。CI Run 45602383401 已通过真实 HuiBi 来源播放、同步歌词解析/当前行时序及 Chromium HTMLAudio 播放与歌词集成测试；但这不等于五个平台歌词全部通过。五平台逐一真实歌词响应、翻译/时间戳质量、桌面歌词与真实播放时钟同步、切歌竞态，以及完整 UI/多视图验收仍未完成。队列侧歌单播放模式持久化、观众点播抢占与完成后恢复、中断状态清理已有代码和 CI 测试。
 
 **工作内容**
 - 接通脚本 lyric/pic action 与现有歌词、封面服务和缓存。
@@ -209,7 +209,7 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 
 ### G. 安全、稳定性、性能与最终验收
 
-**当前代码状态：部分完成。** QuickJS HTTP 安全边界、SSRF/DNS rebinding、redirect、headers、资源限制和部分生命周期测试已有；真实媒体连接、长时间播放、进程内存增量和设备稳定性未验收。
+**当前代码状态：部分完成。** QuickJS HTTP 安全边界、SSRF/DNS rebinding、redirect、headers、请求资源限制及部分生命周期测试已实现并有自动化覆盖；真实媒体连接的 Range/特殊 headers/redirect 端到端验证、长时间播放、主进程与 WebView 内存增量、设备稳定性尚未完成。
 
 **工作内容**
 - 对脚本隔离、超时/取消、SSRF/DNS rebinding、redirect、headers、请求/响应体、并发和资源释放做最终回归审查；所有生产网络请求复用受控出口。
@@ -1083,20 +1083,20 @@ line 3: unexpected EOF while looking for matching single quote
 **验收状态：** 代码已提交，等待 Windows x64 完整 CI 验证。CI 通过后需重新构建并安装最新 My-LiveHub，再以真实 `fish_music` 对 kg/kw/tx 分别请求 `musicUrl`；只有获得真实 HTTP(S) 播放地址并由 HTMLAudio 成功播放，才能认定播放链路通过。wy 的“未找到歌名和歌手均匹配”属于独立匹配问题，须在初始化超时修复后单独复测。
 
 
-### 10.33 HTMLAudio 音量实时控制与状态一致性（2026-11-24，实施中）
+### 10.33 HTMLAudio 音量实时控制与状态一致性（2026-11-24，代码与自动化验收完成）
 
 - 音量滑块仅使用 Element Plus 的实时 `input` 事件，避免拖动过程中 `input` 与释放时 `change` 重复下发命令。
 - 音乐页面重新挂载时从应用级单例 HTMLAudio 读取实际 `audio.volume`，避免 UI 默认显示 100% 而实际音量仍保留上次设置。
 - Go HTMLAudio 引擎继续持有 0–1 音量值；新曲目/新音源的 load 命令及媒体 URL 刷新重试均携带当前音量。静音为音量 0，恢复由 UI 保存的最近非零值完成。
-- 新增 Go 自动化覆盖：切歌/换源音量保持、0/非零静音与恢复、边界 clamp、媒体 URL 刷新后音量保持。该项只有定向测试及完整 QuickJS Windows CI 成功后才可验收。
+- 新增 Go 自动化覆盖：切歌/换源音量保持、0/非零静音与恢复、边界 clamp、媒体 URL 刷新后音量保持；相关 HTMLAudio/Go/前端验证已纳入成功的 Desktop validation CI。**代码及自动化验收完成；目标设备上的物理音量输出仍随 D 阶段设备验收。**
 
 
-### 10.34 HTMLAudio 进度跳转、停止状态及切歌控制验收（2026-11-24，实施中）
+### 10.34 HTMLAudio 进度跳转、停止状态及切歌控制验收（2026-11-24，代码与自动化验收完成）
 
 - HTMLAudio seek 命令携带当前 session 与毫秒位置；前端按媒体 duration 将目标位置限制在有效范围，Chromium smoke test 验证真实媒体 currentTime 跳转到指定位置。
 - Stop 先使前端 session 失效，再 pause/清空 src，防止异步 pause 事件把 Go 端 stopped 状态覆盖为 paused；Go Stop 后立即刷新并发布缓存快照，UI 应立即显示停止。
 - 上一首通过播放历史恢复，下一首优先消费 My-LiveHub 待播队列；HTMLAudio 不具备洛雪外部播放列表接口，队列为空时不得调用不存在的洛雪 NextTrack。UI 通过 `CanPrevious` 和队列快照禁用当前不可用的上一首/下一首按钮，避免点击后才报错。
-- 自动化覆盖包括 Go 命令/session/状态测试、Stop 缓存状态测试，以及真实 Chromium 媒体 seek/pause/resume/volume/stop 验证。新增 `CanPrevious` 历史状态测试，以及 MusicService 集成测试：下一首从待播队列提升歌曲、上一首恢复历史歌曲并保留前进队列。完整 CI 通过前不得验收。
+- 自动化覆盖包括 Go 命令/session/状态测试、Stop 缓存状态测试，以及真实 Chromium 媒体 seek/pause/resume/volume/stop 验证；新增 `CanPrevious` 历史状态测试，以及 MusicService 集成测试：下一首从待播队列提升歌曲、上一首恢复历史歌曲并保留前进队列。**代码及自动化验收完成；Windows 目标设备的实际控制体验仍属于 D 阶段剩余设备验收。**
 
 ### 10.35 HTMLAudio 独立音源歌词与桌面歌词闭环（2026-11-24，实施中）
 
@@ -1119,3 +1119,31 @@ line 3: unexpected EOF while looking for matching single quote
 - **中断恢复边界：** 手动停止或手动播放其他歌曲时清除旧的歌单恢复状态；中断恢复可用时保持下一首控制可用，避免恢复状态存在但 UI 无法继续。
 - **首次点击与聚合音源解析：** 增加首次点击播放集成验证，并修复聚合音源解析/fallback 执行预算被过早截断的问题；最新提交 `99eb6da` 明确允许聚合音源解析在 fallback deadline 前完成。该 CI 证明自动化集成路径通过，不等同于所有真实音源首次播放耗时均已优化完成。
 - **验收边界：** 上述代码及自动化 CI 子门已通过；仍需在目标设备验证实际播放顺序、观众点播抢占/恢复、三种播放模式跨重启持久化，以及不同音源首次播放的真实解析耗时和播放结果。不得仅凭 CI 通过宣称所有音源实播均通过。
+
+
+### 10.37 2026-11-25 最新播放链路与阶段完成状态复核
+
+**复核分支：** `feat/lx-js-runtime-quickjs-poc`  
+**代码基线：** `99eb6da35d1e481e7f6c3b4a309b922f3a5c110e`  
+**CI：** [Desktop validation Run 45602383401](https://github.com/dongguo4812/My-LiveHub/actions/runs/45602383401)，两个 job 均为 success。
+
+本次 CI 的实际成功步骤包括：
+- 通过所选 HuiBi 聚合音源解析真实播放地址。
+- 验证同步歌词解析及当前行时序。
+- 在 Chromium 中执行 HTMLAudio 实际媒体播放和歌词集成测试。
+- 通过 Go 全包测试、production LX runtime/capability import 测试、前端构建和 Windows 可执行文件构建。
+- 歌单播放模式持久化、观众点播抢占/恢复、中断恢复边界及首次点击聚合音源回退有对应自动化测试覆盖。
+
+**阶段状态（按完成门，不以“代码已写”冒充验收）：**
+
+| 阶段 | 状态 | 已完成内容 | 尚未完成内容 |
+|---|---|---|---|
+| A | 已完成 | 生产脚本导入、持久化、启停/删除、损坏隔离、runtime 生命周期及 CI | 无本阶段遗留项 |
+| B | 已完成 | 原生/扩展 action 调度、音源路由、Track 映射、错误/取消隔离及 CI | 不代表所有第三方脚本均兼容 |
+| C | 已完成 | 结构化播放资源、音质回退、TTL 缓存、身份校验、失效刷新及 CI | 媒体最终传输的端到端能力归 E |
+| D | 代码和自动化验收完成；设备验收未完成 | 生产 HTMLAudio 单例、Wails 桥、播放控制、切歌/session 保护、错误刷新；Chromium 真实媒体播放测试通过 | Windows 目标 WebView/扬声器实播、设备版本和设备信息记录 |
+| E | 未完成 | 旧引擎与兼容路径已识别，HTMLAudio 生产主路径已接入 | 旧 LXPlaybackEngine 清理；媒体 headers、Range、redirect、seek、受控代理/连接安全端到端验收 |
+| F | 部分完成 | 五平台适配器代码、同步 LRC、桌面歌词基础链路；HuiBi 真实来源歌词与 Chromium 歌词集成测试通过；歌单模式持久化、观众点播优先和恢复自动化通过 | QQ/酷狗/酷我/网易云/咪咕逐一真实歌词验收；翻译/时间戳完整性；桌面歌词真实时钟同步、切歌竞态、多视图与完整队列场景 |
+| G | 部分完成 | QuickJS HTTP 安全边界及部分资源/生命周期自动化测试 | 媒体传输安全最终审查；两小时设备 soak；主进程/renderer 内存数据；稳定性、性能和最终全量验收 |
+
+**当前下一步：** 先完成 D 的 Windows 目标设备验收；随后按唯一阶段顺序进入 E，完成媒体传输适配与旧引擎替换，再补齐 F、G。不得把 Chromium CI 实播等同于 Windows 目标设备实播，也不得把一个 HuiBi 来源的歌词测试扩大为五平台歌词全部通过。
