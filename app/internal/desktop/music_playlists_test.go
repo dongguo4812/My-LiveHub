@@ -102,3 +102,60 @@ func TestLXPlaylistImportGzipFullExportImportsAllLists(t *testing.T) {
 	}
 	if playlists[1].Tracks[0].SourceData["hash"] != "hash" { t.Fatalf("native source metadata lost: %#v", playlists[1].Tracks[0]) }
 }
+
+
+func TestPlaylistPlaybackModesAdvanceOnlyPlaylistTracks(t *testing.T) {
+	service := newPlaylistTestService(t)
+	service.playlistPlaybackActive = true
+	service.playlistPlaybackTracks = []music.Track{
+		{ID:"one", SourceID:"tx", Title:"One"},
+		{ID:"two", SourceID:"tx", Title:"Two"},
+	}
+	service.playlistPlaybackMode = "sequential"
+	first, ok := service.takeNextPlaylistTrack()
+	if !ok || first.Track.ID != "one" || first.RequestedBy != playlistPlayMarker {
+		t.Fatalf("first sequential track = %#v, %v", first, ok)
+	}
+	second, ok := service.takeNextPlaylistTrack()
+	if !ok || second.Track.ID != "two" {
+		t.Fatalf("second sequential track = %#v, %v", second, ok)
+	}
+	if _, ok := service.takeNextPlaylistTrack(); ok || service.hasActivePlaylistPlayback() {
+		t.Fatal("sequential mode should finish after the last playlist track")
+	}
+
+	service.playlistPlaybackActive = true
+	service.playlistPlaybackIndex = 2
+	service.playlistPlaybackMode = "loop"
+	looped, ok := service.takeNextPlaylistTrack()
+	if !ok || looped.Track.ID != "one" {
+		t.Fatalf("loop mode did not restart at the first track: %#v, %v", looped, ok)
+	}
+
+	service.playlistPlaybackActive = true
+	service.playlistPlaybackIndex = 0
+	service.playlistPlaybackMode = "random"
+	randomFirst, ok := service.takeNextPlaylistTrack()
+	if !ok || randomFirst.Track.ID != "one" {
+		t.Fatalf("random mode did not start from selected track: %#v, %v", randomFirst, ok)
+	}
+	randomNext, ok := service.takeNextPlaylistTrack()
+	if !ok || randomNext.Track.ID == randomFirst.Track.ID {
+		t.Fatalf("random mode should choose another track when possible: %#v, %v", randomNext, ok)
+	}
+}
+
+func TestPlaylistPlaybackModeSettingIsValidated(t *testing.T) {
+	service := newPlaylistTestService(t)
+	for _, mode := range []string{"sequential", "loop", "random"} {
+		if err := service.SetPlaylistPlaybackMode(mode); err != nil {
+			t.Fatalf("SetPlaylistPlaybackMode(%q): %v", mode, err)
+		}
+		if got := service.GetPlaylistPlaybackMode(); got != mode {
+			t.Fatalf("mode = %q, want %q", got, mode)
+		}
+	}
+	if err := service.SetPlaylistPlaybackMode("audience-first-random"); err == nil {
+		t.Fatal("unsupported playlist playback mode should be rejected")
+	}
+}
