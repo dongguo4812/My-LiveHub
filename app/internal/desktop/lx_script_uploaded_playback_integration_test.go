@@ -315,7 +315,7 @@ func TestProductionLXPlaylistFirstAndRepeatedClickTiming(t *testing.T) {
 	// transient outage triggers five-second fallbacks across every enabled
 	// provider and measures network retry policy instead of the first click.
 	searchOrder:=make([]string,0,len(enabled))
-	for _,preferred:=range []string{"mg","tx","wy","kw","kg","local"} {
+	for _,preferred:=range []string{"kw","mg","tx","wy","kg","local"} {
 		for _,id:=range enabled { if id==preferred { searchOrder=append(searchOrder,id); break } }
 	}
 	searchService:=NewMusicServiceWithDependencies(manager,config.MusicConfig{Enabled:true,EnabledSearchSources:enabled},nil,nil)
@@ -348,7 +348,7 @@ func TestProductionLXPlaylistFirstAndRepeatedClickTiming(t *testing.T) {
 	for _,track:=range tracks { if err:=service.AddPlaylistTrack(playlist.ID,track); err!=nil { t.Fatal(err) } }
 	saved,err:=service.GetPlaylist(playlist.ID)
 	if err!=nil || len(saved.Tracks)!=2 { t.Fatalf("playlist tracks=%d err=%v",len(saved.Tracks),err) }
-	t.Logf("PLAYLIST_CREATED id=%s name=%q provider=%s track1=%q track2=%q",playlist.ID,playlist.Name,selectedSource,saved.Tracks[0].Title,saved.Tracks[1].Title)
+	t.Logf("PLAYLIST_CREATED id=%s name=%q provider=%s track1={title:%q id:%q source:%q native:%q} track2={title:%q id:%q source:%q native:%q}",playlist.ID,playlist.Name,selectedSource,saved.Tracks[0].Title,saved.Tracks[0].ID,saved.Tracks[0].SourceID,saved.Tracks[0].SourceData["songmid"],saved.Tracks[1].Title,saved.Tracks[1].ID,saved.Tracks[1].SourceID,saved.Tracks[1].SourceData["songmid"])
 
 	start:=time.Now()
 	t.Logf("FIRST_TRACK_CLICK_1 start=%s title=%q",start.Format(time.RFC3339Nano),tracks[0].Title)
