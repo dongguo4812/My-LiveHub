@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 type managedLXScript struct {
@@ -249,7 +250,7 @@ func (m *SourceManager) Start(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("create production QuickJS runtime for %s: %w", script.info.Name, err)
 		}
-		initCtx, cancel := context.WithTimeout(ctx, lxMaxRequestTimeout)
+		initCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		err = runtime.InitializeLXSource(initCtx, script.info, script.source, m.client)
 		cancel()
 		if err != nil {
@@ -259,16 +260,13 @@ func (m *SourceManager) Start(ctx context.Context) error {
 		sourcesText, err := runtime.Eval(ctx, `JSON.stringify((globalThis.__lxHostState && globalThis.__lxHostState.initInfo && globalThis.__lxHostState.initInfo.sources) || {})`, "lx-source-capabilities.js")
 		if err != nil {
 			_ = runtime.Close()
-			return fmt.Errorf("%s 读取音源能力失败：%w", script.info.Name, err)
+			if ctxErr := ctx.Err(); ctxErr != nil { return ctxErr }
+			continue
 		}
 		var sourceCapabilities map[string]struct { Actions []string `json:"actions"` }
 		if err := json.Unmarshal([]byte(sourcesText), &sourceCapabilities); err != nil {
 			_ = runtime.Close()
-			return fmt.Errorf("%s 音源能力格式无效：%w", script.info.Name, err)
-		}
-		if len(sourceCapabilities) == 0 {
-			_ = runtime.Close()
-			return fmt.Errorf("%s 初始化成功，但没有声明任何可用音源", script.info.Name)
+			continue
 		}
 		supported := make(map[string]struct{}, len(sourceCapabilities))
 		actions := make(map[string]map[string]struct{}, len(sourceCapabilities))
