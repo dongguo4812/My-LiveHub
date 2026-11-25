@@ -99,3 +99,26 @@ func TestDispatchLXExtensionClassifiesCancellation(t *testing.T) {
  var actionErr *LXScriptActionError
  if !handled||!errors.As(err,&actionErr)||actionErr.Kind!="cancelled"||!errors.Is(err,context.Canceled){t.Fatalf("cancel classification = %#v, handled=%v, err=%v",actionErr,handled,err)}
 }
+
+
+// captureLXSearchRuntime records the exact request payload sent to a community search action.
+type captureLXSearchRuntime struct { info any }
+func (*captureLXSearchRuntime) HasExtensionAction(string, string) bool { return true }
+func (r *captureLXSearchRuntime) DispatchExtensionAction(_ context.Context, _, _ string, info any) (any, error) {
+ r.info = info
+ return map[string]any{"isEnd":true,"list":[]any{map[string]any{"id":"1","name":"稻香","singer":"周杰伦"}}},nil
+}
+
+func TestScriptAwareSearcherUsesLXNativeSearchRequestFields(t *testing.T) {
+ runtime := &captureLXSearchRuntime{}
+ service := &MusicService{scriptRuntime:runtime}
+ searcher := scriptAwareSourceSearcher{base:music.NewLXSearchClient(nil),service:service}
+ got,err := searcher.SearchProvider(context.Background(),"wy","稻香",2)
+ if err != nil { t.Fatal(err) }
+ if len(got.Tracks)!=1 || got.Tracks[0].Title!="稻香" { t.Fatalf("script search result not normalized: %#v",got) }
+ payload,ok:=runtime.info.(map[string]any)
+ if !ok { t.Fatalf("search payload type=%T",runtime.info) }
+ for key,want:=range map[string]any{"text":"稻香","keyword":"稻香","page":2,"limit":30,"pageSize":30} {
+  if payload[key]!=want { t.Errorf("search payload[%q]=%v, want %v",key,payload[key],want) }
+ }
+}
