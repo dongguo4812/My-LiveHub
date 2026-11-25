@@ -103,6 +103,8 @@ const playbackVolume = ref(100)
 const lastAudibleVolume = ref(100)
 const canPrevious = ref(false)
 const playlistPlaybackMode = ref('sequential')
+const playlistPlaybackActive = ref(false)
+const canNextTrack = computed(() => (queue.value?.items.length ?? 0) > 0 || playlistPlaybackActive.value)
 
 const progress = computed(() => {
   if (!playback.value || playback.value.duration_ms <= 0) return 0
@@ -210,6 +212,7 @@ async function refreshPlayback() {
     playback.value = await MusicService.GetCachedPlaybackStatus()
     canPrevious.value = await MusicService.CanPrevious()
     playlistPlaybackMode.value = await MusicService.GetPlaylistPlaybackMode()
+    playlistPlaybackActive.value = await MusicService.GetPlaylistPlaybackActive()
     playbackPositionAnchor = playback.value.position_ms ?? 0
     playbackPositionAnchorAt = Date.now()
     updatePlaybackClock()
@@ -461,7 +464,8 @@ onUnmounted(() => {
           </small>
           <small v-if="playback?.resolution_status === 'resolving'" class="resolution-status">正在解析播放地址，请稍候…</small>
           
-          <el-tag v-if="queue?.current && queue.current.requested_by !== '__my_livehub_search_play__'" type="warning" size="small">观众点播</el-tag>
+          <el-tag v-if="queue?.current && queue.current.requested_by !== '__my_livehub_search_play__' && queue.current.requested_by !== '__my_livehub_playlist_play__'" type="warning" size="small">观众点播</el-tag>
+          <el-tag v-else-if="queue?.current?.requested_by === '__my_livehub_playlist_play__'" type="success" size="small">歌单播放</el-tag>
         </div>
       </div>
       <div class="progress-row">
@@ -485,7 +489,7 @@ onUnmounted(() => {
         <el-button :disabled="playback?.state !== 'paused'" @click="resume">继续</el-button>
         <el-button :disabled="!playback?.track" @click="stopPlayback">停止</el-button>
         <el-button :disabled="!canPrevious" @click="previousTrack">上一首</el-button>
-        <el-button :disabled="!queue?.items?.length" @click="nextTrack">下一首</el-button>
+        <el-button :disabled="!canNextTrack" @click="nextTrack">下一首</el-button>
       </div>
       <p class="hint">播放由 My-LiveHub 内置 HTMLAudio 负责，无需启动外部播放器。</p>
     </el-card>
