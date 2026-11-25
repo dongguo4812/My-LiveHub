@@ -23,6 +23,9 @@ type managedLXScript struct {
 	initialized       bool
 	supportedSources  map[string]struct{}
 	supportedActions  map[string]map[string]struct{}
+	initError string
+	initStage string
+	initAt time.Time
 }
 
 // SourceManager owns isolated, persistent QuickJS contexts for scripts
@@ -52,6 +55,27 @@ type LXSourceScript struct {
 	Info             ScriptInfo
 	Source            string
 	ExtensionActions  []string
+}
+
+type ScriptInitializationResult struct {
+	Name string
+	Status string
+	Stage string
+	Error string
+	At time.Time
+}
+
+func (m *SourceManager) InitializationResults() []ScriptInitializationResult {
+	if m == nil { return []ScriptInitializationResult{} }
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	results := make([]ScriptInitializationResult, 0, len(m.scripts))
+	for _, script := range m.scripts {
+		status := "ready"
+		if !script.initialized { status = "failed" }
+		results = append(results, ScriptInitializationResult{Name:script.info.Name, Status:status, Stage:script.initStage, Error:script.initError, At:script.initAt})
+	}
+	return results
 }
 
 
@@ -241,47 +265,40 @@ func (m *SourceManager) Start(ctx context.Context) error {
 		return nil
 	}
 
-	// Initialize the enabled source script before the player becomes available.
-	// Previously this handshake was deferred until the first musicUrl request,
-	// making the first "Play all" action pay the entire QuickJS bootstrap cost.
+	// Only explicitly enabled scripts are supplied to this manager. Warm
+	// each one now and retain failures; playback must never initialize lazily.
 	for _, script := range m.scripts {
 		if err := ctx.Err(); err != nil { return err }
+		script.initAt = time.Now().UTC()
+		script.initStage = "create_runtime"
 		runtime, err := New(Options{EvalTimeout: lxCapabilityProbeEvalTimeout})
-		if err != nil {
-			return fmt.Errorf("create production QuickJS runtime for %s: %w", script.info.Name, err)
-		}
+		if err != nil { script.initError = "创建 QuickJS Runtime 失败：" + err.Error(); continue }
+		script.runtime = runtime
+		script.initStage = "initialize_script"
 		initCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		err = runtime.InitializeLXSource(initCtx, script.info, script.source, m.client)
+		timedOut := errors.Is(initCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
 		cancel()
 		if err != nil {
-			_ = runtime.Close()
+			_ = runtime.Close(); script.runtime = nil
 			if ctxErr := ctx.Err(); ctxErr != nil { return ctxErr }
-			// Keep startup resilient: an imported script that cannot complete
-			// its warm-up is retried on demand and reports its error to playback.
+			if timedOut { script.initError = "初始化超时（单个已启用 JS 音源启动初始化时限为 5 秒）：" + err.Error() } else { script.initError = "执行 JS 音源初始化失败：" + err.Error() }
 			continue
 		}
+		script.initStage = "read_capabilities"
 		sourcesText, err := runtime.Eval(ctx, `JSON.stringify((globalThis.__lxHostState && globalThis.__lxHostState.initInfo && globalThis.__lxHostState.initInfo.sources) || {})`, "lx-source-capabilities.js")
-		if err != nil {
-			_ = runtime.Close()
-			if ctxErr := ctx.Err(); ctxErr != nil { return ctxErr }
-			continue
-		}
+		if err != nil { _ = runtime.Close(); script.runtime = nil; if ctxErr := ctx.Err(); ctxErr != nil { return ctxErr }; script.initError = "读取 inited.sources 音源能力失败：" + err.Error(); continue }
 		var sourceCapabilities map[string]struct { Actions []string `json:"actions"` }
-		if err := json.Unmarshal([]byte(sourcesText), &sourceCapabilities); err != nil {
-			_ = runtime.Close()
-			continue
-		}
+		if err := json.Unmarshal([]byte(sourcesText), &sourceCapabilities); err != nil { _ = runtime.Close(); script.runtime = nil; script.initError = "解析 inited.sources 音源能力失败：" + err.Error(); continue }
+		if len(sourceCapabilities) == 0 { _ = runtime.Close(); script.runtime = nil; script.initError = "脚本初始化完成，但 inited.sources 未声明任何平台音源"; continue }
 		supported := make(map[string]struct{}, len(sourceCapabilities))
 		actions := make(map[string]map[string]struct{}, len(sourceCapabilities))
 		for name, capability := range sourceCapabilities {
-			supported[name] = struct{}{}
-			actions[name] = make(map[string]struct{}, len(capability.Actions))
+			supported[name] = struct{}{}; actions[name] = make(map[string]struct{}, len(capability.Actions))
 			for _, action := range capability.Actions { actions[name][action] = struct{}{} }
 		}
-		script.runtime = runtime
-		script.initialized = true
-		script.supportedSources = supported
-		script.supportedActions = actions
+		script.initialized = true; script.initStage = "ready"; script.initError = ""
+		script.supportedSources = supported; script.supportedActions = actions
 	}
 	m.started = true
 	return nil
@@ -302,66 +319,15 @@ func (e *lxSourceUnsupportedError) LXExtensionSourceUnsupported() bool { return 
 
 func (m *SourceManager) dispatchScriptAction(ctx context.Context, script *managedLXScript, source, action string, info any, client *http.Client) (any, error) {
 	m.mu.Lock()
-	if m.closed {
+	if m.closed { m.mu.Unlock(); return nil, errors.New("LX source manager is closed") }
+	if !script.initialized || script.runtime == nil {
+		reason := script.initError
+		if reason == "" { reason = "该已启用 JS 音源未在音乐模块启动阶段完成初始化" }
 		m.mu.Unlock()
-		return nil, errors.New("LX source manager is closed")
-	}
-	if script.runtime == nil {
-		runtime, err := New(Options{})
-		if err != nil {
-			m.mu.Unlock()
-			return nil, fmt.Errorf("%s Runtime 创建失败：%w", script.info.Name, err)
-		}
-		script.runtime = runtime
+		return nil, fmt.Errorf("%s 初始化未就绪（阶段：%s）：%s", script.info.Name, script.initStage, reason)
 	}
 	runtime := script.runtime
-	initialized := script.initialized
 	m.mu.Unlock()
-
-	if !initialized {
-		initCtx, cancel := context.WithTimeout(ctx, lxMaxRequestTimeout)
-		err := runtime.InitializeLXSource(initCtx, script.info, script.source, client)
-		cancel()
-		if err != nil {
-			_ = runtime.Close()
-			m.mu.Lock()
-			if script.runtime == runtime {
-				script.runtime = nil
-				script.initialized = false
-			}
-			m.mu.Unlock()
-			return nil, fmt.Errorf("%s 初始化失败：%w", script.info.Name, err)
-		}
-		sourcesText, sourceErr := runtime.Eval(ctx, `JSON.stringify((globalThis.__lxHostState && globalThis.__lxHostState.initInfo && globalThis.__lxHostState.initInfo.sources) || {})`, "lx-source-capabilities.js")
-		if sourceErr != nil {
-			_ = runtime.Close()
-			m.mu.Lock()
-			if script.runtime == runtime { script.runtime = nil; script.initialized = false; script.supportedSources = nil; script.supportedActions = nil }
-			m.mu.Unlock()
-			return nil, fmt.Errorf("%s 读取音源能力失败：%w", script.info.Name, sourceErr)
-		}
-		var sourceCapabilities map[string]struct { Actions []string `json:"actions"` }
-		if sourceErr = json.Unmarshal([]byte(sourcesText), &sourceCapabilities); sourceErr != nil {
-			_ = runtime.Close()
-			m.mu.Lock()
-			if script.runtime == runtime { script.runtime = nil; script.initialized = false; script.supportedSources = nil; script.supportedActions = nil }
-			m.mu.Unlock()
-			return nil, fmt.Errorf("%s 音源能力格式无效：%w", script.info.Name, sourceErr)
-		}
-		supported := make(map[string]struct{}, len(sourceCapabilities))
-		actions := make(map[string]map[string]struct{}, len(sourceCapabilities))
-		for name, capability := range sourceCapabilities {
-			supported[name] = struct{}{}
-			actions[name] = make(map[string]struct{}, len(capability.Actions))
-			for _, action := range capability.Actions { actions[name][action] = struct{}{} }
-		}
-		m.mu.Lock()
-		if m.closed { m.mu.Unlock(); return nil, errors.New("LX source manager is closed") }
-		script.supportedSources = supported
-		script.supportedActions = actions
-		script.initialized = true
-		m.mu.Unlock()
-	}
 	m.mu.Lock()
 	_, supportsSource := script.supportedSources[source]
 	m.mu.Unlock()

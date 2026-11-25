@@ -36,6 +36,9 @@ type LXScriptSummary struct {
 	SourceActions map[string][]string `json:"source_actions,omitempty"`
 	LastTest *LXScriptTestResult `json:"last_test,omitempty"`
 	LastError string `json:"last_error,omitempty"`
+	InitializationStatus string `json:"initialization_status,omitempty"`
+	InitializationStage string `json:"initialization_stage,omitempty"`
+	InitializationAt time.Time `json:"initialization_at,omitempty"`
 }
 
 type lxScriptManagement interface {

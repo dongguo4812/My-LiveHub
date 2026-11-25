@@ -40,6 +40,9 @@ type storedLXScript struct {
 	LastTest *LXScriptTestResult `json:"last_test,omitempty"`
 	Enabled          bool     `json:"enabled"`
 	LastError        string   `json:"last_error,omitempty"`
+	InitializationStatus string `json:"initialization_status,omitempty"`
+	InitializationStage string `json:"initialization_stage,omitempty"`
+	InitializationAt time.Time `json:"initialization_at,omitempty"`
 }
 
 type productionMusicLXRuntime struct {
@@ -90,6 +93,7 @@ func summarizeLXScript(script storedLXScript) LXScriptSummary {
 		Version: script.Version, Author: script.Author, Homepage: script.Homepage,
 		Enabled: script.Enabled, ExtensionActions: append([]string(nil), script.ExtensionActions...),
 		NativeActions: append([]string(nil), script.NativeActions...), SupportedSources: append([]string(nil), script.SupportedSources...), SourceActions: cloneLXSourceActions(script.SourceActions), LastTest: cloneLXScriptTestResult(script.LastTest), LastError: script.LastError,
+		InitializationStatus: script.InitializationStatus, InitializationStage: script.InitializationStage, InitializationAt: script.InitializationAt,
 	}
 }
 
@@ -252,6 +256,7 @@ func (r *productionMusicLXRuntime) persistLocked() error {
 
 func (r *productionMusicLXRuntime) rebuildLocked(ctx context.Context) error {
 	definitions := make([]lxruntime.LXSourceScript, 0, len(r.scripts))
+	enabledIndexes := make([]int, 0, len(r.scripts))
 	total := 0
 	for i := range r.scripts {
 		script := &r.scripts[i]
@@ -286,12 +291,24 @@ func (r *productionMusicLXRuntime) rebuildLocked(ctx context.Context) error {
 			Info: info, Source: script.Source,
 			ExtensionActions: append([]string(nil), script.ExtensionActions...),
 		})
+		enabledIndexes = append(enabledIndexes, i)
+		script.InitializationStatus = "initializing"
+		script.InitializationStage = "startup"
+		script.InitializationAt = time.Time{}
 		script.LastError = ""
 	}
 	next, err := lxruntime.NewSourceManagerWithScripts(nil, definitions)
 	if err != nil { return fmt.Errorf("construct LX source manager: %w", err) }
 	if r.started {
 		if err := next.Start(ctx); err != nil { _ = next.Close(); return fmt.Errorf("start imported LX scripts: %w", err) }
+		for position, result := range next.InitializationResults() {
+			if position >= len(enabledIndexes) { break }
+			script := &r.scripts[enabledIndexes[position]]
+			script.InitializationStatus = result.Status
+			script.InitializationStage = result.Stage
+			script.InitializationAt = result.At
+			script.LastError = result.Error
+		}
 	}
 	// Persist the new registry before swapping the live manager. A disk error
 	// must not leave the process running a script set that will disappear on restart.
