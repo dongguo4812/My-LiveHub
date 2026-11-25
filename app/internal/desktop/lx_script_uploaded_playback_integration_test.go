@@ -112,22 +112,10 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 							break
 						}
 					}
-					if candidate == nil {
-						// Some community search APIs are independently unavailable or
-						// return a non-canonical list envelope. Fall back to the native
-						// provider search only to exercise this uploaded script's
-						// musicUrl action; keep the community-search miss visible.
-						nativePage, nativeErr := service.searcher.SearchProvider(ctx, sourceID, query, 1)
-						if nativeErr == nil {
-							for i := range nativePage.Tracks {
-								item := nativePage.Tracks[i]
-								if strings.Contains(strings.TrimSpace(item.Title), query) && (strings.Contains(item.Artist, "周杰伦") || strings.Contains(strings.ToLower(item.Artist), "jay chou") || strings.Contains(item.Artist, "周董")) {
-									candidate = &item
-									break
-								}
-							}
-						}
-					}
+					// This test must validate the uploaded script's declared search action.
+					// Never substitute the native provider here: doing so would hide a broken
+					// community search payload/response contract.
+
 					if candidate == nil {
 						preview := make([]string, 0, 6)
 						for index, item := range page.Tracks {
