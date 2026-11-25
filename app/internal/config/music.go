@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const CurrentMusicConfigVersion = 15
+const CurrentMusicConfigVersion = 16
 
 type MusicConfig struct {
 	ConfigVersion  int    `json:"config_version"`
@@ -20,6 +20,7 @@ type MusicConfig struct {
 	QueueCapacity  int    `json:"queue_capacity"`
 	RequestCooldownSeconds int `json:"request_cooldown_seconds"`
 	QueueDisplayCount int `json:"queue_display_count"`
+	PlaylistPlaybackMode string `json:"playlist_playback_mode"`
 	LXAPIEndpoints []string `json:"lx_api_endpoints"`
 	EnabledSearchSources []string `json:"enabled_search_sources"`
 	RequireFanMedal bool `json:"require_fan_medal"`
@@ -38,6 +39,7 @@ func DefaultMusicConfig() MusicConfig {
 		QueueCapacity: 100,
 		RequestCooldownSeconds: 0,
 		QueueDisplayCount: 5,
+		PlaylistPlaybackMode: "sequential",
 		FanMedalLevel: 1,
 		LXAPIEndpoints: []string{"http://127.0.0.1:23330"},
 		EnabledSearchSources: []string{"tx", "kw", "kg", "wy", "mg"},
@@ -74,6 +76,7 @@ func MigrateMusicConfig(c MusicConfig) (MusicConfig, bool) {
 		}
 	}
 	if c.EnabledSearchSources != nil { n.EnabledSearchSources = append([]string{}, c.EnabledSearchSources...) }
+	if c.PlaylistPlaybackMode == "sequential" || c.PlaylistPlaybackMode == "loop" || c.PlaylistPlaybackMode == "random" { n.PlaylistPlaybackMode = c.PlaylistPlaybackMode }
 	n.RequireFanMedal = c.RequireFanMedal
 	if c.FanMedalLevel >= 1 && c.FanMedalLevel <= 120 { n.FanMedalLevel = c.FanMedalLevel }
 	return n, true
@@ -92,6 +95,7 @@ func (c MusicConfig) Validate() error {
 	}
 	if c.SkipCommandEnabled && strings.TrimSpace(c.SkipCommand) == "" { return fmt.Errorf("music skip command is required") }
 	if len([]rune(c.SkipCommand)) > 16 { return fmt.Errorf("music skip command is too long") }
+	if c.PlaylistPlaybackMode != "sequential" && c.PlaylistPlaybackMode != "loop" && c.PlaylistPlaybackMode != "random" { return fmt.Errorf("不支持的歌单播放模式：%s", c.PlaylistPlaybackMode) }
 	if c.RequireFanMedal && (c.FanMedalLevel < 1 || c.FanMedalLevel > 120) { return fmt.Errorf("音乐点播粉丝勋章等级必须在 1 到 120 之间") }
 	if c.RequestCooldownSeconds < 0 || c.RequestCooldownSeconds > 86400 { return fmt.Errorf("普通观众点播冷却时间必须在 0 到 86400 秒之间") }
 	if c.QueueCapacity < 1 || c.QueueCapacity > 1000 {
@@ -143,6 +147,7 @@ func LoadMusicConfig(m *Manager) (MusicConfig, error) {
 			"queue_capacity": true,
 			"request_cooldown_seconds": true,
 			"queue_display_count": true,
+			"playlist_playback_mode": true,
 			"lx_api_endpoints": true,
 			"enabled_search_sources": true,
 			"require_fan_medal": true,
