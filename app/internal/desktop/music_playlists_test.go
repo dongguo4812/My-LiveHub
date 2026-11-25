@@ -159,3 +159,37 @@ func TestPlaylistPlaybackModeSettingIsValidated(t *testing.T) {
 		t.Fatal("unsupported playlist playback mode should be rejected")
 	}
 }
+
+
+func TestPlaylistPlaybackDefersToAudienceQueue(t *testing.T) {
+	service := newPlaylistTestService(t)
+	engine := &queueAdvanceTestEngine{}
+	service.engine = engine
+	service.value.Enabled = true
+	defer service.cancelPlaybackWatcher()
+
+	playlist, err := service.CreatePlaylist("优先级测试")
+	if err != nil { t.Fatal(err) }
+	playlistTrack := music.Track{ID:"playlist-track", SourceID:"tx", LXSourceKey:"tx", Title:"歌单歌曲", Artist:"歌手"}
+	if err := service.AddPlaylistTrack(playlist.ID, playlistTrack); err != nil { t.Fatal(err) }
+	audienceTrack := music.Track{ID:"audience-track", SourceID:"tx", LXSourceKey:"tx", Title:"观众点播", Artist:"观众"}
+	if _, err := service.queue.Enqueue(audienceTrack, "viewer"); err != nil { t.Fatal(err) }
+
+	if err := service.PlayPlaylist(playlist.ID, ""); err != nil {
+		t.Fatalf("PlayPlaylist returned error: %v", err)
+	}
+	current := service.queue.Snapshot().Current
+	if current == nil || current.Track.ID != audienceTrack.ID {
+		t.Fatalf("audience request did not take priority: %#v", current)
+	}
+
+	service.cancelPlaybackWatcher()
+	service.queue.FinishCurrent()
+	if err := service.PlayNext(); err != nil {
+		t.Fatalf("start playlist after audience request: %v", err)
+	}
+	current = service.queue.Snapshot().Current
+	if current == nil || current.Track.ID != playlistTrack.ID || current.RequestedBy != playlistPlayMarker {
+		t.Fatalf("playlist did not resume after audience queue drained: %#v", current)
+	}
+}
