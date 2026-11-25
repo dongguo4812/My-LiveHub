@@ -281,7 +281,7 @@ func (e *playlistResolutionProbeEngine) LoadResource(ctx context.Context, track 
 	buf := make([]byte,64)
 	n, readErr := resp.Body.Read(buf)
 	if (resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent) || n == 0 {
-		return fmt.Errorf("media stream probe status=%s bytes=%d read=%v",resp.Status,n,readErr)
+		return fmt.Errorf("media stream probe status=%s bytes=%d read=%v media=%s",resp.Status,n,readErr,safeLXMediaURL(resource.URL))
 	}
 	e.mu.Lock(); e.track=track; e.loads++; e.mu.Unlock()
 	return nil
@@ -347,7 +347,7 @@ func TestProductionLXPlaylistFirstAndRepeatedClickTiming(t *testing.T) {
 	}
 	if len(tracks)!=2 { t.Fatalf("cannot create two-track playlist: no same-source results for 稻香 and 晴天; enabled=%v",enabled) }
 	engine:=&playlistResolutionProbeEngine{}
-	service:=NewMusicServiceWithDependencies(manager,config.MusicConfig{Enabled:true,EnabledSearchSources:[]string{selectedSource}},nil,engine)
+	service:=NewMusicServiceWithDependencies(manager,config.MusicConfig{Enabled:true,EnabledSearchSources:enabled},nil,engine)
 	service.scriptRuntime=runtime
 	defer service.Shutdown()
 	playlist,err:=service.CreatePlaylist("CI首次播放与重复点击诊断"); if err!=nil { t.Fatal(err) }
