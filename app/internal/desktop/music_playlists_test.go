@@ -110,9 +110,19 @@ func TestPlaylistPlaybackActiveIsExposedToPlayerControls(t *testing.T) {
 		t.Fatal("playlist playback must be inactive before a playlist starts")
 	}
 	service.playlistPlaybackActive = true
-	service.playlistPlaybackTracks = []music.Track{{ID:"one", SourceID:"tx", Title:"One"}}
+	service.playlistPlaybackTracks = []music.Track{{ID:"one", SourceID:"tx", Title:"One"}, {ID:"two", SourceID:"tx", Title:"Two"}}
+	service.playlistPlaybackMode = "sequential"
+	service.playlistPlaybackIndex = 1
 	if !service.GetPlaylistPlaybackActive() {
-		t.Fatal("active playlist session must be exposed to the player controls")
+		t.Fatal("playlist with an upcoming track must enable the next button")
+	}
+	service.playlistPlaybackIndex = 2
+	if service.GetPlaylistPlaybackActive() {
+		t.Fatal("sequential playlist at its final track must not enable the next button")
+	}
+	service.playlistPlaybackMode = "loop"
+	if !service.GetPlaylistPlaybackActive() {
+		t.Fatal("loop mode must allow advancing from the final playlist track")
 	}
 	service.playlistPlaybackActive = false
 	if service.GetPlaylistPlaybackActive() {
