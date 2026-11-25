@@ -130,6 +130,7 @@ func (e *htmlAudioPlaybackEngine) SetLoudnessNormalization(enabled bool) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.loudnessNormalization = enabled
+	if e.emit == nil { return nil }
 	return e.commandLocked("loudness-normalization", 0, 0)
 }
 
