@@ -193,3 +193,31 @@ func TestPlaylistPlaybackDefersToAudienceQueue(t *testing.T) {
 		t.Fatalf("playlist did not resume after audience queue drained: %#v", current)
 	}
 }
+
+
+func TestPreviousDoesNotPutPlaylistTrackAheadOfAudienceQueue(t *testing.T) {
+	service := newPlaylistTestService(t)
+	service.engine = &queueAdvanceTestEngine{}
+	service.value.Enabled = true
+	defer service.cancelPlaybackWatcher()
+
+	previous := music.Track{ID:"playlist-previous", SourceID:"tx", LXSourceKey:"tx", Title:"上一首", Artist:"歌手"}
+	current := music.Track{ID:"playlist-current", SourceID:"tx", LXSourceKey:"tx", Title:"当前", Artist:"歌手"}
+	service.playlistPlaybackActive = true
+	service.playlistPlaybackTracks = []music.Track{previous, current, {ID:"playlist-next", SourceID:"tx", Title:"下一首"}}
+	service.playlistPlaybackIndex = 2
+	service.history = []music.QueueItem{{ID:"history-previous", Track:previous, RequestedBy:playlistPlayMarker}}
+	if _, err := service.queue.SetCurrentTrack(current, playlistPlayMarker); err != nil { t.Fatal(err) }
+
+	if err := service.Previous(); err != nil { t.Fatalf("Previous returned error: %v", err) }
+	snapshot := service.queue.Snapshot()
+	if len(snapshot.Items) != 0 {
+		t.Fatalf("playlist track leaked into audience queue: %#v", snapshot.Items)
+	}
+	if snapshot.Current == nil || snapshot.Current.Track.ID != previous.ID {
+		t.Fatalf("previous playlist track was not restored: %#v", snapshot.Current)
+	}
+	if service.playlistPlaybackIndex != 1 {
+		t.Fatalf("playlist resume index = %d, want 1", service.playlistPlaybackIndex)
+	}
+}
