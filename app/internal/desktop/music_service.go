@@ -965,7 +965,18 @@ func (s *MusicService) Previous() error {
 
 	s.cancelPlaybackWatcher()
 	if current := s.queue.Snapshot().Current; current != nil {
-		if err := s.queue.EnqueueFront(*current); err != nil {
+		if current.RequestedBy == playlistPlayMarker {
+			// Keep playlist tracks in the playlist scheduler, never in the
+			// audience queue where they could jump ahead of viewer requests.
+			s.mu.Lock()
+			for index, track := range s.playlistPlaybackTracks {
+				if track.ID == current.Track.ID {
+					s.playlistPlaybackIndex = index
+					break
+				}
+			}
+			s.mu.Unlock()
+		} else if err := s.queue.EnqueueFront(*current); err != nil {
 			s.startPlaybackWatcher()
 			return fmt.Errorf("cannot preserve current track before going back: %w", err)
 		}
