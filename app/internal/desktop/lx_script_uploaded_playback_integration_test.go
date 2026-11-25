@@ -29,14 +29,10 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 		t.Skip("set MYLIVEHUB_LX_UPLOADED_PLAYBACK_INTEGRATION=1 to test real playback for every uploaded lx-js script")
 	}
 
+	// The user-selected production source is the sole target for this
+	// integration suite. Do not fan out to unrelated uploaded scripts/providers.
 	scripts := []string{
-		"HelloWorld音源(中秋快乐).js",
-		"xinghai-music-sourcev2.3.20.js",
 		"回避聚合V0.0.1.js",
-		"墨澜音乐源v2.3.8.js",
-		"安妮独家音源 v5.js",
-		"独家音源-v8.js",
-		"裤佬SVIP音源(二改整合版) v3.0.0.js",
 	}
 	// Run independent script runtimes concurrently, but cap outbound provider
 	// traffic so CI does not overload upstream music APIs.
