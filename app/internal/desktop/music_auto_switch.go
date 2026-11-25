@@ -17,7 +17,10 @@ import (
 const (
 	playbackResolutionTimeout = 30 * time.Second
 	fallbackSourceSearchTimeout = 5 * time.Second
-	fallbackSourceResolveTimeout = 5 * time.Second
+	// Aggregate LX sources may intentionally wait up to 8 seconds for a high-quality
+	// backend before falling back. A 5-second host deadline cut that script off
+	// before its own timeout and made first-click playlist playback fail.
+	fallbackSourceResolveTimeout = 10 * time.Second
 )
 
 func (s *MusicService) resolvePlaybackResource(ctx context.Context, track music.Track) (music.PlaybackResource, error) {
