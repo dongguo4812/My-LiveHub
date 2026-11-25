@@ -15,12 +15,12 @@ import (
 // provider result. If playback cannot be confirmed, it searches the remaining
 // enabled providers in configured priority order and verifies each candidate.
 const (
-	playbackResolutionTimeout = 60 * time.Second
+	playbackResolutionTimeout = 120 * time.Second
 	fallbackSourceSearchTimeout = 5 * time.Second
 	// Aggregate LX sources may intentionally wait up to 8 seconds for a high-quality
 	// backend before falling back. A 5-second host deadline cut that script off
 	// before its own timeout and made first-click playlist playback fail.
-	fallbackSourceResolveTimeout = 45 * time.Second
+	fallbackSourceResolveTimeout = 90 * time.Second
 )
 
 func (s *MusicService) resolvePlaybackResource(ctx context.Context, track music.Track) (music.PlaybackResource, error) {
