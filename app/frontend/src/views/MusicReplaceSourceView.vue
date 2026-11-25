@@ -58,7 +58,8 @@ async function searchAllSources() {
   } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
   finally { searching.value = false }
 }
-function selectCandidate(track: Track) { selectedCandidate.value = track }
+function selectCandidate(track: Track | null) { if (track) selectedCandidate.value = track }
+function candidateKey(track: Track) { return `${track.source_id}:${track.id}` }
 async function previewCandidate(track: Track) {
   try { await MusicService.PlayTrackNow(track); success.value = `试听中：${track.title} - ${track.artist}` }
   catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
@@ -107,7 +108,7 @@ onMounted(async () => { await loadOriginal(); if (original.value) await searchAl
         </button>
       </div>
       <el-alert v-if="activeSourceError" :title="`${selectedSourceName}搜索失败：${activeSourceError}`" type="warning" :closable="false" show-icon />
-      <el-table v-if="visibleCandidates.length" :data="visibleCandidates" row-key="id" highlight-current-row @current-change="selectCandidate" style="width:100%;margin-top:12px">
+      <el-table v-if="visibleCandidates.length" :data="visibleCandidates"  :row-key="candidateKey" highlight-current-row @current-change="selectCandidate" style="width:100%;margin-top:12px">
         <el-table-column label="选择" width="62"><template #default="scope"><el-button size="small" :type="selectedCandidate?.id === scope.row.id && selectedCandidate?.source_id === scope.row.source_id ? 'primary' : 'default'" @click="selectCandidate(scope.row)">选择</el-button></template></el-table-column>
         <el-table-column prop="title" label="歌曲" min-width="170" /><el-table-column prop="artist" label="歌手" min-width="130" /><el-table-column prop="album" label="专辑" min-width="130" /><el-table-column label="音质" min-width="130"><template #default="scope">{{ (scope.row.qualities ?? []).map(item => item.type).join(' / ') || '未知' }}</template></el-table-column><el-table-column label="时长" width="82"><template #default="scope">{{ duration(scope.row.duration_ms) }}</template></el-table-column>
         <el-table-column label="操作" width="90"><template #default="scope"><el-button link type="success" @click="previewCandidate(scope.row)">试听</el-button></template></el-table-column>
