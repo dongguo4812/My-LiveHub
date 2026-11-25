@@ -251,6 +251,7 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 			}
 		})
 	}
+	t.Run("playlist_first_and_repeated_click_timing", TestProductionLXPlaylistFirstAndRepeatedClickTiming)
 }
 
 func errorTextForLXTest(err error) string {
