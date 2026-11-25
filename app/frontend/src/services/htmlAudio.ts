@@ -3,12 +3,13 @@ import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/
 
 type Resource = { url: string; source_id: string; track_id: string; quality: string }
 type Command = {
-  command: 'load' | 'play' | 'pause' | 'stop' | 'seek' | 'volume'
+  command: 'load' | 'play' | 'pause' | 'stop' | 'seek' | 'volume' | 'loudness-normalization'
   session_id: number
   track: unknown
   resource: Resource
   position_ms?: number
   volume?: number
+  loudness_normalization?: boolean
 }
 
 const audio = new Audio()
@@ -23,6 +24,49 @@ let activeSession = 0
 let activeURL = ''
 let lastTimeUpdate = 0
 let disposed = false
+let loudnessNormalizationEnabled = false
+let audioContext: AudioContext | undefined
+let mediaSource: MediaElementAudioSourceNode | undefined
+let compressor: DynamicsCompressorNode | undefined
+let makeupGain: GainNode | undefined
+
+function ensureAudioGraph() {
+  if (audioContext) return
+  audioContext = new AudioContext()
+  mediaSource = audioContext.createMediaElementSource(audio)
+  compressor = audioContext.createDynamicsCompressor()
+  makeupGain = audioContext.createGain()
+  compressor.threshold.value = -26
+  compressor.knee.value = 24
+  compressor.ratio.value = 4
+  compressor.attack.value = 0.006
+  compressor.release.value = 0.24
+  makeupGain.gain.value = 1.35
+  mediaSource.connect(audioContext.destination)
+}
+
+function applyLoudnessNormalization() {
+  if (!loudnessNormalizationEnabled) {
+    if (mediaSource && audioContext) {
+      mediaSource.disconnect()
+      mediaSource.connect(audioContext.destination)
+    }
+    return
+  }
+  ensureAudioGraph()
+  if (!mediaSource || !compressor || !makeupGain || !audioContext) return
+  mediaSource.disconnect()
+  mediaSource.connect(compressor)
+  compressor.connect(makeupGain)
+  makeupGain.connect(audioContext.destination)
+}
+
+async function resumeAudioContext() {
+  if (!loudnessNormalizationEnabled) return
+  ensureAudioGraph()
+  applyLoudnessNormalization()
+  if (audioContext?.state === 'suspended') await audioContext.resume()
+}
 
 function report(event: string, message = '') {
   if (!activeSession) return
@@ -62,6 +106,10 @@ async function execute(command: Command) {
     audio.removeAttribute('src')
     audio.load()
     activeSession = command.session_id
+    loudnessNormalizationEnabled = command.loudness_normalization ?? loudnessNormalizationEnabled
+    if (loudnessNormalizationEnabled) {
+      try { await resumeAudioContext() } catch (reason) { report('error', `响度标准化音频处理启动失败：${reason instanceof Error ? reason.message : String(reason)}`); return }
+    }
     audio.volume = Math.min(1, Math.max(0, command.volume ?? 1))
     audio.src = command.resource.url
     audio.load()
@@ -84,7 +132,7 @@ async function execute(command: Command) {
   if (command.session_id !== activeSession) return
   switch (command.command) {
     case 'play':
-      try { await audio.play() }
+      try { await resumeAudioContext(); await audio.play() }
       catch (reason) {
         const message = reason instanceof Error ? reason.message : String(reason)
         report('autoplayblocked', message)
@@ -109,6 +157,11 @@ async function execute(command: Command) {
         : requestedTime
       break
     }
+    case 'loudness-normalization':
+      loudnessNormalizationEnabled = command.loudness_normalization ?? false
+      try { applyLoudnessNormalization(); await resumeAudioContext() }
+      catch (reason) { report('error', `响度标准化设置应用失败：${reason instanceof Error ? reason.message : String(reason)}`) }
+      break
     case 'volume':
       audio.volume = Math.min(1, Math.max(0, command.volume ?? 1))
       break
