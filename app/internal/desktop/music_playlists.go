@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -268,8 +269,14 @@ func (s *MusicService) ImportLXPlaylist(raw string) (MusicPlaylist, error) {
 // 洛雪 .lxmc files are GZIP-compressed JSON; plain JSON exports remain supported.
 func (s *MusicService) ImportLXPlaylists(raw string) ([]MusicPlaylist, error) {
 	if s == nil { return nil, errors.New("music service is unavailable") }
-	if len(raw) == 0 || len(raw) > 16<<20 { return nil, errors.New("歌单文件为空或超过 16 MiB") }
+	if len(raw) == 0 || len(raw) > 24<<20 { return nil, errors.New("歌单文件为空或超过 16 MiB") }
 	payload := []byte(raw)
+	if strings.HasPrefix(raw, "base64:") {
+		decoded, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(raw, "base64:"))
+		if err != nil { return nil, fmt.Errorf("读取洛雪歌单文件失败：Base64 数据无效：%w", err) }
+		if len(decoded) > 16<<20 { return nil, errors.New("洛雪歌单文件超过 16 MiB") }
+		payload = decoded
+	}
 	if len(payload) >= 2 && payload[0] == 0x1f && payload[1] == 0x8b {
 		reader, err := gzip.NewReader(bytes.NewReader(payload))
 		if err != nil { return nil, fmt.Errorf("解压洛雪歌单文件失败：%w", err) }
