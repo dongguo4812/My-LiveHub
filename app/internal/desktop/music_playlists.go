@@ -241,6 +241,7 @@ func (s *MusicService) PlayPlaylist(playlistID, startTrackID string) error {
 	s.playlistPlaybackTracks = append([]music.Track(nil), playlist.Tracks...)
 	s.playlistPlaybackIndex = start
 	s.playlistPlaybackMode = mode
+	s.playlistPlaybackResumeTrack = nil
 	s.mu.Unlock()
 
 	current := s.queue.Snapshot().Current
@@ -288,6 +289,11 @@ func (s *MusicService) takeNextPlaylistTrack() (music.QueueItem, bool) {
 	if !s.playlistPlaybackActive || len(s.playlistPlaybackTracks) == 0 {
 		return music.QueueItem{}, false
 	}
+	if s.playlistPlaybackResumeTrack != nil {
+		track := *s.playlistPlaybackResumeTrack
+		s.playlistPlaybackResumeTrack = nil
+		return music.QueueItem{ID: fmt.Sprintf("playlist-resume-%d", time.Now().UnixNano()), Track: track, RequestedBy: playlistPlayMarker, AddedAt: time.Now().UTC()}, true
+	}
 	index := s.playlistPlaybackIndex
 	if index >= len(s.playlistPlaybackTracks) {
 		switch s.playlistPlaybackMode {
@@ -329,6 +335,16 @@ func (s *MusicService) SetPlaylistPlaybackMode(mode string) error {
 		return fmt.Errorf("不支持的歌单播放模式：%s", mode)
 	}
 	if s == nil { return errors.New("music service is unavailable") }
+	if s.manager == nil {
+		s.mu.Lock()
+		s.playlistPlaybackMode = mode
+		s.value.PlaylistPlaybackMode = mode
+		s.mu.Unlock()
+		return nil
+	}
+	value := s.GetConfig()
+	value.PlaylistPlaybackMode = mode
+	if err := s.SaveConfig(value); err != nil { return fmt.Errorf("保存歌单播放模式失败：%w", err) }
 	s.mu.Lock()
 	s.playlistPlaybackMode = mode
 	s.mu.Unlock()
