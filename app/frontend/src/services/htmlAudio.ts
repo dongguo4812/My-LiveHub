@@ -69,7 +69,6 @@ async function resumeAudioContext() {
 }
 
 export function prepareHTMLAudioForLoudnessNormalization() {
-  if (!loudnessNormalizationEnabled) return
   try {
     ensureAudioGraph()
     if (audioContext?.state === 'suspended') void audioContext.resume().catch(error => console.warn('AudioContext resume deferred until playback:', error))
