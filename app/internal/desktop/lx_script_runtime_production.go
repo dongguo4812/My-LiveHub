@@ -112,6 +112,12 @@ func (r *isolatedLXTestRuntime) ResolvePlaybackURL(ctx context.Context, source s
 	return resolved, nil
 }
 func (r *productionMusicLXRuntime) TestScript(ctx context.Context, id string) (LXScriptTestResult, error) {
+	return r.testScriptWithSearcher(ctx, id, music.NewLXSearchClient(nil))
+}
+
+// testScriptWithSearcher keeps production on the normal LX provider searcher,
+// while allowing deterministic tests of the native-search fallback.
+func (r *productionMusicLXRuntime) testScriptWithSearcher(ctx context.Context, id string, base music.SourceSearcher) (LXScriptTestResult, error) {
 	if r == nil { return LXScriptTestResult{}, errors.New("production LX source runtime is unavailable") }
 	if ctx == nil { ctx = context.Background() }
 	r.mu.Lock()
@@ -133,8 +139,8 @@ func (r *productionMusicLXRuntime) TestScript(ctx context.Context, id string) (L
 	defer manager.Close()
 	if err := manager.Start(ctx); err != nil { return LXScriptTestResult{}, fmt.Errorf("initialize isolated test runtime: %w", err) }
 	adapter := &isolatedLXTestRuntime{manager:manager}
-	service := &MusicService{scriptRuntime:adapter, searcher:music.NewLXSearchClient(nil)}
-	searcher := scriptAwareSourceSearcher{base:service.searcher, service:service}
+	service := &MusicService{scriptRuntime:adapter}
+	searcher := scriptAwareSourceSearcher{base:base, service:service}
 	unified := music.NewUnifiedSourceService(searcher, adapter)
 	platforms := make([]string, 0, len(selected.SourceActions))
 	for platform := range selected.SourceActions { platforms = append(platforms, platform) }
