@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
 
 type Playlist = Awaited<ReturnType<typeof MusicService.ListPlaylists>>[number]
-type Track = Awaited<ReturnType<typeof MusicService.SearchAllSourcesPage>>['tracks'][number]
+type PlaylistTrack = Playlist['tracks'][number]
 const router = useRouter()
 const route = useRoute()
 const playlists = ref<Playlist[]>([])
@@ -15,13 +15,15 @@ const error = ref('')
 const success = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
 const searchQuery = ref('')
-const searchResults = ref<Track[]>([])
-const searching = ref(false)
-const addingTrackID = ref('')
-const searchPage = ref(1)
-const searchMaxPage = ref(0)
-const searchTotal = ref(0)
-let searchRequestID = 0
+const filteredPlaylistTracks = computed(() => {
+  const tracks = selectedPlaylist.value?.tracks ?? []
+  const terms = searchQuery.value.trim().toLocaleLowerCase().split(/\\s+/).filter(Boolean)
+  if (!terms.length) return tracks
+  return tracks.filter((track: PlaylistTrack) => {
+    const searchable = [track.title, track.artist, track.album, track.source_id].filter(Boolean).join(' ').toLocaleLowerCase()
+    return terms.every(term => searchable.includes(term))
+  })
+})
 const sourceNames: Record<string,string> = { tx:'QQ 音乐',kw:'酷我音乐',kg:'酷狗音乐',wy:'网易云音乐',mg:'咪咕音乐' }
 function sourceName(id: string) { return sourceNames[id] ?? id }
 function duration(value?: number) {
@@ -87,48 +89,6 @@ async function importLXPlaylist(event: Event) {
   } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
   finally { importing.value = false; input.value = '' }
 }
-async function searchPlaylistTracks(page = 1) {
-  if (!selectedPlaylist.value || !searchQuery.value.trim()) {
-    error.value = '请输入歌曲名称或歌手'
-    return
-  }
-  const requestID = ++searchRequestID
-  searching.value = true
-  error.value = ''
-  success.value = ''
-  try {
-    const response = await MusicService.SearchAllSourcesPage(searchQuery.value.trim(), page)
-    if (requestID !== searchRequestID) return
-    searchResults.value = response.tracks ?? []
-    searchPage.value = response.page ?? page
-    searchMaxPage.value = response.max_page ?? 1
-    searchTotal.value = response.total ?? searchResults.value.length
-    if (!searchResults.value.length) success.value = '没有找到匹配歌曲'
-  } catch (reason) {
-    if (requestID === searchRequestID) error.value = reason instanceof Error ? reason.message : String(reason)
-  } finally {
-    if (requestID === searchRequestID) searching.value = false
-  }
-}
-function isTrackInSelectedPlaylist(track: Track) {
-  return selectedPlaylist.value?.tracks.some(item => item.id === track.id && item.source_id === track.source_id) ?? false
-}
-async function addSearchTrack(track: Track) {
-  const playlist = selectedPlaylist.value
-  if (!playlist || isTrackInSelectedPlaylist(track)) return
-  addingTrackID.value = `${track.source_id}:${track.id}`
-  error.value = ''
-  success.value = ''
-  try {
-    await MusicService.AddPlaylistTrack(playlist.id, track)
-    await refreshPlaylists(playlist.id)
-    success.value = `已添加到「${playlist.name}」：${track.title} - ${track.artist || '未知歌手'}`
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
-  } finally {
-    addingTrackID.value = ''
-  }
-}
 async function playPlaylist(startTrackID = '') {
   if (!selectedPlaylist.value) return
   error.value = ''
@@ -191,32 +151,24 @@ onMounted(() => { void refreshPlaylists(String(route.query.id ?? '')) })
         <el-card v-if="selectedPlaylist" class="player-card" shadow="never">
           <template #header><div class="playlist-heading"><div><strong>{{ selectedPlaylist.name }}</strong><p>{{ selectedPlaylist.tracks.length }} 首歌曲 · 最近更新 {{ new Date(selectedPlaylist.updated_at).toLocaleString() }}</p></div><div class="header-actions"><el-button size="small" type="success" :disabled="!selectedPlaylist.tracks.length" @click="playPlaylist()">播放全部</el-button><el-button size="small" plain @click="renamePlaylist(selectedPlaylist)">重命名</el-button><el-button size="small" type="danger" plain @click="deletePlaylist(selectedPlaylist)">删除歌单</el-button></div></div></template>
           <div class="playlist-search">
-            <div class="playlist-search-heading"><strong>搜索歌曲并添加到当前歌单</strong><span>搜索全部已注册音源，结果可直接加入「{{ selectedPlaylist.name }}」</span></div>
-            <div class="search-row">
-              <el-input v-model="searchQuery" clearable placeholder="输入歌曲名或歌手，例如：稻香 周杰伦" @keyup.enter="searchPlaylistTracks(1)" />
-              <el-button type="primary" :loading="searching" @click="searchPlaylistTracks(1)">搜索歌曲</el-button>
-            </div>
-            <div v-if="searchTotal > 0" class="search-summary">共 {{ searchTotal }} 条结果 · 第 {{ searchPage }} / {{ searchMaxPage || 1 }} 页</div>
-            <el-table v-if="searchResults.length" :data="searchResults" :row-key="(item: Track) => `${item.source_id}:${item.id}`" style="width:100%;margin-top:12px">
-              <el-table-column label="歌曲" min-width="170"><template #default="scope"><div class="song-cell"><strong>{{ scope.row.title }}</strong><small>{{ scope.row.artist || '未知歌手' }}<span v-if="scope.row.album"> · {{ scope.row.album }}</span></small></div></template></el-table-column>
-              <el-table-column label="音源" width="112"><template #default="scope">{{ sourceName(scope.row.source_id) }}</template></el-table-column>
-              <el-table-column label="时长" width="82"><template #default="scope">{{ duration(scope.row.duration_ms) }}</template></el-table-column>
-              <el-table-column label="操作" width="120" fixed="right"><template #default="scope"><el-button v-if="isTrackInSelectedPlaylist(scope.row)" link type="success" disabled>已添加</el-button><el-button v-else link type="primary" :loading="addingTrackID === `${scope.row.source_id}:${scope.row.id}`" :disabled="!!addingTrackID" @click="addSearchTrack(scope.row)">添加到歌单</el-button></template></el-table-column>
-            </el-table>
-            <div v-if="searchMaxPage > 1" class="search-pagination">
-              <el-pagination :current-page="searchPage" :page-count="searchMaxPage" layout="prev, pager, next" :disabled="searching" @current-change="searchPlaylistTracks" />
-            </div>
-            <el-empty v-else-if="!searching && searchQuery && !searchResults.length" description="没有找到匹配歌曲" :image-size="58" />
+            <el-input
+              v-model="searchQuery"
+              clearable
+              placeholder="搜索当前歌单中的歌曲名、歌手或专辑"
+              aria-label="搜索当前歌单中的歌曲"
+            />
+            <span class="search-summary">显示 {{ filteredPlaylistTracks.length }} / {{ selectedPlaylist.tracks.length }} 首歌曲</span>
           </div>
           <el-divider />
-          <el-table :data="selectedPlaylist.tracks" row-key="id" style="width:100%">
+          <el-table :data="filteredPlaylistTracks" row-key="id" style="width:100%">
             <el-table-column type="index" label="#" width="54" />
             <el-table-column label="歌曲" min-width="190"><template #default="scope"><div class="song-cell"><strong>{{ scope.row.title }}</strong><small>{{ scope.row.artist || '未知歌手' }}<span v-if="scope.row.album"> · {{ scope.row.album }}</span></small></div></template></el-table-column>
             <el-table-column label="音源" width="112"><template #default="scope">{{ sourceName(scope.row.source_id) }}</template></el-table-column>
             <el-table-column label="时长" width="82"><template #default="scope">{{ duration(scope.row.duration_ms) }}</template></el-table-column>
             <el-table-column label="操作" min-width="230" fixed="right"><template #default="scope"><div class="row-actions"><el-button link type="success" @click="playTrack(scope.row)">播放</el-button><el-button link type="primary" @click="openReplace(scope.row)">换源</el-button><el-button link @click="moveTrack(scope.row,-1)">上移</el-button><el-button link @click="moveTrack(scope.row,1)">下移</el-button><el-button link type="danger" @click="removeTrack(scope.row)">删除</el-button></div></template></el-table-column>
           </el-table>
-          <el-empty v-if="!selectedPlaylist.tracks.length" description="歌单为空，请前往歌曲搜索添加歌曲" :image-size="68" />
+          <el-empty v-if="!selectedPlaylist.tracks.length" description="歌单为空" :image-size="68" />
+          <el-empty v-else-if="!filteredPlaylistTracks.length" description="当前歌单中没有匹配的歌曲" :image-size="68" />
         </el-card>
         <el-card v-else class="player-card" shadow="never"><el-empty description="请选择歌单，或先新建/导入一个歌单" /></el-card>
       </div>
