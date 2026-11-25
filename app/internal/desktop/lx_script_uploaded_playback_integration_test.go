@@ -347,7 +347,7 @@ func TestProductionLXPlaylistFirstAndRepeatedClickTiming(t *testing.T) {
 	}
 	if len(tracks)!=2 { t.Fatalf("cannot create two-track playlist: no same-source results for 稻香 and 晴天; enabled=%v",enabled) }
 	engine:=&playlistResolutionProbeEngine{}
-	service:=NewMusicServiceWithDependencies(manager,config.MusicConfig{Enabled:true,EnabledSearchSources:enabled},nil,engine)
+	service:=NewMusicServiceWithDependencies(manager,config.MusicConfig{Enabled:true,EnabledSearchSources:[]string{selectedSource}},nil,engine)
 	service.scriptRuntime=runtime
 	defer service.Shutdown()
 	playlist,err:=service.CreatePlaylist("CI首次播放与重复点击诊断"); if err!=nil { t.Fatal(err) }
@@ -363,6 +363,12 @@ func TestProductionLXPlaylistFirstAndRepeatedClickTiming(t *testing.T) {
 	status,err:=service.GetPlaybackStatus(); if err!=nil { t.Fatal(err) }
 	if status.Track==nil || !sameLXTrackIdentity(*status.Track,tracks[0]) { var actual any; if status.Track!=nil { actual=*status.Track }; queue:=service.GetQueue(); t.Fatalf("first song not playing after one click: state=%s expected={title:%q artist:%q id:%q source:%q lx_source:%q} actual=%+v engine_loads=%d last_error=%q queue_current=%+v queue_items=%d",status.State,tracks[0].Title,tracks[0].Artist,tracks[0].ID,tracks[0].SourceID,tracks[0].LXSourceKey,actual,engine.loadCount(),service.GetStatus().LastError,queue.Current,len(queue.Items)) }
 	t.Logf("FIRST_TRACK_RESULT elapsed=%s state=%s title=%q media_loads=%d",firstSongElapsed,status.State,status.Track.Title,engine.loadCount())
+	// Keep the first-click measurement pinned to the provider that supplied the
+	// playlist item. After it passes, enable the aggregate's other providers so
+	// the second track can exercise real automatic source fallback after a 400.
+	service.mu.Lock()
+	service.value.EnabledSearchSources = append([]string(nil), enabled...)
+	service.mu.Unlock()
 
 	start=time.Now()
 	t.Logf("SECOND_TRACK_CLICK_1 start=%s title=%q",start.Format(time.RFC3339Nano),tracks[1].Title)
