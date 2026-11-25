@@ -85,7 +85,7 @@ async function searchTracks() {
   try {
     const response = await MusicService.SearchAllSourcesPage(query.value.trim(), 1)
     searchResults.value = response.tracks ?? []
-    searchErrors.value = response.errors ?? {}
+    searchErrors.value = Object.fromEntries(Object.entries(response.errors ?? {}).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
     if (!searchResults.value.length && !Object.keys(searchErrors.value).length) success.value = '所有平台均未找到匹配歌曲'
   } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
   finally { searching.value = false }
