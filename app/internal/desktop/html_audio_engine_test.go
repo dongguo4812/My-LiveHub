@@ -257,3 +257,28 @@ func TestHTMLAudioPlaybackEngineCloseIsIdempotentWhenIdle(t *testing.T) {
 	if err := engine.Close(); err != nil { t.Fatal(err) }
 	if len(commands) != 0 { t.Fatalf("idle Close emitted commands: %#v", commands) }
 }
+
+
+func TestHTMLAudioPlaybackEngineAppliesLoudnessNormalizationToCurrentAndNextTracks(t *testing.T) {
+	var commands []htmlAudioCommand
+	engine := newHTMLAudioPlaybackEngine(nil)
+	engine.setEmitter(func(_ string, payload any) { commands = append(commands, payload.(htmlAudioCommand)) })
+	if err := engine.SetLoudnessNormalization(true); err != nil { t.Fatal(err) }
+	if got := commands[len(commands)-1]; got.Command != "loudness-normalization" || !got.LoudnessNormalization {
+		t.Fatalf("normalization toggle command = %#v", got)
+	}
+	track := music.Track{ID:"normalized-track", SourceID:"tx"}
+	resource := music.PlaybackResource{URL:"https://media.example/song.mp3", SourceID:"tx", TrackID:"normalized-track"}
+	if err := engine.LoadResource(context.Background(), track, resource); err != nil { t.Fatal(err) }
+	if got := commands[len(commands)-1]; got.Command != "load" || !got.LoudnessNormalization {
+		t.Fatalf("new track did not inherit normalization setting: %#v", got)
+	}
+	if err := engine.SetLoudnessNormalization(false); err != nil { t.Fatal(err) }
+	if got := commands[len(commands)-1]; got.Command != "loudness-normalization" || got.LoudnessNormalization {
+		t.Fatalf("normalization disable command = %#v", got)
+	}
+	if err := engine.LoadResource(context.Background(), track, resource); err != nil { t.Fatal(err) }
+	if got := commands[len(commands)-1]; got.LoudnessNormalization {
+		t.Fatalf("disabled normalization leaked into next track: %#v", got)
+	}
+}
