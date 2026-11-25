@@ -167,7 +167,7 @@ jobs:
           MYLIVEHUB_LX_UPLOADED_PLAYBACK_INTEGRATION: '1'
           CGO_ENABLED: '0'
           MYLIVEHUB_QUICKJS_LIB: ${{ github.workspace }}\app\bin\lxqjs.dll
-        run: go test -tags lxproduction -timeout 50m -count=1 -v -run '^TestProductionLX(UploadedScriptsResolveRealPlaybackURL|PlaylistFirstAndRepeatedClickTiming)
+        run: go test -tags lxproduction -timeout 50m -count=1 -v -run '^TestProductionLX(UploadedScriptsResolveRealPlaybackURL|PlaylistFirstAndRepeatedClickTiming)$' ./internal/desktop
 
       - name: Verify synchronized lyrics parsing and active-line timing
         shell: pwsh
