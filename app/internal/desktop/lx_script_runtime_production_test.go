@@ -91,6 +91,24 @@ lx.send(lx.EVENT_NAMES.inited, {
 	if err := restarted.Close(); err != nil { t.Fatalf("close restarted runtime: %v", err) }
 }
 
+func TestProductionLXScriptTestResultPersistsAndReplacesLatest(t *testing.T) {
+	manager := testLXConfigManager(t)
+	runtime := newLXScriptRuntime(manager).(*productionMusicLXRuntime)
+	source := `lx.on(lx.EVENT_NAMES.request, async () => "https://example.com/song.mp3"); lx.send(lx.EVENT_NAMES.inited, {sources:{kw:{type:"music",actions:["search","musicUrl"]}}});`
+	if _, err := runtime.ImportScript(context.Background(), "test result fixture", source); err != nil { t.Fatal(err) }
+	if err := runtime.Start(context.Background()); err != nil { t.Fatal(err) }
+	first := &LXScriptTestResult{Status:"failed", TestedAt:time.Now().UTC(), Platforms:[]LXSourcePlatformTest{{Platform:"kw", Status:"failed", Message:"first"}}}
+	runtime.mu.Lock(); runtime.scripts[0].LastTest = first; err := runtime.persistLocked(); runtime.mu.Unlock(); if err != nil { t.Fatal(err) }
+	if err := runtime.Close(); err != nil { t.Fatal(err) }
+	restored := newLXScriptRuntime(manager).(*productionMusicLXRuntime)
+	if err := restored.Start(context.Background()); err != nil { t.Fatal(err) }; defer restored.Close()
+	before := restored.ListScripts()[0].LastTest
+	if before == nil || len(before.Platforms) != 1 || before.Platforms[0].Message != "first" { t.Fatalf("restored last test = %#v", before) }
+	second := &LXScriptTestResult{Status:"passed", TestedAt:time.Now().UTC(), Platforms:[]LXSourcePlatformTest{{Platform:"kw", Status:"passed", Message:"second"}}}
+	restored.mu.Lock(); restored.scripts[0].LastTest = second; err = restored.persistLocked(); restored.mu.Unlock(); if err != nil { t.Fatal(err) }
+	latest := restored.ListScripts()[0].LastTest
+	if latest == nil || latest.Platforms[0].Message != "second" { t.Fatalf("latest result was not replaced: %#v", latest) }
+}
 func TestProductionLXScriptRuntimeQuarantinesMalformedStore(t *testing.T) {
 	manager := testLXConfigManager(t)
 	if err := manager.WriteLocalJSON(lxScriptStoreFile, []byte("{}"), lxScriptStoreLimit); err != nil { t.Fatal(err) }

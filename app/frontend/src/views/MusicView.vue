@@ -89,6 +89,7 @@ const lxScriptImportMode = ref<'online' | 'local'>('online')
 const lxScriptURL = ref('')
 const lxScriptBusy = ref(false)
 const lxScriptFeedback = ref('')
+const testingLXScriptID = ref('')
 
 async function refreshLXScripts() {
   try { lxScripts.value = await MusicService.ListLXScripts() }
@@ -209,6 +210,19 @@ async function toggleLXScript(script: LXScriptSummary, enabled: boolean) {
   } finally {
     lxScriptBusy.value = false
   }
+}
+async function testLXScript(script: LXScriptSummary) {
+  testingLXScriptID.value = script.id
+  error.value = '';
+  try {
+    await MusicService.TestLXScript(script.id)
+    await refreshLXScripts()
+    const latest = lxScripts.value.find(item => item.id === script.id)?.last_test
+    const passed = latest?.platforms?.filter(item => item.status === 'passed').length ?? 0
+    const total = latest?.platforms?.length ?? 0
+    success.value = latest?.message || `音源测试完成：${script.name}，${passed}/${total} 个平台通过`
+  } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+  finally { testingLXScriptID.value = '' }
 }
 async function deleteLXScript(script: LXScriptSummary) {
   if (!window.confirm(`确定删除音源脚本“${script.name}”吗？此操作不可撤销。`)) return
@@ -751,10 +765,12 @@ onUnmounted(() => {
             <span>洛雪原生 action：{{ (script.native_actions ?? []).join('、') || '未声明' }}</span>
             <span v-if="script.supported_sources?.length">支持音源：{{ script.supported_sources.join('、') }}</span>
             <span>SHA-256：{{ script.id }}</span>
+            <div v-if="script.last_test" class="lx-source-test-results"><div v-for="item in script.last_test.platforms" :key="item.platform" class="lx-source-test-result"><strong>{{ item.name || item.platform }}</strong><el-tag size="small" :type="item.status === 'passed' ? 'success' : 'danger'">{{ item.status === 'passed' ? '可播放' : '失败' }}</el-tag><span>{{ item.message }}</span><small v-if="item.song">{{ item.song }}</small></div><small>最近检测：{{ new Date(script.last_test.tested_at).toLocaleString() }}</small></div>
             <el-text v-if="script.last_error" type="danger" size="small">{{ script.last_error }}</el-text>
           </div>
           <div class="lx-source-actions">
             <el-switch :model-value="script.enabled" :disabled="lxScriptBusy" active-text="启用" inactive-text="停用" @change="toggleLXScript(script, Boolean($event))" />
+            <el-button link type="success" :loading="testingLXScriptID === script.id" :disabled="!!testingLXScriptID || lxScriptBusy" @click="testLXScript(script)">测试音源</el-button>
             <el-button link type="danger" :disabled="lxScriptBusy" @click="deleteLXScript(script)">删除</el-button>
           </div>
         </div>

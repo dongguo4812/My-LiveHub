@@ -9,9 +9,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
 	"github.com/dongguo4812/My-LiveHub/app/internal/music/lxruntime"
@@ -32,6 +35,7 @@ type storedLXScript struct {
 	NativeActions []string `json:"native_actions,omitempty"`
 	SupportedSources []string `json:"supported_sources,omitempty"`
 	SourceActions map[string][]string `json:"source_actions,omitempty"`
+	LastTest *LXScriptTestResult `json:"last_test,omitempty"`
 	Enabled          bool     `json:"enabled"`
 	LastError        string   `json:"last_error,omitempty"`
 }
@@ -83,9 +87,71 @@ func summarizeLXScript(script storedLXScript) LXScriptSummary {
 		ID: script.ID, Name: script.Name, Description: script.Description,
 		Version: script.Version, Author: script.Author, Homepage: script.Homepage,
 		Enabled: script.Enabled, ExtensionActions: append([]string(nil), script.ExtensionActions...),
-		NativeActions: append([]string(nil), script.NativeActions...), SupportedSources: append([]string(nil), script.SupportedSources...), SourceActions: cloneLXSourceActions(script.SourceActions), LastError: script.LastError,
+		NativeActions: append([]string(nil), script.NativeActions...), SupportedSources: append([]string(nil), script.SupportedSources...), SourceActions: cloneLXSourceActions(script.SourceActions), LastTest: cloneLXScriptTestResult(script.LastTest), LastError: script.LastError,
 	}
 }
+
+func cloneLXScriptTestResult(result *LXScriptTestResult) *LXScriptTestResult {
+	if result == nil { return nil }
+	copy := *result
+	copy.Platforms = append([]LXSourcePlatformTest(nil), result.Platforms...)
+	return &copy
+}
+type isolatedLXTestRuntime struct { manager *lxruntime.SourceManager }
+func (r *isolatedLXTestRuntime) Available() bool { return r != nil && r.manager != nil && r.manager.HasScripts() }
+func (r *isolatedLXTestRuntime) Start(ctx context.Context) error { return r.manager.Start(ctx) }
+func (r *isolatedLXTestRuntime) Close() error { return r.manager.Close() }
+func (r *isolatedLXTestRuntime) HasExtensionAction(source, action string) bool { return r.manager.HasExtensionAction(source, action) }
+func (r *isolatedLXTestRuntime) DispatchExtensionAction(ctx context.Context, source, action string, info any) (any, error) { return r.manager.DispatchExtensionAction(ctx, source, action, info) }
+func (r *isolatedLXTestRuntime) ResolvePlaybackURL(ctx context.Context, source string, info any) (string, error) {
+	value, err := r.manager.ResolvePlaybackURL(ctx, source, info)
+	if err != nil { return "", err }
+	resolved, ok := value.(string); if !ok || strings.TrimSpace(resolved) == "" { return "", errors.New("LX source returned an invalid playback URL") }
+	return resolved, nil
+}
+func (r *productionMusicLXRuntime) TestScript(ctx context.Context, id string) (LXScriptTestResult, error) {
+	if r == nil { return LXScriptTestResult{}, errors.New("production LX source runtime is unavailable") }
+	if ctx == nil { ctx = context.Background() }
+	r.mu.Lock()
+	if !r.started { if err := r.loadStoreLocked(); err != nil { r.mu.Unlock(); return LXScriptTestResult{}, err } }
+	var selected *storedLXScript
+	for i := range r.scripts { if r.scripts[i].ID == id { copy := r.scripts[i]; selected = &copy; break } }
+	r.mu.Unlock()
+	if selected == nil { return LXScriptTestResult{}, fmt.Errorf("LX script %q was not found", id) }
+	result := LXScriptTestResult{Status:"passed", TestedAt:time.Now().UTC(), Platforms:[]LXSourcePlatformTest{}}
+	definition := lxruntime.LXSourceScript{Info:lxruntime.ScriptInfo{Name:selected.Name, Description:selected.Description, Version:selected.Version, Author:selected.Author, Homepage:selected.Homepage, RawScript:selected.Source}, Source:selected.Source, ExtensionActions:append([]string(nil), selected.ExtensionActions...)}
+	manager, err := lxruntime.NewSourceManagerWithScripts(nil, []lxruntime.LXSourceScript{definition})
+	if err != nil { return LXScriptTestResult{}, fmt.Errorf("create isolated test runtime: %w", err) }
+	defer manager.Close()
+	if err := manager.Start(ctx); err != nil { return LXScriptTestResult{}, fmt.Errorf("initialize isolated test runtime: %w", err) }
+	adapter := &isolatedLXTestRuntime{manager:manager}
+	service := &MusicService{scriptRuntime:adapter, searcher:music.NewLXSearchClient(nil)}
+	searcher := scriptAwareSourceSearcher{base:service.searcher, service:service}
+	unified := music.NewUnifiedSourceService(searcher, adapter)
+	for platform, actions := range selected.SourceActions {
+		if !containsLXAction(actions, "musicUrl") { continue }
+		item := LXSourcePlatformTest{Platform:platform, Name:platform, Status:"failed"}
+		page, searchErr := unified.SearchSource(ctx, platform, "稻香 周杰伦", 1)
+		if searchErr != nil { item.Message = "搜索失败：" + searchErr.Error(); result.Platforms = append(result.Platforms, item); continue }
+		if len(page.Tracks) == 0 { item.Message = "搜索未返回歌曲"; result.Platforms = append(result.Platforms, item); continue }
+		track := page.Tracks[0]; item.Song = strings.TrimSpace(track.Title + " - " + track.Artist)
+		playURL, resolveErr := unified.ResolvePlaybackURL(ctx, track, "")
+		if resolveErr != nil { item.Message = "获取播放地址失败：" + resolveErr.Error(); result.Platforms = append(result.Platforms, item); continue }
+		request, requestErr := http.NewRequestWithContext(ctx, http.MethodGet, playURL, nil)
+		if requestErr != nil { item.Message = "构造音频请求失败：" + requestErr.Error(); result.Platforms = append(result.Platforms, item); continue }
+		request.Header.Set("Range", "bytes=0-1023")
+		response, requestErr := (&http.Client{Timeout:15*time.Second}).Do(request)
+		if requestErr != nil { item.Message = "音频请求失败：" + requestErr.Error(); result.Platforms = append(result.Platforms, item); continue }
+		body, readErr := io.ReadAll(io.LimitReader(response.Body, 1024)); _ = response.Body.Close()
+		if readErr != nil { item.Message = "读取音频数据失败：" + readErr.Error() } else if response.StatusCode < 200 || response.StatusCode >= 300 { item.Message = fmt.Sprintf("音频服务器返回 HTTP %d", response.StatusCode) } else if len(body) == 0 { item.Message = "播放地址未返回音频数据" } else { item.Status = "passed"; item.Message = fmt.Sprintf("播放地址可访问，已读取 %d 字节音频数据", len(body)) }
+		result.Platforms = append(result.Platforms, item)
+	}
+	if len(result.Platforms) == 0 { result.Status = "failed"; result.Message = "脚本未声明任何具备 musicUrl 能力的平台" } else { for _, item := range result.Platforms { if item.Status != "passed" { result.Status = "failed"; break } } }
+	r.mu.Lock(); defer r.mu.Unlock()
+	for i := range r.scripts { if r.scripts[i].ID == id { r.scripts[i].LastTest = cloneLXScriptTestResult(&result); if err := r.persistLocked(); err != nil { return result, fmt.Errorf("persist latest LX test result: %w", err) }; return result, nil } }
+	return result, fmt.Errorf("LX script %q was deleted while its test was running", id)
+}
+func containsLXAction(actions []string, expected string) bool { for _, action := range actions { if action == expected { return true } }; return false }
 
 func (r *productionMusicLXRuntime) Available() bool {
 	if r == nil { return false }

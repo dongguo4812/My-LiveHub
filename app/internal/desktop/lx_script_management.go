@@ -4,7 +4,23 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 )
+
+type LXSourcePlatformTest struct {
+	Platform string `json:"platform"`
+	Name string `json:"name"`
+	Status string `json:"status"`
+	Message string `json:"message"`
+	Song string `json:"song,omitempty"`
+}
+
+type LXScriptTestResult struct {
+	Status string `json:"status"`
+	TestedAt time.Time `json:"tested_at"`
+	Message string `json:"message,omitempty"`
+	Platforms []LXSourcePlatformTest `json:"platforms"`
+}
 
 type LXScriptSummary struct {
 	ID string `json:"id"`
@@ -18,6 +34,7 @@ type LXScriptSummary struct {
 	NativeActions []string `json:"native_actions,omitempty"`
 	SupportedSources []string `json:"supported_sources,omitempty"`
 	SourceActions map[string][]string `json:"source_actions,omitempty"`
+	LastTest *LXScriptTestResult `json:"last_test,omitempty"`
 	LastError string `json:"last_error,omitempty"`
 }
 
@@ -26,6 +43,7 @@ type lxScriptManagement interface {
 	ListScripts() []LXScriptSummary
 	SetScriptEnabled(context.Context, string, bool) error
 	DeleteScript(context.Context, string) error
+	TestScript(context.Context, string) (LXScriptTestResult, error)
 }
 
 // ImportLXScript imports and validates a user-provided LX JavaScript source.
@@ -70,4 +88,13 @@ func (s *MusicService) DeleteLXScript(id string) error {
 	manager, ok := runtime.(lxScriptManagement)
 	if !ok { return errors.New("LX script management is available only in lxproduction builds") }
 	return manager.DeleteScript(context.Background(), id)
+}
+
+func (s *MusicService) TestLXScript(id string) (LXScriptTestResult, error) {
+	if s == nil { return LXScriptTestResult{}, errors.New("music service is unavailable") }
+	s.mu.RLock(); runtime := s.scriptRuntime; s.mu.RUnlock()
+	manager, ok := runtime.(lxScriptManagement)
+	if !ok { return LXScriptTestResult{}, errors.New("LX script testing is available only in lxproduction builds") }
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute); defer cancel()
+	return manager.TestScript(ctx, id)
 }
