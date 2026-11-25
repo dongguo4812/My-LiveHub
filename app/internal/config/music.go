@@ -7,11 +7,12 @@ import (
 	"strings"
 )
 
-const CurrentMusicConfigVersion = 16
+const CurrentMusicConfigVersion = 17
 
 type MusicConfig struct {
 	ConfigVersion  int    `json:"config_version"`
 	Volume float64 `json:"volume"`
+	LoudnessNormalization bool `json:"loudness_normalization"`
 	Enabled        bool   `json:"enabled"`
 	CommandEnabled bool   `json:"command_enabled"`
 	CommandPrefix  string `json:"command_prefix"`
@@ -31,6 +32,7 @@ func DefaultMusicConfig() MusicConfig {
 	return MusicConfig{
 		ConfigVersion: CurrentMusicConfigVersion,
 		Volume: 1,
+		LoudnessNormalization: false,
 		Enabled: true,
 		CommandEnabled: true,
 		CommandPrefix: "点歌",
@@ -53,6 +55,7 @@ func MigrateMusicConfig(c MusicConfig) (MusicConfig, bool) {
 	n := DefaultMusicConfig()
 	// Volume did not exist before v15; preserve the historical 100% default.
 	n.Volume = 1
+	n.LoudnessNormalization = c.LoudnessNormalization
 	n.Enabled = c.Enabled
 	n.CommandEnabled = c.CommandEnabled
 	if c.ConfigVersion >= 7 {
@@ -139,6 +142,7 @@ func LoadMusicConfig(m *Manager) (MusicConfig, error) {
 		allowed := map[string]bool{
 			"config_version": true,
 			"volume": true,
+			"loudness_normalization": true,
 			"enabled": true,
 			"command_enabled": true,
 			"command_prefix": true,
