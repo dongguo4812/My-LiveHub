@@ -269,35 +269,11 @@ jobs:
           path: app/frontend/node_modules
           key: frontend-node26-${{ runner.os }}-${{ hashFiles('app/frontend/package-lock.json') }}-v1
 
-      - name: Import and enable the real upstream fish/latest.js in isolated QuickJS
-        shell: pwsh
-        env:
-          MYLIVEHUB_LX_FISH_INTEGRATION: '1'
-          CGO_ENABLED: '0'
-          MYLIVEHUB_QUICKJS_LIB: ${{ github.workspace }}\app\bin\lxqjs.dll
-        run: go test -tags lxproduction -count=1 -v -run '^TestProductionLXFishLatestRealImportAndEnable$' ./internal/desktop
-
-      - name: Resolve real 晴天 playback URL through fish/latest.js
-        shell: pwsh
-        env:
-          MYLIVEHUB_LX_FISH_PLAYBACK_INTEGRATION: '1'
-          MYLIVEHUB_PLAYBACK_URL_FILE: ${{ runner.temp }}\my-livehub-playback-url.txt
-          CGO_ENABLED: '0'
-          MYLIVEHUB_QUICKJS_LIB: ${{ github.workspace }}\app\bin\lxqjs.dll
-        run: go test -tags lxproduction -count=1 -v -run '^TestProductionLXFishSunnyDayPlaybackURL$' ./internal/desktop
-
-      - name: Resolve real 稻香 through the uploaded Xinghai LX source
-        shell: pwsh
-        env:
-          MYLIVEHUB_LX_XINGHAI_PLAYBACK_INTEGRATION: '1'
-          MYLIVEHUB_PLAYBACK_URL_FILE: ${{ runner.temp }}\my-livehub-playback-url.txt
-          CGO_ENABLED: '0'
-          MYLIVEHUB_QUICKJS_LIB: ${{ github.workspace }}\app\bin\lxqjs.dll
-        run: go test -tags lxproduction -count=1 -v -run '^TestProductionLXXinghaiDaoxiangPlaybackURL$' ./internal/desktop
-      - name: Resolve real playback through every uploaded lx-js source
+      - name: Resolve real playback through selected HuiBi aggregate source
         shell: pwsh
         env:
           MYLIVEHUB_LX_UPLOADED_PLAYBACK_INTEGRATION: '1'
+          MYLIVEHUB_PLAYBACK_URL_FILE: ${{ runner.temp }}\my-livehub-playback-url.txt
           CGO_ENABLED: '0'
           MYLIVEHUB_QUICKJS_LIB: ${{ github.workspace }}\app\bin\lxqjs.dll
         run: go test -tags lxproduction -timeout 50m -count=1 -v -run '^TestProductionLXUploadedScriptsResolveRealPlaybackURL$' ./internal/desktop
