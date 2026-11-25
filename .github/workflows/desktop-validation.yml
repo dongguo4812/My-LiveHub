@@ -173,14 +173,25 @@ jobs:
         shell: pwsh
         working-directory: app/frontend
         run: node --experimental-strip-types ../../.github/scripts/music-synced-lyrics-smoke.mjs
+      - name: Install Playwright
+        shell: pwsh
+        working-directory: app/frontend
+        run: |
+          npm install --no-save --package-lock=false playwright
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\ms-playwright
+          key: playwright-${{ runner.os }}-chromium-1255-v1
+
       - name: Install Chromium and run real HTMLAudio playback and lyrics tests
         shell: pwsh
         working-directory: app/frontend
         env:
           MYLIVEHUB_PLAYBACK_URL_FILE: ${{ runner.temp }}\my-livehub-playback-url.txt
         run: |
-          npm install --no-save --package-lock=false playwright
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npx playwright install chromium
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node ../../.github/scripts/music-htmlaudio-browser-smoke.mjs
