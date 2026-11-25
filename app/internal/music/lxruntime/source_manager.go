@@ -255,7 +255,10 @@ func (m *SourceManager) Start(ctx context.Context) error {
 		cancel()
 		if err != nil {
 			_ = runtime.Close()
-			return fmt.Errorf("%s 启动初始化失败：%w", script.info.Name, err)
+			if ctxErr := ctx.Err(); ctxErr != nil { return ctxErr }
+			// Keep startup resilient: an imported script that cannot complete
+			// its warm-up is retried on demand and reports its error to playback.
+			continue
 		}
 		sourcesText, err := runtime.Eval(ctx, `JSON.stringify((globalThis.__lxHostState && globalThis.__lxHostState.initInfo && globalThis.__lxHostState.initInfo.sources) || {})`, "lx-source-capabilities.js")
 		if err != nil {
