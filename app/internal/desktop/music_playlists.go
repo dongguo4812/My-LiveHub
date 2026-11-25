@@ -274,6 +274,7 @@ func (s *MusicService) GetPlaylistPlaybackActive() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if !s.playlistPlaybackActive || len(s.playlistPlaybackTracks) == 0 { return false }
+	if s.playlistPlaybackResumeTrack != nil { return true }
 	switch s.playlistPlaybackMode {
 	case "loop", "random":
 		return true
