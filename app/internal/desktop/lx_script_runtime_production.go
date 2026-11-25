@@ -31,6 +31,7 @@ type storedLXScript struct {
 	ExtensionActions []string `json:"extension_actions,omitempty"`
 	NativeActions []string `json:"native_actions,omitempty"`
 	SupportedSources []string `json:"supported_sources,omitempty"`
+	SourceActions map[string][]string `json:"source_actions,omitempty"`
 	Enabled          bool     `json:"enabled"`
 	LastError        string   `json:"last_error,omitempty"`
 }
@@ -69,12 +70,20 @@ func parseImportedLXScriptInfo(fallbackName, source string) lxruntime.ScriptInfo
 	return info
 }
 
+
+func cloneLXSourceActions(source map[string][]string) map[string][]string {
+	if len(source) == 0 { return map[string][]string{} }
+	clone := make(map[string][]string, len(source))
+	for provider, actions := range source { clone[provider] = append([]string(nil), actions...) }
+	return clone
+}
+
 func summarizeLXScript(script storedLXScript) LXScriptSummary {
 	return LXScriptSummary{
 		ID: script.ID, Name: script.Name, Description: script.Description,
 		Version: script.Version, Author: script.Author, Homepage: script.Homepage,
 		Enabled: script.Enabled, ExtensionActions: append([]string(nil), script.ExtensionActions...),
-		NativeActions: append([]string(nil), script.NativeActions...), SupportedSources: append([]string(nil), script.SupportedSources...), LastError: script.LastError,
+		NativeActions: append([]string(nil), script.NativeActions...), SupportedSources: append([]string(nil), script.SupportedSources...), SourceActions: cloneLXSourceActions(script.SourceActions), LastError: script.LastError,
 	}
 }
 
@@ -251,7 +260,7 @@ func (r *productionMusicLXRuntime) ImportScript(ctx context.Context, name, sourc
 	r.scripts = append(r.scripts, storedLXScript{
 		ID: id, Name: info.Name, Description: info.Description, Version: info.Version,
 		Author: info.Author, Homepage: info.Homepage, Source: source,
-		ExtensionActions: append([]string(nil), capabilities.ExtensionActions...), NativeActions: append([]string(nil), capabilities.NativeActions...), SupportedSources: append([]string(nil), capabilities.SupportedSources...), Enabled: true,
+		ExtensionActions: append([]string(nil), capabilities.ExtensionActions...), NativeActions: append([]string(nil), capabilities.NativeActions...), SupportedSources: append([]string(nil), capabilities.SupportedSources...), SourceActions: cloneLXSourceActions(capabilities.SourceActions), Enabled: true,
 	})
 	if err := r.rebuildLocked(ctx); err != nil {
 		r.scripts = previous
