@@ -356,7 +356,7 @@ func TestProductionLXPlaylistFirstAndRepeatedClickTiming(t *testing.T) {
 	if err:=service.PlayPlaylistTrack(playlist.ID,tracks[0].ID); err!=nil { t.Fatalf("first song first click: %v",err) }
 	firstSongElapsed:=time.Since(start)
 	status,err:=service.GetPlaybackStatus(); if err!=nil { t.Fatal(err) }
-	if status.Track==nil || !sameLXTrackIdentity(*status.Track,tracks[0]) { var actual any; if status.Track!=nil { actual=*status.Track }; t.Fatalf("first song not playing after one click: state=%s expected={title:%q artist:%q id:%q source:%q} actual=%+v engine_loads=%d",status.State,tracks[0].Title,tracks[0].Artist,tracks[0].ID,tracks[0].SourceID,actual,engine.loadCount()) }
+	if status.Track==nil || !sameLXTrackIdentity(*status.Track,tracks[0]) { var actual any; if status.Track!=nil { actual=*status.Track }; queue:=service.GetQueue(); t.Fatalf("first song not playing after one click: state=%s expected={title:%q artist:%q id:%q source:%q lx_source:%q} actual=%+v engine_loads=%d last_error=%q queue_current=%+v queue_items=%d",status.State,tracks[0].Title,tracks[0].Artist,tracks[0].ID,tracks[0].SourceID,tracks[0].LXSourceKey,actual,engine.loadCount(),service.GetStatus().LastError,queue.Current,len(queue.Items)) }
 	t.Logf("FIRST_TRACK_RESULT elapsed=%s state=%s title=%q media_loads=%d",firstSongElapsed,status.State,status.Track.Title,engine.loadCount())
 
 	start=time.Now()
