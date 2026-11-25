@@ -240,7 +240,8 @@ func sanitizePlaylistTrack(track music.Track) music.Track {
 	result.SourceData = make(map[string]string, len(track.SourceData))
 	for key, value := range track.SourceData {
 		lower := strings.ToLower(key)
-		if strings.Contains(lower, "url") || strings.Contains(lower, "token") || strings.Contains(lower, "cookie") || strings.Contains(lower, "authorization") {
+		switch lower {
+		case "url", "play_url", "audio_url", "media_url", "stream_url", "access_token", "token", "cookie", "authorization":
 			continue
 		}
 		result.SourceData[key] = value
