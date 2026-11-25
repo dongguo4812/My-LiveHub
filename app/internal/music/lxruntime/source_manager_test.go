@@ -145,33 +145,25 @@ func TestProductionSourceManagerUsesLXRequestTimeoutBudget(t *testing.T) {
 	_ = manager.Close()
 }
 
-func TestProductionSourceManagerCloseCancelsInitialization(t *testing.T) {
-	 source := `
+func TestProductionSourceManagerStartCancelsInitialization(t *testing.T) {
+	source := `
 lx.on(lx.EVENT_NAMES.request, async () => 'https://cdn.example.test/song.mp3');
 setTimeout(() => lx.send(lx.EVENT_NAMES.inited, {
   sources: { kw: { type: 'music', actions: ['musicUrl'], qualitys: ['128k'] } }
 }), 30000);
 `
-	manager := newTestSourceManager(t, []LXSourceScript{{Info: ScriptInfo{Name: "shutdown-cancel-fixture", RawScript: source}, Source: source}})
-	if err := manager.Start(context.Background()); err != nil { t.Fatal(err) }
-
-	done := make(chan error, 1)
-	go func() {
-		_, err := manager.ResolvePlaybackURL(context.Background(), "kw", map[string]any{})
-		done <- err
-	}()
-	time.Sleep(100 * time.Millisecond)
+	manager := newTestSourceManager(t, []LXSourceScript{{Info: ScriptInfo{Name: "startup-cancel-fixture", RawScript: source}, Source: source}})
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
 	started := time.Now()
-	if err := manager.Close(); err != nil { t.Fatal(err) }
-	if time.Since(started) > 2*time.Second { t.Fatalf("Close waited too long for in-flight initialization: %s", time.Since(started)) }
-	select {
-	case err := <-done:
-		if err == nil { t.Fatal("ResolvePlaybackURL unexpectedly succeeded after manager shutdown") }
-	case <-time.After(2 * time.Second):
-		t.Fatal("ResolvePlaybackURL did not exit after manager shutdown")
+	if err := manager.Start(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Start should stop waiting when its startup context expires, got %v", err)
 	}
+	if time.Since(started) > 2*time.Second {
+		t.Fatalf("Start did not respect its startup context: %s", time.Since(started))
+	}
+	if err := manager.Close(); err != nil { t.Fatal(err) }
 }
-
 
 func TestProductionSourceManagerRejectsLoopbackPlaybackURL(t *testing.T) {
 	source := `
