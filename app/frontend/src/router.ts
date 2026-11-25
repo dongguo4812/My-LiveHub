@@ -9,6 +9,8 @@ import MusicLyricsOverlayView from './views/MusicLyricsOverlayView.vue'
 import VoiceView from './views/VoiceView.vue'
 import MusicView from './views/MusicView.vue'
 import MusicSourceScriptsView from './views/MusicSourceScriptsView.vue'
+import MusicPlaylistsView from './views/MusicPlaylistsView.vue'
+import MusicReplaceSourceView from './views/MusicReplaceSourceView.vue'
 import VideoView from './views/VideoView.vue'
 import Live2DView from './views/Live2DView.vue'
 import SimulatorView from './views/SimulatorView.vue'
@@ -39,6 +41,8 @@ const routes=[
 {path:'/voice',component:VoiceView,meta:{title:'语音播报',section:'功能模块'}},
 {path:'/music',component:MusicView,meta:{title:'音乐播放',section:'功能模块'}},
 {path:'/music/sources',component:MusicSourceScriptsView,meta:{title:'JS 音源脚本管理',section:'功能模块'}},
+{path:'/music/playlists',component:MusicPlaylistsView,meta:{title:'我的列表',section:'功能模块'}},
+{path:'/music/replace',component:MusicReplaceSourceView,meta:{title:'歌曲换源',section:'功能模块'}},
 {path:'/video',component:VideoView,meta:{title:'视频点播',section:'功能模块'}},
 {path:'/live2d',component:Live2DView,meta:{title:'Live2D',section:'功能模块'}},
 {path:'/danmaku/overlay',component:DanmakuOverlayView,meta:{title:'弹幕展示',standalone:true}},
