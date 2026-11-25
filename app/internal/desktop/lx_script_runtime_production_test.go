@@ -720,15 +720,8 @@ lx.send(lx.EVENT_NAMES.inited, {sources: {
 	if err := runtime.Start(context.Background()); err != nil { t.Fatal(err) }
 	defer runtime.Close()
 
-	adapter := &isolatedLXTestRuntime{manager: runtime.manager}
-	service := &MusicService{scriptRuntime: adapter}
 	base := &lxScriptTestBaseSearcher{calls: make(map[string]int)}
-	searcher := scriptAwareSourceSearcher{base: base, service: service}
-	unified := music.NewUnifiedSourceService(searcher, adapter)
-	// Inject the same isolated search boundary used by TestScript, while
-	// keeping the native provider implementation observable in this test.
-	_ = unified
-	result, err := runtime.TestScript(context.Background(), added.ID)
+	result, err := runtime.testScriptWithSearcher(context.Background(), added.ID, base)
 	if err != nil { t.Fatal(err) }
 	if len(result.Platforms) != 2 {
 		t.Fatalf("tested platforms = %#v; want kw (native-search fallback) and mg (script search)", result.Platforms)
@@ -743,15 +736,15 @@ lx.send(lx.EVENT_NAMES.inited, {sources: {
 	if !got["kw"] || !got["mg"] || got["tx"] {
 		t.Fatalf("tested platform set = %#v; want kw and mg only", got)
 	}
-	// The real TestScript path must use the script action where available and
-	// the native provider search otherwise. Exercise both paths explicitly
-	// through the same searcher adapter to prevent regressions in fallback.
-	page, err := unified.SearchSource(context.Background(), "kw", "稻香 周杰伦", 1)
-	if err != nil || len(page.Tracks) != 0 { t.Fatalf("native fallback search: %#v, %v", page, err) }
-	if base.calls["kw"] != 1 { t.Fatalf("native fallback calls for kw = %d, want 1", base.calls["kw"]) }
-	page, err = unified.SearchSource(context.Background(), "mg", "稻香 周杰伦", 1)
-	if err != nil || len(page.Tracks) != 0 { t.Fatalf("script search: %#v, %v", page, err) }
-	if base.calls["mg"] != 0 { t.Fatalf("mg unexpectedly used native fallback despite declaring script search: %d", base.calls["mg"]) }
+	if base.calls["kw"] != 1 {
+		t.Fatalf("native provider search calls for kw = %d, want 1", base.calls["kw"])
+	}
+	if base.calls["mg"] != 0 {
+		t.Fatalf("mg unexpectedly used native fallback despite declaring script search: %d", base.calls["mg"])
+	}
+	if base.calls["tx"] != 0 {
+		t.Fatalf("tx without musicUrl must not be searched, got %d calls", base.calls["tx"])
+	}
 
 	latest := runtime.ListScripts()[0].LastTest
 	if latest == nil || len(latest.Platforms) != 2 {
