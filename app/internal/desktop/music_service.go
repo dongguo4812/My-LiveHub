@@ -57,6 +57,7 @@ type MusicService struct {
 	playlistPlaybackTracks []music.Track
 	playlistPlaybackIndex int
 	playlistPlaybackMode string
+	playlistPlaybackResumeTrack *music.Track
 
 	started bool
 	ctx context.Context
@@ -104,8 +105,9 @@ func NewMusicServiceWithDependencies(manager *config.Manager, value config.Music
 	if engine == nil { engine = NewLXPlaybackEngine(value.LXAPIEndpoints) }
 	var buffer *events.Buffer
 	if len(buffers) > 0 { buffer = buffers[0] }
+	if value.PlaylistPlaybackMode == "" { value.PlaylistPlaybackMode = "sequential" }
 	service := &MusicService{
-		manager: manager, buffer: buffer, value: cloneMusicConfig(value),
+		manager: manager, buffer: buffer, value: cloneMusicConfig(value), playlistPlaybackMode: value.PlaylistPlaybackMode,
 		sources: sources, engine: engine, queue: music.NewQueue(value.QueueCapacity),
 		searcher: music.NewLXSearchClient(nil), scriptRuntime: newLXScriptRuntime(manager), lyricsCache: make(map[string]string), playbackResourceCache: music.NewPlaybackResourceCache(2*time.Minute, 512), playbackRefreshResults: make(map[string]music.PlaybackResource), requestCooldowns: make(map[string]time.Time),
 	}
@@ -774,6 +776,7 @@ func (s *MusicService) Enqueue(track music.Track, requestedBy string) (music.Que
 	// playing or intentionally paused.
 	queueBefore := s.queue.Snapshot()
 	startImmediately := queueBefore.Current == nil
+	interruptPlaylist := queueBefore.Current != nil && queueBefore.Current.RequestedBy == playlistPlayMarker
 	staleCurrent := false
 	if queueBefore.Current != nil && s.engine != nil {
 		if playback, statusErr := s.engine.Snapshot(context.Background()); statusErr == nil {
@@ -786,6 +789,20 @@ func (s *MusicService) Enqueue(track music.Track, requestedBy string) (music.Que
 	item, err := s.queue.Enqueue(track, requestedBy)
 	if err != nil { return music.QueueItem{}, err }
 	if staleCurrent {
+		s.cancelPlaybackWatcher()
+		s.queue.FinishCurrent()
+		startImmediately = true
+	}
+	if interruptPlaylist {
+		// Audience requests preempt playlist playback immediately. Keep the
+		// interrupted playlist track as a one-shot resume item, outside the
+		// audience queue, so viewer requests remain strictly ahead of it.
+		if current := queueBefore.Current; current != nil {
+			track := current.Track
+			s.mu.Lock()
+			s.playlistPlaybackResumeTrack = &track
+			s.mu.Unlock()
+		}
 		s.cancelPlaybackWatcher()
 		s.queue.FinishCurrent()
 		startImmediately = true
