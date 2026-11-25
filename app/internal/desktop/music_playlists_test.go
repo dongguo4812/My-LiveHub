@@ -3,6 +3,7 @@ package desktop
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/base64"
 	"encoding/json"
 	"testing"
 	"testing/fstest"
@@ -93,7 +94,7 @@ func TestLXPlaylistImportGzipFullExportImportsAllLists(t *testing.T) {
 	writer := gzip.NewWriter(&compressed)
 	if _, err := writer.Write([]byte(plain)); err != nil { t.Fatal(err) }
 	if err := writer.Close(); err != nil { t.Fatal(err) }
-	playlists, err := service.ImportLXPlaylists(string(compressed.Bytes()))
+	playlists, err := service.ImportLXPlaylists("base64:" + base64.StdEncoding.EncodeToString(compressed.Bytes()))
 	if err != nil { t.Fatal(err) }
 	if len(playlists) != 2 { t.Fatalf("expected 2 non-empty playlists, got %d", len(playlists)) }
 	if playlists[0].Name != "默认列表" || len(playlists[0].Tracks) != 1 || playlists[1].Name != "我的收藏" || len(playlists[1].Tracks) != 1 {
