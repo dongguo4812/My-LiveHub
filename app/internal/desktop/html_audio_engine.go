@@ -19,6 +19,7 @@ type htmlAudioCommand struct {
 	Resource music.PlaybackResource `json:"resource"`
 	PositionMS int64 `json:"position_ms,omitempty"`
 	Volume float64 `json:"volume"`
+	LoudnessNormalization bool `json:"loudness_normalization"`
 }
 
 type htmlAudioPlaybackEngine struct {
@@ -32,6 +33,7 @@ type htmlAudioPlaybackEngine struct {
 	retried bool
 	refreshing bool
 	volume float64
+	loudnessNormalization bool
 }
 
 func newHTMLAudioPlaybackEngine(refresh func(music.Track, music.PlaybackResource) (music.PlaybackResource, error)) *htmlAudioPlaybackEngine {
@@ -56,7 +58,7 @@ func (e *htmlAudioPlaybackEngine) setEmitter(emit func(string, any)) {
 
 func (e *htmlAudioPlaybackEngine) commandLocked(command string, position int64, volume float64) error {
 	if e.emit == nil { return errors.New("HTMLAudio bridge is not attached to the Wails window") }
-	payload := htmlAudioCommand{Command:command, SessionID:e.sessionID, PositionMS:position, Volume:volume}
+	payload := htmlAudioCommand{Command:command, SessionID:e.sessionID, PositionMS:position, Volume:volume, LoudnessNormalization:e.loudnessNormalization}
 	if command == "load" { payload.Volume = e.volume }
 	if command == "load" { payload.Track, payload.Resource = e.track, e.resource }
 	e.emit(musicHTMLAudioCommandEvent, payload)
@@ -124,6 +126,13 @@ func (e *htmlAudioPlaybackEngine) Seek(positionMS int64) error {
 	e.mu.Lock(); defer e.mu.Unlock()
 	return e.commandLocked("seek", positionMS, 0)
 }
+func (e *htmlAudioPlaybackEngine) SetLoudnessNormalization(enabled bool) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.loudnessNormalization = enabled
+	return e.commandLocked("loudness-normalization", 0, 0)
+}
+
 func (e *htmlAudioPlaybackEngine) SetVolume(volume float64) error {
 	if volume < 0 { volume = 0 }; if volume > 1 { volume = 1 }
 	e.mu.Lock(); defer e.mu.Unlock()
