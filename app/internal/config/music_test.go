@@ -260,3 +260,27 @@ func TestMusicConfigVolumeSurvivesConfigReload(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	if reloaded.Volume != want.Volume { t.Fatalf("reloaded volume = %v, want %v", reloaded.Volume, want.Volume) }
 }
+
+
+func TestMusicConfigV15MigrationPreservesPlaylistPlaybackMode(t *testing.T) {
+	for _, mode := range []string{"sequential", "loop", "random"} {
+		got, changed := MigrateMusicConfig(MusicConfig{
+			ConfigVersion: 15, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
+			SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100,
+			QueueDisplayCount: 5, PlaylistPlaybackMode: mode,
+		})
+		if !changed { t.Fatalf("mode %q: expected v15 migration", mode) }
+		if err := got.Validate(); err != nil { t.Fatalf("mode %q: %v", mode, err) }
+		if got.PlaylistPlaybackMode != mode { t.Fatalf("mode %q migrated as %q", mode, got.PlaylistPlaybackMode) }
+	}
+	got, changed := MigrateMusicConfig(MusicConfig{ConfigVersion: 15, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌"})
+	if !changed || got.PlaylistPlaybackMode != "sequential" {
+		t.Fatalf("missing legacy mode should default to sequential: %+v", got)
+	}
+}
+
+func TestMusicConfigRejectsUnsupportedPlaylistPlaybackMode(t *testing.T) {
+	value := DefaultMusicConfig()
+	value.PlaylistPlaybackMode = "unsupported"
+	if err := value.Validate(); err == nil { t.Fatal("unsupported playlist playback mode should be rejected") }
+}
