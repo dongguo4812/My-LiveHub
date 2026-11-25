@@ -99,10 +99,10 @@ async function playPlaylist(startTrackID = '') {
     success.value = startTrackID ? '已从选中歌曲开始播放歌单' : `开始播放歌单：${selectedPlaylist.value.name}`
   } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
 }
-async function playTrack(track: Track) {
+async function playTrack(track: PlaylistTrack) {
   await playPlaylist(track.id)
 }
-async function removeTrack(track: Track) {
+async function removeTrack(track: PlaylistTrack) {
   if (!selectedPlaylist.value) return
   error.value = ''
   try {
@@ -111,7 +111,7 @@ async function removeTrack(track: Track) {
     success.value = `已从歌单移除：${track.title}`
   } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
 }
-async function moveTrack(track: Track, direction: -1 | 1) {
+async function moveTrack(track: PlaylistTrack, direction: -1 | 1) {
   if (!selectedPlaylist.value) return
   const index = selectedPlaylist.value.tracks.findIndex(item => item.id === track.id)
   const target = index + direction
@@ -122,7 +122,7 @@ async function moveTrack(track: Track, direction: -1 | 1) {
     await refreshPlaylists(selectedPlaylist.value.id)
   } catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
 }
-function openReplace(track: Track) {
+function openReplace(track: PlaylistTrack) {
   if (!selectedPlaylist.value) return
   void router.push({ path:'/music/replace', query:{ playlist:selectedPlaylist.value.id, track:track.id, source:track.source_id } })
 }
