@@ -165,6 +165,7 @@ func TestPlaylistPlaybackDefersToAudienceQueue(t *testing.T) {
 	service := newPlaylistTestService(t)
 	engine := &queueAdvanceTestEngine{}
 	service.engine = engine
+	service.scriptRuntime = nil
 	service.value.Enabled = true
 	defer service.cancelPlaybackWatcher()
 
@@ -198,6 +199,7 @@ func TestPlaylistPlaybackDefersToAudienceQueue(t *testing.T) {
 func TestPreviousDoesNotPutPlaylistTrackAheadOfAudienceQueue(t *testing.T) {
 	service := newPlaylistTestService(t)
 	service.engine = &queueAdvanceTestEngine{}
+	service.scriptRuntime = nil
 	service.value.Enabled = true
 	defer service.cancelPlaybackWatcher()
 
