@@ -42,6 +42,8 @@ function ensureAudioGraph() {
   compressor.attack.value = 0.006
   compressor.release.value = 0.24
   makeupGain.gain.value = 1.35
+  compressor.connect(makeupGain)
+  makeupGain.connect(audioContext.destination)
   mediaSource.connect(audioContext.destination)
 }
 
@@ -57,8 +59,6 @@ function applyLoudnessNormalization() {
   if (!mediaSource || !compressor || !makeupGain || !audioContext) return
   mediaSource.disconnect()
   mediaSource.connect(compressor)
-  compressor.connect(makeupGain)
-  makeupGain.connect(audioContext.destination)
 }
 
 async function resumeAudioContext() {
