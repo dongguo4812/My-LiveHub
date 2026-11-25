@@ -2,12 +2,14 @@ package desktop
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -254,23 +256,67 @@ func sanitizePlaylistTrack(track music.Track) music.Track {
 	return result
 }
 
-// ImportLXPlaylist imports 洛雪's single-list .lxmc/JSON export formats:
-// playListPart_v2 (current) and playListPart (legacy).
+// ImportLXPlaylist imports one 洛雪 playlist. For multi-playlist exports it returns the first imported list.
 func (s *MusicService) ImportLXPlaylist(raw string) (MusicPlaylist, error) {
-	if s == nil { return MusicPlaylist{}, errors.New("music service is unavailable") }
-	if len(raw) == 0 || len(raw) > 16<<20 { return MusicPlaylist{}, errors.New("歌单文件为空或超过 16 MiB") }
-	decoder := json.NewDecoder(bytes.NewBufferString(raw))
+	playlists, err := s.ImportLXPlaylists(raw)
+	if err != nil { return MusicPlaylist{}, err }
+	if len(playlists) == 0 { return MusicPlaylist{}, errors.New("洛雪文件中没有可导入的歌单") }
+	return playlists[0], nil
+}
+
+// ImportLXPlaylists imports both single-list exports and full playList_v2 exports.
+// 洛雪 .lxmc files are GZIP-compressed JSON; plain JSON exports remain supported.
+func (s *MusicService) ImportLXPlaylists(raw string) ([]MusicPlaylist, error) {
+	if s == nil { return nil, errors.New("music service is unavailable") }
+	if len(raw) == 0 || len(raw) > 16<<20 { return nil, errors.New("歌单文件为空或超过 16 MiB") }
+	payload := []byte(raw)
+	if len(payload) >= 2 && payload[0] == 0x1f && payload[1] == 0x8b {
+		reader, err := gzip.NewReader(bytes.NewReader(payload))
+		if err != nil { return nil, fmt.Errorf("解压洛雪歌单文件失败：%w", err) }
+		decompressed, readErr := io.ReadAll(io.LimitReader(reader, (16<<20)+1))
+		closeErr := reader.Close()
+		if readErr != nil { return nil, fmt.Errorf("解压洛雪歌单文件失败：%w", readErr) }
+		if closeErr != nil { return nil, fmt.Errorf("读取洛雪歌单文件失败：%w", closeErr) }
+		if len(decompressed) > 16<<20 { return nil, errors.New("解压后的洛雪歌单超过 16 MiB") }
+		payload = decompressed
+	}
+	decoder := json.NewDecoder(bytes.NewReader(payload))
 	decoder.UseNumber()
 	var file map[string]any
-	if err := decoder.Decode(&file); err != nil { return MusicPlaylist{}, fmt.Errorf("解析洛雪歌单文件失败：%w", err) }
+	if err := decoder.Decode(&file); err != nil { return nil, fmt.Errorf("解析洛雪歌单文件失败：%w", err) }
 	kind, _ := file["type"].(string)
-	if kind != "playListPart_v2" && kind != "playListPart" {
-		return MusicPlaylist{}, fmt.Errorf("不支持的洛雪文件类型 %q；请从洛雪「我的列表」中导出单个歌单（.lxmc）", kind)
+	var entries []map[string]any
+	switch kind {
+	case "playListPart_v2", "playListPart":
+		data, ok := file["data"].(map[string]any)
+		if !ok { return nil, errors.New("洛雪歌单文件缺少 data 对象") }
+		entries = append(entries, data)
+	case "playList_v2":
+		data, ok := file["data"].([]any)
+		if !ok { return nil, errors.New("洛雪完整歌单文件缺少 data 数组") }
+		for _, rawEntry := range data {
+			if entry, ok := rawEntry.(map[string]any); ok { entries = append(entries, entry) }
+		}
+	default:
+		return nil, fmt.Errorf("不支持的洛雪文件类型 %q；请导出洛雪歌单文件（.lxmc）", kind)
 	}
-	data, ok := file["data"].(map[string]any)
-	if !ok { return MusicPlaylist{}, errors.New("洛雪歌单文件缺少 data 对象") }
-	name, _ := data["name"].(string)
-	name = strings.TrimSpace(name)
+	if len(entries) == 0 { return nil, errors.New("洛雪文件中没有歌单") }
+	if len(entries) > musicPlaylistLimit { return nil, fmt.Errorf("洛雪文件包含的歌单超过 %d 个", musicPlaylistLimit) }
+	imported := make([]MusicPlaylist, 0, len(entries))
+	for _, entry := range entries {
+		playlist, err := s.importLXPlaylistData(entry)
+		if err != nil {
+			for _, created := range imported { _ = s.DeletePlaylist(created.ID) }
+			return nil, err
+		}
+		if playlist.ID != "" { imported = append(imported, playlist) }
+	}
+	if len(imported) == 0 { return nil, errors.New("洛雪文件中没有可导入的在线歌曲") }
+	return imported, nil
+}
+
+func (s *MusicService) importLXPlaylistData(data map[string]any) (MusicPlaylist, error) {
+	name := strings.TrimSpace(playlistLXString(data["name"]))
 	if name == "" { name = "导入的洛雪歌单" }
 	if len([]rune(name)) > 80 { name = string([]rune(name)[:80]) }
 	rawTracks, ok := data["list"].([]any)
@@ -279,7 +325,7 @@ func (s *MusicService) ImportLXPlaylist(raw string) (MusicPlaylist, error) {
 	tracks := make([]music.Track, 0, len(rawTracks))
 	seen := make(map[string]bool)
 	skipped := 0
-	for index, rawTrack := range rawTracks {
+	for _, rawTrack := range rawTracks {
 		item, ok := rawTrack.(map[string]any)
 		if !ok { skipped++; continue }
 		track, err := parseLXExportTrack(item)
@@ -288,9 +334,11 @@ func (s *MusicService) ImportLXPlaylist(raw string) (MusicPlaylist, error) {
 		if seen[key] { continue }
 		seen[key] = true
 		tracks = append(tracks, sanitizePlaylistTrack(track))
-		_ = index
 	}
-	if len(tracks) == 0 { return MusicPlaylist{}, fmt.Errorf("洛雪歌单中没有可导入的在线歌曲（共 %d 条无效或不支持）", skipped) }
+	if len(tracks) == 0 {
+		if len(rawTracks) == 0 { return MusicPlaylist{}, nil }
+		return MusicPlaylist{}, fmt.Errorf("歌单“%s”中没有可导入的在线歌曲（共 %d 条无效或不支持）", name, skipped)
+	}
 	playlist, err := s.CreatePlaylist(name)
 	if err != nil { return MusicPlaylist{}, err }
 	err = s.updatePlaylist(playlist.ID, func(target *MusicPlaylist) error { target.Tracks = tracks; return nil })
