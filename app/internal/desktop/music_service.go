@@ -927,7 +927,7 @@ func (s *MusicService) Next() error {
 	if s == nil || s.engine == nil || s.queue == nil { return errors.New("music playback service is unavailable") }
 	snapshot := s.queue.Snapshot()
 	var nextTrack interface { NextTrack(context.Context) error }
-	if len(snapshot.Items) == 0 {
+	if len(snapshot.Items) == 0 && !s.hasActivePlaylistPlayback() {
 		// Validate 洛雪 queue support before retiring the current track. A
 		// failed capability check must leave the current playback untouched.
 		var ok bool
