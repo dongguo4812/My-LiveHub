@@ -553,7 +553,7 @@ onUnmounted(() => {
           <el-button type="danger" plain size="small" :disabled="!queue?.items.length" @click="clearQueue">清空待播</el-button>
         </div>
       </template>
-      <div v-if="queue?.current" class="queue-current">当前播放：{{ queue.current.track.title }} - {{ queue.current.track.artist || '未知歌手' }}（{{ queue.current.requested_by || '观众点播' }}）</div>
+      <div v-if="queue?.current" class="queue-current">当前播放：{{ queue.current.track.title }} - {{ queue.current.track.artist || '未知歌手' }}（{{ queue.current.requested_by === '__my_livehub_playlist_play__' ? '歌单播放' : queue.current.requested_by || '观众点播' }}）</div>
       <div v-if="queue?.items.length" class="queue-list">
         <div
           v-for="(item, index) in queue.items"
