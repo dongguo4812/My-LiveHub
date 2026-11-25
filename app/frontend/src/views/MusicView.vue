@@ -589,6 +589,8 @@ onUnmounted(() => {
       <div v-if="config" class="setting-list">
         <div class="setting-row"><div><strong>启用音乐模块</strong><p>关闭后无法加入歌曲队列或播放歌曲，也不会处理弹幕点歌；MV 视频播放不受影响。</p></div><el-switch v-model="config.enabled" /></div>
         <el-divider />
+        <div class="setting-row"><div><strong>响度标准化</strong><p>开启后通过动态压缩和适度增益降低不同歌曲之间的响度差异；关闭则保持音源原始动态和响度。修改后点击下方“保存设置”生效。</p></div><el-switch v-model="config.loudness_normalization" /></div>
+        <el-divider />
         <div class="setting-row"><div><strong>允许弹幕点歌</strong><p>收到点歌指令后搜索已启用的音源并加入统一队列。</p></div><el-switch v-model="config.command_enabled" /></div>
         <el-divider />
         <div class="setting-row"><div><strong>粉丝勋章等级限制</strong><p>只检查用户是否拥有当前主播的粉丝勋章，不要求佩戴；主播和房管免检。</p></div><el-switch v-model="config.require_fan_medal" /></div>
