@@ -228,6 +228,12 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 
 						t.Logf("PASS real uploaded source playback: source_script=%q provider=%s query=%q quality=%s media=%s bytes=%d",
 							filename, sourceID, query, resource.Quality, safeLXMediaURL(resource.URL), n)
+						if outputPath := strings.TrimSpace(os.Getenv("MYLIVEHUB_PLAYBACK_URL_FILE")); outputPath != "" {
+							if writeErr := os.WriteFile(outputPath, []byte(resource.URL), 0600); writeErr != nil {
+								t.Fatalf("write selected HuiBi playback URL for browser smoke tests: %v", writeErr)
+							}
+							t.Logf("selected HuiBi playback URL written for browser smoke tests: %s", safeLXMediaURL(resource.URL))
+						}
 						success = true
 						break
 					}
