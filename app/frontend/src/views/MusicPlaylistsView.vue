@@ -197,7 +197,7 @@ onMounted(() => { void refreshPlaylists(String(route.query.id ?? '')) })
               <el-button type="primary" :loading="searching" @click="searchPlaylistTracks(1)">搜索歌曲</el-button>
             </div>
             <div v-if="searchTotal > 0" class="search-summary">共 {{ searchTotal }} 条结果 · 第 {{ searchPage }} / {{ searchMaxPage || 1 }} 页</div>
-            <el-table v-if="searchResults.length" :data="searchResults" :row-key="item => `${item.source_id}:${item.id}`" style="width:100%;margin-top:12px">
+            <el-table v-if="searchResults.length" :data="searchResults" :row-key="(item: Track) => `${item.source_id}:${item.id}`" style="width:100%;margin-top:12px">
               <el-table-column label="歌曲" min-width="170"><template #default="scope"><div class="song-cell"><strong>{{ scope.row.title }}</strong><small>{{ scope.row.artist || '未知歌手' }}<span v-if="scope.row.album"> · {{ scope.row.album }}</span></small></div></template></el-table-column>
               <el-table-column label="音源" width="112"><template #default="scope">{{ sourceName(scope.row.source_id) }}</template></el-table-column>
               <el-table-column label="时长" width="82"><template #default="scope">{{ duration(scope.row.duration_ms) }}</template></el-table-column>
