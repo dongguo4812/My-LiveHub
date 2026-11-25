@@ -24,57 +24,16 @@ let activeSession = 0
 let activeURL = ''
 let lastTimeUpdate = 0
 let disposed = false
+// Provider playback URLs are commonly cross-origin and do not grant CORS
+// access. Creating a MediaElementAudioSourceNode for such an element permanently
+// routes it through Web Audio, where the browser is required to output silence.
+// Keep the media element on its native HTMLAudio path until playback is served
+// through a same-origin/CORS-enabled transport.
 let loudnessNormalizationEnabled = false
-let audioContext: AudioContext | undefined
-let mediaSource: MediaElementAudioSourceNode | undefined
-let compressor: DynamicsCompressorNode | undefined
-let makeupGain: GainNode | undefined
-
-function ensureAudioGraph() {
-  if (audioContext) return
-  audioContext = new AudioContext()
-  mediaSource = audioContext.createMediaElementSource(audio)
-  compressor = audioContext.createDynamicsCompressor()
-  makeupGain = audioContext.createGain()
-  compressor.threshold.value = -26
-  compressor.knee.value = 24
-  compressor.ratio.value = 4
-  compressor.attack.value = 0.006
-  compressor.release.value = 0.24
-  makeupGain.gain.value = 1.35
-  compressor.connect(makeupGain)
-  makeupGain.connect(audioContext.destination)
-  mediaSource.connect(audioContext.destination)
-}
-
-function applyLoudnessNormalization() {
-  if (!loudnessNormalizationEnabled) {
-    if (mediaSource && audioContext) {
-      mediaSource.disconnect()
-      mediaSource.connect(audioContext.destination)
-    }
-    return
-  }
-  ensureAudioGraph()
-  if (!mediaSource || !compressor || !makeupGain || !audioContext) return
-  mediaSource.disconnect()
-  mediaSource.connect(compressor)
-}
-
-async function resumeAudioContext() {
-  if (!loudnessNormalizationEnabled) return
-  ensureAudioGraph()
-  if (audioContext?.state === 'suspended') await audioContext.resume()
-  applyLoudnessNormalization()
-}
 
 export function prepareHTMLAudioForLoudnessNormalization() {
-  try {
-    ensureAudioGraph()
-    if (audioContext?.state === 'suspended') void audioContext.resume().catch(error => console.warn('AudioContext resume deferred until playback:', error))
-  } catch (error) {
-    console.error('Unable to prepare loudness normalization audio graph', error)
-  }
+  // Intentionally do not create an AudioContext or MediaElementAudioSourceNode.
+  // Doing so would mute providers whose playback URLs do not return CORS headers.
 }
 
 function report(event: string, message = '') {
@@ -116,9 +75,7 @@ async function execute(command: Command) {
     audio.load()
     activeSession = command.session_id
     loudnessNormalizationEnabled = command.loudness_normalization ?? loudnessNormalizationEnabled
-    if (loudnessNormalizationEnabled) {
-      try { await resumeAudioContext() } catch (reason) { report('error', `响度标准化音频处理启动失败：${reason instanceof Error ? reason.message : String(reason)}`); return }
-    }
+    // Native HTMLAudio playback is required for cross-origin provider URLs.
     audio.volume = Math.min(1, Math.max(0, command.volume ?? 1))
     audio.src = command.resource.url
     audio.load()
@@ -141,7 +98,7 @@ async function execute(command: Command) {
   if (command.session_id !== activeSession) return
   switch (command.command) {
     case 'play':
-      try { await resumeAudioContext(); await audio.play() }
+      try { await audio.play() }
       catch (reason) {
         const message = reason instanceof Error ? reason.message : String(reason)
         report('autoplayblocked', message)
@@ -168,8 +125,7 @@ async function execute(command: Command) {
     }
     case 'loudness-normalization':
       loudnessNormalizationEnabled = command.loudness_normalization ?? false
-      try { applyLoudnessNormalization(); await resumeAudioContext() }
-      catch (reason) { report('error', `响度标准化设置应用失败：${reason instanceof Error ? reason.message : String(reason)}`) }
+      // Retain the preference, but never attach Web Audio to cross-origin media.
       break
     case 'volume':
       audio.volume = Math.min(1, Math.max(0, command.volume ?? 1))
