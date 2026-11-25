@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Headset, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import '../styles/player-center.css'
-import { getHTMLAudioVolume, prepareHTMLAudioForLoudnessNormalization } from '../services/htmlAudio'
+import { getHTMLAudioVolume } from '../services/htmlAudio'
 import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
 import * as MusicLyricsWindowService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musiclyricswindowservice.js'
 
@@ -220,7 +220,6 @@ async function refreshPlayback() {
 }
 async function saveConfig() {
   if (!config.value) return
-  if (config.value.loudness_normalization) prepareHTMLAudioForLoudnessNormalization()
   saving.value = true
   error.value = ''
   success.value = ''
@@ -315,7 +314,6 @@ async function addToQueue(track: Track) {
 }
 async function playSearchTrackNow(track: Track) {
   error.value = ''
-  if (config.value?.loudness_normalization) prepareHTMLAudioForLoudnessNormalization()
   try {
     const selectedQuality = qualitySelections.value[trackRowKey(track)] ?? ''
     const immediateTrack = Object.assign({}, track, { selected_quality: selectedQuality })
@@ -591,7 +589,7 @@ onUnmounted(() => {
       <div v-if="config" class="setting-list">
         <div class="setting-row"><div><strong>启用音乐模块</strong><p>关闭后无法加入歌曲队列或播放歌曲，也不会处理弹幕点歌；MV 视频播放不受影响。</p></div><el-switch v-model="config.enabled" /></div>
         <el-divider />
-        <div class="setting-row"><div><strong>响度标准化</strong><p>开启后通过动态压缩和适度增益降低不同歌曲之间的响度差异；关闭则保持音源原始动态和响度。修改后点击下方“保存设置”生效。</p></div><el-switch v-model="config.loudness_normalization" /></div>
+        <div class="setting-row"><div><strong>响度标准化（暂不可用）</strong><p>已暂时停用音频处理链。当前 QQ、酷我等音源多为跨域直链，Web Audio 接管后浏览器会因缺少 CORS 授权输出静音。为保证播放正常，暂时保持原生音频直通；待接入支持跨域的媒体代理后再恢复此功能。</p></div><el-switch v-model="config.loudness_normalization" disabled /></div>
         <el-divider />
         <div class="setting-row"><div><strong>允许弹幕点歌</strong><p>收到点歌指令后搜索已启用的音源并加入统一队列。</p></div><el-switch v-model="config.command_enabled" /></div>
         <el-divider />
