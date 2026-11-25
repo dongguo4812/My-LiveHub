@@ -64,8 +64,18 @@ function applyLoudnessNormalization() {
 async function resumeAudioContext() {
   if (!loudnessNormalizationEnabled) return
   ensureAudioGraph()
-  applyLoudnessNormalization()
   if (audioContext?.state === 'suspended') await audioContext.resume()
+  applyLoudnessNormalization()
+}
+
+export function prepareHTMLAudioForLoudnessNormalization() {
+  if (!loudnessNormalizationEnabled) return
+  try {
+    ensureAudioGraph()
+    if (audioContext?.state === 'suspended') void audioContext.resume().catch(error => console.warn('AudioContext resume deferred until playback:', error))
+  } catch (error) {
+    console.error('Unable to prepare loudness normalization audio graph', error)
+  }
 }
 
 function report(event: string, message = '') {
