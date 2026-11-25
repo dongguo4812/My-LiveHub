@@ -723,8 +723,8 @@ lx.send(lx.EVENT_NAMES.inited, {sources: {
 	base := &lxScriptTestBaseSearcher{calls: make(map[string]int)}
 	result, err := runtime.testScriptWithSearcher(context.Background(), added.ID, base)
 	if err != nil { t.Fatal(err) }
-	if len(result.Platforms) != 2 {
-		t.Fatalf("tested platforms = %#v; want kw (native-search fallback) and mg (script search)", result.Platforms)
+	if len(result.Platforms) != 3 {
+		t.Fatalf("tested platforms = %#v; want kw, mg, and tx (explicitly unsupported)", result.Platforms)
 	}
 	got := map[string]bool{}
 	for _, item := range result.Platforms {
@@ -733,8 +733,16 @@ lx.send(lx.EVENT_NAMES.inited, {sources: {
 			t.Fatalf("unexpected %s test result: %#v", item.Platform, item)
 		}
 	}
-	if !got["kw"] || !got["mg"] || got["tx"] {
-		t.Fatalf("tested platform set = %#v; want kw and mg only", got)
+	if !got["kw"] || !got["mg"] || !got["tx"] {
+		t.Fatalf("tested platform set = %#v; want kw, mg, and tx", got)
+	}
+	for _, item := range result.Platforms {
+		if item.Platform == "tx" && (item.Status != "unsupported" || !strings.Contains(item.Message, "未声明 musicUrl")) {
+			t.Fatalf("tx should have an explicit unsupported result: %#v", item)
+		}
+		if item.Platform != "tx" && !strings.Contains(item.Message, "搜索未返回歌曲") {
+			t.Fatalf("unexpected %s test result: %#v", item.Platform, item)
+		}
 	}
 	if base.calls["kw"] != 1 {
 		t.Fatalf("native provider search calls for kw = %d, want 1", base.calls["kw"])
@@ -747,7 +755,7 @@ lx.send(lx.EVENT_NAMES.inited, {sources: {
 	}
 
 	latest := runtime.ListScripts()[0].LastTest
-	if latest == nil || len(latest.Platforms) != 2 {
+	if latest == nil || len(latest.Platforms) != 3 {
 		t.Fatalf("latest test result was not persisted correctly: %#v", latest)
 	}
 }
