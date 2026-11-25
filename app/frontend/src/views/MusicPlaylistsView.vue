@@ -70,7 +70,12 @@ async function importLXPlaylist(event: Event) {
   success.value = ''
   try {
     if (file.size > 16 * 1024 * 1024) throw new Error('洛雪歌单文件不能超过 16 MiB')
-    const raw = await file.text()
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    let binary = ''
+    for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 0x8000, bytes.length)))
+    }
+    const raw = `base64:${btoa(binary)}`
     const imported = await MusicService.ImportLXPlaylists(raw)
     await refreshPlaylists(imported[0]?.id ?? '')
     const totalTracks = imported.reduce((sum, playlist) => sum + playlist.tracks.length, 0)
