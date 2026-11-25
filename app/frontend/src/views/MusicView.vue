@@ -102,6 +102,7 @@ const seekPreviewMs = ref(0)
 const playbackVolume = ref(100)
 const lastAudibleVolume = ref(100)
 const canPrevious = ref(false)
+const playlistPlaybackMode = ref('sequential')
 
 const progress = computed(() => {
   if (!playback.value || playback.value.duration_ms <= 0) return 0
@@ -208,6 +209,7 @@ async function refreshPlayback() {
   try {
     playback.value = await MusicService.GetCachedPlaybackStatus()
     canPrevious.value = await MusicService.CanPrevious()
+    playlistPlaybackMode.value = await MusicService.GetPlaylistPlaybackMode()
     playbackPositionAnchor = playback.value.position_ms ?? 0
     playbackPositionAnchorAt = Date.now()
     updatePlaybackClock()
@@ -318,6 +320,11 @@ async function playSearchTrackNow(track: Track) {
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
   }
+}
+async function setPlaylistPlaybackMode(mode: string) {
+  error.value = ''
+  try { await MusicService.SetPlaylistPlaybackMode(mode); playlistPlaybackMode.value = mode }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
 }
 async function nextTrack() {
   error.value = ''
@@ -464,6 +471,15 @@ onUnmounted(() => {
       </div>
       <div class="volume-row"><span>音量</span><el-slider :model-value="playbackVolume" :min="0" :max="100" :step="1" style="max-width:220px" @input="handleVolumeChange" /><el-button size="small" @click="toggleMute">{{ playbackVolume === 0 ? "恢复声音" : "静音" }}</el-button></div>
       <p class="hint">播放进度和音量由 My-LiveHub 内置 HTMLAudio 控制。</p>
+      <div class="playback-order-row">
+        <span>歌单播放模式</span>
+        <el-radio-group :model-value="playlistPlaybackMode" size="small" @change="setPlaylistPlaybackMode">
+          <el-radio-button value="sequential">顺序播放</el-radio-button>
+          <el-radio-button value="loop">列表循环</el-radio-button>
+          <el-radio-button value="random">随机播放</el-radio-button>
+        </el-radio-group>
+      </div>
+      <p class="hint">播放模式仅作用于当前歌单；观众点播队列始终优先，且不受随机或循环模式影响。</p>
       <div class="player-controls">
         <el-button :disabled="playback?.state !== 'playing'" @click="pause">暂停</el-button>
         <el-button :disabled="playback?.state !== 'paused'" @click="resume">继续</el-button>
