@@ -309,12 +309,19 @@ func TestProductionLXPlaylistFirstAndRepeatedClickTiming(t *testing.T) {
 	defer runtime.Close()
 	imported,err:=runtime.ImportScript(ctx,filename,string(source)); if err!=nil { t.Fatalf("import %s: %v",filename,err) }
 	if !imported.Enabled || len(imported.NativeActions)==0 || imported.NativeActions[0]!="musicUrl" { t.Fatalf("unexpected script capabilities: %#v",imported) }
-	enabled:=make([]string,0,1)
-	// Keep this timing experiment on one stable provider. Mixing providers
-	// makes a transient outage on the first provider contaminate the measured
-	// playlist-click sequence with fallback searches and unrelated latency.
-	for _,id:=range imported.SupportedSources { if id=="kw" { enabled=append(enabled,id); break } }
-	if len(enabled)==0 { t.Fatalf("uploaded aggregate source does not support kw: %#v",imported.SupportedSources) }
+	enabled:=make([]string,0,len(imported.SupportedSources))
+	for _,id:=range imported.SupportedSources {
+		switch id { case "kg","kw","local","mg","tx","wy": enabled=append(enabled,id) }
+	}
+	if len(enabled)==0 { t.Fatalf("uploaded aggregate source has no supported playback providers: %#v",imported.SupportedSources) }
+	// Prefer Migu for the timing pair: this uploaded script's real CI playback
+	// checks confirmed its media endpoint is reachable, while Kuwo may return
+	// region/runner-specific timeouts. Keep every supported source enabled so
+	// the normal production fallback path remains under test.
+	searchOrder:=make([]string,0,len(enabled))
+	for _,preferred:=range []string{"mg","tx","wy","kw","kg","local"} {
+		for _,id:=range enabled { if id==preferred { searchOrder=append(searchOrder,id); break } }
+	}
 	engine:=&playlistResolutionProbeEngine{}
 	service:=NewMusicServiceWithDependencies(manager,config.MusicConfig{Enabled:true,EnabledSearchSources:enabled},nil,engine)
 	service.scriptRuntime=runtime
@@ -322,7 +329,7 @@ func TestProductionLXPlaylistFirstAndRepeatedClickTiming(t *testing.T) {
 
 	var tracks []music.Track
 	var selectedSource string
-	for _,sourceID:=range enabled {
+	for _,sourceID:=range searchOrder {
 		candidates:=make([]music.Track,0,2); ok:=true
 		for _,query:=range []string{"稻香","晴天"} {
 			page,searchErr:=service.SearchSourcePage(query,sourceID,1)
