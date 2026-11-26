@@ -199,7 +199,13 @@ func (r *productionMusicLXRuntime) Available() bool {
 	if r == nil { return false }
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.started && r.manager != nil && r.manager.HasScripts()
+	if !r.started || r.manager == nil { return false }
+	// Available describes imported playback/lyric resolvers, not the
+	// independently registered built-in search Action.
+	for _, script := range r.scripts {
+		if script.Enabled { return true }
+	}
+	return false
 }
 
 func (r *productionMusicLXRuntime) loadStoreLocked() error {
@@ -255,13 +261,12 @@ func (r *productionMusicLXRuntime) persistLocked() error {
 }
 
 func (r *productionMusicLXRuntime) rebuildLocked(ctx context.Context) error {
-	// The trusted built-in search adapter is always first so all five
-	// platform searches are handled by QuickJS before any imported scripts.
-	// It is not part of the persisted user-script registry and cannot be
-	// disabled when a user imports or enables another LX script.
+	// The trusted built-in search adapter is always registered after imported
+	// scripts: a user script may override search for sources it explicitly
+	// declares, while the built-in adapter handles the remaining platforms.
+	// It is not persisted and cannot be disabled by the user.
 	builtinSearch := lxruntime.BundledSearchAction()
 	definitions := make([]lxruntime.LXSourceScript, 0, len(r.scripts)+1)
-	definitions = append(definitions, builtinSearch)
 	enabledIndexes := make([]int, 0, len(r.scripts))
 	total := len(builtinSearch.Source)
 	for i := range r.scripts {
@@ -303,25 +308,26 @@ func (r *productionMusicLXRuntime) rebuildLocked(ctx context.Context) error {
 		script.InitializationAt = time.Time{}
 		script.LastError = ""
 	}
+	definitions = append(definitions, builtinSearch)
 	next, err := lxruntime.NewSourceManagerWithScripts(nil, definitions)
 	if err != nil { return fmt.Errorf("construct LX source manager: %w", err) }
 	if r.started {
 		if err := next.Start(ctx); err != nil { _ = next.Close(); return fmt.Errorf("start imported LX scripts: %w", err) }
 		for position, result := range next.InitializationResults() {
-			if position == 0 {
-				if result.Status != "ready" {
-					_ = next.Close()
-					return fmt.Errorf("built-in QuickJS search actions failed to initialize（阶段：%s）：%s", result.Stage, result.Error)
-				}
+			if position < len(enabledIndexes) {
+				script := &r.scripts[enabledIndexes[position]]
+				script.InitializationStatus = result.Status
+				script.InitializationStage = result.Stage
+				script.InitializationAt = result.At
+				script.LastError = result.Error
 				continue
 			}
-			importedPosition := position - 1
-			if importedPosition >= len(enabledIndexes) { break }
-			script := &r.scripts[enabledIndexes[importedPosition]]
-			script.InitializationStatus = result.Status
-			script.InitializationStage = result.Stage
-			script.InitializationAt = result.At
-			script.LastError = result.Error
+			// The built-in adapter is the final definition and is required
+			// for every platform that does not supply its own search Action.
+			if result.Status != "ready" {
+				_ = next.Close()
+				return fmt.Errorf("built-in QuickJS search actions failed to initialize（阶段：%s）：%s", result.Stage, result.Error)
+			}
 		}
 	}
 	// Persist the new registry before swapping the live manager. A disk error
