@@ -926,3 +926,13 @@ func TestLyricsCacheDoesNotStoreEmptyLyrics(t *testing.T) {
 	service.cacheLyrics(track, "  \n ")
 	if _, ok := service.cachedLyrics(track); ok { t.Fatal("empty lyrics must not be cached") }
 }
+
+
+func TestGetLyricsDoesNotCacheFailedProviderResults(t *testing.T) {
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), &nextTrackTestEngine{})
+	runtime := &staticLyricsLXRuntime{err:errors.New("模拟歌词网络错误")}
+	service.scriptRuntime = runtime
+	track := music.Track{ID:"tx_failed", SourceID:"tx", LXSourceKey:"tx", Title:"失败缓存测试", Artist:"测试歌手"}
+	if _, err := service.GetLyricsForRequest(track, "failed-request-1"); err == nil { t.Fatal("failed script and native fallback should return an error") }
+	if _, ok := service.cachedLyrics(track); ok { t.Fatal("failed lyrics request must not be cached") }
+}
