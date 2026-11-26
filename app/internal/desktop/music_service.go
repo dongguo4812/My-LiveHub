@@ -331,6 +331,11 @@ func (s *MusicService) waitForLXRuntime(ctx context.Context) error {
 		if status == "failed" { return nil }
 		return fmt.Errorf("LX-JS 音源初始化未完成（当前状态：%s）", status)
 	default:
+		// Some production integration paths construct and start the runtime
+		// directly, without starting the full MusicModule lifecycle.
+		// Accept that already-running runtime; normal application startup always
+		// enters the initializing branch above.
+		if s.scriptRuntime.Available() { return nil }
 		return fmt.Errorf("LX-JS 音源运行时尚未启动（当前状态：%s）", status)
 	}
 }
