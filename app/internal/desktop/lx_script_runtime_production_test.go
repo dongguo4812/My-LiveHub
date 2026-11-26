@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
+	"github.com/dongguo4812/My-LiveHub/app/internal/events"
 	"github.com/dongguo4812/My-LiveHub/app/internal/music"
 )
 
