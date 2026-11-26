@@ -72,7 +72,7 @@ func TestMusicServiceRejectsPlaybackURLWithoutProductionRuntime(t *testing.T) {
 func TestMusicServiceOwnsLXRuntimeStartAndShutdown(t *testing.T) {
 	value := config.DefaultMusicConfig()
 	value.Enabled = false
-	service := NewMusicServiceWithDependencies(nil, value, nil, nil, events.NewBuffer())
+	service := NewMusicServiceWithDependencies(nil, value, nil, events.NewBuffer())
 	runtime := &fakeLXScriptRuntime{}
 	service.scriptRuntime = runtime
 	if err := service.start(context.Background()); err != nil {
