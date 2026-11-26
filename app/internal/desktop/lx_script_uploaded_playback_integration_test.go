@@ -159,12 +159,6 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 							t.Logf("optional lyric action unavailable for %s: %s", sourceID, errorTextForLXTest(lyricErr))
 						}
 					}
-					if runtime.manager.HasExtensionAction(sourceID, "pic") {
-						cover, coverErr := service.GetLXTrackCover(*candidate)
-						if coverErr != nil || strings.TrimSpace(cover) == "" {
-							t.Logf("optional cover action unavailable for %s: %s", sourceID, errorTextForLXTest(coverErr))
-						}
-					}
 
 					qualityOrder := make([]string, 0, len(candidate.Qualities)+1)
 					if best := music.BestAvailablePlaybackQuality(candidate.Qualities); best != "" {
