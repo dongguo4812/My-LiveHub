@@ -96,8 +96,7 @@ type MusicService struct {
 }
 
 func NewMusicService(manager *config.Manager, value config.MusicConfig, buffers ...*events.Buffer) *MusicService {
-	sources := music.NewSourceRegistry()
-	return NewMusicServiceWithDependencies(manager, value, sources, newHTMLAudioPlaybackEngine(nil), buffers...)
+	return NewMusicServiceWithDependencies(manager, value, newHTMLAudioPlaybackEngine(nil), buffers...)
 }
 
 // NewMusicServiceWithFanMedalChecker wires the medal checker as an internal dependency.
@@ -107,15 +106,14 @@ func NewMusicServiceWithFanMedalChecker(manager *config.Manager, value config.Mu
 	return service
 }
 
-func NewMusicServiceWithDependencies(manager *config.Manager, value config.MusicConfig, sources *music.SourceRegistry, engine music.PlaybackEngine, buffers ...*events.Buffer) *MusicService {
-	if sources == nil { sources = music.NewSourceRegistry() }
+func NewMusicServiceWithDependencies(manager *config.Manager, value config.MusicConfig, engine music.PlaybackEngine, buffers ...*events.Buffer) *MusicService {
 	if engine == nil { engine = newHTMLAudioPlaybackEngine(nil) }
 	var buffer *events.Buffer
 	if len(buffers) > 0 { buffer = buffers[0] }
 	if value.PlaylistPlaybackMode == "" { value.PlaylistPlaybackMode = "sequential" }
 	service := &MusicService{
 		manager: manager, buffer: buffer, value: cloneMusicConfig(value), playlistPlaybackMode: value.PlaylistPlaybackMode,
-		sources: sources, engine: engine, queue: music.NewQueue(value.QueueCapacity),
+		engine: engine, queue: music.NewQueue(value.QueueCapacity),
 		searcher: music.NewLXSearchClient(nil), scriptRuntime: newLXScriptRuntime(manager), lyricsCache: make(map[string]string), playbackResourceCache: music.NewPlaybackResourceCache(2*time.Minute, 512), playbackRefreshResults: make(map[string]music.PlaybackResource), requestCooldowns: make(map[string]time.Time),
 	}
 	// Keep the lightweight command listener alive while the module is stopped,
