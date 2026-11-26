@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, onUpdated, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { getActiveSyncedLyric, parseSyncedLyrics, type SyncedLyricLine } from '../utils/syncedLyrics'
 
 type Layer = { id: string; type: string; name: string; x: number; y: number; width: number; height: number; z_index: number; visible: boolean; opacity: number; text?: string; url?: string; color?: string; font_size?: number; queue_display_count?: number; gift_display_duration?: number; super_chat_display_duration?: number; live2d_scale?: number; live2d_x?: number; live2d_y?: number; emoticon_size?: number; emoticon_speed?: number; emoticon_drift?: number; emoticon_max_count?: number; content_scale?: number; request_notice_display_duration?: number }
 type Scene = { id: string; name: string; width: number; height: number; background: string; layers: Layer[] }
@@ -91,6 +92,16 @@ const musicError = ref('')
 const currentRequestNotices = ref<RequestNotice[]>([])
 let requestNoticeSource: EventSource | undefined
 const musicAccentColor = ref('#A83232')
+const syncedLyrics = ref<SyncedLyricLine[]>([])
+const lyricsStatus = ref<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle')
+let lyricsRequestID = 0
+let lyricsAbortController: AbortController | null = null
+const activeMusicLyric = computed(() => {
+  if (lyricsStatus.value === 'loading' || lyricsStatus.value === 'idle') return { text: '歌词加载中…', translation: '' }
+  if (lyricsStatus.value === 'error') return { text: '歌词暂不可用', translation: '' }
+  if (lyricsStatus.value === 'empty' || syncedLyrics.value.length === 0) return { text: '暂无歌词', translation: '' }
+  return getActiveSyncedLyric(syncedLyrics.value, playback.value?.position_ms ?? 0) ?? { text: '', translation: '' }
+})
 const waveBars = Array.from({ length: 31 }, (_, index) => ({ height: 7 + Math.abs(Math.sin(index * 1.71) * 24), speed: 0.45 + (index % 7) * 0.13, delay: -(Math.random() * 1.8) }))
 const musicColors = ['#FF3B30', '#FF7A00', '#FFD000', '#39D353', '#00D6C9', '#00A6FF', '#4169FF', '#9B5CFF', '#FF4FA3', '#FF6B6B']
 let source: EventSource | undefined
@@ -434,6 +445,33 @@ async function loadMusicQueue() {
     musicQueue.value = await response.json() as MusicQueue
   } catch { /* Keep the last known queue while the local source reconnects. */ }
 }
+async function loadTrackLyrics(track: Track) {
+  lyricsAbortController?.abort()
+  const controller = new AbortController()
+  lyricsAbortController = controller
+  const requestID = ++lyricsRequestID
+  syncedLyrics.value = []
+  lyricsStatus.value = 'loading'
+  try {
+    const response = await fetch('/api/music/lyrics', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(track),
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+    if (!response.ok) throw new Error('歌词获取失败')
+    const result = await response.json() as { lyrics?: string }
+    if (requestID !== lyricsRequestID || controller.signal.aborted) return
+    syncedLyrics.value = parseSyncedLyrics(result.lyrics ?? '')
+    lyricsStatus.value = syncedLyrics.value.length > 0 ? 'ready' : 'empty'
+  } catch (cause) {
+    if (requestID !== lyricsRequestID || controller.signal.aborted) return
+    lyricsStatus.value = 'error'
+  } finally {
+    if (lyricsAbortController === controller) lyricsAbortController = null
+  }
+}
 async function loadMusic() {
   if (musicRefreshing) return
   musicRefreshing = true
@@ -446,7 +484,12 @@ async function loadMusic() {
     const key = track ? track.source_id + ':' + track.id : ''
     if (key !== musicTrackKey) {
       musicTrackKey = key
+      lyricsAbortController?.abort()
+      lyricsAbortController = null
+      lyricsRequestID++
+      syncedLyrics.value = []
       if (track) {
+        void loadTrackLyrics(track)
         const nextColors = musicColors.filter(color => color !== musicAccentColor.value)
         musicAccentColor.value = nextColors[Math.floor(Math.random() * nextColors.length)] || musicColors[0]
       }
@@ -490,6 +533,9 @@ onUnmounted(() => {
   }
 
   sceneRendererUnmounted = true
+  lyricsRequestID++
+  lyricsAbortController?.abort()
+  lyricsAbortController = null
   mouthSyncChannel?.close()
   mouthSyncChannel = null
   if (mouthSyncPollTimer) clearInterval(mouthSyncPollTimer)
@@ -633,6 +679,10 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
+        <div class="music-lyrics" :class="{ 'is-empty': !activeMusicLyric.text }">
+          <div class="music-lyric-original">{{ activeMusicLyric.text }}</div>
+          <div v-if="activeMusicLyric.translation" class="music-lyric-translation">{{ activeMusicLyric.translation }}</div>
+        </div>
       </section>
     </div>
   </main>
@@ -711,7 +761,7 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-queue-current-artist{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#aeb9ca;font-size:.76em}
 .music-queue-current-inline .music-queue-requester{max-width:24%}.music-queue-current-inline .music-queue-empty{padding:0;white-space:nowrap}.music-queue-current-stacked.music-queue-current-inline .music-queue-requester{box-sizing:border-box;flex:0 0 auto;width:auto;max-width:30%;margin-left:auto;padding-left:0;white-space:nowrap;text-align:right}
 .music-queue-list{gap:0}
-.music-queue-list .music-queue-item{padding-top:.08em;padding-bottom:.08em;border-radius:0;border-bottom:1px solid rgba(255,255,255,.045)}
+.music-queue-list .music-queue-item{padding-top:.02em;padding-bottom:.02em;border-radius:0;border-bottom:1px solid rgba(255,255,255,.045);line-height:1.15}
 .music-queue-list{display:flex;flex:none;flex-direction:column;gap:0;min-height:0;overflow:hidden}
 .music-queue-item{display:flex;align-items:center;gap:.58em;min-width:0;padding:.38em .5em;border:1px solid rgba(255,255,255,.055);border-radius:.36em;background:rgba(255,255,255,.055);line-height:1.3}
 .music-queue-current{border-color:rgba(255,214,107,.2);background:rgba(255,214,107,.075)}.music-queue-item.music-queue-current-inline{padding:.34em 0;border:0;border-radius:0;background:transparent;box-shadow:none}
@@ -722,7 +772,12 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-queue-track small{color:#aeb9ca;font-size:.7em}
 .music-queue-requester{flex:none;max-width:30%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#65b8ff;font-size:.72em;font-weight:700}
 .music-queue-empty{padding:.38em .5em;color:#aeb9ca;font-size:.76em;line-height:1.4}
-.music-widget{width:min(405px,100%);display:flex;flex-direction:column;gap:8px;position:relative;overflow:hidden;border-radius:9px;user-select:none;color:#e7c89d}
+.music-widget{box-sizing:border-box;width:min(405px,100%);height:100%;max-height:100%;display:flex;flex-direction:column;gap:6px;position:relative;overflow:hidden;border-radius:9px;user-select:none;color:#e7c89d}
+.music-lyrics{display:flex;flex:1 1 auto;flex-direction:column;justify-content:center;gap:2px;min-height:0;padding:0 8px;overflow:hidden;text-align:left;text-shadow:0 1px 4px #000b}
+.music-lyric-original,.music-lyric-translation{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.35}
+.music-lyric-original{color:#fff;font-size:14px;font-weight:650}
+.music-lyric-translation{color:#c6d0e6;font-size:11px}
+.music-lyrics.is-empty .music-lyric-original{color:#c6cad4;font-size:12px;font-weight:500}
 .music-main{height:112px;display:flex;gap:8px;min-width:0;position:relative}
 .music-cover-wrap{height:112px;width:112px;flex:0 0 112px;position:relative;overflow:hidden;border-radius:5px;background:rgba(102,76,60,.35)}
 .music-cover-blur{position:absolute;inset:-20px;background-position:center;background-size:cover;filter:blur(20px) brightness(.8);opacity:.55;transform:scale(1.2)}
