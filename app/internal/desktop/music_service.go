@@ -1190,11 +1190,15 @@ func (s *MusicService) getLyrics(ctx context.Context, track music.Track) (string
 	if s == nil { return "", errors.New("music lyrics service is unavailable") }
 	if ctx == nil { ctx = context.Background() }
 	if err := ctx.Err(); err != nil { return "", err }
+	if cached, ok := s.cachedLyrics(track); ok { return cached, nil }
 	value, handled, extensionErr := s.dispatchLXExtension(ctx, firstNonEmpty(track.LXSourceKey, track.SourceID), "lyric", map[string]any{"musicInfo": track, "track": track})
 	if err := ctx.Err(); err != nil { return "", err }
 	if handled && extensionErr == nil {
 		lyrics, normalizeErr := normalizeLXScriptLyrics(value)
-		if normalizeErr == nil && strings.TrimSpace(lyrics) != "" { return lyrics, nil }
+		if normalizeErr == nil && strings.TrimSpace(lyrics) != "" {
+			s.cacheLyrics(track, lyrics)
+			return lyrics, nil
+		}
 		extensionErr = normalizeErr
 	}
 	// Cancellation is terminal: never start a native fallback after the UI has
@@ -1205,18 +1209,38 @@ func (s *MusicService) getLyrics(ctx context.Context, track music.Track) (string
 	}
 	lyrics, nativeErr := s.getNativeProviderLyrics(ctx, track)
 	if nativeErr != nil && extensionErr != nil { return "", errors.Join(extensionErr, nativeErr) }
+	if nativeErr == nil && strings.TrimSpace(lyrics) != "" { s.cacheLyrics(track, lyrics) }
 	return lyrics, nativeErr
+}
+
+func lyricsCacheKey(track music.Track) string {
+	return strings.Join([]string{firstNonEmpty(track.LXSourceKey, track.SourceID), track.ID, track.Title, track.Artist}, "\x00")
+}
+
+func (s *MusicService) cachedLyrics(track music.Track) (string, bool) {
+	if s == nil { return "", false }
+	s.lyricsMu.Lock()
+	lyrics, ok := s.lyricsCache[lyricsCacheKey(track)]
+	s.lyricsMu.Unlock()
+	return lyrics, ok
+}
+
+func (s *MusicService) cacheLyrics(track music.Track, lyrics string) {
+	if s == nil || strings.TrimSpace(lyrics) == "" { return }
+	key := lyricsCacheKey(track)
+	s.lyricsMu.Lock()
+	if s.lyricsCache == nil { s.lyricsCache = make(map[string]string) }
+	if len(s.lyricsCache) >= 128 {
+		if _, exists := s.lyricsCache[key]; !exists { s.lyricsCache = make(map[string]string) }
+	}
+	s.lyricsCache[key] = strings.TrimSpace(lyrics)
+	s.lyricsMu.Unlock()
 }
 
 // getNativeProviderLyrics retrieves synchronized LRC independently of playback state.
 func (s *MusicService) getNativeProviderLyrics(parent context.Context, track music.Track) (string, error) {
 	source := firstNonEmpty(track.LXSourceKey, track.SourceID)
-	cacheKey := strings.Join([]string{source, track.ID, track.Title, track.Artist}, "\x00")
-	s.lyricsMu.Lock()
-	cached, ok := s.lyricsCache[cacheKey]
-	s.lyricsMu.Unlock()
-	if ok { return cached, nil }
-
+	if cached, ok := s.cachedLyrics(track); ok { return cached, nil }
 	if parent == nil { parent = context.Background() }
 	ctx, cancel := context.WithTimeout(parent, 18*time.Second)
 	defer cancel()
@@ -1234,11 +1258,6 @@ func (s *MusicService) getNativeProviderLyrics(parent context.Context, track mus
 	if err != nil { return "", fmt.Errorf("获取 %s 歌词失败：%w", source, err) }
 	lyrics = strings.TrimSpace(lyrics)
 	if lyrics == "" { return "", nil }
-	s.lyricsMu.Lock()
-	if s.lyricsCache == nil { s.lyricsCache = make(map[string]string) }
-	if len(s.lyricsCache) >= 128 { s.lyricsCache = make(map[string]string) }
-	s.lyricsCache[cacheKey] = lyrics
-	s.lyricsMu.Unlock()
 	return lyrics, nil
 }
 
