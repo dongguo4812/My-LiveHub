@@ -59,7 +59,7 @@ func TestProductionLXBuiltInSearchAllFiveProviders(t *testing.T) {
 			var first MusicSearchResponse
 			var lastErr error
 			for attempt := 1; attempt <= 2; attempt++ {
-				first, lastErr = service.SearchSourcePage("稻香 周杰伦", provider.id, 1)
+				first, lastErr = service.SearchSourcePage("稻香", provider.id, 1)
 				if lastErr == nil && len(first.Tracks) > 0 {
 					break
 				}
@@ -97,7 +97,7 @@ func TestProductionLXBuiltInSearchAllFiveProviders(t *testing.T) {
 				t.Fatalf("%s results did not preserve any provider-native song identifier", provider.name)
 			}
 
-			second, secondErr := service.SearchSourcePage("稻香 周杰伦", provider.id, 2)
+			second, secondErr := service.SearchSourcePage("稻香", provider.id, 2)
 			if secondErr != nil {
 				t.Fatalf("%s QuickJS page-two request failed: %v", provider.name, secondErr)
 			}
