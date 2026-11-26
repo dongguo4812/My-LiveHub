@@ -61,7 +61,7 @@ func TestNormalizeLXScriptSearchResultPreservesNativeLyricIdentifiers(t *testing
 }
 
 func TestGetLyricsFallsBackToNativeProviderAfterLXActionFailure(t *testing.T) {
-	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, &htmlAudioPlaybackEngine{})
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), &htmlAudioPlaybackEngine{})
 	service.scriptRuntime = fakeLXActionRuntime{available:true, err:errors.New("script lyric action failed")}
 	_, err := service.GetLyrics(music.Track{ID:"unknown_1", SourceID:"unknown", LXSourceKey:"unknown", Title:"测试", Artist:"歌手"})
 	if err == nil || !strings.Contains(err.Error(), "script lyric action failed") || !strings.Contains(err.Error(), "暂不支持独立歌词解析") {
