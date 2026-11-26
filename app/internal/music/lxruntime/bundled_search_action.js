@@ -36,6 +36,7 @@
   const defaults = {
     kw: 'http://search.kuwo.cn/r.s',
     kg: 'http://songsearch.kugou.com/song_search_v2',
+    kgV3: 'http://mobilecdn.kugou.com/api/v3/search/song',
     tx: 'https://u.y.qq.com/cgi-bin/musicu.fcg',
     txLegacy: 'https://c.y.qq.com/soso/fcgi-bin/client_search_cp',
     wy: 'http://interface.music.163.com/eapi/batch',
@@ -176,16 +177,51 @@
   function cleanHighlight(v) {
     return decodeName(str(v).replace(/<\/?(?:em|strong)>/gi, ''));
   }
+  function kugouV3Tracks(items) {
+    const tracks = [], seen = Object.create(null);
+    for (const item of items || []) {
+      const id = str(value(item, 'audio_id', 'Audioid', 'ID', 'MixSongID', 'hash', 'FileHash'));
+      const hash = str(value(item, 'hash', 'FileHash', 'Hash'));
+      const key = id + ':' + hash;
+      if (!id || seen[key]) continue;
+      seen[key] = true;
+      const title = cleanHighlight(value(item, 'songname', 'songname_original', 'SongName', 'OriSongName', 'filename', 'FileName'));
+      const artist = cleanHighlight(value(item, 'singername', 'SingerName'));
+      const album = cleanHighlight(value(item, 'album_name', 'AlbumName', 'Album'));
+      const qualities = [];
+      for (const spec of [
+        ['hash', 'filesize', '128k'], ['320hash', '320filesize', '320k'],
+        ['sqhash', 'sqfilesize', 'flac'], ['reshash', 'resfilesize', 'hires']
+      ]) {
+        const bytes = num(value(item, spec[1], spec[1].toUpperCase()));
+        const fileHash = str(value(item, spec[0], spec[0].toUpperCase()));
+        if (bytes > 0 && !qualities.some(q => q.type === spec[2])) {
+          qualities.push(quality(spec[2], bytes, { hash: fileHash }));
+        }
+      }
+      const cover = kugouCover(value(item, 'img', 'image', 'album_img', 'album_cover', 'Image', 'Img'));
+      const sourceData = {
+        songmid: id, hash,
+        album_id: str(value(item, 'album_id', 'AlbumID')),
+        album_audio_id: str(value(item, 'album_audio_id', 'MixSongID'))
+      };
+      if (cover) sourceData.cover_url = cover;
+      tracks.push(track('kg', id, title, artist, album,
+        num(value(item, 'duration', 'Duration')) * 1000, cover, sourceData, qualities));
+    }
+    return tracks;
+  }
   async function searchKugou(keyword, pageNo, limit, endpoints) {
+    const headers = {
+      'User-Agent': 'Mozilla/5.0', Referer: 'https://www.kugou.com/',
+      Accept: 'application/json, text/plain, */*'
+    };
     const url = appendQuery(endpoints.kg || defaults.kg, {
       platform: 'WebFilter', iscorrection: '1', keyword, hifiquality: '0',
       pagesize: limit, privilege_filter: '0', filter: '2', tag: 'em',
       userid: '-1', clientver: '', page: pageNo
     });
-    const raw = await getJSON(url, {
-      'User-Agent': 'Mozilla/5.0', Referer: 'https://www.kugou.com/',
-      Accept: 'application/json, text/plain, */*'
-    });
+    const raw = await getJSON(url, headers);
     if (num(raw.error_code) !== 0) throw new Error('酷狗搜索失败，错误码：' + raw.error_code);
     const data = raw.data || {}, seen = Object.create(null), tracks = [];
     for (const item of data.lists || []) {
@@ -227,7 +263,20 @@
         value(item, 'AlbumName', 'Album'), num(item.Duration) * 1000,
         cover, sourceData, qualities));
     }
-    return page('kg', pageNo, num(data.total), tracks, limit);
+    const total = num(data.total);
+    if (!tracks.length && total > (pageNo - 1) * limit) {
+      const fallbackURL = appendQuery(endpoints.kgV3 || defaults.kgV3, {
+        format: 'json', keyword, page: pageNo, pagesize: limit, showtype: '1'
+      });
+      const fallback = await getJSON(fallbackURL, headers);
+      const fallbackData = fallback.data || {};
+      const fallbackTracks = kugouV3Tracks(fallbackData.info || fallbackData.lists || []);
+      if (fallbackTracks.length) {
+        return page('kg', pageNo, num(fallbackData.total) || total, fallbackTracks, limit);
+      }
+      throw new Error('酷狗第' + pageNo + '页 WebFilter 返回空结果，V3 分页接口也未返回歌曲');
+    }
+    return page('kg', pageNo, total, tracks, limit);
   }
 
   function qqTracks(items) {
