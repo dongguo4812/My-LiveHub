@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(lx_quickjs_host_smoke C)
+project(lxqjs_native C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -20,7 +20,3 @@ endif()
 set_target_properties(lxqjs PROPERTIES PREFIX "" OUTPUT_NAME "lxqjs" WINDOWS_EXPORT_ALL_SYMBOLS ON
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/runtime"
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/runtime")
-
-add_executable(lx_quickjs_host_smoke main.c)
-target_include_directories(lx_quickjs_host_smoke PRIVATE "${QUICKJS_NG_SOURCE_DIR}")
-target_link_libraries(lx_quickjs_host_smoke PRIVATE qjs)
