@@ -217,3 +217,19 @@ func TestScriptAwareSearcherNeverUsesNativeFallbackAndPreservesConfiguredPriorit
 		if runtime.calls[source] != 1 { t.Errorf("%s QuickJS action calls=%d, want 1", source, runtime.calls[source]) }
 	}
 }
+
+
+func TestScriptAwareSearcherBlocksNativeFallbackWhenQuickJSActionIsUnavailable(t *testing.T) {
+	base := &countingNativeSearchFallback{SourceSearcher: music.NewLXSearchClient(nil)}
+	searcher := scriptAwareSourceSearcher{
+		base: base,
+		service: &MusicService{scriptRuntime: fakeLXActionRuntime{available: false}},
+	}
+	for _, source := range []string{"kw", "kg", "tx", "wy", "mg"} {
+		_, err := searcher.SearchProvider(context.Background(), source, "fallback guard", 1)
+		if err == nil || !strings.Contains(err.Error(), "已阻止 Go 原生搜索回退") {
+			t.Errorf("%s should fail closed when QuickJS search is unavailable, got %v", source, err)
+		}
+	}
+	if len(base.calls) != 0 { t.Fatalf("Go native search fallback was called: %#v", base.calls) }
+}
