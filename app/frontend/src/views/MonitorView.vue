@@ -183,7 +183,7 @@ onUnmounted(() => {
         </el-table-column>
         <el-table-column prop="purpose" label="用途" min-width="330" show-overflow-tooltip />
       </el-table>
-      <p class="hint">清单按应用窗口逐个统计 WebView2 宿主，不把 WebView2 Runtime、Audio Service 等共享子进程误算成独立窗口。主窗口承载音乐播放；桌面歌词窗口只负责显示歌词。</p>
+      <p class="hint">清单按应用窗口逐个统计 WebView2 宿主，不把 WebView2 Runtime 等共享子进程误算成独立窗口。主窗口承载音乐播放；桌面歌词窗口只负责显示歌词。</p>
     </el-card>
 
     <el-card shadow="never">
