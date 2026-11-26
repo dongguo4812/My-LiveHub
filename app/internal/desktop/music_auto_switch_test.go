@@ -52,7 +52,7 @@ func (e *resourceAwareQueueTestEngine) LoadResource(_ context.Context, track mus
 
 func TestQueuePlaybackPassesStructuredResourceToResourceAwareEngine(t *testing.T) {
 	engine := &resourceAwareQueueTestEngine{nextTrackTestEngine: &nextTrackTestEngine{}}
-	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, engine)
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), engine)
 	runtime := &playbackResourceTestRuntime{}
 	service.scriptRuntime = runtime
 	track := music.Track{
