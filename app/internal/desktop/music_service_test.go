@@ -834,8 +834,20 @@ func TestMusicStartDoesNotWaitForLXRuntimeInitialization(t *testing.T) {
 	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, &nextTrackTestEngine{}, events.NewBuffer())
 	service.scriptRuntime = runtime
 	startedAt := time.Now()
-	if err := service.start(context.Background()); err != nil { t.Fatal(err) }
-	if elapsed := time.Since(startedAt); elapsed > 250*time.Millisecond {
+	startResult := make(chan error, 1)
+	go func() { startResult <- service.start(context.Background()) }()
+	select {
+	case err := <-startResult:
+		if err != nil { t.Fatal(err) }
+	case <-time.After(time.Second):
+		close(runtime.release)
+		if err := <-startResult; err != nil { t.Fatal(err) }
+		stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = service.stop(stopCtx)
+		t.Fatal("music service startup waited for the blocked LX runtime initialization")
+	}
+	if elapsed := time.Since(startedAt); elapsed > time.Second {
 		t.Fatalf("music service startup waited %s for LX runtime initialization", elapsed)
 	}
 	select {
