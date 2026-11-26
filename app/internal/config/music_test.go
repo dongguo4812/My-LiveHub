@@ -35,6 +35,76 @@ func TestMusicConfigMigrationDropsPlatformConfig(t *testing.T) {
 	}
 }
 
+func TestLoadMusicConfigMigratesLegacySettingsWithoutLosingUserPreferences(t *testing.T) {
+	localDir := t.TempDir()
+	manager, err := NewManager(fstest.MapFS{
+		"music.json": {Data: []byte(`{"config_version":17}`)},
+	}, localDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{
+		"config_version": 16,
+		"volume": 0.42,
+		"loudness_normalization": true,
+		"enabled": true,
+		"command_enabled": false,
+		"command_prefix": "点歌呀",
+		"skip_command_enabled": false,
+		"skip_command": "下一首",
+		"queue_capacity": 80,
+		"request_cooldown_seconds": 30,
+		"queue_display_count": 8,
+		"playlist_playback_mode": "random",
+		"lx_api_endpoints": ["http://127.0.0.1:23331", "http://127.0.0.1:23332"],
+		"enabled_search_sources": ["kg", "tx", "mg"],
+		"require_fan_medal": true,
+		"fan_medal_level": 6,
+		"retired_platform_config": {"legacy": true}
+	}`
+	if err := os.WriteFile(filepath.Join(localDir, "music.json"), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := LoadMusicConfig(manager)
+	if err != nil {
+		t.Fatalf("LoadMusicConfig should migrate legacy settings: %v", err)
+	}
+	if got.ConfigVersion != CurrentMusicConfigVersion {
+		t.Fatalf("config version = %d, want %d", got.ConfigVersion, CurrentMusicConfigVersion)
+	}
+	if got.Volume != 0.42 || !got.LoudnessNormalization || got.CommandEnabled || got.CommandPrefix != "点歌呀" {
+		t.Fatalf("playback/command preferences were not preserved: %+v", got)
+	}
+	if got.SkipCommandEnabled || got.SkipCommand != "下一首" || got.QueueCapacity != 80 ||
+		got.RequestCooldownSeconds != 30 || got.QueueDisplayCount != 8 || got.PlaylistPlaybackMode != "random" {
+		t.Fatalf("queue/command preferences were not preserved: %+v", got)
+	}
+	if len(got.LXAPIEndpoints) != 2 || got.LXAPIEndpoints[0] != "http://127.0.0.1:23331" ||
+		got.LXAPIEndpoints[1] != "http://127.0.0.1:23332" {
+		t.Fatalf("legacy endpoints should remain available to the migration/compatibility layer: %#v", got.LXAPIEndpoints)
+	}
+	if len(got.EnabledSearchSources) != 3 || got.EnabledSearchSources[0] != "kg" ||
+		got.EnabledSearchSources[1] != "tx" || got.EnabledSearchSources[2] != "mg" {
+		t.Fatalf("search source priority was not preserved: %#v", got.EnabledSearchSources)
+	}
+	if !got.RequireFanMedal || got.FanMedalLevel != 6 {
+		t.Fatalf("fan medal preferences were not preserved: %+v", got)
+	}
+
+	data, err := os.ReadFile(filepath.Join(localDir, "music.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved map[string]any
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := saved["retired_platform_config"]; exists {
+		t.Fatal("retired platform configuration should be removed during migration")
+	}
+}
+
 func TestMusicConfigV7MigrationPreservesSkipCommand(t *testing.T) {
 	got, changed := MigrateMusicConfig(MusicConfig{
 		ConfigVersion: 7, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
