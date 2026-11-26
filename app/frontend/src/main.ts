@@ -8,16 +8,16 @@ import App from './App.vue'
 import router from './router'
 import {loadAppearance} from './services/appearance'
 import './styles.css'
-import { disposeHTMLAudioForShutdown } from './services/htmlAudio'
 import { disposeVoiceAudio } from './services/voiceAudio'
 import { stopLive2DMicrophone } from './services/live2dMicrophone'
 
+let disposeHTMLAudioForShutdown: (() => void) | undefined
 let audioResourcesDisposed = false
 function disposeAudioResources(reason: string) {
   if (audioResourcesDisposed) return
   audioResourcesDisposed = true
   console.info('audio lifecycle cleanup started:', reason)
-  disposeHTMLAudioForShutdown()
+  disposeHTMLAudioForShutdown?.()
   disposeVoiceAudio()
   stopLive2DMicrophone()
 }
@@ -76,7 +76,14 @@ window.addEventListener('unhandledrejection', event => {
 
 const app=createApp(App)
 app.use(router).use(ElementPlus)
-void router.isReady().then(() => {
+void router.isReady().then(async () => {
+  // Music playback is owned by the main control window only. Wails events are
+  // broadcast to every WebView, so importing htmlAudio in auxiliary windows
+  // would create another player that receives the same playback commands.
+  if (!router.currentRoute.value.meta.standalone) {
+    const htmlAudio = await import('./services/htmlAudio')
+    disposeHTMLAudioForShutdown = htmlAudio.disposeHTMLAudioForShutdown
+  }
   if (!router.currentRoute.value.path.startsWith('/scene/')) void loadAppearance()
   app.mount('#app')
 })
