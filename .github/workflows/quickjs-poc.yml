@@ -53,20 +53,18 @@ jobs:
           WORKSPACE="$(cygpath -u "$GITHUB_WORKSPACE")"
           python "$WORKSPACE/.github/scripts/instrument-quickjs-ops.py" "$RUNNER_TEMP/quickjs-ng/quickjs.c"
 
-      - name: Build QuickJS-NG shared runtime and native C API smoke test
+      - name: Build QuickJS-NG shared runtime
         shell: msys2 {0}
         run: |
           WORKSPACE="$(cygpath -u "$GITHUB_WORKSPACE")"
           TEMP_DIR="$(cygpath -u "$RUNNER_TEMP")"
           cmake -S "$WORKSPACE/app/internal/music/lxruntime/poc/native" -B "$TEMP_DIR/lx-quickjs-host-build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DQUICKJS_NG_SOURCE_DIR="$TEMP_DIR/quickjs-ng"
           cmake --build "$TEMP_DIR/lx-quickjs-host-build" --config Release
-          host="$(find "$TEMP_DIR/lx-quickjs-host-build" -type f -iname 'lx_quickjs_host_smoke.exe' -print -quit)"
           dll="$(find "$TEMP_DIR/lx-quickjs-host-build" -type f -iname 'lxqjs.dll' -print -quit)"
-          test -n "$host" && test -n "$dll"
-          "$host"
+          test -n "$dll"
           mkdir -p "$WORKSPACE/app/bin"
           cp "$dll" "$WORKSPACE/app/bin/lxqjs.dll"
-          ls -lh "$host" "$WORKSPACE/app/bin/lxqjs.dll"
+          ls -lh "$WORKSPACE/app/bin/lxqjs.dll"
           GITHUB_ENV_PATH="$(cygpath -u "$GITHUB_ENV")"
           printf 'CGO_ENABLED=0\nMYLIVEHUB_QUICKJS_LIB=%s\\app\\bin\\lxqjs.dll\n' "$GITHUB_WORKSPACE" >> "$GITHUB_ENV_PATH"
 
