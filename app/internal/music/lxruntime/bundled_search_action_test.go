@@ -173,7 +173,7 @@ func TestProductionLXBundledSearchActionPropagatesHTTPFailuresAndCancellation(t 
 			}
 			_, dispatchErr := runtime.dispatchLXRequest(context.Background(), sourceID, "search", map[string]any{
 				"text": "failure", "page": 1, "limit": 30, "__testEndpoints": endpoints,
-			})
+			}, server.Client())
 			if dispatchErr == nil || !strings.Contains(dispatchErr.Error(), "HTTP 502") {
 				t.Fatalf("%s HTTP failure was not propagated: %v", sourceID, dispatchErr)
 			}
@@ -193,7 +193,7 @@ func TestProductionLXBundledSearchActionPropagatesHTTPFailuresAndCancellation(t 
 			go func() {
 				_, dispatchErr := runtime.dispatchLXRequest(ctx, sourceID, "search", map[string]any{
 					"text": "cancel", "page": 1, "limit": 30, "__testEndpoints": endpoints,
-				})
+				}, server.Client())
 				done <- dispatchErr
 			}()
 
