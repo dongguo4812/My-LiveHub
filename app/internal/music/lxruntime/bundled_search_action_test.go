@@ -37,7 +37,9 @@ func TestBundledSearchActionsUseQuickJSHTTPForAllFivePlatforms(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil { t.Errorf("QQ body: %v", err) }
 			service := body["music.search.SearchCgiService"].(map[string]any)
 			param := service["param"].(map[string]any)
-			if param["page"] != float64(2) || param["num_per_page"] != float64(30) { t.Errorf("QQ pagination = %#v", param) }
+			if param["page_num"] != float64(2) || param["num_per_page"] != float64(30) || param["search_type"] != float64(0) {
+				t.Errorf("QQ pagination/search type = %#v", param)
+			}
 			_, _ = w.Write([]byte(`{"code":0,"music.search.SearchCgiService":{"code":0,"data":{"body":{"song":{"list":[{"id":303,"mid":"TX303","title":"QQ page two","interval":182,"singer":[{"name":"Singer"}],"album":{"mid":"ALB","name":"Album"},"file":{"media_mid":"MEDIA303","size_128mp3":1000,"size_320mp3":2000}}]}},"meta":{"sum":31}}}}`))
 		case "/txfail":
 			http.Error(w, "QQ primary unavailable", http.StatusInternalServerError)
