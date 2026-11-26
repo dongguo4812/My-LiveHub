@@ -11,9 +11,9 @@ import (
 	"github.com/dongguo4812/My-LiveHub/app/internal/music"
 )
 
-// resolveAndStartLXTrack asks the 洛雪 desktop client to play the selected
-// provider result. If playback cannot be confirmed, it searches the remaining
-// enabled providers in configured priority order and verifies each candidate.
+// resolveAndStartLXTrack resolves a provider result through My-LiveHub's
+// playback pipeline. If the current provider cannot start, it searches the
+// remaining enabled providers in configured priority order and verifies each candidate.
 const (
 	playbackResolutionTimeout = 120 * time.Second
 	fallbackSourceSearchTimeout = 5 * time.Second
@@ -33,7 +33,7 @@ func (s *MusicService) resolvePlaybackResource(ctx context.Context, track music.
 
 func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original music.Track, skipCurrent bool) (music.Track, error) {
 	if s == nil || s.engine == nil || s.searcher == nil {
-		return music.Track{}, errors.New("洛雪播放服务尚未初始化")
+		return music.Track{}, errors.New("音乐播放服务尚未初始化")
 	}
 	if parent == nil { parent = context.Background() }
 	resolutionCtx, resolutionGeneration, resolutionCancel := s.beginPlaybackResolution(parent)
