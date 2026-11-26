@@ -127,7 +127,7 @@
         const match = /level:([^,]+),bitrate:([^,]+),format:([^,]+),size:([^,]+)/.exec(token);
         if (!match) continue;
         const kind = match[2] === '4000' || match[2] === '2000' ? 'flac' : match[2] === '320' ? '320k' : match[2] === '128' ? '128k' : '';
-        if (kind && !qualities.some(q => q.type === kind)) qualities.push(quality(kind, 0));
+        if (kind && !qualities.some(q => q.type === kind)) qualities.push({ type: kind, size: match[4] });
       }
       qualities.reverse();
       const cover = kuwoCover(value(item, 'web_albumpic_short', 'ALBUMPIC', 'albumpic', 'albumPic', 'pic', 'cover'));
