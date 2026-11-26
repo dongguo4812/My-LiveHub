@@ -1481,6 +1481,26 @@ func TestMusicStartClosesPlaybackEngineAfterPartialStartFailure(t *testing.T) {
 	if service.GetStatus().Running { t.Fatal("service must remain stopped after engine startup failure") }
 }
 
+func TestMusicStartWaitsForCleanupRetryAfterPartialCloseFailure(t *testing.T) {
+	engine := &lifecycleRaceTestEngine{
+		startErr: errors.New("partial startup failure"),
+		closeErr: errors.New("first cleanup attempt failed"),
+	}
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), engine, events.NewBuffer())
+	if err := service.start(context.Background()); err == nil { t.Fatal("partial startup failure was not returned") }
+	if err := service.start(context.Background()); err == nil || !strings.Contains(err.Error(), "still shutting down") {
+		t.Fatalf("restart should be blocked until cleanup succeeds, got %v", err)
+	}
+	if got := engine.startCalls.Load(); got != 1 { t.Fatalf("engine Start calls before cleanup retry = %d, want 1", got) }
+
+	engine.closeErr = nil
+	if err := service.Shutdown(); err != nil { t.Fatalf("retry partial resource cleanup: %v", err) }
+	engine.startErr = nil
+	if err := service.start(context.Background()); err != nil { t.Fatalf("start after successful cleanup retry: %v", err) }
+	if got := engine.startCalls.Load(); got != 2 { t.Fatalf("engine Start calls after recovery = %d, want 2", got) }
+	if err := service.Shutdown(); err != nil { t.Fatalf("shutdown after recovered start: %v", err) }
+}
+
 func TestMusicStartAndStopSerializePlaybackEngineLifecycle(t *testing.T) {
 	engine := &lifecycleRaceTestEngine{startEntered:make(chan struct{}), allowStart:make(chan struct{})}
 	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), engine, events.NewBuffer())
