@@ -104,6 +104,44 @@ func TestLoadMusicConfigMigratesLegacySettingsWithoutLosingUserPreferences(t *te
 	}
 }
 
+func TestLoadMusicConfigV17RemovesLXAPIEndpointsWithoutLosingSettings(t *testing.T) {
+	localDir := t.TempDir()
+	manager, err := NewManager(fstest.MapFS{
+		"music.json": {Data: []byte(`{"config_version":17}`)},
+	}, localDir)
+	if err != nil { t.Fatal(err) }
+	legacy := `{
+		"config_version": 17,
+		"volume": 0.37,
+		"loudness_normalization": true,
+		"enabled": true,
+		"command_enabled": true,
+		"command_prefix": "点歌",
+		"skip_command_enabled": true,
+		"skip_command": "切歌",
+		"queue_capacity": 90,
+		"queue_display_count": 7,
+		"playlist_playback_mode": "loop",
+		"lx_api_endpoints": ["http://127.0.0.1:23330"],
+		"enabled_search_sources": ["mg", "kg", "tx"]
+	}`
+	if err := os.WriteFile(filepath.Join(localDir, "music.json"), []byte(legacy), 0o600); err != nil { t.Fatal(err) }
+	got, err := LoadMusicConfig(manager)
+	if err != nil { t.Fatal(err) }
+	if got.ConfigVersion != 18 || got.Volume != 0.37 || !got.LoudnessNormalization ||
+		got.QueueCapacity != 90 || got.QueueDisplayCount != 7 || got.PlaylistPlaybackMode != "loop" {
+		t.Fatalf("v17 preferences were not preserved during cleanup: %+v", got)
+	}
+	if len(got.EnabledSearchSources) != 3 || got.EnabledSearchSources[0] != "mg" || got.EnabledSearchSources[1] != "kg" || got.EnabledSearchSources[2] != "tx" {
+		t.Fatalf("search source order was not preserved: %#v", got.EnabledSearchSources)
+	}
+	data, err := os.ReadFile(filepath.Join(localDir, "music.json"))
+	if err != nil { t.Fatal(err) }
+	var saved map[string]any
+	if err := json.Unmarshal(data, &saved); err != nil { t.Fatal(err) }
+	if _, exists := saved["lx_api_endpoints"]; exists { t.Fatal("legacy LX API endpoints remain in migrated config") }
+}
+
 func TestMusicConfigV7MigrationPreservesSkipCommand(t *testing.T) {
 	got, changed := MigrateMusicConfig(MusicConfig{
 		ConfigVersion: 7, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
