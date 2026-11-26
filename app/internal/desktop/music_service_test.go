@@ -890,3 +890,20 @@ func TestMusicFirstUseReceivesLXRuntimeInitializationFailure(t *testing.T) {
 	defer stopCancel()
 	if err := service.stop(stopCtx); err != nil { t.Fatal(err) }
 }
+
+func TestStoppingMusicModuleCancelsBackgroundLXInitialization(t *testing.T) {
+	runtime := &blockingLXScriptRuntime{started: make(chan struct{}), release: make(chan struct{})}
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, &nextTrackTestEngine{}, events.NewBuffer())
+	service.scriptRuntime = runtime
+	if err := service.start(context.Background()); err != nil { t.Fatal(err) }
+	select {
+	case <-runtime.started:
+	case <-time.After(time.Second):
+		t.Fatal("background LX runtime initialization did not start")
+	}
+	stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := service.stop(stopCtx); err != nil { t.Fatalf("stop did not cancel and join LX initialization: %v", err) }
+	if got := runtime.closeCalls.Load(); got != 1 { t.Fatalf("runtime Close called %d times, want once after initialization stopped", got) }
+	if got := runtime.startCalls.Load(); got != 1 { t.Fatalf("runtime Start called %d times, want once", got) }
+}
