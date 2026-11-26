@@ -758,13 +758,22 @@ func (s *MusicService) SaveConfig(value config.MusicConfig) error {
 		if err := bridge.SetLoudnessNormalization(value.LoudnessNormalization); err != nil { return fmt.Errorf("应用响度标准化设置失败：%w", err) }
 	}
 	if wasEnabled && !value.Enabled {
-		if err := s.Stop(); err != nil {
-			return fmt.Errorf("停止音乐播放失败：%w", err)
-		}
+		stopErr := s.Stop()
+		// Disabling the module is a terminal queue transition even when the
+		// playback engine reports a stop error. Do not leave requests/history
+		// available to be replayed if the module is enabled again later.
 		s.queue.Clear()
 		s.mu.Lock()
 		s.history = nil
+		s.playlistPlaybackActive = false
+		s.playlistPlaybackTracks = nil
+		s.playlistPlaybackID = ""
+		s.playlistPlaybackName = ""
+		s.playlistPlaybackResumeTrack = nil
 		s.mu.Unlock()
+		if stopErr != nil {
+			return fmt.Errorf("停止音乐播放失败：%w", stopErr)
+		}
 	}
 	return nil
 }
