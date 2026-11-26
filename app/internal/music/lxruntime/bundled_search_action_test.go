@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-func TestBundledSearchActionsUseQuickJSHTTPForAllFivePlatforms(t *testing.T) {
+func TestProductionLXBundledSearchActionsUseQuickJSHTTPForAllFivePlatforms(t *testing.T) {
 	var seen = map[string]bool{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -136,7 +136,7 @@ func TestBundledSearchActionsUseQuickJSHTTPForAllFivePlatforms(t *testing.T) {
 	if !seen["txlegacy"] { t.Fatal("QQ legacy fallback did not use lx.request HTTP host") }
 }
 
-func TestBundledSearchActionPropagatesHTTPFailuresAndCancellation(t *testing.T) {
+func TestProductionLXBundledSearchActionPropagatesHTTPFailuresAndCancellation(t *testing.T) {
 	var slowStarted atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -221,7 +221,7 @@ func TestBundledSearchActionPropagatesHTTPFailuresAndCancellation(t *testing.T) 
 	}
 }
 
-func TestBundledSearchActionDeclaresOnlyFiveMusicSources(t *testing.T) {
+func TestProductionLXBundledSearchActionDeclaresOnlyFiveMusicSources(t *testing.T) {
 	source := BundledSearchAction()
 	if len(source.ExtensionActions) != 1 || source.ExtensionActions[0] != "search" {
 		t.Fatalf("built-in action declaration = %#v", source.ExtensionActions)
