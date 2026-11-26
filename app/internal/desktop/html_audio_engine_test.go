@@ -309,3 +309,38 @@ func TestHTMLAudioPlaybackEnginePreservesPausedStateWhenTogglingNormalization(t 
 	if snapshot.State != music.PlaybackPaused { t.Fatalf("loadstart changed paused state to %s", snapshot.State) }
 	if err := engine.Close(); err != nil { t.Fatal(err) }
 }
+
+
+func TestHTMLAudioPlaybackEngineStopReleasesTrackAndResourceReferences(t *testing.T) {
+	var commands []htmlAudioCommand
+	engine := newHTMLAudioPlaybackEngine(nil)
+	engine.setEmitter(func(_ string, payload any) { commands = append(commands, payload.(htmlAudioCommand)) })
+	track := music.Track{ID: "release-track", SourceID: "tx", Title: "释放测试"}
+	resource := music.PlaybackResource{URL: "https://media.example/release.mp3", SourceID: "tx", TrackID: "release-track"}
+	if err := engine.LoadResource(context.Background(), track, resource); err != nil {
+		t.Fatal(err)
+	}
+	oldSession := engine.sessionID
+	if engine.resource.URL == "" || engine.track.ID == "" {
+		t.Fatal("active session did not retain its playback resource")
+	}
+	if err := engine.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if engine.track != (music.Track{}) || engine.resource != (music.PlaybackResource{}) {
+		t.Fatalf("Stop retained track/resource references: track=%#v resource=%#v", engine.track, engine.resource)
+	}
+	if engine.sessionID <= oldSession {
+		t.Fatalf("Stop did not invalidate old session: old=%d new=%d", oldSession, engine.sessionID)
+	}
+	if err := engine.Report(oldSession, "timeupdate", 12000, 90000, ""); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := engine.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.State != music.PlaybackIdle || snapshot.Track != nil {
+		t.Fatalf("late event repopulated stopped playback: %#v", snapshot)
+	}
+}
