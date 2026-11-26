@@ -55,7 +55,7 @@ onMounted(async () => {
   })
   if (route.path.startsWith('/scene/')) return
   console.info('main frontend mounted; heartbeat monitoring enabled')
-  void RecordFrontendHeartbeat()
+  void RecordFrontendHeartbeat().catch(error => console.warn('initial frontend heartbeat failed:', error))
   frontendHeartbeatTimer = setInterval(() => {
     void RecordFrontendHeartbeat().catch(error => console.warn('frontend heartbeat failed:', error))
   }, 10_000)
