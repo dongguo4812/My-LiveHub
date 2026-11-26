@@ -110,13 +110,13 @@ func TestBundledSearchActionsUseQuickJSHTTPForAllFivePlatforms(t *testing.T) {
 }
 
 func TestBundledSearchActionPropagatesHTTPFailuresAndCancellation(t *testing.T) {
-	var started atomic.Bool
+	var slowStarted atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/failure":
 			http.Error(w, "provider unavailable", http.StatusBadGateway)
 		case "/slow":
-			started.Store(true)
+			slowStarted.Add(1)
 			<-r.Context().Done()
 		default:
 			http.NotFound(w, r)
@@ -124,7 +124,9 @@ func TestBundledSearchActionPropagatesHTTPFailuresAndCancellation(t *testing.T) 
 	}))
 	defer server.Close()
 	runtime, err := New(Options{})
-	if err != nil { t.Fatalf("create QuickJS runtime: %v", err) }
+	if err != nil {
+		t.Fatalf("create QuickJS runtime: %v", err)
+	}
 	defer runtime.Close()
 	runtime.allowPrivateNetworkForTests = true
 	source := BundledSearchAction()
@@ -132,30 +134,54 @@ func TestBundledSearchActionPropagatesHTTPFailuresAndCancellation(t *testing.T) 
 		t.Fatalf("initialize built-in search actions: %v", err)
 	}
 
-	_, err = runtime.DispatchLXRequest(context.Background(), "kw", "search", map[string]any{
-		"text":"failure", "page":1, "limit":30, "__testEndpoints":map[string]string{"kw":server.URL+"/failure"},
-	})
-	if err == nil || !strings.Contains(err.Error(), "HTTP 502") { t.Fatalf("expected provider HTTP error, got %v", err) }
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() {
-		_, dispatchErr := runtime.DispatchLXRequest(ctx, "kw", "search", map[string]any{
-			"text":"cancel", "page":1, "limit":30, "__testEndpoints":map[string]string{"kw":server.URL+"/slow"},
+	providers := []string{"kw", "kg", "tx", "wy", "mg"}
+	for _, sourceID := range providers {
+		t.Run(sourceID+"/http_failure", func(t *testing.T) {
+			endpoints := map[string]string{sourceID: server.URL + "/failure"}
+			if sourceID == "mg" {
+				endpoints["mgFallback"] = server.URL + "/failure"
+			}
+			_, dispatchErr := runtime.DispatchLXRequest(context.Background(), sourceID, "search", map[string]any{
+				"text": "failure", "page": 1, "limit": 30, "__testEndpoints": endpoints,
+			})
+			if dispatchErr == nil || !strings.Contains(dispatchErr.Error(), "HTTP 502") {
+				t.Fatalf("%s HTTP failure was not propagated: %v", sourceID, dispatchErr)
+			}
 		})
-		done <- dispatchErr
-	}()
-	deadline := time.Now().Add(2 * time.Second)
-	for !started.Load() && time.Now().Before(deadline) { time.Sleep(5 * time.Millisecond) }
-	if !started.Load() { cancel(); t.Fatal("QuickJS search did not start the HTTP request") }
-	cancel()
-	select {
-	case dispatchErr := <-done:
-		if dispatchErr == nil || (dispatchErr != context.Canceled && !strings.Contains(dispatchErr.Error(), "context canceled")) {
-			t.Fatalf("expected cancellation to propagate, got %v", dispatchErr)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("cancelled QuickJS search did not return promptly")
+
+		t.Run(sourceID+"/cancellation", func(t *testing.T) {
+			before := slowStarted.Load()
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan error, 1)
+			endpoints := map[string]string{sourceID: server.URL + "/slow"}
+			if sourceID == "mg" {
+				endpoints["mgFallback"] = server.URL + "/slow"
+			}
+			go func() {
+				_, dispatchErr := runtime.DispatchLXRequest(ctx, sourceID, "search", map[string]any{
+					"text": "cancel", "page": 1, "limit": 30, "__testEndpoints": endpoints,
+				})
+				done <- dispatchErr
+			}()
+
+			deadline := time.Now().Add(2 * time.Second)
+			for slowStarted.Load() == before && time.Now().Before(deadline) {
+				time.Sleep(5 * time.Millisecond)
+			}
+			if slowStarted.Load() == before {
+				cancel()
+				t.Fatalf("%s QuickJS search did not start its HTTP request", sourceID)
+			}
+			cancel()
+			select {
+			case dispatchErr := <-done:
+				if dispatchErr == nil || (dispatchErr != context.Canceled && !strings.Contains(dispatchErr.Error(), "context canceled")) {
+					t.Fatalf("%s cancellation was not propagated: %v", sourceID, dispatchErr)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatalf("%s cancelled QuickJS search did not return promptly", sourceID)
+			}
+		})
 	}
 }
 
