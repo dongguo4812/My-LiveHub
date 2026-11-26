@@ -42,6 +42,8 @@ type MusicStatus struct {
 	LXRuntimeError string `json:"lx_runtime_error,omitempty"`
 }
 
+type lyricsRequest struct { generation uint64; cancel context.CancelFunc }
+
 type MusicService struct {
 	manager *config.Manager
 	buffer *events.Buffer
@@ -87,7 +89,8 @@ type MusicService struct {
 	lxRuntimeCtx context.Context
 	lyricsMu sync.Mutex
 	lyricsCache map[string]string
-	lyricsRequests map[string]context.CancelFunc
+	lyricsRequests map[string]lyricsRequest
+	lyricsRequestGeneration uint64
 	playbackResourceCache *music.PlaybackResourceCache
 	playbackRefreshMu sync.Mutex
 	playbackRefreshResults map[string]music.PlaybackResource
@@ -114,7 +117,7 @@ func NewMusicServiceWithDependencies(manager *config.Manager, value config.Music
 	service := &MusicService{
 		manager: manager, buffer: buffer, value: cloneMusicConfig(value), playlistPlaybackMode: value.PlaylistPlaybackMode,
 		engine: engine, queue: music.NewQueue(value.QueueCapacity),
-		searcher: music.NewLXSearchClient(nil), scriptRuntime: newLXScriptRuntime(manager), lyricsCache: make(map[string]string), lyricsRequests: make(map[string]context.CancelFunc), playbackResourceCache: music.NewPlaybackResourceCache(2*time.Minute, 512), playbackRefreshResults: make(map[string]music.PlaybackResource), requestCooldowns: make(map[string]time.Time),
+		searcher: music.NewLXSearchClient(nil), scriptRuntime: newLXScriptRuntime(manager), lyricsCache: make(map[string]string), lyricsRequests: make(map[string]lyricsRequest), playbackResourceCache: music.NewPlaybackResourceCache(2*time.Minute, 512), playbackRefreshResults: make(map[string]music.PlaybackResource), requestCooldowns: make(map[string]time.Time),
 	}
 	// Keep the lightweight command listener alive while the module is stopped,
 	// matching the video module so users still receive an explicit failure notice.
@@ -1146,14 +1149,16 @@ func (s *MusicService) GetLyricsForRequest(track music.Track, requestID string) 
 	if requestID == "" { return "", errors.New("music lyrics request ID is required") }
 	ctx, cancel := context.WithCancel(context.Background())
 	s.lyricsMu.Lock()
-	if s.lyricsRequests == nil { s.lyricsRequests = make(map[string]context.CancelFunc) }
-	if previous := s.lyricsRequests[requestID]; previous != nil { previous() }
-	s.lyricsRequests[requestID] = cancel
+	if s.lyricsRequests == nil { s.lyricsRequests = make(map[string]lyricsRequest) }
+	if previous, ok := s.lyricsRequests[requestID]; ok { previous.cancel() }
+	s.lyricsRequestGeneration++
+	generation := s.lyricsRequestGeneration
+	s.lyricsRequests[requestID] = lyricsRequest{generation:generation, cancel:cancel}
 	s.lyricsMu.Unlock()
 	defer func() {
 		cancel()
 		s.lyricsMu.Lock()
-		delete(s.lyricsRequests, requestID)
+		if current, ok := s.lyricsRequests[requestID]; ok && current.generation == generation { delete(s.lyricsRequests, requestID) }
 		s.lyricsMu.Unlock()
 	}()
 	return s.getLyrics(ctx, track)
@@ -1166,17 +1171,17 @@ func (s *MusicService) CancelLyrics(requestID string) {
 	requestID = strings.TrimSpace(requestID)
 	if requestID == "" { return }
 	s.lyricsMu.Lock()
-	cancel := s.lyricsRequests[requestID]
+	request, ok := s.lyricsRequests[requestID]
 	delete(s.lyricsRequests, requestID)
 	s.lyricsMu.Unlock()
-	if cancel != nil { cancel() }
+	if ok { request.cancel() }
 }
 
 func (s *MusicService) cancelAllLyricsRequests() {
 	if s == nil { return }
 	s.lyricsMu.Lock()
 	cancels := make([]context.CancelFunc, 0, len(s.lyricsRequests))
-	for id, cancel := range s.lyricsRequests { cancels = append(cancels, cancel); delete(s.lyricsRequests, id) }
+	for id, request := range s.lyricsRequests { cancels = append(cancels, request.cancel); delete(s.lyricsRequests, id) }
 	s.lyricsMu.Unlock()
 	for _, cancel := range cancels { cancel() }
 }
