@@ -153,6 +153,43 @@ func TestProductionLXStartupInitializesOnlyEnabledScriptsAndPersistsFailureDetai
 	}
 }
 
+func TestMusicServiceLXRuntimeRecoversAfterReplacingFailedStartupScript(t *testing.T) {
+	manager := testLXConfigManager(t)
+	brokenSource := `throw new Error("fixture startup failure");`
+	digest := sha256.Sum256([]byte(brokenSource))
+	records := []storedLXScript{{ID:hex.EncodeToString(digest[:]), Name:"broken startup source", Source:brokenSource, Enabled:true}}
+	data, err := json.Marshal(records)
+	if err != nil { t.Fatal(err) }
+	if err := manager.WriteLocalJSON(lxScriptStoreFile, data, lxScriptStoreLimit); err != nil { t.Fatal(err) }
+
+	runtime := newLXScriptRuntime(manager).(*productionMusicLXRuntime)
+	if err := runtime.Start(context.Background()); err != nil { t.Fatalf("per-script startup failure should remain recoverable: %v", err) }
+	if err := runtime.InitializationError(); err == nil || !strings.Contains(err.Error(), "fixture startup failure") {
+		t.Fatalf("expected retained startup failure, got %v", err)
+	}
+
+	service := NewMusicServiceWithDependencies(manager, config.DefaultMusicConfig(), &nextTrackTestEngine{}, events.NewBuffer())
+	service.scriptRuntime = runtime
+	service.mu.Lock()
+	service.started = true
+	service.lxRuntimeStatus = "failed"
+	service.lxRuntimeError = "fixture startup failure"
+	service.mu.Unlock()
+
+	if err := service.DeleteLXScript(records[0].ID); err != nil { t.Fatalf("delete failed script: %v", err) }
+	if got := service.GetStatus(); got.LXRuntimeStatus != "ready" || got.LXRuntimeError != "" {
+		t.Fatalf("removing failed script did not clear recovered runtime status: %#v", got)
+	}
+
+	validSource := `lx.on(lx.EVENT_NAMES.request, () => []); lx.send(lx.EVENT_NAMES.inited, {sources:{kw:{type:"music",actions:["search"]}}});`
+	if _, err := service.ImportLXScript("recovery source", validSource); err != nil { t.Fatalf("import replacement source: %v", err) }
+	if got := service.GetStatus(); got.LXRuntimeStatus != "ready" || got.LXRuntimeError != "" {
+		t.Fatalf("successful replacement did not restore ready status: %#v", got)
+	}
+	if !runtime.Available() { t.Fatal("replacement source should be available after recovery") }
+	if err := service.Shutdown(); err != nil { t.Fatalf("shutdown recovered runtime: %v", err) }
+}
+
 func TestProductionLXScriptRuntimeQuarantinesMalformedStore(t *testing.T) {
 	manager := testLXConfigManager(t)
 	if err := manager.WriteLocalJSON(lxScriptStoreFile, []byte("{}"), lxScriptStoreLimit); err != nil { t.Fatal(err) }
