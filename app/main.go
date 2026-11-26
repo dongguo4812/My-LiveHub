@@ -262,7 +262,7 @@ func main() {
 	if _, statErr := os.Stat(packagedHexExecutable); statErr == nil {
 		lolHexLogDir = filepath.Join(runtimeRoot, "dist", "lol_hex_display", "logs")
 	}
-	monitorService := desktop.NewMonitorService(logDirectory, lolHexLogDir)
+	monitorService := desktop.NewMonitorServiceWithPlatformManager(logDirectory, platformManager, lolHexLogDir)
 	lolHexService, err := desktop.NewLOLHexService(runtimeRoot, filepath.Join(paths.LocalDir, "lol_hex_display.json"))
 	if err != nil {
 		log.Printf("LOL Hex built-in module unavailable: %v", err)
@@ -338,9 +338,9 @@ func main() {
 	})
 
 	wailsApp = app
-	monitorService.attachWebView2Monitoring(app, platformService)
+	monitorService.AttachWebView2Monitoring(app)
 	desktop.AttachHTMLAudioPlayback(musicService, app)
-	desktop.attachApplication(platformService, app, appConfig.Appearance.Theme == "light")
+	platformService.SetApplication(app, appConfig.Appearance.Theme == "light")
 	desktop.AttachDanmakuDisplayApplication(danmakuDisplayService, app)
 	desktop.AttachMusicLyricsWindowApplication(musicLyricsWindowService, app)
 	desktop.AttachBilibiliWebViewApplication(bilibiliWebViewService, app)

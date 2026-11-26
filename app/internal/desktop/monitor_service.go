@@ -15,6 +15,7 @@ import (
 	"regexp"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/dongguo4812/My-LiveHub/app/internal/platform"
 )
 
 type SystemMetricsSnapshot struct {
@@ -60,7 +61,7 @@ type MonitorService struct {
 	logDirs []string
 	mu sync.Mutex
 	webViewApp *application.App
-	platformService *PlatformService
+	platformManager *platform.Manager
 	lastCPUAt time.Time
 	lastSystemTotal uint64
 	lastSystemIdle uint64
@@ -68,6 +69,10 @@ type MonitorService struct {
 }
 
 func NewMonitorService(logDir string, additionalLogDirs ...string) *MonitorService {
+	return NewMonitorServiceWithPlatformManager(logDir, nil, additionalLogDirs...)
+}
+
+func NewMonitorServiceWithPlatformManager(logDir string, manager *platform.Manager, additionalLogDirs ...string) *MonitorService {
 	logDirs := make([]string, 0, 1+len(additionalLogDirs))
 	if strings.TrimSpace(logDir) != "" { logDirs = append(logDirs, logDir) }
 	for _, dir := range additionalLogDirs {
@@ -76,16 +81,15 @@ func NewMonitorService(logDir string, additionalLogDirs ...string) *MonitorServi
 		for _, existing := range logDirs { if filepath.Clean(existing) == filepath.Clean(dir) { duplicate = true; break } }
 		if !duplicate { logDirs = append(logDirs, dir) }
 	}
-	return &MonitorService{startedAt: time.Now(), logDirs: logDirs}
+	return &MonitorService{startedAt: time.Now(), logDirs: logDirs, platformManager: manager}
 }
 
 
 // AttachWebView2Monitoring supplies the live Wails window registry context.
-func (s *MonitorService) attachWebView2Monitoring(app *application.App, platforms *PlatformService) {
+func (s *MonitorService) AttachWebView2Monitoring(app *application.App) {
 	if s == nil { return }
 	s.mu.Lock()
 	s.webViewApp = app
-	s.platformService = platforms
 	s.mu.Unlock()
 }
 
@@ -94,7 +98,7 @@ func (s *MonitorService) attachWebView2Monitoring(app *application.App, platform
 func (s *MonitorService) GetWebView2Instances() []WebView2InstanceSnapshot {
 	if s == nil { return []WebView2InstanceSnapshot{} }
 	s.mu.Lock()
-	app, platforms := s.webViewApp, s.platformService
+	app, manager := s.webViewApp, s.platformManager
 	s.mu.Unlock()
 	definitions := []WebView2InstanceSnapshot{
 		{Name: "main-window", Purpose: "主程序界面；音乐播放、HTMLAudio 与 Web Audio 音频链路运行在此 WebView2 中", Kind: "主窗口"},
@@ -102,8 +106,8 @@ func (s *MonitorService) GetWebView2Instances() []WebView2InstanceSnapshot {
 		{Name: "music-lyrics-overlay", Purpose: "桌面歌词展示；不负责播放歌曲", Kind: "辅助窗口"},
 		{Name: "bilibili-webview-player", Purpose: "Bilibili 网页视频播放器", Kind: "辅助窗口"},
 	}
-	if platforms != nil {
-		for _, platform := range platforms.GetPlatforms() {
+	if manager != nil {
+		for _, platform := range manager.Snapshot() {
 			name := "simulator-" + platform.PlatformID
 			definitions = append(definitions, WebView2InstanceSnapshot{
 				Name: name, Purpose: platform.PlatformID + " 互动事件模拟器", Kind: "辅助窗口",
