@@ -58,15 +58,15 @@ lx.on('request', async ({ source, action, info }) => {
 
 
 func TestDispatchLXRequestSupportsSequentialAsyncHTTPRequests(t *testing.T) {
-	var firstCalls, secondCalls int
+	var firstCalls, secondCalls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/first":
-			firstCalls++
+			firstCalls.Add(1)
 			_, _ = w.Write([]byte(`{"step":1}`))
 		case "/second":
-			secondCalls++
+			secondCalls.Add(1)
 			_, _ = w.Write([]byte(`{"step":2}`))
 		default:
 			http.NotFound(w, r)
@@ -108,8 +108,8 @@ lx.on('request', async () => {
 	if value != "sequential-requests-completed" {
 		t.Fatalf("dispatch result = %#v", value)
 	}
-	if firstCalls != 1 || secondCalls != 1 {
-		t.Fatalf("HTTP calls = first:%d second:%d, want one each", firstCalls, secondCalls)
+	if firstCalls.Load() != 1 || secondCalls.Load() != 1 {
+		t.Fatalf("HTTP calls = first:%d second:%d, want one each", firstCalls.Load(), secondCalls.Load())
 	}
 }
 
