@@ -129,6 +129,10 @@ func TestProductionLXStartupInitializesOnlyEnabledScriptsAndPersistsFailureDetai
 	defer runtime.Close()
 	list := runtime.ListScripts()
 	if len(list) != 2 { t.Fatalf("script list = %#v", list) }
+	initializationErr := runtime.InitializationError()
+	if initializationErr == nil || !strings.Contains(initializationErr.Error(), "enabled-broken") || !strings.Contains(initializationErr.Error(), "initialize_script") || !strings.Contains(initializationErr.Error(), "persisted startup failure") {
+		t.Fatalf("runtime initialization error did not preserve script, stage and cause: %v", initializationErr)
+	}
 	if list[0].InitializationStatus != "failed" || list[0].InitializationStage != "initialize_script" || !strings.Contains(list[0].LastError, "persisted startup failure") || list[0].InitializationAt.IsZero() {
 		t.Fatalf("enabled script failure diagnostics = %#v", list[0])
 	}
