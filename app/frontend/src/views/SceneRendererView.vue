@@ -357,8 +357,14 @@ function isAudienceRequest(value?: string) {
     && value !== '__my_livehub_playlist_play__'
     && value !== '__my_livehub_host_playlist__'
 }
-const displayCurrent = computed(() => musicQueue.value.current)
-const displayQueueItems = computed(() => musicQueue.value.items)
+function isPlaylistPlayback(value?: string) {
+  return value === '__my_livehub_playlist_play__'
+}
+const displayCurrent = computed(() => {
+  const current = musicQueue.value.current
+  return current && !isPlaylistPlayback(current.requested_by) ? current : null
+})
+const displayQueueItems = computed(() => musicQueue.value.items.filter(item => !isPlaylistPlayback(item.requested_by)))
 function displayQueueItemsForLayer(layer: Layer) {
   return displayQueueItems.value.slice(0, Math.max(1, layer.queue_display_count || 10))
 }
