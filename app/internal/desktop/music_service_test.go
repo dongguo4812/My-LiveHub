@@ -1152,3 +1152,58 @@ func TestGetLyricsFallsBackToNativeProviderAfterScriptTimeout(t *testing.T) {
 		t.Fatalf("script timeout should still attempt native fallback; error = %v", err)
 	}
 }
+
+type failingStopTestEngine struct { stopErr error }
+func (*failingStopTestEngine) Load(context.Context, music.Track) error { return nil }
+func (*failingStopTestEngine) Pause(context.Context) error { return nil }
+func (*failingStopTestEngine) Resume(context.Context) error { return nil }
+func (e *failingStopTestEngine) Stop(context.Context) error { return e.stopErr }
+func (*failingStopTestEngine) Snapshot(context.Context) (music.PlaybackSnapshot, error) {
+	return music.PlaybackSnapshot{State: music.PlaybackIdle}, nil
+}
+
+func TestDisablingMusicClearsQueueAndHistoryEvenWhenEngineStopFails(t *testing.T) {
+	manager, err := config.NewManager(fstest.MapFS{
+		"music.json": &fstest.MapFile{Data: []byte("{}")},
+	}, t.TempDir())
+	if err != nil { t.Fatal(err) }
+
+	value := config.DefaultMusicConfig()
+	value.Enabled = true
+	engine := &failingStopTestEngine{stopErr: errors.New("模拟播放器停止失败")}
+	service := NewMusicServiceWithDependencies(manager, value, engine)
+
+	current := music.Track{ID:"disable-current", SourceID:"tx", Title:"当前歌曲", Artist:"歌手"}
+	pending := music.Track{ID:"disable-pending", SourceID:"tx", Title:"待播歌曲", Artist:"歌手"}
+	if _, err := service.queue.SetCurrentTrack(current, searchPlayMarker); err != nil { t.Fatal(err) }
+	if _, err := service.queue.Enqueue(pending, "viewer"); err != nil { t.Fatal(err) }
+	service.pushHistory(music.QueueItem{ID:"disable-history", Track:music.Track{ID:"history", SourceID:"tx", Title:"历史歌曲", Artist:"歌手"}})
+	service.mu.Lock()
+	service.playlistPlaybackActive = true
+	service.playlistPlaybackID = "playlist-id"
+	service.playlistPlaybackName = "测试歌单"
+	service.playlistPlaybackTracks = []music.Track{pending}
+	service.playlistPlaybackResumeTrack = &current
+	service.mu.Unlock()
+
+	disabled := value
+	disabled.Enabled = false
+	if err := service.SaveConfig(disabled); err == nil || !strings.Contains(err.Error(), "模拟播放器停止失败") {
+		t.Fatalf("SaveConfig error = %v, want reported engine stop failure", err)
+	}
+	if service.GetConfig().Enabled { t.Fatal("music module remained enabled after saving disabled configuration") }
+	queue := service.GetQueue()
+	if queue.Current != nil || len(queue.Items) != 0 {
+		t.Fatalf("disabled music module retained queue state: %#v", queue)
+	}
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	if len(service.history) != 0 { t.Fatalf("disabled music module retained playback history: %#v", service.history) }
+	if service.playlistPlaybackActive || len(service.playlistPlaybackTracks) != 0 || service.playlistPlaybackID != "" || service.playlistPlaybackName != "" || service.playlistPlaybackResumeTrack != nil {
+		t.Fatalf("disabled music module retained playlist playback state")
+	}
+	if !service.playbackSnapshotValid || service.playbackSnapshot.State != music.PlaybackIdle || service.playbackSnapshot.Track != nil {
+		t.Fatalf("disabled music module playback snapshot is not idle: %#v", service.playbackSnapshot)
+	}
+}
+
