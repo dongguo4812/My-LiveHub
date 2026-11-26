@@ -2,8 +2,7 @@ package music
 
 // LX platform identifiers and normalized search result models are shared by
 // the source orchestration layer and script-backed search implementation.
-// They intentionally live outside search_lx.go so the legacy native HTTP
-// provider implementation can be removed independently.
+// They remain independent of provider-specific search execution.
 
 const (
 	LXSearchKW = "kw"
