@@ -823,3 +823,71 @@ func TestStoppingMusicModuleCancelsBackgroundLXInitialization(t *testing.T) {
 	if got := runtime.closeCalls.Load(); got != 1 { t.Fatalf("runtime Close called %d times, want once after initialization stopped", got) }
 	if got := runtime.startCalls.Load(); got != 1 { t.Fatalf("runtime Start called %d times, want once", got) }
 }
+
+
+type blockingLyricsLXRuntime struct {
+	started chan struct{}
+	cancelled chan struct{}
+}
+func (*blockingLyricsLXRuntime) Available() bool { return true }
+func (*blockingLyricsLXRuntime) Start(context.Context) error { return nil }
+func (*blockingLyricsLXRuntime) ResolvePlaybackURL(context.Context, string, any) (string, error) { return "", errors.New("not implemented") }
+func (*blockingLyricsLXRuntime) Close() error { return nil }
+func (*blockingLyricsLXRuntime) HasExtensionAction(source, action string) bool { return source == "tx" && action == "lyric" }
+func (r *blockingLyricsLXRuntime) DispatchExtensionAction(ctx context.Context, source, action string, info any) (any, error) {
+	select {
+	case <-r.started:
+	default: close(r.started)
+	}
+	<-ctx.Done()
+	close(r.cancelled)
+	return nil, ctx.Err()
+}
+
+func TestGetLyricsForRequestCancelsLXScriptAndDoesNotStartNativeFallback(t *testing.T) {
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), &nextTrackTestEngine{})
+	runtime := &blockingLyricsLXRuntime{started: make(chan struct{}), cancelled: make(chan struct{})}
+	service.scriptRuntime = runtime
+	result := make(chan error, 1)
+	go func() {
+		_, err := service.GetLyricsForRequest(music.Track{ID:"tx_cancel", SourceID:"tx", LXSourceKey:"tx", Title:"取消测试"}, "lyrics-request-1")
+		result <- err
+	}()
+	select {
+	case <-runtime.started:
+	case <-time.After(time.Second): t.Fatal("LX lyric request did not start")
+	}
+	service.CancelLyrics("lyrics-request-1")
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) { t.Fatalf("GetLyricsForRequest error = %v, want context.Canceled", err) }
+	case <-time.After(time.Second):
+		t.Fatal("lyrics request did not return after cancellation")
+	}
+	select {
+	case <-runtime.cancelled:
+	case <-time.After(time.Second): t.Fatal("LX runtime did not observe request cancellation")
+	}
+	if len(service.lyricsCache) != 0 { t.Fatalf("cancelled request populated lyrics cache: %#v", service.lyricsCache) }
+}
+
+func TestShutdownCancelsInFlightLyricsRequests(t *testing.T) {
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), &nextTrackTestEngine{})
+	runtime := &blockingLyricsLXRuntime{started: make(chan struct{}), cancelled: make(chan struct{})}
+	service.scriptRuntime = runtime
+	result := make(chan error, 1)
+	go func() {
+		_, err := service.GetLyricsForRequest(music.Track{ID:"tx_shutdown", SourceID:"tx", LXSourceKey:"tx", Title:"退出测试"}, "lyrics-request-shutdown")
+		result <- err
+	}()
+	select {
+	case <-runtime.started:
+	case <-time.After(time.Second): t.Fatal("LX lyric request did not start")
+	}
+	if err := service.Shutdown(); err != nil { t.Fatal(err) }
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) { t.Fatalf("request error = %v, want context.Canceled", err) }
+	case <-time.After(time.Second): t.Fatal("lyrics request did not stop during shutdown")
+	}
+}
