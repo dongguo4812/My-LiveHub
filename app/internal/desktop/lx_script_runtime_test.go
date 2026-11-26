@@ -78,11 +78,14 @@ func TestMusicServiceOwnsLXRuntimeStartAndShutdown(t *testing.T) {
 	if err := service.start(context.Background()); err != nil {
 		t.Fatalf("start music service: %v", err)
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := service.waitForLXRuntime(ctx); err != nil {
+		t.Fatalf("wait for background LX runtime initialization: %v", err)
+	}
 	if !runtime.started {
 		t.Fatal("music service did not start the LX runtime")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
 	if err := service.stop(ctx); err != nil {
 		t.Fatalf("stop music service: %v", err)
 	}
