@@ -71,7 +71,7 @@ func readProcessMemorySnapshot() (ProcessMemorySnapshot, error) {
 	}
 	owned := collectDescendantProcessIDs(currentPID, parents)
 	result := ProcessMemorySnapshot{ProcessID: currentPID}
-	current, err := readOneProcessMemory(windows.CurrentProcess)
+	current, err := readOneProcessMemory(windows.CurrentProcess())
 	if err != nil {
 		return ProcessMemorySnapshot{}, err
 	}
