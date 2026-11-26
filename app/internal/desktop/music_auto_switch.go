@@ -25,14 +25,14 @@ const (
 
 func (s *MusicService) resolvePlaybackResource(ctx context.Context, track music.Track) (music.PlaybackResource, error) {
 	s.mu.RLock()
-	searcher, resolver, cache := s.searcher, s.scriptRuntime, s.playbackResourceCache
+	resolver, cache := s.scriptRuntime, s.playbackResourceCache
 	s.mu.RUnlock()
 	if resolver == nil { return music.PlaybackResource{}, nil }
-	return music.NewUnifiedSourceService(searcher, resolver).ResolvePlaybackResource(ctx, track, track.SelectedQuality, cache)
+	return music.NewUnifiedSourceService(scriptAwareSourceSearcher{service: s}, resolver).ResolvePlaybackResource(ctx, track, track.SelectedQuality, cache)
 }
 
 func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original music.Track, skipCurrent bool) (music.Track, error) {
-	if s == nil || s.engine == nil || s.searcher == nil {
+	if s == nil || s.engine == nil {
 		return music.Track{}, errors.New("音乐播放服务尚未初始化")
 	}
 	if parent == nil { parent = context.Background() }
@@ -69,9 +69,9 @@ func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original m
 			query := strings.TrimSpace(original.Title + " " + original.Artist)
 			searchCtx, searchCancel := context.WithTimeout(ctx, fallbackSourceSearchTimeout)
 			s.mu.RLock()
-			searcher, resolver := s.searcher, s.scriptRuntime
+			resolver := s.scriptRuntime
 			s.mu.RUnlock()
-			page, searchErr := music.NewUnifiedSourceService(searcher, resolver).SearchSource(searchCtx, source, query, 1)
+			page, searchErr := music.NewUnifiedSourceService(scriptAwareSourceSearcher{service: s}, resolver).SearchSource(searchCtx, source, query, 1)
 			searchCancel()
 			if searchErr != nil {
 				if errors.Is(searchErr, context.Canceled) || ctx.Err() != nil { return music.Track{}, context.Canceled }
@@ -130,12 +130,12 @@ func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original m
 				s.mu.RLock()
 				generationCurrent = s.playResolveGeneration == resolutionGeneration
 				cache := s.playbackResourceCache
-				searcher, resolver := s.searcher, s.scriptRuntime
+				resolver := s.scriptRuntime
 				s.mu.RUnlock()
 				if !generationCurrent || ctx.Err() != nil {
 					return music.Track{}, context.Canceled
 				}
-				fresh, refreshErr := music.NewUnifiedSourceService(searcher, resolver).RefreshPlaybackResource(ctx, candidate, resource, cache)
+				fresh, refreshErr := music.NewUnifiedSourceService(scriptAwareSourceSearcher{service: s}, resolver).RefreshPlaybackResource(ctx, candidate, resource, cache)
 				if refreshErr == nil {
 					candidate.ResolvedQuality = fresh.Quality
 					candidate.PlaybackResource = &fresh
