@@ -90,6 +90,7 @@ type MusicService struct {
 	lxRuntimeStatus string
 	lxRuntimeError string
 	lxRuntimeDone chan struct{}
+	lxRuntimeGeneration uint64
 	lxRuntimeCancel context.CancelFunc
 	lxRuntimeCtx context.Context
 	lyricsMu sync.Mutex
@@ -257,6 +258,7 @@ func (s *MusicService) start(ctx context.Context) error {
 		s.lxRuntimeStatus = "initializing"
 		s.lxRuntimeError = ""
 		s.lxRuntimeDone = make(chan struct{})
+		s.lxRuntimeGeneration++
 		s.lxRuntimeCancel = runtimeCancel
 		s.lxRuntimeCtx = runtimeCtx
 	} else {
@@ -271,49 +273,58 @@ func (s *MusicService) start(ctx context.Context) error {
 	if s.scriptRuntime != nil {
 		s.mu.RLock()
 		runtimeCtx := s.lxRuntimeCtx
+		runtimeGeneration := s.lxRuntimeGeneration
+		runtimeDone := s.lxRuntimeDone
 		s.mu.RUnlock()
 		// Runtime initialization is deliberately detached from Wails ServiceStartup.
 		// The main window can render while enabled scripts perform their normal handshake.
-		go s.initializeLXRuntime(runtimeCtx)
+		go s.initializeLXRuntime(runtimeCtx, runtimeGeneration, runtimeDone)
 	}
 
 	return nil
 }
 
-func (s *MusicService) initializeLXRuntime(ctx context.Context) {
+	// Each initialization owns its completion channel and generation. A delayed
+	// completion from a stopped run must never close or overwrite a newer run.
+func (s *MusicService) initializeLXRuntime(ctx context.Context, generation uint64, done chan struct{}) {
 	defer func() {
+		close(done)
 		s.mu.Lock()
-		if s.lxRuntimeDone != nil {
-			close(s.lxRuntimeDone)
+		if s.lxRuntimeGeneration == generation && s.lxRuntimeDone == done {
 			s.lxRuntimeDone = nil
 		}
 		s.mu.Unlock()
 	}()
 	if err := s.scriptRuntime.Start(ctx); err != nil {
-		s.setLXRuntimeFailure(err)
+		if ctx.Err() == nil { s.setLXRuntimeFailure(generation, err) }
 		return
 	}
+	if err := ctx.Err(); err != nil { return }
 	// A script can fail its own handshake while the SourceManager remains
 	// operational for native fallback. Surface the script-level failure without
 	// turning it into a fatal MusicService startup error.
 	if reporter, ok := s.scriptRuntime.(interface{ InitializationError() error }); ok {
 		if err := reporter.InitializationError(); err != nil {
-			s.setLXRuntimeFailure(err)
+			s.setLXRuntimeFailure(generation, err)
 			return
 		}
 	}
 	s.mu.Lock()
-	s.lxRuntimeStatus = "ready"
-	s.lxRuntimeError = ""
+	if s.lxRuntimeGeneration == generation && s.lxRuntimeDone == done && ctx.Err() == nil {
+		s.lxRuntimeStatus = "ready"
+		s.lxRuntimeError = ""
+	}
 	s.mu.Unlock()
 }
 
-func (s *MusicService) setLXRuntimeFailure(err error) {
+func (s *MusicService) setLXRuntimeFailure(generation uint64, err error) {
 	if err == nil { return }
 	s.mu.Lock()
-	s.lxRuntimeStatus = "failed"
-	s.lxRuntimeError = err.Error()
-	s.lastError = "LX-JS 音源初始化失败：" + err.Error()
+	if s.lxRuntimeGeneration == generation && s.lxRuntimeDone != nil {
+		s.lxRuntimeStatus = "failed"
+		s.lxRuntimeError = err.Error()
+		s.lastError = "LX-JS 音源初始化失败：" + err.Error()
+	}
 	s.mu.Unlock()
 }
 
@@ -377,7 +388,12 @@ func (s *MusicService) stop(ctx context.Context) error {
 	s.started = false
 	s.mu.Unlock()
 	if cancel != nil { cancel() }
-	if runtimeCancel != nil { runtimeCancel() }
+	if runtimeCancel != nil {
+		runtimeCancel()
+		s.mu.Lock()
+		if s.lxRuntimeStatus == "initializing" { s.lxRuntimeStatus = "stopped"; s.lxRuntimeError = "" }
+		s.mu.Unlock()
+	}
 	s.cancelPlaybackWatcher()
 
 	s.lifecycleMu.Unlock()
