@@ -1300,3 +1300,60 @@ func TestNavigationSupersedesInFlightTrackLoad(t *testing.T) {
 	}
 }
 
+
+
+type lifecycleRaceTestEngine struct {
+	startEntered chan struct{}
+	allowStart chan struct{}
+	startCalls atomic.Int32
+	closeCalls atomic.Int32
+}
+func (*lifecycleRaceTestEngine) Load(context.Context, music.Track) error { return nil }
+func (*lifecycleRaceTestEngine) Pause(context.Context) error { return nil }
+func (*lifecycleRaceTestEngine) Resume(context.Context) error { return nil }
+func (*lifecycleRaceTestEngine) Stop(context.Context) error { return nil }
+func (*lifecycleRaceTestEngine) Snapshot(context.Context) (music.PlaybackSnapshot, error) { return music.PlaybackSnapshot{State:music.PlaybackIdle}, nil }
+func (e *lifecycleRaceTestEngine) Start(ctx context.Context) error {
+	e.startCalls.Add(1)
+	close(e.startEntered)
+	select { case <-e.allowStart: return nil; case <-ctx.Done(): return ctx.Err() }
+}
+func (e *lifecycleRaceTestEngine) Close() error { e.closeCalls.Add(1); return nil }
+
+func TestMusicStartAndStopSerializePlaybackEngineLifecycle(t *testing.T) {
+	engine := &lifecycleRaceTestEngine{startEntered:make(chan struct{}), allowStart:make(chan struct{})}
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), engine, events.NewBuffer())
+	startResult := make(chan error, 1)
+	go func(){ startResult <- service.start(context.Background()) }()
+	select { case <-engine.startEntered: case <-time.After(time.Second): t.Fatal("engine Start was not called") }
+
+	stopResult := make(chan error, 1)
+	go func(){
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		stopResult <- service.stop(ctx)
+	}()
+	select {
+	case err := <-stopResult:
+		t.Fatalf("Stop completed while engine Start was still in flight: %v", err)
+	case <-time.After(30*time.Millisecond):
+	}
+	close(engine.allowStart)
+	if err := <-startResult; err != nil { t.Fatalf("Start failed: %v", err) }
+	if err := <-stopResult; err != nil { t.Fatalf("Stop failed: %v", err) }
+	if service.GetStatus().Running { t.Fatal("service remains running after serialized Stop") }
+	if got := engine.startCalls.Load(); got != 1 { t.Fatalf("engine Start calls = %d, want 1", got) }
+	if got := engine.closeCalls.Load(); got != 1 { t.Fatalf("engine Close calls = %d, want 1", got) }
+}
+
+func TestMusicStartDoesNotRestartAlreadyRunningPlaybackEngine(t *testing.T) {
+	engine := &lifecycleRaceTestEngine{startEntered:make(chan struct{}), allowStart:make(chan struct{})}
+	close(engine.allowStart)
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), engine, events.NewBuffer())
+	if err := service.start(context.Background()); err != nil { t.Fatal(err) }
+	if err := service.start(context.Background()); err == nil { t.Fatal("second service Start should be rejected") }
+	if got := engine.startCalls.Load(); got != 1 { t.Fatalf("engine Start called %d times, want once", got) }
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := service.stop(ctx); err != nil { t.Fatal(err) }
+}
