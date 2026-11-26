@@ -56,6 +56,11 @@ type AudioServiceProcessSnapshot struct {
  CommandLine string `json:"command_line"`
 }
 
+type FrontendHeartbeatSnapshot struct {
+	LastSeenAt time.Time `json:"last_seen_at"`
+	Stale bool `json:"stale"`
+}
+
 type MonitorService struct {
 	startedAt time.Time
 	logDirs []string
@@ -66,6 +71,9 @@ type MonitorService struct {
 	lastSystemTotal uint64
 	lastSystemIdle uint64
 	lastProcessTotal uint64
+	lastFrontendHeartbeat time.Time
+	frontendHeartbeatStale bool
+	frontendHeartbeatStarted bool
 }
 
 func NewMonitorService(logDir string, additionalLogDirs ...string) *MonitorService {
@@ -132,6 +140,63 @@ func (s *MonitorService) GetWebView2Instances() []WebView2InstanceSnapshot {
 // GetAudioServiceProcesses lists WebView2 Audio Service subprocesses owned by this app.
 func (s *MonitorService) GetAudioServiceProcesses() ([]AudioServiceProcessSnapshot, error) {
  return readOwnedWebView2AudioServices(os.Getpid(), time.Now())
+}
+
+// RecordFrontendHeartbeat records that the main frontend JavaScript event loop
+// completed a scheduled callback. A missing heartbeat is diagnostic evidence,
+// not proof that the native UI thread or WebView2 renderer is dead.
+func (s *MonitorService) RecordFrontendHeartbeat() {
+	if s == nil { return }
+	now := time.Now()
+	s.mu.Lock()
+	wasStale := s.frontendHeartbeatStale
+	first := !s.frontendHeartbeatStarted
+	s.lastFrontendHeartbeat = now
+	s.frontendHeartbeatStale = false
+	s.frontendHeartbeatStarted = true
+	s.mu.Unlock()
+	if first {
+		log.Printf("frontend heartbeat: monitoring started")
+	} else if wasStale {
+		log.Printf("frontend heartbeat: recovered after interruption")
+	}
+}
+
+// GetFrontendHeartbeatSnapshot returns the last frontend heartbeat without
+// treating a missing timestamp as a measured failure.
+func (s *MonitorService) GetFrontendHeartbeatSnapshot() FrontendHeartbeatSnapshot {
+	if s == nil { return FrontendHeartbeatSnapshot{} }
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return FrontendHeartbeatSnapshot{LastSeenAt: s.lastFrontendHeartbeat, Stale: s.frontendHeartbeatStale}
+}
+
+// StartFrontendHeartbeatWatchdog logs one warning when the main frontend stops
+// reporting heartbeats and one recovery message when it resumes.
+func (s *MonitorService) StartFrontendHeartbeatWatchdog(checkEvery, staleAfter time.Duration) {
+	if s == nil { return }
+	if checkEvery <= 0 { checkEvery = 15 * time.Second }
+	if staleAfter <= checkEvery { staleAfter = 45 * time.Second }
+	go func() {
+		ticker := time.NewTicker(checkEvery)
+		defer ticker.Stop()
+		for range ticker.C {
+			now := time.Now()
+			s.mu.Lock()
+			lastSeen := s.lastFrontendHeartbeat
+				started := s.frontendHeartbeatStarted
+			alreadyStale := s.frontendHeartbeatStale
+			if started && !alreadyStale && now.Sub(lastSeen) >= staleAfter {
+				s.frontendHeartbeatStale = true
+			}
+			becameStale := started && !alreadyStale && s.frontendHeartbeatStale
+			s.mu.Unlock()
+			if becameStale {
+				log.Printf("frontend heartbeat: STALE; last_seen=%s; threshold=%s; renderer/event-loop unresponsive or page suspended",
+					lastSeen.Format(time.RFC3339Nano), staleAfter)
+			}
+		}
+	}()
 }
 
 // WriteFrontendLog persists frontend console output and uncaught runtime errors
