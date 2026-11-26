@@ -891,3 +891,38 @@ func TestShutdownCancelsInFlightLyricsRequests(t *testing.T) {
 	case <-time.After(time.Second): t.Fatal("lyrics request did not stop during shutdown")
 	}
 }
+
+
+type staticLyricsLXRuntime struct { calls atomic.Int32; value any; err error }
+func (*staticLyricsLXRuntime) Available() bool { return true }
+func (*staticLyricsLXRuntime) Start(context.Context) error { return nil }
+func (*staticLyricsLXRuntime) ResolvePlaybackURL(context.Context, string, any) (string, error) { return "", errors.New("not implemented") }
+func (*staticLyricsLXRuntime) Close() error { return nil }
+func (*staticLyricsLXRuntime) HasExtensionAction(source, action string) bool { return source == "tx" && action == "lyric" }
+func (r *staticLyricsLXRuntime) DispatchExtensionAction(context.Context, string, string, any) (any, error) {
+	r.calls.Add(1)
+	return r.value, r.err
+}
+
+func TestGetLyricsCachesSuccessfulLXScriptLyricsByTrackIdentity(t *testing.T) {
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), &nextTrackTestEngine{})
+	runtime := &staticLyricsLXRuntime{value:"[00:01.00]缓存歌词"}
+	service.scriptRuntime = runtime
+	track := music.Track{ID:"tx_cached", SourceID:"tx", LXSourceKey:"tx", Title:"缓存测试", Artist:"测试歌手"}
+	first, err := service.GetLyricsForRequest(track, "cache-request-1")
+	if err != nil { t.Fatal(err) }
+	second, err := service.GetLyricsForRequest(track, "cache-request-2")
+	if err != nil { t.Fatal(err) }
+	if first != second || first == "" { t.Fatalf("lyrics results differ or are empty: first=%q second=%q", first, second) }
+	if got := runtime.calls.Load(); got != 1 { t.Fatalf("LX lyric dispatch calls = %d, want one cached request", got) }
+	other := track
+	other.ID = "tx_other"
+	if _, ok := service.cachedLyrics(other); ok { t.Fatal("lyrics cache leaked across different track identities") }
+}
+
+func TestLyricsCacheDoesNotStoreEmptyLyrics(t *testing.T) {
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), &nextTrackTestEngine{})
+	track := music.Track{ID:"tx_empty", SourceID:"tx", Title:"空歌词", Artist:"测试歌手"}
+	service.cacheLyrics(track, "  \n ")
+	if _, ok := service.cachedLyrics(track); ok { t.Fatal("empty lyrics must not be cached") }
+}
