@@ -733,18 +733,27 @@ func TestMusicRequestCooldownUsesNameWhenUserIDUnavailable(t *testing.T) {
 }
 
 func TestSearchAndEnqueueUsesUnifiedSearchAndPlaybackQueue(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"code":0,"music.search.SearchCgiService":{"code":0,"data":{"body":{"song":{"list":[{"id":101,"mid":"TX101","title":"稻香","interval":223,"singer":[{"name":"周杰伦"}],"album":{"mid":"ALB101","name":"魔杰座"},"file":{"media_mid":"MEDIA101","size_128mp3":1000,"size_320mp3":2000}}]}},"meta":{"sum":1}}}}`))
-	}))
-	defer server.Close()
-
 	value := config.DefaultMusicConfig()
 	value.Enabled = true
 	value.EnabledSearchSources = []string{"tx"}
 	engine := &queueAdvanceTestEngine{}
 	service := NewMusicServiceWithDependencies(nil, value, engine)
 	defer service.Shutdown()
-	service.searcher = music.NewLXSearchClientWithEndpoints(server.Client(), music.LXSearchEndpoints{QQ: server.URL})
+	// The service-level queue test uses a deterministic QuickJS Action result.
+	// Real HTTP execution, QQ request parameters, native IDs and cancellation
+	// are exercised by lxruntime's bundled-search integration tests.
+	service.scriptRuntime = fakeLXActionRuntime{available: true, value: map[string]any{
+		"tracks": []any{map[string]any{
+			"id": "tx_TX101", "source_id": "tx", "lx_source_key": "tx",
+			"title": "稻香", "artist": "周杰伦", "album": "魔杰座",
+			"duration_ms": 223000,
+			"source_data": map[string]string{
+				"songmid": "TX101", "song_id": "101", "media_mid": "MEDIA101", "album_mid": "ALB101",
+			},
+			"qualities": []any{map[string]any{"type": "128k", "size": "1000 B"}},
+		}},
+		"total": 1, "page": 1, "page_size": 30, "max_page": 1, "source": "tx",
+	}}
 
 	item, matched, failures, err := service.SearchAndEnqueue(context.Background(), "稻香", "viewer")
 	if err != nil { t.Fatalf("SearchAndEnqueue returned error: %v", err) }
