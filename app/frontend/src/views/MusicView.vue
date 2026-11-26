@@ -33,7 +33,10 @@ const musicSourceOptions: MusicSourceOption[] = [
 ]
 const searchableSources = computed(() => {
   const enabled = config.value?.enabled_search_sources ?? []
-  return musicSourceOptions.filter(item => enabled.includes(item.id))
+  // The settings array is the source of truth for search priority.
+  return enabled
+    .map(id => musicSourceOptions.find(item => item.id === id))
+    .filter((item): item is MusicSourceOption => item !== undefined)
 })
 const availableSearchSources = computed(() => {
   const enabled = config.value?.enabled_search_sources ?? []
@@ -147,6 +150,7 @@ async function loadConfig() {
     config.value = await MusicService.GetConfig()
     config.value.lx_api_endpoints ??= []
     config.value.enabled_search_sources ??= []
+    selectedSource.value = config.value.enabled_search_sources.find(id => musicSourceOptions.some(item => item.id === id)) ?? 'all'
     const savedVolume = Math.min(100, Math.max(0, Number(config.value.volume ?? 1) * 100))
     playbackVolume.value = savedVolume
     if (savedVolume > 0) lastAudibleVolume.value = savedVolume
@@ -233,7 +237,8 @@ async function saveConfig() {
     await MusicService.SaveConfig(config.value)
     success.value = '音乐设置已保存'
     config.value = await MusicService.GetConfig()
-    selectedSource.value = 'all'
+    config.value.enabled_search_sources ??= []
+    selectedSource.value = config.value.enabled_search_sources.find(id => musicSourceOptions.some(item => item.id === id)) ?? 'all'
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
   } finally {
@@ -510,8 +515,8 @@ onUnmounted(() => {
       <p class="section-description">搜索平台及优先级在音乐设置中统一管理。</p>
       <div class="search-row">
         <el-select v-model="selectedSource" style="width:160px" @change="search">
-          <el-option label="全部可用音源" value="all" :disabled="searchableSources.length === 0" />
           <el-option v-for="source in searchableSources" :key="source.id" :label="source.name" :value="source.id" />
+          <el-option label="全部可用音源" value="all" :disabled="searchableSources.length === 0" />
         </el-select>
         <el-input v-model="query" placeholder="输入歌曲名或歌手，例如：稻香 周杰伦" clearable @keyup.enter="search" />
         <el-button type="primary" :loading="searching" @click="search">搜索</el-button>
