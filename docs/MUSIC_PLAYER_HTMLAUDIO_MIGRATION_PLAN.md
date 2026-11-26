@@ -509,31 +509,41 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 
 ### 9.8 五平台搜索执行迁移与旧 Go 搜索清理确认（2026-11-26）
 
-**当前状态：QuickJS 搜索迁移验收通过；旧 Go 搜索实现尚未删除，等待用户明确确认。**
+**当前状态：五平台 QuickJS 搜索迁移、Go 搜索回退切断和生产 CI 验收通过；旧 Go provider 文件保留，等待用户明确确认后才能删除。**
 
 #### 已完成的搜索迁移验收
 
 - 生产 SourceManager 合并内置搜索 Action；QQ（tx）、酷我（kw）、酷狗（kg）、网易云（wy）、咪咕（mg）均通过正式 QuickJS Runtime 和 lx.request 执行搜索。
-- CI 真实联网逐平台验证第一页、第二页、歌曲标题/平台归属、平台原生 ID；本轮记录的第一页/第二页结果数分别为 QQ 30/30、酷我 30/30、酷狗 30/30、网易云 20/20、咪咕 52/37。
-- 已覆盖酷狗 V2 空页时的 V3 分页回退、咪咕主/备用接口的受控超时，以及酷我/其他平台分页请求的瞬时失败重试。
-- QuickJS 生产 Action 的 HTTP 异常传播和请求取消已按五个平台逐一测试。
-- 已验证多平台聚合结果保持用户配置的音源优先级；五个平台缺少 QuickJS 搜索 Action 时显式失败，不得静默调用 Go 原生搜索。
-- 完整 Desktop validation Push 与 PR CI 均通过：Push Run [45825597839](https://github.com/dongguo4812/My-LiveHub/actions/runs/45825597839)，PR Run [45825607959](https://github.com/dongguo4812/My-LiveHub/actions/runs/45825607959)，对应提交 29c460a4fb04ff9d84d4c302fe883bc2835e0e42。
+- Windows CI 真实联网验证第一页、第二页、歌曲标题/平台归属、平台原生 ID。最近一次成功记录：
+  - QQ：30/30，total=998，max_page=34。
+  - 酷我：30/30，total=3552，max_page=119。
+  - 酷狗：30/30，total=480，max_page=16。
+  - 网易云：20/20，total=303，max_page=11。
+  - 咪咕：52/37，total=128，max_page=5。
+- QQ 搜索请求参数已修正为客户端接口使用的 search_type/page_num/num_per_page；主请求异常时尝试旧版 CGI 备用路径，取消请求不会启动备用请求。
+- 已覆盖酷狗 V2 空页时的 V3 分页回退、咪咕主/备用接口的 7 秒单请求超时及 CI 瞬时超时重试。
+- QuickJS 生产 Action 的 HTTP 异常传播和请求取消已按五个平台测试；配置音源优先级保持原顺序；缺失 QuickJS Action 时显式失败，不得静默调用 Go 原生搜索。
+- Go 搜索执行层已与 MusicService 解耦：MusicService 不再创建/持有 LXSearchClient；音源目录和启用列表直接来自 SourceCatalog；scriptAwareSourceSearcher 不再包含 Go SourceSearcher fallback；自动切源、歌单搜索、播放资源解析、脚本测试和上传脚本集成测试均通过 QuickJS-only 路径。
+- 通用 doLXJSON/jsonBody/mapValue/sliceValue/stringValue/intValue 已抽离到 app/internal/music/lx_http_json.go，供歌词适配器与保留的 Go 搜索实现共享；source_catalog_test.go 已改为直接验证 SourceCatalog()。
+- 墨澜聚合音源真实播放解析、HTMLAudio 浏览器播放和歌词集成验证通过。
+- 最新完整 Desktop validation Push 与 PR CI 均通过：Push Run [45832564621](https://github.com/dongguo4812/My-LiveHub/actions/runs/45832564621)，PR Run [45832572760](https://github.com/dongguo4812/My-LiveHub/actions/runs/45832572760)，对应提交 8d0fd86e82310215977716b85bd726f7714bd48e。
 
 #### 旧 Go 搜索实现删除候选（未执行）
 
-| 候选 | 当前内容 | 删除前置条件 |
+| 候选 | 当前内容 | 当前引用状态 / 处理意见 |
 |---|---|---|
-| app/internal/music/search_lx.go | 917 行五平台 Go HTTP 搜索客户端、端点、provider、分页/解析/排序/加密辅助 | 先解除 MusicService 对 LXSearchClient 的依赖；把下方仍被歌词适配器使用的通用 HTTP/JSON helper 抽到独立共享文件 |
-| app/internal/music/search_lx_test.go | 旧 Go 五平台 provider 的模拟 HTTP/端点/分页测试 | 与 Go provider 实现一并删除；保留 QuickJS Action 测试和真实联网验收 |
-| app/internal/music/source_catalog_test.go 中的 TestLXSearchClientSourceCatalogDoesNotDependOnProviderInitialization | 通过 nil LXSearchClient 间接验证目录 | 改为直接验证 SourceCatalog()，其余稳定顺序测试保留 |
+| app/internal/music/search_lx.go | 五平台 Go HTTP 搜索客户端、端点、provider、分页/解析/排序/加密辅助 | MusicService 生产搜索链路已无依赖；文件保留，等待用户确认删除 |
+| app/internal/music/search_lx_test.go | 旧 Go 五平台 provider 的模拟 HTTP/端点/分页测试 | 仅对应旧 Go provider；文件保留，等待用户确认删除 |
+| app/internal/music/lx_http_json.go | 通用 HTTP/JSON helper | **必须保留**；歌词适配器仍使用，不属于搜索专用代码 |
+| app/internal/music/source_catalog_test.go | SourceCatalog 稳定目录测试 | 已直接测试 SourceCatalog()，保留 |
 
 #### 删除前必须完成的引用迁移
 
-1. app/internal/desktop/music_service.go：移除 searcher *music.LXSearchClient 和 music.NewLXSearchClient(nil)；GetSources、enabledSearchSourceIDs 改为直接使用 music.SourceCatalog()；搜索调用只构造 QuickJS-backed scriptAwareSourceSearcher。
-2. app/internal/desktop/lx_script_actions.go：移除 scriptAwareSourceSearcher.base 对 Go 搜索器的依赖；来源列表改用 music.SourceCatalog()；五平台搜索 Action 缺失或失败时继续 fail-closed，不保留 Go 回退。
-3. app/internal/desktop/lx_script_actions_test.go：移除 music.NewLXSearchClient(nil) 测试依赖；保留并调整五平台分发、优先级、无 Go 回退测试。
-4. app/internal/music/lyrics_lx.go 仍调用 doLXJSON、jsonBody、mapValue、sliceValue、stringValue、intValue，这些不是可删除的搜索专用代码。删除 search_lx.go 前必须将它们原样迁移到独立共享文件（例如 lx_http_json.go），并验证 QQ/酷狗歌词路径。
-5. 保留 app/internal/music/search_models.go、app/internal/music/source_catalog.go、app/internal/music/source_service.go 及其共享测试；保留 lxruntime/bundled_search_action.js、QuickJS 搜索测试、生产 Runtime 注册和五平台真实联网集成测试。
+1. app/internal/desktop/music_service.go：已移除 searcher *music.LXSearchClient 和 music.NewLXSearchClient(nil)；GetSources、enabledSearchSourceIDs 直接使用 music.SourceCatalog()。
+2. app/internal/desktop/lx_script_actions.go：已移除 scriptAwareSourceSearcher.base；QuickJS Action 缺失或失败时 fail-closed。
+3. app/internal/desktop/lx_script_actions_test.go：已移除 Go 搜索器测试依赖；保留五平台分发、优先级、无 Go 回退测试。
+4. app/internal/desktop/music_auto_switch.go、music_playlists.go、playback_resource.go、lx_script_runtime_service.go、lx_script_runtime_production.go 及对应测试：已移除旧 Go 搜索器字段/构造依赖，统一使用 QuickJS 搜索适配器或 SourceCatalog。
+5. app/internal/music/lx_http_json.go：保留共享 HTTP/JSON helper；歌词 QQ/酷狗路径仍依赖。
+6. 保留 app/internal/music/search_models.go、app/internal/music/source_catalog.go、app/internal/music/source_service.go、lxruntime/bundled_search_action.js、QuickJS 搜索测试、生产 Runtime 注册和五平台真实联网集成测试。
 
-**用户确认门：以上仅为删除候选和引用迁移清单。本计划未删除 search_lx.go、search_lx_test.go 或任何旧 Go 搜索实现。必须取得用户明确确认后，才能执行对应删除；删除后还要重新运行完整 Push/PR CI。**
+**用户确认门：本轮未获用户明确授权删除旧 Go provider 文件。分支中曾出现未确认删除 search_lx.go/search_lx_test.go 的提交，已恢复这两个文件；当前仍保留。必须取得用户明确确认后，才能删除 search_lx.go、search_lx_test.go 或其他旧 Go 搜索实现。删除后还要重新运行完整 Push/PR CI。**
