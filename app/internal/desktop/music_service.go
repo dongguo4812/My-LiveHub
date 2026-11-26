@@ -229,7 +229,6 @@ func (s *MusicService) finishPlaybackResolution(generation uint64) {
 func (s *MusicService) start(ctx context.Context) error {
 	if s == nil || ctx == nil { return errors.New("music service and startup context are required") }
 	if s.buffer == nil { return errors.New("music event buffer is required") }
-	if lifecycle, ok := s.engine.(music.PlaybackEngineLifecycle); ok { if err := lifecycle.Start(ctx); err != nil { return fmt.Errorf("启动音乐播放服务失败：%w", err) } }
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()
 	s.mu.Lock()
@@ -237,6 +236,18 @@ func (s *MusicService) start(ctx context.Context) error {
 		s.mu.Unlock()
 		return errors.New("music service has already started")
 	}
+	engine := s.engine
+	s.mu.Unlock()
+	// Serialize the engine and service lifecycle as one operation. Starting
+	// the engine before taking lifecycleMu allowed Stop/Shutdown to close it
+	// while Start was still running, leaving a stopped service with a live
+	// playback engine.
+	if lifecycle, ok := engine.(music.PlaybackEngineLifecycle); ok {
+		if err := lifecycle.Start(ctx); err != nil {
+			return fmt.Errorf("启动音乐播放服务失败：%w", err)
+		}
+	}
+	s.mu.Lock()
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 	s.requests = make(chan events.Event, musicRequestQueueCapacity)
 	s.workerDone = make(chan struct{})
