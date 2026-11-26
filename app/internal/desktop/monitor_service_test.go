@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func writeMonitorTestLog(t *testing.T, path string, lines ...string) {
@@ -124,5 +125,29 @@ func TestRecordFrontendHeartbeatUpdatesSnapshot(t *testing.T) {
 	recovered := service.GetFrontendHeartbeatSnapshot()
 	if recovered.Stale || !recovered.LastSeenAt.After(first.LastSeenAt) {
 		t.Fatalf("recovered heartbeat snapshot = %#v, want newer timestamp and healthy state", recovered)
+	}
+}
+
+
+func TestSetFrontendMonitoringSuspendedResetsWatchdogGracePeriod(t *testing.T) {
+	service := NewMonitorService(t.TempDir())
+	service.startedAt = time.Now().Add(-time.Hour)
+
+	service.SetFrontendMonitoringSuspended(true)
+	service.mu.Lock()
+	if !service.frontendMonitoringSuspended {
+		service.mu.Unlock()
+		t.Fatal("frontend monitoring was not suspended")
+	}
+	service.mu.Unlock()
+
+	service.SetFrontendMonitoringSuspended(false)
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if service.frontendMonitoringSuspended {
+		t.Fatal("frontend monitoring remained suspended")
+	}
+	if time.Since(service.startedAt) > time.Second {
+		t.Fatalf("watchdog grace period was not reset; startedAt=%s", service.startedAt)
 	}
 }
