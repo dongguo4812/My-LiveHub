@@ -1137,9 +1137,11 @@ func (s *MusicService) Stop() error {
 
 func (s *MusicService) GetLyrics(track music.Track) (string, error) {
 	if s == nil { return "", errors.New("music lyrics service is unavailable") }
-	value, handled, extensionErr := s.dispatchLXExtension(context.Background(), firstNonEmpty(track.LXSourceKey, track.SourceID), "lyric", map[string]any{"musicInfo":track, "track":track})
+	value, handled, extensionErr := s.dispatchLXExtension(context.Background(), firstNonEmpty(track.LXSourceKey, track.SourceID), "lyric", map[string]any{"musicInfo": track, "track": track})
 	if handled && extensionErr == nil {
-		if lyrics, ok := value.(string); ok && strings.TrimSpace(lyrics) != "" {
+		var lyrics string
+		lyrics, extensionErr = normalizeLXScriptLyrics(value)
+		if extensionErr == nil && strings.TrimSpace(lyrics) != "" {
 			return lyrics, nil
 		}
 	}
