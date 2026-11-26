@@ -354,7 +354,7 @@
       'music.search.SearchCgiService': {
         method: 'DoSearchForQQMusicDesktop',
         module: 'music.search.SearchCgiService',
-        param: { query: keyword, page: pageNo, num_per_page: limit, type: 0 }
+        param: { search_type: 0, query: keyword, page_num: pageNo, num_per_page: limit }
       }
     };
     let lastStatus = '';
