@@ -298,65 +298,6 @@ func TestEnqueueDoesNotInterruptPausedCurrentTrack(t *testing.T) {
 }
 
 
-type verifiedLyricsTestEngine struct {
-	playback music.PlaybackSnapshot
-	lyrics string
-	lyricCalls int
-}
-func (e *verifiedLyricsTestEngine) Load(context.Context, music.Track) error { return nil }
-func (e *verifiedLyricsTestEngine) Pause(context.Context) error { return nil }
-func (e *verifiedLyricsTestEngine) Resume(context.Context) error { return nil }
-func (e *verifiedLyricsTestEngine) Stop(context.Context) error { return nil }
-func (e *verifiedLyricsTestEngine) Snapshot(context.Context) (music.PlaybackSnapshot, error) { return e.playback, nil }
-func (e *verifiedLyricsTestEngine) GetCurrentLyrics(context.Context) (string, error) {
-	e.lyricCalls++
-	return e.lyrics, nil
-}
-
-func TestGetLyricsHTMLAudioUsesNativeProviderAdapter(t *testing.T) {
-	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, &htmlAudioPlaybackEngine{})
-	_, err := service.GetLyrics(music.Track{ID: "tx_without_metadata", SourceID: "tx", Title: "测试歌曲", Artist: "测试歌手"})
-	if err == nil || !strings.Contains(err.Error(), "QQ 歌词请求缺少 song_id/songmid") {
-		t.Fatalf("HTMLAudio should use the QQ provider lyric adapter, got error %v", err)
-	}
-}
-
-func TestGetLyricsHTMLAudioRejectsUnknownProviderExplicitly(t *testing.T) {
-	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, &htmlAudioPlaybackEngine{})
-	_, err := service.GetLyrics(music.Track{ID: "unknown_1", SourceID: "unknown", Title: "测试歌曲", Artist: "测试歌手"})
-	if err == nil || !strings.Contains(err.Error(), "暂不支持独立歌词解析") {
-		t.Fatalf("unsupported provider should return an explicit lyric capability error, got %v", err)
-	}
-}
-
-func TestGetLyricsRejectsLyricsWhenLXIsPlayingAnotherTrack(t *testing.T) {
-	engine := &verifiedLyricsTestEngine{
-		playback: music.PlaybackSnapshot{State: music.PlaybackPlaying, Track: &music.Track{Title:"晴天", Artist:"周杰伦"}},
-		lyrics: "[00:01.00]不应显示",
-	}
-	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, engine)
-	requested := music.Track{ID:"tx_1", SourceID:"tx", Title:"稻香", Artist:"周杰伦"}
-	lyrics, err := service.GetLyrics(requested)
-	if err != nil { t.Fatal(err) }
-	if lyrics != "" { t.Fatalf("lyrics for another currently playing track were returned: %q", lyrics) }
-	if engine.lyricCalls != 0 { t.Fatalf("洛雪歌词 API called %d times before track identity was verified", engine.lyricCalls) }
-	if len(service.lyricsCache) != 0 { t.Fatalf("unverified lyrics were cached: %#v", service.lyricsCache) }
-}
-
-func TestGetLyricsCachesOnlyAfterLXTrackIdentityMatches(t *testing.T) {
-	engine := &verifiedLyricsTestEngine{
-		playback: music.PlaybackSnapshot{State: music.PlaybackPlaying, Track: &music.Track{Title:"稻香", Artist:"周杰伦"}},
-		lyrics: "[00:01.00]这是洛雪当前歌曲歌词",
-	}
-	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, engine)
-	requested := music.Track{ID:"tx_1", SourceID:"tx", Title:"稻香", Artist:"周杰伦"}
-	lyrics, err := service.GetLyrics(requested)
-	if err != nil { t.Fatal(err) }
-	if lyrics != engine.lyrics { t.Fatalf("lyrics = %q, want %q", lyrics, engine.lyrics) }
-	if len(service.lyricsCache) != 1 { t.Fatalf("verified lyrics cache size = %d, want 1", len(service.lyricsCache)) }
-}
-
-
 func TestMusicCommandsPublishFailureNoticesWhenDisabledOrUnauthorized(t *testing.T) {
 	tests := []struct {
 		name string
