@@ -39,6 +39,13 @@ func TestBundledSearchActionsUseQuickJSHTTPForAllFivePlatforms(t *testing.T) {
 			param := service["param"].(map[string]any)
 			if param["page"] != float64(2) || param["num_per_page"] != float64(30) { t.Errorf("QQ pagination = %#v", param) }
 			_, _ = w.Write([]byte(`{"code":0,"music.search.SearchCgiService":{"code":0,"data":{"body":{"song":{"list":[{"id":303,"mid":"TX303","title":"QQ page two","interval":182,"singer":[{"name":"Singer"}],"album":{"mid":"ALB","name":"Album"},"file":{"media_mid":"MEDIA303","size_128mp3":1000,"size_320mp3":2000}}]}},"meta":{"sum":31}}}}`))
+		case "/txfail":
+			http.Error(w, "QQ primary unavailable", http.StatusInternalServerError)
+		case "/txlegacy":
+			seen["txlegacy"] = true
+			q := r.URL.Query()
+			if q.Get("p") != "2" || q.Get("n") != "30" { t.Errorf("QQ legacy pagination = %v", q) }
+			_, _ = w.Write([]byte(`{"code":0,"data":{"song":{"totalnum":31,"list":[{"songmid":"LEGACY_TX","songid":909,"songname":"QQ legacy fallback","interval":180,"singer":[{"name":"Singer"}],"albummid":"ALB","albumname":"Album","file":{"media_mid":"LEGACY_MEDIA","size128":1000}}]}}}`))
 		case "/wy":
 			seen["wy"] = true
 			if err := r.ParseForm(); err != nil { t.Errorf("Netease form: %v", err) }
@@ -107,6 +114,25 @@ func TestBundledSearchActionsUseQuickJSHTTPForAllFivePlatforms(t *testing.T) {
 		if !seen[sourceID] { t.Errorf("%s request did not pass through lx.request HTTP host", sourceID) }
 	if !seen["kgv3"] { t.Error("Kugou empty-page fallback did not pass through lx.request HTTP host") }
 	}
+	if !seen["kgv3"] { t.Error("Kugou empty-page fallback did not pass through lx.request HTTP host") }
+	}
+	fallback, fallbackErr := runtime.DispatchLXRequest(context.Background(), "tx", "search", map[string]any{
+		"text": "legacy fallback fixture", "page": 2, "limit": 30,
+		"__testEndpoints": map[string]string{"tx": server.URL + "/txfail", "txLegacy": server.URL + "/txlegacy"},
+	})
+	if fallbackErr != nil { t.Fatalf("QQ legacy fallback failed after primary HTTP 500: %v", fallbackErr) }
+	fallbackJSON, _ := json.Marshal(fallback)
+	var fallbackResult struct {
+		Tracks []struct { ID string `json:"id"`; Title string `json:"title"`; SourceData map[string]string `json:"source_data"` } `json:"tracks"`
+		Page int `json:"page"`; Total int64 `json:"total"`
+	}
+	if err := json.Unmarshal(fallbackJSON, &fallbackResult); err != nil { t.Fatalf("decode QQ fallback result: %v", err) }
+	if len(fallbackResult.Tracks) != 1 || fallbackResult.Tracks[0].ID != "tx_LEGACY_TX" ||
+		fallbackResult.Tracks[0].Title != "QQ legacy fallback" || fallbackResult.Tracks[0].SourceData["song_id"] != "909" ||
+		fallbackResult.Page != 2 || fallbackResult.Total != 31 {
+		t.Fatalf("QQ legacy fallback result mismatch: %s", fallbackJSON)
+	}
+	if !seen["txlegacy"] { t.Fatal("QQ legacy fallback did not use lx.request HTTP host") }
 }
 
 func TestBundledSearchActionPropagatesHTTPFailuresAndCancellation(t *testing.T) {
@@ -141,6 +167,9 @@ func TestBundledSearchActionPropagatesHTTPFailuresAndCancellation(t *testing.T) 
 			if sourceID == "mg" {
 				endpoints["mgFallback"] = server.URL + "/failure"
 			}
+			if sourceID == "tx" {
+				endpoints["txLegacy"] = server.URL + "/failure"
+			}
 			_, dispatchErr := runtime.DispatchLXRequest(context.Background(), sourceID, "search", map[string]any{
 				"text": "failure", "page": 1, "limit": 30, "__testEndpoints": endpoints,
 			})
@@ -156,6 +185,9 @@ func TestBundledSearchActionPropagatesHTTPFailuresAndCancellation(t *testing.T) 
 			endpoints := map[string]string{sourceID: server.URL + "/slow"}
 			if sourceID == "mg" {
 				endpoints["mgFallback"] = server.URL + "/slow"
+			}
+			if sourceID == "tx" {
+				endpoints["txLegacy"] = server.URL + "/slow"
 			}
 			go func() {
 				_, dispatchErr := runtime.DispatchLXRequest(ctx, sourceID, "search", map[string]any{
