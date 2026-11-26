@@ -97,6 +97,7 @@ const lyricsStatus = ref<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle
 let lyricsRequestID = 0
 let lyricsAbortController: AbortController | null = null
 const activeMusicLyric = computed(() => {
+  if (!playback.value?.track) return { text: '等待播放歌曲', translation: '' }
   if (lyricsStatus.value === 'loading' || lyricsStatus.value === 'idle') return { text: '歌词加载中…', translation: '' }
   if (lyricsStatus.value === 'error') return { text: '歌词暂不可用', translation: '' }
   if (lyricsStatus.value === 'empty' || syncedLyrics.value.length === 0) return { text: '暂无歌词', translation: '' }
@@ -492,6 +493,8 @@ async function loadMusic() {
         void loadTrackLyrics(track)
         const nextColors = musicColors.filter(color => color !== musicAccentColor.value)
         musicAccentColor.value = nextColors[Math.floor(Math.random() * nextColors.length)] || musicColors[0]
+      } else {
+        lyricsStatus.value = 'idle'
       }
       musicError.value = ''
     }
