@@ -159,7 +159,7 @@ func (r *productionMusicLXRuntime) testScriptWithSearcher(ctx context.Context, i
 	sort.Strings(platforms)
 	for _, platform := range platforms {
 		// Search is independent from musicUrl: use the script search action
-		// when present, otherwise scriptAwareSourceSearcher uses native search.
+		// when present; otherwise the QuickJS search path fails closed.
 		actions := selected.SourceActions[platform]
 		item := LXSourcePlatformTest{Platform:platform, Name:platform, Status:"failed"}
 		for _, source := range searcher.Sources() { if source.ID == platform { item.Name = source.Name; break } }
@@ -351,7 +351,8 @@ func (r *productionMusicLXRuntime) Start(ctx context.Context) error {
 }
 
 // InitializationError reports per-script failures after Start has completed.
-// These failures must remain visible without preventing native provider fallback.
+// QuickJS action failures remain visible; the five built-in search platforms
+// fail closed rather than falling back to Go-native search.
 func (r *productionMusicLXRuntime) InitializationError() error {
 	if r == nil { return errors.New("production LX source runtime is unavailable") }
 	r.mu.Lock()
