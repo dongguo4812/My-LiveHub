@@ -67,7 +67,7 @@ const formatDuration = (seconds?: number) => {
   const minutes = Math.floor(value / 60); const rest = value % 60
   return hours ? `${hours}小时${minutes}分` : minutes ? `${minutes}分${rest}秒` : `${rest}秒`
 }
-const moduleLabel = (id: string) => ({ 'platform-connections': '直播平台连接', voice: '语音播报', music: '音乐播放', video: '视频点播', live2d: 'Live2D', 'lol-hex-display': 'LOL Hex Display' } as Record<string, string>)[id] ?? id
+const moduleLabel = (id: string) => ({ 'platform-connections': '直播平台连接', voice: '语音播报', music: '音乐播放', video: '视频点播', live2d: 'Live2D', 'lol-hex-display': 'LOL Hex' } as Record<string, string>)[id] ?? id
 const statusType = (status: string) => status === 'running' || status === 'connected' ? 'success' : status === 'failed' ? 'danger' : status === 'starting' || status === 'connecting' ? 'warning' : 'info'
 
 async function refreshAll() {
@@ -158,7 +158,7 @@ onUnmounted(() => {
         <div class="queue-meta"><span>待播视频</span><strong>{{ video?.queue_count ?? 0 }}</strong></div>
       </el-card>
       <el-card shadow="never">
-        <template #header><div class="card-heading"><strong>LOL Hex 扩展</strong><el-tag :type="hex?.running ? 'success' : 'info'" size="small">{{ hex?.state ?? '读取中' }}</el-tag></div></template>
+        <template #header><div class="card-heading"><strong>LOL Hex</strong><el-tag :type="hex?.running ? 'success' : 'info'" size="small">{{ hex?.state ?? '读取中' }}</el-tag></div></template>
         <div class="hex-details"><span>服务端口：{{ hex?.port ?? '—' }}</span><span>进程 PID：{{ hex?.pid ?? '—' }}</span><span>运行归属：{{ hex?.owned ? 'My-LiveHub 托管' : hex?.external ? '外部启动' : '未运行' }}</span></div>
         <p v-if="hex?.error" class="error-text">{{ hex.error }}</p>
       </el-card>
