@@ -1139,9 +1139,9 @@ func (s *MusicService) GetLyrics(track music.Track) (string, error) {
 	if s == nil { return "", errors.New("music lyrics service is unavailable") }
 	value, handled, extensionErr := s.dispatchLXExtension(context.Background(), firstNonEmpty(track.LXSourceKey, track.SourceID), "lyric", map[string]any{"musicInfo":track, "track":track})
 	if handled && extensionErr == nil {
-		lyrics, ok := value.(string)
-		if !ok { return "", errors.New("LX lyric action must return a string") }
-		if strings.TrimSpace(lyrics) != "" { return lyrics, nil }
+		if lyrics, ok := value.(string); ok && strings.TrimSpace(lyrics) != "" {
+			return lyrics, nil
+		}
 	}
 	// Community scripts may omit or fail their optional lyric action. Use the
 	// matching provider adapter rather than querying an external player's API.
