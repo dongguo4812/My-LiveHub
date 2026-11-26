@@ -57,21 +57,11 @@ func readProcessMemorySnapshot() (ProcessMemorySnapshot, error) {
 	if err != nil {
 		return ProcessMemorySnapshot{}, err
 	}
-	children := make(map[uint32][]uint32, len(processes))
+	parents := make([]processParent, 0, len(processes))
 	for _, process := range processes {
-		children[process.ParentProcessID] = append(children[process.ParentProcessID], process.ProcessID)
+		parents = append(parents, processParent{PID: process.ProcessID, ParentPID: process.ParentProcessID})
 	}
-	owned := make(map[uint32]struct{})
-	queue := append([]uint32(nil), children[currentPID]...)
-	for len(queue) > 0 {
-		pid := queue[0]
-		queue = queue[1:]
-		if _, exists := owned[pid]; exists {
-			continue
-		}
-		owned[pid] = struct{}{}
-		queue = append(queue, children[pid]...)
-	}
+	owned := collectDescendantProcessIDs(currentPID, parents)
 	result := ProcessMemorySnapshot{ProcessID: currentPID}
 	current, err := readOneProcessMemory(windows.CurrentProcess)
 	if err != nil {
