@@ -421,3 +421,28 @@ func TestKugouHiResQualityUsesXinghaiQualityName(t *testing.T) {
 	}
 	if !hasHiRes || hasLegacyAlias { t.Fatalf("Kugou Hi-Res must use Xinghai's hires label, got %#v", page.Tracks[0].Qualities) }
 }
+
+func TestKuwoSearchMapsAlbumCoverURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"TOTAL":"1","SHOW":"1","abslist":[{"MUSICRID":"MUSIC_1","SONGNAME":"Song","ARTIST":"Singer","ALBUM":"Album","DURATION":"180","web_albumpic_short":"/albumcover/123/456.jpg","N_MINFO":"level:mp3,bitrate:320,format:mp3,size:5.0"}]}`))
+	}))
+	defer server.Close()
+	page, err := (kuwoSearchProvider{client:server.Client(), endpoint:server.URL}).Search(context.Background(), "Song", 1, 30)
+	if err != nil { t.Fatal(err) }
+	if len(page.Tracks) != 1 { t.Fatalf("tracks=%#v", page.Tracks) }
+	want := "https://img3.kuwo.cn/star/albumcover/300/123/456.jpg"
+	if page.Tracks[0].CoverURL != want || page.Tracks[0].SourceData["cover_url"] != want { t.Fatalf("Kuwo cover mapping = %#v, want %q", page.Tracks[0], want) }
+}
+
+func TestKugouSearchMapsImageTemplate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"error_code":0,"data":{"total":1,"lists":[{"Audioid":"440613","FileHash":"ABC","SongName":"Song","SingerName":"Singer","AlbumName":"Album","Duration":180,"Image":"https://imge.kugou.com/stdmusic/{size}/20260101/cover.jpg","FileSize":1000}]}}`))
+	}))
+	defer server.Close()
+	page, err := (kugouSearchProvider{client:server.Client(), endpoint:server.URL}).Search(context.Background(), "Song", 1, 30)
+	if err != nil { t.Fatal(err) }
+	if len(page.Tracks) != 1 { t.Fatalf("tracks=%#v", page.Tracks) }
+	want := "https://imge.kugou.com/stdmusic/400/20260101/cover.jpg"
+	if page.Tracks[0].CoverURL != want || page.Tracks[0].SourceData["cover_url"] != want { t.Fatalf("Kugou cover mapping = %#v, want %q", page.Tracks[0], want) }
+}
+
