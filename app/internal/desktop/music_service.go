@@ -349,6 +349,8 @@ func (s *MusicService) stop(ctx context.Context) error {
 	if ctx == nil { return errors.New("music shutdown context is required") }
 	s.lifecycleMu.Lock()
 	s.mu.Lock()
+	s.playbackStopGeneration++
+	s.playbackStopping = true
 	if !s.started {
 		s.mu.Unlock()
 		s.lifecycleMu.Unlock()
@@ -1373,6 +1375,10 @@ func (s *MusicService) Shutdown() error {
 	s.mu.Unlock()
 	if runtimeCancel != nil { runtimeCancel() }
 	if runtimeDone != nil { <-runtimeDone }
+	// Runtime cancellation releases any PlayNext waiting for initialization.
+	// Serialize engine teardown behind any remaining playback start operation.
+	s.playbackStartMu.Lock()
+	defer s.playbackStartMu.Unlock()
 	var failures []error
 	if s.scriptRuntime != nil { if err := s.scriptRuntime.Close(); err != nil { failures = append(failures, fmt.Errorf("关闭 LX JavaScript Runtime：%w", err)) } }
 	if lifecycle, ok := s.engine.(music.PlaybackEngineLifecycle); ok { if err := lifecycle.Close(); err != nil { failures = append(failures, err) } }
