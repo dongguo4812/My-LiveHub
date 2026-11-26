@@ -293,7 +293,7 @@ func (s *MusicService) waitForLXRuntime(ctx context.Context) error {
 	if s == nil || s.scriptRuntime == nil { return nil }
 	if ctx == nil { ctx = context.Background() }
 	s.mu.RLock()
-	status, reason, done := s.lxRuntimeStatus, s.lxRuntimeError, s.lxRuntimeDone
+	status, done := s.lxRuntimeStatus, s.lxRuntimeDone
 	s.mu.RUnlock()
 	switch status {
 	case "ready":
@@ -311,7 +311,7 @@ func (s *MusicService) waitForLXRuntime(ctx context.Context) error {
 			return fmt.Errorf("等待 LX-JS 音源初始化完成失败：%w", ctx.Err())
 		}
 		s.mu.RLock()
-		status, reason = s.lxRuntimeStatus, s.lxRuntimeError
+		status = s.lxRuntimeStatus
 		s.mu.RUnlock()
 		if status == "ready" { return nil }
 		if status == "failed" { return nil }
