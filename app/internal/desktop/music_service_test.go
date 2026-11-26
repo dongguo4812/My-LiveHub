@@ -537,6 +537,67 @@ func TestPlayNextSkipsFailedTrackAndStartsNextQueuedTrack(t *testing.T) {
 	if service.GetStatus().LastError == "" { t.Fatal("failed first track should leave a diagnostic error") }
 }
 
+type serializedPlaybackStartTestEngine struct {
+	loadCalls atomic.Int32
+	started chan struct{}
+	release chan struct{}
+}
+func (e *serializedPlaybackStartTestEngine) Load(ctx context.Context, _ music.Track) error {
+	if e.loadCalls.Add(1) == 1 {
+		close(e.started)
+		select {
+		case <-e.release:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+func (e *serializedPlaybackStartTestEngine) Pause(context.Context) error { return nil }
+func (e *serializedPlaybackStartTestEngine) Resume(context.Context) error { return nil }
+func (e *serializedPlaybackStartTestEngine) Stop(context.Context) error { return nil }
+func (e *serializedPlaybackStartTestEngine) Snapshot(context.Context) (music.PlaybackSnapshot, error) {
+	return music.PlaybackSnapshot{State: music.PlaybackPlaying}, nil
+}
+
+func TestConcurrentPlayNextLoadsCurrentQueueItemOnlyOnce(t *testing.T) {
+	value := config.DefaultMusicConfig()
+	value.EnabledSearchSources = []string{"tx"}
+	engine := &serializedPlaybackStartTestEngine{started: make(chan struct{}), release: make(chan struct{})}
+	service := NewMusicServiceWithDependencies(nil, value, engine)
+	defer service.cancelPlaybackWatcher()
+
+	track := music.Track{ID: "tx_concurrent", SourceID: "tx", LXSourceKey: "tx", Title: "并发播放测试", Artist: "测试歌手"}
+	if _, err := service.queue.Enqueue(track, "viewer"); err != nil { t.Fatal(err) }
+
+	first := make(chan error, 1)
+	second := make(chan error, 1)
+	go func() { first <- service.PlayNext() }()
+	select {
+	case <-engine.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first playback did not reach the engine")
+	}
+	go func() { second <- service.PlayNext() }()
+	close(engine.release)
+
+	for name, result := range map[string]<-chan error{"first": first, "second": second} {
+		select {
+		case err := <-result:
+			if err != nil { t.Fatalf("%s PlayNext() error = %v", name, err) }
+		case <-time.After(2 * time.Second):
+			t.Fatalf("%s PlayNext() did not finish", name)
+		}
+	}
+	if got := engine.loadCalls.Load(); got != 1 {
+		t.Fatalf("playback engine Load calls = %d, want exactly one for concurrent PlayNext calls", got)
+	}
+	current := service.queue.Snapshot().Current
+	if current == nil || current.Track.ID != track.ID {
+		t.Fatalf("current queue item = %#v, want %q", current, track.ID)
+	}
+}
+
 func TestMusicPlaybackStartTimeoutIsTenSeconds(t *testing.T) {
 	if musicPlaybackStartTimeout != 10*time.Second {
 		t.Fatalf("music playback start timeout = %s, want 10s", musicPlaybackStartTimeout)
