@@ -86,10 +86,10 @@ func TestNormalizeLXScriptSearchResultPreservesUnifiedTrack(t *testing.T){
  if len(got.Tracks)!=1||got.Page!=2||got.Total!=61||got.MaxPage!=3{t.Fatalf("unexpected page: %#v",got)}
 }
 
-type fakeLXActionRuntime struct { available bool; value any; err error }
+type fakeLXActionRuntime struct { available bool; value any; err error; playbackURL string }
 func (f fakeLXActionRuntime) Available() bool { return f.available }
 func (f fakeLXActionRuntime) Start(context.Context) error { return nil }
-func (f fakeLXActionRuntime) ResolvePlaybackURL(context.Context,string,any)(string,error) { return "",nil }
+func (f fakeLXActionRuntime) ResolvePlaybackURL(context.Context,string,any)(string,error) { return f.playbackURL,nil }
 func (f fakeLXActionRuntime) Close() error { return nil }
 func (f fakeLXActionRuntime) HasExtensionAction(string, string) bool { return f.available }
 func (f fakeLXActionRuntime) DispatchExtensionAction(context.Context,string,string,any)(any,error) { return f.value,f.err }
