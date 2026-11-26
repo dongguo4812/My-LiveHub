@@ -299,7 +299,10 @@ func (s *MusicService) waitForLXRuntime(ctx context.Context) error {
 	case "ready":
 		return nil
 	case "failed":
-		return fmt.Errorf("LX-JS 音源初始化失败：%s", reason)
+		// Initialization has finished. Preserve the failure in MusicStatus,
+		// but let the normal provider pipeline continue so native sources can
+		// still search and play when an optional imported script is unavailable.
+		return nil
 	case "initializing":
 		if done == nil { return errors.New("LX-JS 音源初始化状态异常：缺少完成信号") }
 		select {
@@ -311,7 +314,7 @@ func (s *MusicService) waitForLXRuntime(ctx context.Context) error {
 		status, reason = s.lxRuntimeStatus, s.lxRuntimeError
 		s.mu.RUnlock()
 		if status == "ready" { return nil }
-		if status == "failed" { return fmt.Errorf("LX-JS 音源初始化失败：%s", reason) }
+		if status == "failed" { return nil }
 		return fmt.Errorf("LX-JS 音源初始化未完成（当前状态：%s）", status)
 	default:
 		return fmt.Errorf("LX-JS 音源运行时尚未启动（当前状态：%s）", status)
