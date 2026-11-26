@@ -22,7 +22,6 @@ type Command = {
 
 let audio: HTMLAudioElement
 let activeSession = 0
-let lastTimeUpdate = 0
 let disposed = false
 let audioContext: AudioContext | null = null
 let mediaSource: MediaElementAudioSourceNode | null = null
@@ -47,13 +46,6 @@ function bindAudioEvents(element: HTMLAudioElement) {
   element.addEventListener('playing', () => report('playing', '', element))
   element.addEventListener('pause', () => { if (!element.ended) report('pause', '', element) })
   element.addEventListener('durationchange', () => report('durationchange', '', element))
-  element.addEventListener('timeupdate', () => {
-    if (element !== audio) return
-    const now = performance.now()
-    if (now - lastTimeUpdate < 250) return
-    lastTimeUpdate = now
-    report('timeupdate', '', element)
-  })
   element.addEventListener('waiting', () => report('waiting', '', element))
   element.addEventListener('stalled', () => report('stalled', '', element))
   element.addEventListener('ended', () => report('ended', '', element))
@@ -72,6 +64,15 @@ function createAudioElement(): HTMLAudioElement {
 }
 
 audio = createAudioElement()
+
+// Publish the real media clock to Go at a fixed 100ms cadence while playing.
+// The desktop lyrics window consumes this snapshot directly; it must not
+// extrapolate playback time independently.
+window.setInterval(() => {
+  if (!disposed && activeSession && !audio.paused && !audio.ended) {
+    report('timeupdate')
+  }
+}, 100)
 
 // Once MediaElementAudioSourceNode is created, that media element cannot be
 // returned to native output. Disabling DSP therefore replaces the element,
