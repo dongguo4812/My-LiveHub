@@ -116,12 +116,12 @@ func TestProductionLXBuiltInSearchAllFiveProviders(t *testing.T) {
 
 			var second MusicSearchResponse
 			var secondErr error
-			for attempt := 1; attempt <= 2; attempt++ {
+			for attempt := 1; attempt <= 3; attempt++ {
 				second, secondErr = service.SearchSourcePage(keyword, provider.id, 2)
 				if secondErr == nil && (len(second.Tracks) > 0 || first.MaxPage <= 1) {
 					break
 				}
-				if attempt < 2 {
+				if attempt < 3 {
 					select {
 					case <-ctx.Done():
 						t.Fatal(ctx.Err())
