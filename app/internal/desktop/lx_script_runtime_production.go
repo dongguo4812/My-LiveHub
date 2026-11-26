@@ -116,12 +116,12 @@ func (r *isolatedLXTestRuntime) ResolvePlaybackURL(ctx context.Context, source s
 	return resolved, nil
 }
 func (r *productionMusicLXRuntime) TestScript(ctx context.Context, id string) (LXScriptTestResult, error) {
-	return r.testScriptWithSearcher(ctx, id, music.NewLXSearchClient(nil))
+	return r.testScript(ctx, id)
 }
 
-// testScriptWithSearcher keeps production on the normal LX provider searcher,
-// while allowing deterministic tests of the native-search fallback.
-func (r *productionMusicLXRuntime) testScriptWithSearcher(ctx context.Context, id string, base music.SourceSearcher) (LXScriptTestResult, error) {
+// testScript exercises a stored script through the same QuickJS-only search
+// path used by production; missing search actions fail closed.
+func (r *productionMusicLXRuntime) testScript(ctx context.Context, id string) (LXScriptTestResult, error) {
 	if r == nil { return LXScriptTestResult{}, errors.New("production LX source runtime is unavailable") }
 	if ctx == nil { ctx = context.Background() }
 	r.mu.Lock()
@@ -144,7 +144,7 @@ func (r *productionMusicLXRuntime) testScriptWithSearcher(ctx context.Context, i
 	if err := manager.Start(ctx); err != nil { return LXScriptTestResult{}, fmt.Errorf("initialize isolated test runtime: %w", err) }
 	adapter := &isolatedLXTestRuntime{manager:manager}
 	service := &MusicService{scriptRuntime:adapter}
-	searcher := scriptAwareSourceSearcher{base:base, service:service}
+	searcher := scriptAwareSourceSearcher{service:service}
 	unified := music.NewUnifiedSourceService(searcher, adapter)
 	// Include every platform declared by the script, even when it does not
 	// expose musicUrl. Keep the action map as a compatibility fallback for
