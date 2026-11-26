@@ -504,10 +504,525 @@ func normalizeKuwoCoverURL(value string) string {
 	value = strings.TrimSpace(value)
 	if value == "" { return "" }
 	if strings.HasPrefix(value, "//") { return "https:" + value }
-	if strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://") { return value }
+	if strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://") {
+		parsed, err := url.Parse(value)
+		if err != nil { return "" }
+		value = parsed.Path
+	}
 	parts := strings.Split(strings.Trim(value, "/"), "/")
-	if len(parts) > 1 { value = "300/" + strings.Join(parts[1:], "/") }
-	return "https://img3.kuwo.cn/star/albumcover/" + value
+	for i, part := range parts {
+		if strings.EqualFold(part, "albumcover") {
+			tail := parts[i+1:]
+			if len(tail) > 0 && regexp.MustCompile(`^\\d+package music
+
+import (
+	"bytes"
+	"context"
+	"crypto/aes"
+	"crypto/md5"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"html"
+	"io"
+	"math"
+	"net/http"
+	"net/url"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+	"unicode/utf16"
+)
+
+const (
+	LXSearchKW = "kw"
+	LXSearchKG = "kg"
+	LXSearchTX = "tx"
+	LXSearchWY = "wy"
+	LXSearchMG = "mg"
+)
+
+type TrackQuality struct {
+	Type string            `json:"type"`
+	Size string            `json:"size,omitempty"`
+	SourceData map[string]string `json:"source_data,omitempty"`
+}
+
+type SearchPage struct {
+	Tracks []Track `json:"tracks"`
+	Total int64 `json:"total"`
+	Page int `json:"page"`
+	PageSize int `json:"page_size"`
+	MaxPage int `json:"max_page"`
+	Source string `json:"source"`
+}
+
+type SearchProvider interface {
+	ID() string
+	Name() string
+	Search(context.Context, string, int, int) (SearchPage, error)
+}
+
+const lxSongSearchPageSize = 30
+
+type LXSearchClient struct {
+	httpClient *http.Client
+	providers []SearchProvider
+}
+
+type LXSearchEndpoints struct {
+	Kuwo string
+	Kugou string
+	QQ string
+	QQLegacy string
+	Netease string
+	Migu string
+	MiguFallback string
+}
+
+func DefaultLXSearchEndpoints() LXSearchEndpoints {
+	return LXSearchEndpoints{
+		Kuwo: "http://search.kuwo.cn/r.s",
+		Kugou: "http://songsearch.kugou.com/song_search_v2",
+		QQ: "https://u.y.qq.com/cgi-bin/musicu.fcg",
+		QQLegacy: "https://c.y.qq.com/soso/fcgi-bin/client_search_cp",
+		Netease: "http://interface.music.163.com/eapi/batch",
+		Migu: "https://jadeite.migu.cn/music_search/v3/search/searchAll",
+		MiguFallback: "https://c.musicapp.migu.cn/v1.0/content/search_all.do",
+	}
+}
+
+func NewLXSearchClient(client *http.Client) *LXSearchClient {
+	return NewLXSearchClientWithEndpoints(client, DefaultLXSearchEndpoints())
+}
+
+func NewLXSearchClientWithEndpoints(client *http.Client, endpoints LXSearchEndpoints) *LXSearchClient {
+	if client == nil {
+		client = &http.Client{Timeout: 15 * time.Second}
+	}
+	if strings.TrimSpace(endpoints.MiguFallback) == "" {
+		endpoints.MiguFallback = DefaultLXSearchEndpoints().MiguFallback
+	}
+	return &LXSearchClient{
+		httpClient: client,
+		providers: []SearchProvider{
+			qqSearchProvider{client: client, endpoint: endpoints.QQ, legacyEndpoint: endpoints.QQLegacy},
+			kuwoSearchProvider{client: client, endpoint: endpoints.Kuwo},
+			kugouSearchProvider{client: client, endpoint: endpoints.Kugou},
+			neteaseSearchProvider{client: client, endpoint: endpoints.Netease},
+			miguSearchProvider{client: client, endpoint: endpoints.Migu, fallbackEndpoint: endpoints.MiguFallback},
+		},
+	}
+}
+
+func (c *LXSearchClient) Sources() []SourceSnapshot {
+	if c == nil { return []SourceSnapshot{} }
+	result := make([]SourceSnapshot, 0, len(c.providers))
+	for _, provider := range c.providers {
+		result = append(result, SourceSnapshot{
+			ID: provider.ID(), Name: provider.Name(),
+			Capabilities: SourceCapabilities{Search: true},
+			Enabled: true, Available: true,
+		})
+	}
+	return result
+}
+
+// Search runs all five LX desktop providers concurrently. Results retain the
+// provider order used by LX's SDK; one provider failure does not discard others.
+func (c *LXSearchClient) Search(ctx context.Context, keyword string, page int) (SearchPage, map[string]string, error) {
+	if c == nil { return SearchPage{}, nil, errors.New("洛雪搜索 SDK 未初始化") }
+	ids := make([]string, 0, len(c.providers))
+	for _, provider := range c.providers { ids = append(ids, provider.ID()) }
+	return c.SearchSources(ctx, keyword, page, ids)
+}
+
+// SearchSources searches only providers declared by the active LX user script.
+// Provider implementations remain the actual source of search capability.
+func (c *LXSearchClient) SearchSources(ctx context.Context, keyword string, page int, sourceIDs []string) (SearchPage, map[string]string, error) {
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" { return SearchPage{}, nil, errors.New("请输入歌曲名称或歌手") }
+	if page < 1 { return SearchPage{}, nil, errors.New("搜索页码必须大于 0") }
+	if c == nil || len(c.providers) == 0 { return SearchPage{}, nil, errors.New("洛雪搜索 SDK 未初始化") }
+	if ctx == nil { ctx = context.Background() }
+	allowed := make(map[string]bool, len(sourceIDs))
+	for _, id := range sourceIDs { allowed[id] = true }
+	providerByID := make(map[string]SearchProvider, len(c.providers))
+	for _, provider := range c.providers { providerByID[provider.ID()] = provider }
+	providers := make([]SearchProvider, 0, len(sourceIDs))
+	seenProviders := make(map[string]bool, len(sourceIDs))
+	for _, id := range sourceIDs {
+		if !allowed[id] || seenProviders[id] { continue }
+		if provider, ok := providerByID[id]; ok { providers = append(providers, provider); seenProviders[id] = true }
+	}
+	if len(providers) == 0 { return SearchPage{Tracks: []Track{}, Page: page, PageSize: lxSongSearchPageSize}, map[string]string{}, nil }
+
+	type outcome struct { page SearchPage; err error }
+	outcomes := make([]outcome, len(providers))
+	var wg sync.WaitGroup
+	for i, provider := range providers {
+		wg.Add(1)
+		go func(index int, p SearchProvider) {
+			defer wg.Done()
+			outcomes[index].page, outcomes[index].err = p.Search(ctx, keyword, page, lxSongSearchPageSize)
+		}(i, provider)
+	}
+	wg.Wait()
+
+	result := SearchPage{Tracks: []Track{}, Page: page, PageSize: lxSongSearchPageSize}
+	errs := make(map[string]string)
+	successes := 0
+	for i, provider := range providers {
+		outcome := outcomes[i]
+		if outcome.err != nil { errs[provider.ID()] = outcome.err.Error(); continue }
+		successes++
+		if outcome.page.MaxPage < page { continue }
+		result.Tracks = append(result.Tracks, outcome.page.Tracks...)
+		if outcome.page.Total > result.Total { result.Total = outcome.page.Total }
+		if outcome.page.MaxPage > result.MaxPage { result.MaxPage = outcome.page.MaxPage }
+	}
+	if successes == 0 {
+		if len(errs) == 0 { return result, errs, nil }
+		if page == 1 { result.MaxPage = 1 } else { result.Total = int64(result.PageSize * page) }
+		return result, errs, nil
+	}
+	result.Tracks = deduplicateLXTracks(result.Tracks)
+	// Cross-provider results are grouped by the user's configured source
+	// priority. Each provider's native ranking is retained within its group.
+	if page > 1 && (result.Total == 0 || len(result.Tracks) == 0) { result.Total = int64(result.PageSize * page) }
+	return result, errs, nil
+}
+
+func (c *LXSearchClient) SearchProvider(ctx context.Context, source, keyword string, page int) (SearchPage, error) {
+	if c == nil { return SearchPage{}, errors.New("洛雪搜索 SDK 未初始化") }
+	for _, provider := range c.providers {
+		if provider.ID() == source { pageResult, err := provider.Search(ctx, keyword, page, lxSongSearchPageSize)
+			if err != nil { return SearchPage{}, err }
+			pageResult.Tracks = deduplicateLXTracks(pageResult.Tracks)
+			return pageResult, nil }
+	}
+	return SearchPage{}, fmt.Errorf("不支持的音乐来源：%s", source)
+}
+
+func doLXJSON(ctx context.Context, client *http.Client, method, rawURL string, headers map[string]string, body io.Reader) (map[string]any, error) {
+	req, err := http.NewRequestWithContext(ctx, method, rawURL, body)
+	if err != nil { return nil, err }
+	req.Header.Set("User-Agent", "lx-music request")
+	req.Header.Set("bHhtl", "bHhtl")
+	for key, value := range headers { req.Header.Set(key, value) }
+	resp, err := client.Do(req)
+	if err != nil { return nil, fmt.Errorf("请求音乐平台失败：%w", err) }
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if err != nil { return nil, fmt.Errorf("读取音乐平台响应失败：%w", err) }
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("音乐平台返回 HTTP %d", resp.StatusCode)
+	}
+	var result map[string]any
+	if err := json.Unmarshal(raw, &result); err != nil { return nil, fmt.Errorf("解析音乐平台响应失败：%w", err) }
+	return result, nil
+}
+
+func jsonBody(value any) ([]byte, error) { return json.Marshal(value) }
+func mapValue(value any) map[string]any { v, _ := value.(map[string]any); return v }
+func sliceValue(value any) []any { v, _ := value.([]any); return v }
+func stringValue(value any) string {
+	switch v := value.(type) {
+	case string: return v
+	case json.Number: return v.String()
+	case float64: return strconv.FormatInt(int64(v), 10)
+	case int: return strconv.Itoa(v)
+	case int64: return strconv.FormatInt(v, 10)
+	default: return ""
+	}
+}
+func intValue(value any) int64 {
+	switch v := value.(type) {
+	case float64: return int64(v)
+	case json.Number: n, _ := v.Int64(); return n
+	case string: n, _ := strconv.ParseInt(v, 10, 64); return n
+	case int: return int64(v)
+	case int64: return v
+	default: return 0
+	}
+}
+func nestedMap(value any, keys ...string) map[string]any {
+	current := mapValue(value)
+	for _, key := range keys { current = mapValue(current[key]) }
+	return current
+}
+func decodeLXName(value string) string { return strings.TrimSpace(html.UnescapeString(value)) }
+func formatLXDuration(seconds int64) int64 {
+	if seconds < 0 { return 0 }
+	return seconds * 1000
+}
+func formatLXSize(size int64) string {
+	if size == 0 { return "0 B" }
+	if size < 0 { return "" }
+	units := []string{"B", "KiB", "MiB", "GiB", "TiB"}
+	exponent := int(math.Floor(math.Log(float64(size)) / math.Log(1024)))
+	if exponent >= len(units) { exponent = len(units)-1 }
+	return fmt.Sprintf("%.2f %s", float64(size)/math.Pow(1024, float64(exponent)), units[exponent])
+}
+func newLXTrack(source, nativeID, title, artist, album string, duration int64, cover string, data map[string]string, qualities []TrackQuality) Track {
+	if data == nil { data = map[string]string{} }
+	id := source + "_" + nativeID
+	if source == "kg" {
+		hash := data["hash"]
+		if hash == "" { hash = "undefined" }
+		id = nativeID + "_" + hash
+	}
+	return Track{
+		ID: id, SourceID: source, LXSourceKey: source,
+		SourceData: data, Title: decodeLXName(title), Artist: decodeLXName(artist),
+		Album: decodeLXName(album), DurationMS: duration, CoverURL: cover,
+		Qualities: qualities,
+	}
+}
+func quality(kind string, size int64, data map[string]string) TrackQuality {
+	return TrackQuality{Type: kind, Size: formatLXSize(size), SourceData: data}
+}
+func appendUniqueQuality(qualities []TrackQuality, item TrackQuality) []TrackQuality {
+	for _, existing := range qualities {
+		if existing.Type == item.Type { return qualities }
+	}
+	return append(qualities, item)
+}
+func qualityFromOptionalObject(kind string, raw any, sizeKey string) TrackQuality {
+	if raw == nil { return TrackQuality{Type: kind} }
+	return quality(kind, intValue(mapValue(raw)[sizeKey]), nil)
+}
+
+func deduplicateLXTracks(tracks []Track) []Track {
+	seen := make(map[string]struct{}, len(tracks))
+	result := make([]Track, 0, len(tracks))
+	for _, track := range tracks {
+		if _, exists := seen[track.ID]; exists { continue }
+		seen[track.ID] = struct{}{}
+		result = append(result, track)
+	}
+	return result
+}
+
+func lxSimilarity(a, b string) float64 {
+	ar, br := utf16.Encode([]rune(a)), utf16.Encode([]rune(b))
+	if len(ar) == 0 || len(br) == 0 { return 0 }
+	if len(ar) > len(br) { ar, br = br, ar }
+	prev := make([]int, len(br)+1)
+	for i := range prev { prev[i] = i }
+	for _, ch := range ar {
+		diag := prev[0]
+		prev[0]++
+		for j := 1; j <= len(br); j++ {
+			old := prev[j]
+			cost := 1
+			if ch == br[j-1] { cost = 0 }
+			prev[j] = lxMinInt(prev[j]+1, prev[j-1]+1, diag+cost)
+			diag = old
+		}
+	}
+	return 1 - float64(prev[len(br)])/float64(len(br))
+}
+
+func lxMinInt(values ...int) int {
+	minimum := values[0]
+	for _, value := range values[1:] { if value < minimum { minimum = value } }
+	return minimum
+}
+
+func sortLXTracksByRelevance(tracks []Track, keyword string) []Track {
+	type ranked struct { track Track; score float64 }
+	items := make([]ranked, len(tracks))
+	for i, track := range tracks {
+		items[i] = ranked{track:track, score:lxSimilarity(keyword, track.Title+" "+track.Artist)}
+	}
+	sort.SliceStable(items, func(i,j int) bool { return items[i].score > items[j].score })
+	result := make([]Track, len(items))
+	for i, item := range items { result[i] = item.track }
+	return result
+}
+
+func pageCount(total int64, size int) int {
+	if total <= 0 || size <= 0 { return 1 }
+	return int(math.Ceil(float64(total)/float64(size)))
+}
+
+// Kuwo (kw)
+type kuwoSearchProvider struct { client *http.Client; endpoint string }
+func (p kuwoSearchProvider) ID() string { return LXSearchKW }
+func (p kuwoSearchProvider) Name() string { return "酷我音乐" }
+var kuwoInfoPattern = regexp.MustCompile(`level:(\w+),bitrate:(\d+),format:(\w+),size:([\w.]+)`)
+func (p kuwoSearchProvider) Search(ctx context.Context, keyword string, page, limit int) (SearchPage, error) {
+	if limit <= 0 { limit = lxSongSearchPageSize }
+	u, _ := url.Parse(p.endpoint)
+	q := u.Query()
+	q.Set("client", "kt"); q.Set("all", keyword); q.Set("pn", strconv.Itoa(page-1)); q.Set("rn", strconv.Itoa(limit))
+	q.Set("uid", "794762570"); q.Set("ver", "kwplayer_ar_9.2.2.1"); q.Set("vipver", "1")
+	q.Set("show_copyright_off", "1"); q.Set("newver", "1"); q.Set("ft", "music"); q.Set("cluster", "0")
+	q.Set("strategy", "2012"); q.Set("encoding", "utf8"); q.Set("rformat", "json"); q.Set("vermerge", "1"); q.Set("mobi", "1"); q.Set("issubtitle", "1")
+	u.RawQuery = q.Encode()
+	raw, err := doLXJSON(ctx, p.client, http.MethodGet, u.String(), nil, nil)
+	if err != nil { return SearchPage{}, err }
+	total, _ := strconv.ParseInt(stringValue(raw["TOTAL"]), 10, 64)
+	list := make([]Track, 0)
+	if stringValue(raw["TOTAL"]) != "0" && stringValue(raw["SHOW"]) == "0" {
+		return SearchPage{}, errors.New("酷我搜索未返回有效结果")
+	}
+	for _, entry := range sliceValue(raw["abslist"]) {
+		item := mapValue(entry)
+		if strings.TrimSpace(stringValue(item["N_MINFO"])) == "" {
+			return SearchPage{}, errors.New("酷我搜索结果缺少音质元数据")
+		}
+		id := strings.TrimPrefix(stringValue(item["MUSICRID"]), "MUSIC_")
+		name := stringValue(item["SONGNAME"])
+		if id == "" || name == "" { continue }
+		types := []TrackQuality{}
+		for _, token := range strings.Split(stringValue(item["N_MINFO"]), ";") {
+			match := kuwoInfoPattern.FindStringSubmatch(token)
+			if len(match) != 5 { continue }
+			var kind string
+			switch match[2] { case "4000", "2000": kind="flac"; case "320": kind="320k"; case "128": kind="128k" }
+			if kind != "" { types = appendUniqueQuality(types, TrackQuality{Type:kind, Size:match[4]}) }
+		}
+		for i,j:=0,len(types)-1;i<j;i,j=i+1,j-1 { types[i],types[j]=types[j],types[i] }
+		duration, _ := strconv.ParseInt(stringValue(item["DURATION"]),10,64)
+		cover := normalizeKuwoCoverURL(firstLXString(item, "web_albumpic_short", "ALBUMPIC", "albumpic", "albumPic", "pic", "cover"))
+		data := map[string]string{"songmid":id,"album_id":decodeLXName(stringValue(item["ALBUMID"]))}
+		if cover != "" { data["cover_url"] = cover }
+		list = append(list,newLXTrack("kw",id,stringValue(item["SONGNAME"]),strings.ReplaceAll(decodeLXName(stringValue(item["ARTIST"])), "&", "、"),stringValue(item["ALBUM"]),formatLXDuration(duration),cover,data,types))
+	}
+	return SearchPage{Tracks:list,Total:total,Page:page,PageSize:limit,MaxPage:pageCount(total,limit),Source:"kw"},nil
+}
+
+// Kugou (kg)
+type kugouSearchProvider struct { client *http.Client; endpoint string }
+func (p kugouSearchProvider) ID() string { return LXSearchKG }
+func (p kugouSearchProvider) Name() string { return "酷狗音乐" }
+func (p kugouSearchProvider) Search(ctx context.Context, keyword string, page, limit int) (SearchPage, error) {
+	if limit <= 0 {
+		limit = lxSongSearchPageSize
+	}
+	u, err := url.Parse(p.endpoint)
+	if err != nil {
+		return SearchPage{}, fmt.Errorf("酷狗搜索地址无效：%w", err)
+	}
+	q := u.Query()
+	// song_search_v2 is the WebFilter endpoint. AndroidFilter and the
+	// incorrectly-cased PrivilegeFilter parameter can return an empty list
+	// even for well-known songs such as 稻香.
+	q.Set("platform", "WebFilter")
+	q.Set("iscorrection", "1")
+	q.Set("keyword", keyword)
+	q.Set("hifiquality", "0")
+	q.Set("pagesize", strconv.Itoa(limit))
+	q.Set("privilege_filter", "0")
+	q.Set("filter", "2")
+	q.Set("tag", "em")
+	q.Set("userid", "-1")
+	q.Set("clientver", "")
+	q.Set("page", strconv.Itoa(page))
+	u.RawQuery = q.Encode()
+
+	raw, err := doLXJSON(ctx, p.client, http.MethodGet, u.String(), map[string]string{
+		"User-Agent": "Mozilla/5.0",
+		"Referer": "https://www.kugou.com/",
+		"Accept": "application/json, text/plain, */*",
+	}, nil)
+	if err != nil {
+		return SearchPage{}, err
+	}
+	if code := intValue(raw["error_code"]); code != 0 {
+		return SearchPage{}, fmt.Errorf("酷狗搜索失败，错误码：%d", code)
+	}
+	data := mapValue(raw["data"])
+	items := sliceValue(data["lists"])
+	total := intValue(data["total"])
+	list := make([]Track, 0, len(items))
+	seen := make(map[string]bool, len(items))
+	for _, entry := range items {
+		item := mapValue(entry)
+		id := firstTrackValue(stringValue(item["Audioid"]), stringValue(item["ID"]), stringValue(item["MixSongID"]))
+		hash := firstTrackValue(stringValue(item["FileHash"]), stringValue(item["Hash"]))
+		key := id + ":" + hash
+		if id == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+
+		// Kugou's current WebFilter response may use SongName/SingerName
+		// instead of the older OriSongName/Singers fields. Search highlighting
+		// wraps matched words in <em>, which must not leak into the Track model.
+		name := cleanLXSearchText(firstTrackValue(stringValue(item["OriSongName"]), stringValue(item["SongName"]), stringValue(item["FileName"])))
+		if suffix := cleanLXSearchText(stringValue(item["Suffix"])); suffix != "" {
+			name = strings.TrimSpace(name + " " + suffix)
+		}
+		artists := make([]string, 0)
+		for _, value := range sliceValue(item["Singers"]) {
+			singer := mapValue(value)
+			if artist := cleanLXSearchText(firstTrackValue(stringValue(singer["name"]), stringValue(singer["SingerName"]))); artist != "" {
+				artists = append(artists, artist)
+			}
+		}
+		if len(artists) == 0 {
+			if artist := cleanLXSearchText(stringValue(item["SingerName"])); artist != "" {
+				artists = append(artists, artist)
+			}
+		}
+		if len(artists) == 0 {
+			fileName := cleanLXSearchText(stringValue(item["FileName"]))
+			if separator := strings.Index(fileName, " - "); separator > 0 {
+				artists = append(artists, strings.TrimSpace(fileName[:separator]))
+			}
+		}
+
+		types := make([]TrackQuality, 0, 4)
+		for _, spec := range []struct{ field, sizeField, kind string }{
+			{"FileHash", "FileSize", "128k"},
+			{"HQFileHash", "HQFileSize", "320k"},
+			{"SQFileHash", "SQFileSize", "flac"},
+			{"ResFileHash", "ResFileSize", "hires"},
+		} {
+			if size := intValue(item[spec.sizeField]); size > 0 {
+				types = appendUniqueQuality(types, quality(spec.kind, size, map[string]string{"hash": stringValue(item[spec.field])}))
+			}
+		}
+		duration := intValue(item["Duration"])
+		album := firstTrackValue(stringValue(item["AlbumName"]), stringValue(item["Album"]))
+		cover := normalizeKugouCoverURL(firstLXString(item, "Image", "Img", "AlbumImg", "AlbumImage", "album_img", "cover", "Cover", "pic"))
+		sourceData := map[string]string{
+			"songmid": id,
+			"hash": hash,
+			"album_id": firstTrackValue(stringValue(item["AlbumID"]), stringValue(item["album_id"])),
+			"album_audio_id": stringValue(item["MixSongID"]),
+		}
+		if cover != "" { sourceData["cover_url"] = cover }
+		list = append(list, newLXTrack("kg", id, name, strings.Join(artists, "、"), album, formatLXDuration(duration), cover, sourceData, types))
+	}
+	return SearchPage{Tracks: list, Total: total, Page: page, PageSize: limit, MaxPage: pageCount(total, limit), Source: "kg"}, nil
+}
+
+// firstLXString returns the first non-empty string field from a provider payload.
+func firstLXString(item map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(stringValue(item[key])); value != "" { return value }
+	}
+	return ""
+}
+
+// normalizeKuwoCoverURL converts Kuwo's web_albumpic_short relative path into
+// the public album-cover URL used by its desktop/mobile clients.
+).MatchString(tail[0]) { tail = tail[1:] }
+			if len(tail) == 0 { return "" }
+			return "https://img3.kuwo.cn/star/albumcover/300/" + strings.Join(tail, "/")
+		}
+	}
+	if len(parts) > 1 { parts = parts[1:] }
+	if len(parts) == 0 { return "" }
+	return "https://img3.kuwo.cn/star/albumcover/300/" + strings.Join(parts, "/")
 }
 
 // Kugou search responses commonly expose Image as a size-templated image URL.
