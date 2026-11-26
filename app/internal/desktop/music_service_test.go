@@ -878,8 +878,8 @@ func TestMusicFirstUseReceivesLXRuntimeInitializationFailure(t *testing.T) {
 	if err := service.start(context.Background()); err != nil { t.Fatal(err) }
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if err := service.waitForLXRuntime(ctx); err == nil || !strings.Contains(err.Error(), wantErr.Error()) {
-		t.Fatalf("first-use error = %v, want detailed initialization failure %q", err, wantErr)
+	if err := service.waitForLXRuntime(ctx); err != nil {
+		t.Fatalf("completed script initialization failure must not block native provider fallback: %v", err)
 	}
 	status := service.GetStatus()
 	if status.LXRuntimeStatus != "failed" || !strings.Contains(status.LXRuntimeError, "墨澜聚合音源") {
