@@ -259,6 +259,12 @@ func (s *MusicService) start(ctx context.Context) error {
 			// Close so partially initialized engines cannot leak listeners,
 			// transports, or native handles into a later startup attempt.
 			if closeErr := lifecycle.Close(); closeErr != nil {
+				// Do not permit another Start while a partial resource may still be
+				// alive. A subsequent Shutdown retries Close before restart is allowed.
+				s.mu.Lock()
+				s.shuttingDown = true
+				s.playbackStopping = true
+				s.mu.Unlock()
 				return errors.Join(startErr, fmt.Errorf("清理启动失败的音乐播放服务：%w", closeErr))
 			}
 			return startErr
