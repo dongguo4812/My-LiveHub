@@ -58,24 +58,35 @@ func TestProductionLXBuiltInSearchAllFiveProviders(t *testing.T) {
 
 			var first MusicSearchResponse
 			var lastErr error
-			for attempt := 1; attempt <= 2; attempt++ {
-				first, lastErr = service.SearchSourcePage("稻香", provider.id, 1)
-				if lastErr == nil && len(first.Tracks) > 0 {
-					break
-				}
-				if attempt < 2 {
-					select {
-					case <-ctx.Done():
-						t.Fatal(ctx.Err())
-					case <-time.After(750 * time.Millisecond):
+			var keyword string
+			var attempts []string
+			for _, candidateKeyword := range []string{"稻香", "周杰伦", "Jay Chou"} {
+				for attempt := 1; attempt <= 2; attempt++ {
+					first, lastErr = service.SearchSourcePage(candidateKeyword, provider.id, 1)
+					if lastErr == nil && len(first.Tracks) > 0 {
+						keyword = candidateKeyword
+						break
+					}
+					if lastErr != nil {
+						attempts = append(attempts, fmt.Sprintf("%q: %v", candidateKeyword, lastErr))
+					} else {
+						attempts = append(attempts, fmt.Sprintf("%q: zero tracks (total=%d)", candidateKeyword, first.Total))
+					}
+					if attempt < 2 {
+						select {
+						case <-ctx.Done():
+							t.Fatal(ctx.Err())
+						case <-time.After(500 * time.Millisecond):
+						}
 					}
 				}
+				if keyword != "" {
+					break
+				}
 			}
-			if lastErr != nil {
-				t.Fatalf("%s QuickJS live search failed (Go fallback is disabled): %v", provider.name, lastErr)
-			}
-			if len(first.Tracks) == 0 {
-				t.Fatalf("%s QuickJS live search returned no tracks", provider.name)
+			if keyword == "" {
+				t.Fatalf("%s QuickJS live search returned no results for any validation keyword; Go fallback is disabled; attempts=%s",
+					provider.name, strings.Join(attempts, " | "))
 			}
 			if first.Page != 1 || first.PageSize != 30 {
 				t.Fatalf("%s page-one metadata = page:%d size:%d", provider.name, first.Page, first.PageSize)
@@ -97,7 +108,7 @@ func TestProductionLXBuiltInSearchAllFiveProviders(t *testing.T) {
 				t.Fatalf("%s results did not preserve any provider-native song identifier", provider.name)
 			}
 
-			second, secondErr := service.SearchSourcePage("稻香", provider.id, 2)
+			second, secondErr := service.SearchSourcePage(keyword, provider.id, 2)
 			if secondErr != nil {
 				t.Fatalf("%s QuickJS page-two request failed: %v", provider.name, secondErr)
 			}
@@ -109,8 +120,8 @@ func TestProductionLXBuiltInSearchAllFiveProviders(t *testing.T) {
 					t.Errorf("%s page two returned incomplete track identity: %#v", provider.name, track)
 				}
 			}
-			t.Logf("PASS live QuickJS search: provider=%s page1_tracks=%d page2_tracks=%d native_id_tracks=%d total=%d max_page=%d",
-				provider.name, len(first.Tracks), len(second.Tracks), identified, first.Total, first.MaxPage)
+			t.Logf("PASS live QuickJS search: provider=%s keyword=%q page1_tracks=%d page2_tracks=%d native_id_tracks=%d total=%d max_page=%d",
+				provider.name, keyword, len(first.Tracks), len(second.Tracks), identified, first.Total, first.MaxPage)
 		})
 	}
 
