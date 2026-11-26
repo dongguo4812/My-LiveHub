@@ -514,6 +514,43 @@ func (e *failFirstLoadTestEngine) Snapshot(context.Context) (music.PlaybackSnaps
 	return music.PlaybackSnapshot{State: music.PlaybackPlaying}, nil
 }
 
+func TestPlayNextSkipsFailedPlaylistTrackAndStartsNextPlaylistTrack(t *testing.T) {
+	value := config.DefaultMusicConfig()
+	value.Enabled = true
+	value.EnabledSearchSources = []string{"tx"}
+	engine := &failFirstLoadTestEngine{}
+	service := NewMusicServiceWithDependencies(nil, value, engine)
+	service.scriptRuntime = nil
+	defer service.cancelPlaybackWatcher()
+
+	first := music.Track{ID:"tx_playlist_first", SourceID:"tx", LXSourceKey:"tx", Title:"歌单失败歌曲", Artist:"测试歌手"}
+	second := music.Track{ID:"tx_playlist_second", SourceID:"tx", LXSourceKey:"tx", Title:"歌单下一首", Artist:"测试歌手"}
+	service.mu.Lock()
+	service.playlistPlaybackActive = true
+	service.playlistPlaybackID = "playlist-recovery"
+	service.playlistPlaybackTracks = []music.Track{first, second}
+	service.playlistPlaybackIndex = 0
+	service.playlistPlaybackMode = "sequential"
+	service.mu.Unlock()
+
+	if err := service.PlayNext(); err != nil {
+		t.Fatalf("PlayNext should skip the failed playlist track and continue: %v", err)
+	}
+	snapshot := service.queue.Snapshot()
+	if snapshot.Current == nil || snapshot.Current.Track.ID != second.ID {
+		t.Fatalf("current playlist track = %#v, want %q", snapshot.Current, second.ID)
+	}
+	if snapshot.Current.RequestedBy != playlistPlayMarker {
+		t.Fatalf("current playlist item requester = %q, want playlist marker", snapshot.Current.RequestedBy)
+	}
+	if got := engine.loadCalls.Load(); got != 2 {
+		t.Fatalf("engine Load calls = %d, want failed first and successful second", got)
+	}
+	if got := service.GetStatus().LastError; got == "" || !strings.Contains(got, first.Title) {
+		t.Fatalf("failed playlist track diagnostic = %q, want failure for %q", got, first.Title)
+	}
+}
+
 func TestPlayNextSkipsFailedTrackAndStartsNextQueuedTrack(t *testing.T) {
 	value := config.DefaultMusicConfig()
 	value.Enabled = true
