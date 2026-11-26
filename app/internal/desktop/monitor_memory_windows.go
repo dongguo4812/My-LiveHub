@@ -14,6 +14,7 @@ import (
 const (
 	th32csSnapProcess = 0x00000002
 	processQueryInformation = 0x0400
+	processQueryLimitedInformation = 0x1000
 	processVMRead = 0x0010
 )
 
@@ -171,7 +172,7 @@ func readPIDProcessMemory(pid uint32) (oneProcessMemory, error) {
 }
 
 func readPIDProcessCommandLine(pid uint32) (string, error) {
-	handle, err := windows.OpenProcess(processQueryInformation, false, pid)
+	handle, err := windows.OpenProcess(processQueryLimitedInformation, false, pid)
 	if err != nil {
 		return "", err
 	}
