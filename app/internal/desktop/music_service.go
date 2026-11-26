@@ -330,12 +330,14 @@ func (s *MusicService) stop(ctx context.Context) error {
 		return s.Shutdown()
 	}
 	cancel, done := s.cancel, s.workerDone
+	runtimeCancel := s.lxRuntimeCancel
 	if s.playResolveCancel != nil { s.playResolveCancel(); s.playResolveCancel = nil; s.playResolveGeneration++ }
 	// Keep the command listener subscribed while stopped so disabled-command
 	// attempts can still be reported through the shared request-notice stream.
 	s.started = false
 	s.mu.Unlock()
 	if cancel != nil { cancel() }
+	if runtimeCancel != nil { runtimeCancel() }
 	s.cancelPlaybackWatcher()
 	s.cancelExternalPlaybackWatcher()
 	s.lifecycleMu.Unlock()
