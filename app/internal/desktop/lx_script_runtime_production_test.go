@@ -457,7 +457,7 @@ func TestProductionLXFishSunnyDayPlaybackURL(t *testing.T) {
 	}
 	t.Logf("real search and fish musicUrl succeeded: source=%s title=%q artist=%q track_id=%q quality=%s",
 		selectedSource, selectedTrack.Title, selectedTrack.Artist, selectedTrack.ID, selectedResource.Quality)
-	lyrics, lyricErr := service.getNativeProviderLyrics(*selectedTrack)
+	lyrics, lyricErr := service.getNativeProviderLyrics(context.Background(), *selectedTrack)
 	if lyricErr != nil { t.Fatalf("real %s lyric retrieval failed: %v", selectedSource, lyricErr) }
 	if !strings.Contains(lyrics, "[00:") || !strings.Contains(lyrics, "]") {
 		t.Fatalf("real %s lyric response is not timestamped LRC: %q", selectedSource, lyrics)
