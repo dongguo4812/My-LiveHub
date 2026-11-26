@@ -11,8 +11,7 @@ import (
 	"time"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
-	"github.com/dongguo4812/My-LiveHub/app/internal/music"
-)
+	)
 
 // TestProductionLXBuiltInSearchAllFiveProviders exercises each bundled search
 // Action through the production SourceManager, QuickJS runtime, and lx.request
@@ -57,7 +56,7 @@ func TestProductionLXBuiltInSearchAllFiveProviders(t *testing.T) {
 				t.Fatalf("%s has no registered QuickJS search Action", provider.name)
 			}
 
-			var first music.SearchPage
+			var first MusicSearchResponse
 			var lastErr error
 			for attempt := 1; attempt <= 2; attempt++ {
 				first, lastErr = service.SearchSourcePage("稻香 周杰伦", provider.id, 1)
@@ -78,8 +77,8 @@ func TestProductionLXBuiltInSearchAllFiveProviders(t *testing.T) {
 			if len(first.Tracks) == 0 {
 				t.Fatalf("%s QuickJS live search returned no tracks", provider.name)
 			}
-			if first.Page != 1 || first.PageSize != 30 || first.Source != provider.id {
-				t.Fatalf("%s page-one metadata = page:%d size:%d source:%q", provider.name, first.Page, first.PageSize, first.Source)
+			if first.Page != 1 || first.PageSize != 30 {
+				t.Fatalf("%s page-one metadata = page:%d size:%d", provider.name, first.Page, first.PageSize)
 			}
 
 			identified := 0
@@ -102,8 +101,8 @@ func TestProductionLXBuiltInSearchAllFiveProviders(t *testing.T) {
 			if secondErr != nil {
 				t.Fatalf("%s QuickJS page-two request failed: %v", provider.name, secondErr)
 			}
-			if second.Page != 2 || second.PageSize != 30 || second.Source != provider.id {
-				t.Fatalf("%s page-two metadata = page:%d size:%d source:%q", provider.name, second.Page, second.PageSize, second.Source)
+			if second.Page != 2 || second.PageSize != 30 {
+				t.Fatalf("%s page-two metadata = page:%d size:%d", provider.name, second.Page, second.PageSize)
 			}
 			for _, track := range second.Tracks {
 				if track.SourceID != provider.id || strings.TrimSpace(track.ID) == "" || strings.TrimSpace(track.Title) == "" {
