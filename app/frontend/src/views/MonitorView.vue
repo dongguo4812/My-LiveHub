@@ -16,6 +16,7 @@ type MusicPlayback = Awaited<ReturnType<typeof MusicService.GetPlaybackStatus>>
 type VideoSnapshot = Awaited<ReturnType<typeof VideoQueueService.GetSnapshot>>
 type HexStatus = Awaited<ReturnType<typeof LOLHexService.GetStatus>>
 type Metrics = Awaited<ReturnType<typeof MonitorService.GetSystemMetrics>>
+type WebView2Instance = Awaited<ReturnType<typeof MonitorService.GetWebView2Instances>>[number]
 
 const core = ref<CoreStatus | null>(null)
 const modules = ref<ModuleStatus[]>([])
@@ -26,6 +27,7 @@ const musicPlayback = ref<MusicPlayback | null>(null)
 const video = ref<VideoSnapshot | null>(null)
 const hex = ref<HexStatus | null>(null)
 const metrics = ref<Metrics | null>(null)
+const webView2Instances = ref<WebView2Instance[]>([])
 const errors = ref<Record<string, string>>({})
 const refreshing = ref(false)
 const lastUpdated = ref<Date | null>(null)
@@ -79,6 +81,7 @@ async function refreshAll() {
     ['视频点播', async () => { video.value = await VideoQueueService.GetSnapshot() }],
     ['LOL Hex', async () => { hex.value = await LOLHexService.GetStatus() }],
     ['系统资源', async () => { metrics.value = await MonitorService.GetSystemMetrics() }],
+    ['WebView2 实例', async () => { webView2Instances.value = await MonitorService.GetWebView2Instances() }],
   ] as const
   const results = await Promise.allSettled(tasks.map(([, run]) => run()))
   const nextErrors: Record<string, string> = {}
@@ -160,6 +163,28 @@ onUnmounted(() => {
         <p v-if="hex?.error" class="error-text">{{ hex.error }}</p>
       </el-card>
     </div>
+
+    <el-card shadow="never">
+      <template #header>
+        <div class="card-heading">
+          <strong>WebView2 实例清单</strong>
+          <el-tag size="small" type="success">{{ webView2Instances.filter(item => item.status !== 'not_created').length }} / {{ webView2Instances.length }} 个已创建</el-tag>
+        </div>
+      </template>
+      <el-table :data="webView2Instances" size="small" row-key="name" empty-text="暂无 WebView2 窗口清单">
+        <el-table-column prop="name" label="实例名称" min-width="210" />
+        <el-table-column prop="kind" label="类型" width="100" />
+        <el-table-column label="当前状态" width="115">
+          <template #default="{ row }">
+            <el-tag :type="row.status === 'visible' ? 'success' : row.status === 'hidden' ? 'warning' : 'info'" size="small">
+              {{ row.status === 'visible' ? '运行中（可见）' : row.status === 'hidden' ? '已创建（隐藏）' : '未创建' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="purpose" label="用途" min-width="330" show-overflow-tooltip />
+      </el-table>
+      <p class="hint">清单按应用窗口逐个统计 WebView2 宿主，不把 WebView2 Runtime、Audio Service 等共享子进程误算成独立窗口。主窗口承载音乐播放；桌面歌词窗口只负责显示歌词。</p>
+    </el-card>
 
     <el-card shadow="never">
       <template #header><div class="card-heading"><strong>系统资源与运行时间</strong><el-tag size="small" effect="plain">Go 运行时数据</el-tag></div></template>
