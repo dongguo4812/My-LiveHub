@@ -40,7 +40,7 @@ onUnmounted(() => {
   <section class="hex-manager-page">
     <header class="page-heading">
       <div>
-        <h2>LOL Hex 管理</h2>
+        <h2>LOL Hex</h2>
         <p>管理海克斯识别、截图、OCR、LCU 连接和战绩条等功能设置。</p>
       </div>
     </header>
@@ -56,7 +56,7 @@ onUnmounted(() => {
         :key="managerURL"
         class="manager-frame"
         :src="managerURL"
-        title="LOL Hex 管理页面"
+        title="LOL Hex"
         referrerpolicy="no-referrer"
       />
     </template>
