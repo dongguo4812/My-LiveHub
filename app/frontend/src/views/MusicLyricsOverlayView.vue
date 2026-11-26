@@ -49,6 +49,7 @@ const lyricsStatus = ref<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle
 const lyricsError = ref('')
 let lyricsTrackKey = ''
 let lyricsRequestID = 0
+let activeLyricsRequestID = ''
 let refreshTimer: ReturnType<typeof setInterval> | undefined
 let refreshing = false
 
@@ -71,16 +72,21 @@ const playbackLabel = computed(() => playback.value?.state === 'playing'
       : '等待播放')
 
 async function loadTrackLyrics(track: NonNullable<PlaybackSnapshot['track']>, key: string) {
+  if (activeLyricsRequestID) MusicService.CancelLyrics(activeLyricsRequestID)
   const requestID = ++lyricsRequestID
+  const requestToken = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `lyrics-${Date.now()}-${requestID}`
+  activeLyricsRequestID = requestToken
   lyricsStatus.value = 'loading'
   lyricsError.value = ''
   try {
-    const lrc = await MusicService.GetLyrics(track)
+    const lrc = await MusicService.GetLyricsForRequest(track, requestToken)
     if (requestID !== lyricsRequestID || lyricsTrackKey !== key) return
+    activeLyricsRequestID = ''
     syncedLyrics.value = parseSyncedLyrics(lrc ?? '')
     lyricsStatus.value = syncedLyrics.value.length > 0 ? 'ready' : 'empty'
   } catch (reason) {
     if (requestID === lyricsRequestID && lyricsTrackKey === key) {
+      activeLyricsRequestID = ''
       lyricsError.value = reason instanceof Error ? reason.message : String(reason)
       lyricsStatus.value = 'error'
     }
@@ -104,6 +110,7 @@ async function refreshPlayback() {
     const track = next.track
     const key = track ? `${track.source_id}:${track.id}` : ''
     if (key !== lyricsTrackKey) {
+      if (activeLyricsRequestID) { MusicService.CancelLyrics(activeLyricsRequestID); activeLyricsRequestID = '' }
       lyricsTrackKey = key
       syncedLyrics.value = []
       if (track) void loadTrackLyrics(track, key)
@@ -137,6 +144,7 @@ onMounted(() => {
 onUnmounted(() => {
   if (refreshTimer) clearInterval(refreshTimer)
   lyricsRequestID++
+  if (activeLyricsRequestID) { MusicService.CancelLyrics(activeLyricsRequestID); activeLyricsRequestID = '' }
 })
 </script>
 
