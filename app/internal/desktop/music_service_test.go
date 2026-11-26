@@ -3,8 +3,6 @@ package desktop
 import (
 	"context"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"encoding/json"
 	"sync/atomic"
 	"strings"
