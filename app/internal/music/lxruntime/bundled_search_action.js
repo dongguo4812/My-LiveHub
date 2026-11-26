@@ -334,6 +334,21 @@
     if (!tracks.length) throw new Error('QQ 旧版歌曲搜索接口返回空列表（total=' + num(song.totalnum) + '），备用接口可能已失效');
     return page('tx', pageNo, num(song.totalnum), tracks, limit);
   }
+  async function searchQQLegacy(keyword, pageNo, limit, endpoints) {
+    const legacyURL = appendQuery(endpoints.txLegacy || defaults.txLegacy, {
+      ct: '24', qqmusic_ver: '1298', remoteplace: 'txt.yqq.song', t: '0',
+      aggr: '1', cr: '1', lossless: '0', flag_qc: '0', p: pageNo, n: limit,
+      w: keyword, g_tk: '5381', loginUin: '0', hostUin: '0', format: 'json',
+      inCharset: 'utf8', outCharset: 'utf-8', notice: '0',
+      platform: 'yqq.json', needNewCode: '0'
+    });
+    const legacy = await getJSON(legacyURL, {
+      'User-Agent': 'Mozilla/5.0', Referer: 'https://y.qq.com/',
+      Accept: 'application/json, text/plain, */*'
+    });
+    if (num(legacy.code) !== 0) throw new Error('QQ 旧版歌曲搜索返回错误码：' + legacy.code);
+    return qqLegacyTracks(legacy, pageNo, limit);
+  }
   async function searchQQ(keyword, pageNo, limit, endpoints) {
     const payload = {
       'music.search.SearchCgiService': {
@@ -344,10 +359,23 @@
     };
     let lastStatus = '';
     for (let attempt = 0; attempt <= 5; attempt++) {
-      const raw = await postJSON(endpoints.tx || defaults.tx, payload, {
-        'User-Agent': 'Mozilla/5.0', 'Content-Type': 'application/json',
-        Referer: 'https://y.qq.com/', Origin: 'https://y.qq.com'
-      });
+      let raw;
+      try {
+        raw = await postJSON(endpoints.tx || defaults.tx, payload, {
+          'User-Agent': 'Mozilla/5.0', 'Content-Type': 'application/json',
+          Referer: 'https://y.qq.com/', Origin: 'https://y.qq.com'
+        });
+      } catch (error) {
+        const message = str(error && error.message || error);
+        // Cancellation is control flow and must never start another request.
+        if (/cancel/i.test(message)) throw error;
+        try {
+          return await searchQQLegacy(keyword, pageNo, limit, endpoints);
+        } catch (legacyError) {
+          throw new Error('QQ 主搜索接口失败：' + message + '；旧版接口回退失败：' +
+            str(legacyError && legacyError.message || legacyError));
+        }
+      }
       const req = raw['music.search.SearchCgiService'] || raw.req_1 || {};
       if (Object.keys(req).length && num(raw.code) === 0 && num(req.code) === 0) {
         const data = req.data || {}, body = data.body || {}, song = body.song || {};
@@ -355,19 +383,7 @@
           qqTracks(song.list || []), limit);
       }
       if (num(req.code) === 2001) {
-        const legacyURL = appendQuery(endpoints.txLegacy || defaults.txLegacy, {
-          ct: '24', qqmusic_ver: '1298', remoteplace: 'txt.yqq.song', t: '0',
-          aggr: '1', cr: '1', lossless: '0', flag_qc: '0', p: pageNo, n: limit,
-          w: keyword, g_tk: '5381', loginUin: '0', hostUin: '0', format: 'json',
-          inCharset: 'utf8', outCharset: 'utf-8', notice: '0',
-          platform: 'yqq.json', needNewCode: '0'
-        });
-        const legacy = await getJSON(legacyURL, {
-          'User-Agent': 'Mozilla/5.0', Referer: 'https://y.qq.com/',
-          Accept: 'application/json, text/plain, */*'
-        });
-        if (num(legacy.code) !== 0) throw new Error('QQ 旧版歌曲搜索返回错误码：' + legacy.code);
-        return qqLegacyTracks(legacy, pageNo, limit);
+        return searchQQLegacy(keyword, pageNo, limit, endpoints);
       }
       lastStatus = 'top-level code=' + raw.code + ', provider code=' + req.code;
       if (attempt < 5) await new Promise(resolve => setTimeout(resolve, (attempt + 1) * 150));
