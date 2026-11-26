@@ -354,6 +354,7 @@ async function loadScene() {
 function isAudienceRequest(value?: string) {
   return Boolean(value?.trim())
     && value !== '__my_livehub_search_play__'
+    && value !== '__my_livehub_playlist_play__'
     && value !== '__my_livehub_host_playlist__'
 }
 const displayCurrent = computed(() => musicQueue.value.current)
