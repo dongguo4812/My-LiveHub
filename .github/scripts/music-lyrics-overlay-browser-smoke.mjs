@@ -34,6 +34,11 @@ const mockBindings = {
         if (track.id === 'tx_fixture_pending') {
           return await new Promise(resolve => { globalThis.__pendingLyricsResolve = resolve })
         }
+        if (track.id === 'tx_fixture_error') {
+          globalThis.__lyricsErrorAttempts ??= 0
+          globalThis.__lyricsErrorAttempts++
+          if (globalThis.__lyricsErrorAttempts === 1) throw new Error('模拟歌词请求超时')
+        }
         return ['[00:01.00]第一句', '[00:01.00]First translation', '[00:02.50]第二句', '[00:02.50]Second translation'].join(String.fromCharCode(10))
       }
       export function CancelLyrics(requestID) {
@@ -87,8 +92,18 @@ try {
   await page.waitForFunction(() => document.querySelector('.lyrics-track strong')?.textContent?.includes('切歌取消验收曲'))
   await page.waitForFunction(id => globalThis.__cancelledLyricsRequests?.includes(id), pendingRequestID)
   await page.waitForFunction(() => document.querySelector('.original-lyric')?.textContent?.includes('第一句'))
+
+  await page.evaluate(() => {
+    globalThis.__lyricsTrack = { id: 'tx_fixture_error', source_id: 'tx', title: '歌词重试验收曲', artist: '回归测试' }
+  })
+  await page.waitForFunction(() => document.querySelector('.lyrics-track strong')?.textContent?.includes('歌词重试验收曲'))
+  await page.locator('.retry-lyrics').waitFor({ state: 'visible' })
+  assert.match(await page.locator('.lyrics-error, .translated-lyric').first().textContent(), /模拟歌词请求超时/)
+  await page.locator('.retry-lyrics').click()
+  await page.waitForFunction(() => document.querySelector('.original-lyric')?.textContent?.includes('第一句'))
+  await page.locator('.retry-lyrics').waitFor({ state: 'hidden' })
   assert.deepEqual(errors, [], `desktop lyrics overlay browser errors: ${errors.join('; ')}`)
-  console.log('Desktop lyrics overlay browser smoke passed: provider lyrics rendered, translation displayed, active line advanced, and an in-flight request was cancelled on track change.')
+  console.log('Desktop lyrics overlay browser smoke passed: synchronized and translated lyrics render, track changes cancel in-flight requests, and transient failures can be retried.')
 } finally {
   if (browser) await browser.close()
   await server.close()
