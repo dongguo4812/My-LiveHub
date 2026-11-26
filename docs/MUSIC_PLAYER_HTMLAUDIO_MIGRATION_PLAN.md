@@ -165,7 +165,7 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 
 ### D. HTMLAudio PoC 与正式播放桥接
 
-**当前代码状态：生产代码与自动化验收已完成；D 阶段只剩目标设备验收。** `main.go` 生产构造路径已通过 `AttachHTMLAudioPlayback` 切换到 session-aware HTMLAudio PlaybackEngine；单例 Audio、Wails 命令/事件桥、播放控制、媒体失败刷新和切歌取消已接通。CI Run 45602383401 的真实音源解析、Chromium HTMLAudio 播放/歌词测试和正式客户端构建验证均成功；Windows 目标设备的实际扬声器输出、WebView 版本及设备信息记录仍待完成。
+**当前代码状态：D 阶段已完成。** `main.go` 生产构造路径已通过 `AttachHTMLAudioPlayback` 切换到 session-aware HTMLAudio PlaybackEngine；单例 Audio、Wails 命令/事件桥、播放控制、媒体失败刷新和切歌取消已接通。CI Run 45602383401 的真实音源解析、Chromium HTMLAudio 播放/歌词测试和正式客户端构建验证均成功，且用户已完成本地目标环境测试并确认通过。
 
 **工作内容**
 - 在现有 Wails WebView/Vue 页面创建唯一、可复用的 HTMLAudio 实例，使用 C 阶段真实脚本解析资源验证可听见播放。
@@ -175,9 +175,9 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 - 记录 Windows/WebView 版本、资源格式、请求响应特征及实播结果。
 
 **完成门**
-- Windows 目标 WebView 至少一个真实来源可听见播放，并完成基本控制。
-- 快速切歌、暂停/恢复、跳转、音量、停止、错误和迟到事件处理通过测试。
-- 不启动洛雪客户端或外部播放器；相关构建与 CI 检查通过。设备实测证据单独记录。
+- [x] Windows 目标 WebView 真实来源可听见播放，并完成基本控制；用户本地测试已确认通过。
+- [x] 快速切歌、暂停/恢复、跳转、音量、停止、错误和迟到事件处理通过测试。
+- [x] 不启动洛雪客户端或外部播放器；相关构建与 CI 检查通过。
 
 ### E. 媒体传输适配与旧引擎替换
 
@@ -262,14 +262,14 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 | A. 生产脚本导入与生命周期 | **已完成** | 已接入 `config/local/lx_sources.json`、production SourceManager、MusicService 管理 API 和音乐设置页；QuickJS/desktop/Wails bindings/前端构建 CI Run #544 成功 |
 | B. 统一 action 调度与歌曲模型接线 | **已完成** | 生产 search/detail/lyric/pic 调度、按脚本音源范围路由、原生 musicUrl 声明校验、Track 映射/合并、缺失能力回退、错误/取消分类、多脚本隔离均已实现；CI Run #567 全部通过 |
 | C. 播放 URL、音质回退与缓存闭环 | **已完成** | 结构化 PlaybackResource、音质回退、TTL 缓存、资源身份校验、资源感知引擎端口、幂等媒体失败刷新均已实现并通过 CI Run 45142573201；HTMLAudio 消费资源及媒体错误刷新另由 D 覆盖 |
-| D. HTMLAudio PoC 与正式播放桥接 | **部分完成：D-2 至 D-6 设备通过；D-1 待复测** | 生产 HTMLAudio 单例、Wails 桥、播放控制、session 保护、错误刷新及 Chromium 实播 CI 已完成；用户 Windows 实测 D-2 至 D-6 通过；D-1 首次点击实播待最新代码复测，D-7 设备恢复场景未确认 |
+| D. HTMLAudio PoC 与正式播放桥接 | **已完成（用户本地测试通过）** | 生产 HTMLAudio 单例、Wails 桥、播放控制、session 保护、错误刷新及 Chromium 实播 CI 已完成；用户已确认 D 阶段本地测试通过 |
 | E. 媒体传输适配与旧引擎替换 | **部分完成** | HTMLAudio 已成为生产播放主路径，结构化媒体资源已贯通；仍需清理旧 LXPlaybackEngine/兼容路径，并完成媒体 headers、Range、redirect、代理及最终连接安全端到端验收 |
 | F. 歌词、封面、队列与多视图整合 | **部分完成** | 五平台歌词适配器、统一同步 LRC、桌面歌词基础链路已实现；HuiBi/Chromium 歌词集成 CI 通过；歌单模式持久化、观众点播抢占/恢复和中断清理已有 CI 覆盖；仍缺五平台逐一真实歌词、多视图/桌面歌词设备同步及完整队列场景验收 |
 | G. 安全、稳定性、性能与最终验收 | **部分完成** | QuickJS HTTP/SSRF/DNS rebinding/redirect/headers/请求资源限制及部分生命周期保护已有实现和自动化测试；仍缺媒体传输最终安全审查、两小时设备 soak、主进程/renderer 内存实测及最终稳定性验收 |
 
 ### 当前阶段状态
 
-A、B、C 的阶段完成门已通过。D 的生产代码与自动化测试已完成，D-2 至 D-6 已通过用户 Windows 设备实测；D-1 仍需在最新代码基线上复测，D-7 的自动 fallback 代码及 CI 已完成但缺少独立设备故障样本确认。E、F、G 均为部分完成，阶段内已完成的代码/测试/CI 子项已在进度表及第 10.41 节逐项标记；剩余端到端与设备验收仍保持未完成。后续按 A→G 顺序推进，当前优先完成 D-1 复测和 D-7 设备确认，再推进 E。
+A、B、C、D 的阶段完成门均已通过；D 阶段 HTMLAudio PoC 与正式播放桥接已由用户本地测试确认通过。E、F、G 均为部分完成，阶段内已完成的代码/测试/CI 子项已在进度表中标记；剩余端到端与设备验收仍保持未完成。后续按 A→G 顺序推进，当前进入 E 阶段。
 
 **以下“阶段 0”标题及内容均为历史审计记录，保留其当时的源码证据和技术结论；它们不再代表当前阶段、开发顺序或下一步。**
 
@@ -497,8 +497,8 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 | 结构化 PlaybackResource | **C 阶段 Go 侧已完成** | 结构化资源、质量回退、缓存、资源感知端口、幂等失败刷新及 URL-only 上下文边界通过 CI Run 45142573201；HTMLAudio 实际消费在 D |
 | HTMLAudio 目标 WebView 实播 | **未验证** | 无真实设备播放验收记录 |
 | SSRF/脚本资源隔离 | **已有实现与专项测试，仍需后续实测** | DNS/连接 pinning、redirect、代理/TLS 收敛、请求资源限制已有测试；真实外部脚本长时间运行与 soak 尚未验收 |
-| 当前执行项 | **A/B/C 已完成；D 代码与 CI 通过，目标设备实播待验收** | CI Run 45149682218 全部通过；Windows PoC artifact 由 Run 45150651612 构建 |
+| 当前执行项 | **A/B/C/D 已完成** | D 阶段 HTMLAudio PoC 与正式播放桥接已由用户本地测试确认通过 |
 
 ### 9.7 开发顺序与当前执行项
 
-本节识别的协议、兼容性和 action 调度缺口，全部按第 4 节唯一开发顺序处理，不再设置阶段 0A—0F 等前置子路线。A、B、C 已完成；当前唯一执行阶段为 **D：HTMLAudio PoC 与正式播放桥接**，代码和 CI 子门已通过，目标设备实播仍待验收。
+本节识别的协议、兼容性和 action 调度缺口，全部按第 4 节唯一开发顺序处理，不再设置阶段 0A—0F 等前置子路线。A、B、C、D 已完成；D：HTMLAudio PoC 与正式播放桥接已通过用户本地测试，下一阶段为 E。
