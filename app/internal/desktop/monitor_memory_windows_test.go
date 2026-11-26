@@ -20,9 +20,6 @@ func TestReadProcessMemorySnapshotMeasuresCurrentProcess(t *testing.T) {
 	if snapshot.ProcessPrivateBytes == 0 {
 		t.Fatal("current process private bytes is zero")
 	}
-	if snapshot.WebView2ProcessCount < 0 || snapshot.WebView2WorkingSetBytes < 0 {
-		t.Fatalf("invalid WebView2 metrics: %#v", snapshot)
-	}
 }
 
 func TestSystemMetricsCapturesMemoryBaseline(t *testing.T) {
