@@ -115,10 +115,21 @@ func TestProductionLXBuiltInSearchAllFiveProviders(t *testing.T) {
 			if second.Page != 2 || second.PageSize != 30 {
 				t.Fatalf("%s page-two metadata = page:%d size:%d", provider.name, second.Page, second.PageSize)
 			}
+			if second.MaxPage > 1 && len(second.Tracks) == 0 {
+				t.Fatalf("%s page two is empty despite max_page=%d and total=%d", provider.name, second.MaxPage, second.Total)
+			}
+			secondNativeIDs := 0
 			for _, track := range second.Tracks {
 				if track.SourceID != provider.id || strings.TrimSpace(track.ID) == "" || strings.TrimSpace(track.Title) == "" {
 					t.Errorf("%s page two returned incomplete track identity: %#v", provider.name, track)
+					continue
 				}
+				if firstTrackValueForTest(track.SourceData, "songmid", "song_id", "hash", "rid", "copyright_id", "content_id") != "" {
+					secondNativeIDs++
+				}
+			}
+			if len(second.Tracks) > 0 && secondNativeIDs == 0 {
+				t.Fatalf("%s page two did not preserve provider-native song identifiers", provider.name)
 			}
 			t.Logf("PASS live QuickJS search: provider=%s keyword=%q page1_tracks=%d page2_tracks=%d native_id_tracks=%d total=%d max_page=%d",
 				provider.name, keyword, len(first.Tracks), len(second.Tracks), identified, first.Total, first.MaxPage)
