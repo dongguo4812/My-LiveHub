@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"html"
-	"io"
 	"math"
 	"net/http"
 	"net/url"
