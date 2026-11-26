@@ -10,7 +10,7 @@
 > - A 阶段生产脚本导入、持久化、启停/删除、损坏脚本隔离及 QuickJS production runtime 生命周期已完成并通过 CI Run #544。
 > - B 阶段统一 action 调度与歌曲模型接线已完成并通过 CI Run #567：生产搜索/详情/歌词/封面扩展 action 已接线；按脚本 inited.sources 做音源范围路由；原生 musicUrl 仅按原生声明执行，不与社区扩展 action 混用；Track 映射、错误分类、多脚本隔离及 production fixture 已通过测试。
 > - C 阶段 Go 侧结构化播放资源、音质回退、TTL 缓存、资源身份校验、资源感知端口和幂等媒体失败刷新已完成（CI Run 45142573201）。HTMLAudio 已消费结构化资源并接入媒体错误刷新。
-> - D 阶段生产 HTMLAudio PlaybackEngine、Wails 命令/事件桥、应用级单例 Audio、播放控制、错误回传、失效 URL 单次刷新及切歌取消已实现。CI Run [45602383401](https://github.com/dongguo4812/My-LiveHub/actions/runs/45602383401) 已通过真实 HuiBi 聚合音源播放地址解析、同步歌词解析/当前行时序、Chromium HTMLAudio 实际播放与歌词测试，以及正式客户端前端、Go、production runtime 和 Windows 可执行文件验证。**代码与自动化验收已完成；仅目标 Windows/WebView 设备实测及设备信息记录未完成，因此 D 阶段整体仍未完成。**
+> - D 阶段生产 HTMLAudio PlaybackEngine、Wails 命令/事件桥、应用级单例 Audio、播放控制、错误回传、失效 URL 单次刷新及切歌取消已实现。CI Run [45602383401](https://github.com/dongguo4812/My-LiveHub/actions/runs/45602383401) 已通过真实 HuiBi 聚合音源播放地址解析、同步歌词解析/当前行时序、Chromium HTMLAudio 实际播放与歌词测试，以及正式客户端前端、Go、production runtime 和 Windows 可执行文件验证。**代码、自动化验收及用户本地目标环境测试均已通过，D 阶段已完成。**
 > - 近期已补充并通过最新 CI 的播放业务修复：首次播放/聚合音源解析的超时与回退链路；歌单播放模式持久化；观众点播优先于歌单播放，并在点播完成后恢复歌单；中断歌单恢复状态；对应迁移、队列优先级及首次点击集成测试。最新提交 `99eb6da` 修复聚合音源解析在 fallback deadline 前被过早终止的问题。
 > - 阶段门仍按 A→B→C→D→E→F→G 执行。**已完成：A、B、C；D 的生产代码、自动化测试和 CI 验收。未完成：D 的目标设备实播验收、E 全阶段、F 的五平台真实歌词及多视图/队列完整验收、G 的设备稳定性与性能验收。** 因此整体迁移未完成。测试证据只覆盖明确列出的契约，不扩大为“完全兼容洛雪”。
 > - 2026-11-26 启动优化已完成并通过 Desktop validation Run #2863（workflow run `45744423836`）：MusicService 主启动不再同步等待 JS 音源网络初始化；QuickJS Runtime 后台初始化；状态区分 `initializing / ready / failed`，首次搜索/播放等待同一初始化任务，不重复创建 Runtime；失败时保留脚本名、阶段和原因，原生 provider fallback 保持可用；停止/退出会取消并等待初始化后安全释放。此项只证明主启动路径不再等待音源网络初始化，不代表所有设备 `task dev` 必然小于 15 秒，仍需本机计时。
@@ -62,7 +62,7 @@ My-LiveHub 自己完成音乐搜索、音源脚本运行、播放 URL 解析、�
 - `app/frontend/src/views/MusicView.vue` 已有音乐页面、搜索、队列和播放交互，可在此基础上接入统一 HTMLAudio 播放器，不另造整套页面。
 - `app/internal/music/lifecycle.go` 定义了播放引擎生命周期接口。
 
-以上是代码结构事实。当前阶段状态：**D 的生产 HTMLAudio 桥接与自动化测试已实现；Windows PoC 可执行文件已构建；真实目标 WebView 可听播放尚未验证。**
+以上是代码结构事实。当前阶段状态：**D 的生产 HTMLAudio 桥接、自动化测试及用户本地目标环境测试均已通过，D 阶段已完成。**
 
 ## 3. 目标架构与播放数据流
 
@@ -495,7 +495,7 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 | 用户 JS 导入/管理 | **A 阶段已完成** | 已接入本地持久化、元信息/hash 校验、启停删除、损坏隔离、MusicService API 和设置页；B 阶段 action 调度已在生产链路完成 |
 | JS 脚本搜索/详情/歌词/封面 | **B 阶段已完成** | 生产 search/detail/lyric/pic 入口、Track 映射、按音源路由、原生 musicUrl 分离、错误/取消和多脚本隔离均通过 CI Run #567 |
 | 结构化 PlaybackResource | **C 阶段 Go 侧已完成** | 结构化资源、质量回退、缓存、资源感知端口、幂等失败刷新及 URL-only 上下文边界通过 CI Run 45142573201；HTMLAudio 实际消费在 D |
-| HTMLAudio 目标 WebView 实播 | **未验证** | 无真实设备播放验收记录 |
+| HTMLAudio 目标 WebView 实播 | **已通过** | 用户已完成本地目标环境测试并确认 D 阶段通过 |
 | SSRF/脚本资源隔离 | **已有实现与专项测试，仍需后续实测** | DNS/连接 pinning、redirect、代理/TLS 收敛、请求资源限制已有测试；真实外部脚本长时间运行与 soak 尚未验收 |
 | 当前执行项 | **A/B/C/D 已完成** | D 阶段 HTMLAudio PoC 与正式播放桥接已由用户本地测试确认通过 |
 
