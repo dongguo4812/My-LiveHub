@@ -5,7 +5,6 @@ import (
  "encoding/json"
  "errors"
  "fmt"
- "net/url"
  "strings"
  "sync"
  "time"
@@ -177,11 +176,4 @@ func (s *MusicService) GetLXTrackLyrics(track music.Track)(string,error){
  default:
   return "",fmt.Errorf("LX lyric action returned unsupported %T value",value)
  }
-}
-func (s *MusicService) GetLXTrackCover(track music.Track)(string,error){
- source:=firstNonEmpty(track.LXSourceKey,track.SourceID);value,handled,err:=s.dispatchLXExtension(context.Background(),source,"pic",map[string]any{"musicInfo":track,"track":track})
- if !handled{return "",errors.New("当前音源未声明 My-LiveHub pic 扩展 action")};if err!=nil{return "",err}
- cover,ok:=value.(string);if !ok{return "",errors.New("LX pic action must return a string")}
- parsed,err:=url.Parse(strings.TrimSpace(cover));if err!=nil||parsed.Host==""||(parsed.Scheme!="http"&&parsed.Scheme!="https"){return "",errors.New("LX pic action returned an invalid HTTP(S) cover URL")}
- return parsed.String(),nil
 }
