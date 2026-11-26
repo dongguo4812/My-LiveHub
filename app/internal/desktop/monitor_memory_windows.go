@@ -30,6 +30,12 @@ type processEntry32 struct {
 	ExeFile           [windows.MAX_PATH]uint16
 }
 
+type unicodeString struct {
+	Length uint16
+	MaximumLength uint16
+	Buffer uintptr
+}
+
 type processMemoryCountersEx struct {
 	CB                         uint32
 	PageFaultCount             uint32
@@ -49,6 +55,7 @@ var (
 	process32FirstWProc = windows.NewLazySystemDLL("kernel32.dll").NewProc("Process32FirstW")
 	process32NextWProc = windows.NewLazySystemDLL("kernel32.dll").NewProc("Process32NextW")
 	getProcessMemoryInfoProc = windows.NewLazySystemDLL("psapi.dll").NewProc("GetProcessMemoryInfo")
+	ntQueryInformationProcessProc = windows.NewLazySystemDLL("ntdll.dll").NewProc("NtQueryInformationProcess")
 )
 
 func readProcessMemorySnapshot() (ProcessMemorySnapshot, error) {
@@ -85,6 +92,14 @@ func readProcessMemorySnapshot() (ProcessMemorySnapshot, error) {
 		result.WebView2ProcessCount++
 		result.WebView2WorkingSetBytes += memory.WorkingSetBytes
 		result.WebView2PrivateBytes += memory.PrivateBytes
+		commandLine, commandLineErr := readPIDProcessCommandLine(process.ProcessID)
+		if commandLineErr != nil {
+			result.WebView2UnclassifiedProcessCount++
+		} else if isWebView2RendererCommandLine(commandLine) {
+			result.WebView2RendererCount++
+			result.WebView2RendererWorkingSetBytes += memory.WorkingSetBytes
+			result.WebView2RendererPrivateBytes += memory.PrivateBytes
+		}
 	}
 	return result, nil
 }
@@ -153,4 +168,38 @@ func readPIDProcessMemory(pid uint32) (oneProcessMemory, error) {
 	}
 	defer windows.CloseHandle(handle)
 	return readOneProcessMemory(handle)
+}
+
+func readPIDProcessCommandLine(pid uint32) (string, error) {
+	handle, err := windows.OpenProcess(processQueryInformation, false, pid)
+	if err != nil {
+		return "", err
+	}
+	defer windows.CloseHandle(handle)
+
+	// ProcessCommandLineInformation is available on supported Windows 10+
+	// systems and returns a UNICODE_STRING within the caller-provided buffer.
+	const processCommandLineInformation = 60
+	buffer := make([]byte, 64*1024)
+	var returned uint32
+	status, _, _ := ntQueryInformationProcessProc.Call(
+		uintptr(handle),
+		processCommandLineInformation,
+		uintptr(unsafe.Pointer(&buffer[0])),
+		uintptr(len(buffer)),
+		uintptr(unsafe.Pointer(&returned)),
+	)
+	if int32(status) < 0 {
+		return "", syscall.Errno(uint32(status))
+	}
+	if returned < uint32(unsafe.Sizeof(unicodeString{})) {
+		return "", errors.New("NtQueryInformationProcess returned a truncated command line")
+	}
+	value := (*unicodeString)(unsafe.Pointer(&buffer[0]))
+	base := uintptr(unsafe.Pointer(&buffer[0]))
+	if value.Length == 0 || value.Buffer < base || value.Buffer+uintptr(value.Length) > base+uintptr(len(buffer)) {
+		return "", errors.New("NtQueryInformationProcess returned an invalid command line buffer")
+	}
+	units := unsafe.Slice((*uint16)(unsafe.Pointer(value.Buffer)), int(value.Length/2))
+	return windows.UTF16ToString(units), nil
 }
