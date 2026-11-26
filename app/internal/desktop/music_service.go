@@ -86,6 +86,7 @@ type MusicService struct {
 	lxRuntimeError string
 	lxRuntimeDone chan struct{}
 	lxRuntimeCancel context.CancelFunc
+	lxRuntimeCtx context.Context
 	lyricsMu sync.Mutex
 	lyricsCache map[string]string
 	playbackResourceCache *music.PlaybackResourceCache
@@ -241,6 +242,7 @@ func (s *MusicService) start(ctx context.Context) error {
 		s.lxRuntimeError = ""
 		s.lxRuntimeDone = make(chan struct{})
 		s.lxRuntimeCancel = runtimeCancel
+		s.lxRuntimeCtx = runtimeCtx
 	} else {
 		s.lxRuntimeStatus = "ready"
 		s.lxRuntimeError = ""
@@ -252,7 +254,7 @@ func (s *MusicService) start(ctx context.Context) error {
 	go s.worker()
 	if s.scriptRuntime != nil {
 		s.mu.RLock()
-		runtimeCtx := s.ctx
+		runtimeCtx := s.lxRuntimeCtx
 		s.mu.RUnlock()
 		// Runtime initialization is deliberately detached from Wails ServiceStartup.
 		// The main window can render while enabled scripts perform their normal handshake.
@@ -1308,6 +1310,7 @@ func (s *MusicService) Shutdown() error {
 	s.mu.Lock()
 	runtimeCancel, runtimeDone := s.lxRuntimeCancel, s.lxRuntimeDone
 	s.lxRuntimeCancel = nil
+	s.lxRuntimeCtx = nil
 	s.mu.Unlock()
 	if runtimeCancel != nil { runtimeCancel() }
 	if runtimeDone != nil { <-runtimeDone }
