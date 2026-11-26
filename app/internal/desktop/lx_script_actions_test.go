@@ -23,14 +23,20 @@ func TestNormalizeLXScriptSearchResultSupportsLegacyListEnvelope(t *testing.T) {
 	if got.Page != 1 || got.MaxPage != 1 { t.Fatalf("unexpected terminal page metadata: %#v", got) }
 }
 
-func TestGetLXTrackLyricsAcceptsStructuredLXResponse(t *testing.T) {
-	service := &MusicService{scriptRuntime: fakeLXActionRuntime{available:true, value:map[string]any{
-		"lyric":"[00:01.00]主歌词", "tlyric":"[00:01.00]Translated lyric",
+func TestGetLyricsAcceptsStructuredLXResponse(t *testing.T) {
+	service := &MusicService{scriptRuntime: fakeLXActionRuntime{available: true, value: map[string]any{
+		"lyric": "[00:01.00]主歌词", "tlyric": "[00:01.00]Translated lyric",
 	}}}
-	got, err := service.GetLXTrackLyrics(music.Track{ID:"1", SourceID:"kw", LXSourceKey:"kw"})
+	got, err := service.GetLyrics(music.Track{ID: "1", SourceID: "kw", LXSourceKey: "kw"})
 	if err != nil { t.Fatal(err) }
 	if got != "[00:01.00]主歌词\n[00:01.00]Translated lyric" {
 		t.Fatalf("structured lyric = %q", got)
+	}
+}
+
+func TestNormalizeLXScriptLyricsRejectsUnsupportedValue(t *testing.T) {
+	if _, err := normalizeLXScriptLyrics([]any{"not", "lyrics"}); err == nil {
+		t.Fatal("expected unsupported lyric response to fail")
 	}
 }
 
