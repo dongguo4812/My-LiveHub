@@ -740,7 +740,7 @@ func TestSearchAndEnqueueUsesUnifiedSearchAndPlaybackQueue(t *testing.T) {
 	// The service-level queue test uses a deterministic QuickJS Action result.
 	// Real HTTP execution, QQ request parameters, native IDs and cancellation
 	// are exercised by lxruntime's bundled-search integration tests.
-	service.scriptRuntime = fakeLXActionRuntime{available: true, value: map[string]any{
+	service.scriptRuntime = fakeLXActionRuntime{available: true, playbackURL: "https://media.example.test/tx101.mp3", value: map[string]any{
 		"tracks": []any{map[string]any{
 			"id": "tx_TX101", "source_id": "tx", "lx_source_key": "tx",
 			"title": "稻香", "artist": "周杰伦", "album": "魔杰座",
