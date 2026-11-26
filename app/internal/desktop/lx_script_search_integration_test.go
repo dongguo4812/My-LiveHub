@@ -60,8 +60,14 @@ func TestProductionLXBuiltInSearchAllFiveProviders(t *testing.T) {
 			var lastErr error
 			var keyword string
 			var attempts []string
-			for _, candidateKeyword := range []string{"稻香", "周杰伦", "Jay Chou"} {
-				for attempt := 1; attempt <= 2; attempt++ {
+			candidateKeywords := []string{"稻香", "周杰伦", "Jay Chou"}
+			maxAttempts := 2
+			if provider.id == "mg" {
+				candidateKeywords = candidateKeywords[:2]
+				maxAttempts = 1
+			}
+			for _, candidateKeyword := range candidateKeywords {
+				for attempt := 1; attempt <= maxAttempts; attempt++ {
 					first, lastErr = service.SearchSourcePage(candidateKeyword, provider.id, 1)
 					if lastErr == nil && len(first.Tracks) > 0 {
 						keyword = candidateKeyword
@@ -72,7 +78,7 @@ func TestProductionLXBuiltInSearchAllFiveProviders(t *testing.T) {
 					} else {
 						attempts = append(attempts, fmt.Sprintf("%q: zero tracks (total=%d)", candidateKeyword, first.Total))
 					}
-					if attempt < 2 {
+					if attempt < maxAttempts {
 						select {
 						case <-ctx.Done():
 							t.Fatal(ctx.Err())
@@ -115,7 +121,7 @@ func TestProductionLXBuiltInSearchAllFiveProviders(t *testing.T) {
 			if second.Page != 2 || second.PageSize != 30 {
 				t.Fatalf("%s page-two metadata = page:%d size:%d", provider.name, second.Page, second.PageSize)
 			}
-			if second.MaxPage > 1 && len(second.Tracks) == 0 {
+			if first.MaxPage > 1 && len(second.Tracks) == 0 {
 				t.Fatalf("%s page two is empty despite max_page=%d and total=%d", provider.name, second.MaxPage, second.Total)
 			}
 			secondNativeIDs := 0
