@@ -158,7 +158,12 @@ func TestProductionLXBundledSearchActionPropagatesHTTPFailuresAndCancellation(t 
 	if err != nil {
 		t.Fatalf("create QuickJS runtime: %v", err)
 	}
-	defer runtime.Close()
+	closeRuntime := true
+	defer func() {
+		if closeRuntime {
+			_ = runtime.Close()
+		}
+	}()
 	runtime.allowPrivateNetworkForTests = true
 	source := BundledSearchAction()
 	if err := runtime.InitializeLXSource(context.Background(), source.Info, source.Source, server.Client()); err != nil {
@@ -166,6 +171,7 @@ func TestProductionLXBundledSearchActionPropagatesHTTPFailuresAndCancellation(t 
 	}
 
 	providers := []string{"kw", "kg", "tx", "wy", "mg"}
+	stopAfterStalledCancellation := false
 	for _, sourceID := range providers {
 		t.Run(sourceID+"/http_failure", func(t *testing.T) {
 			endpoints := map[string]string{sourceID: server.URL + "/failure"}
@@ -209,6 +215,7 @@ func TestProductionLXBundledSearchActionPropagatesHTTPFailuresAndCancellation(t 
 			}
 			if slowStarted.Load() == before {
 				cancel()
+				closeRuntime = false
 				stopAfterStalledCancellation = true
 				t.Fatalf("%s QuickJS search did not start its HTTP request", sourceID)
 			}
