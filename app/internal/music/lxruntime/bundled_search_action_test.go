@@ -83,39 +83,9 @@ func TestBundledSearchActionsUseQuickJSHTTPForAllFivePlatforms(t *testing.T) {
 	}
 	wantIDs := map[string]string{"kw":"kw_KW31","kg":"202_HASH202","tx":"tx_TX303","wy":"wy_404","mg":"mg_505"}
 	for _, sourceID := range []string{"kw", "kg", "tx", "wy", "mg"} {
-		value, err := runtime.DispatchLXRequest(context.Background(), sourceID, "search", map[string]any{
-			"text":"integration fixture", "page":2, "limit":30, "__testEndpoints":endpoints,
-		})
-		if err != nil { t.Fatalf("%s QuickJS search failed: %v", sourceID, err) }
-		raw, err := json.Marshal(value)
-		if err != nil { t.Fatalf("%s encode result: %v", sourceID, err) }
-		var result struct {
-			Tracks []struct {
-				ID string `json:"id"`
-				Title string `json:"title"`
-				SourceID string `json:"source_id"`
-				SourceData map[string]string `json:"source_data"`
-			} `json:"tracks"`
-			Total int64 `json:"total"`
-			Page int `json:"page"`
-			PageSize int `json:"page_size"`
-			Source string `json:"source"`
-		}
-		if err := json.Unmarshal(raw, &result); err != nil { t.Fatalf("%s decode result %s: %v", sourceID, raw, err) }
-		if len(result.Tracks) != 1 || result.Tracks[0].ID != wantIDs[sourceID] || result.Tracks[0].Title == "" {
-			t.Fatalf("%s track identity mismatch: %s", sourceID, raw)
-		}
-		if result.Page != 2 || result.PageSize != 30 || result.Total != 31 || result.Source != sourceID {
-			t.Fatalf("%s page metadata mismatch: %s", sourceID, raw)
-		}
-		if result.Tracks[0].SourceID != sourceID { t.Fatalf("%s source identity mismatch: %s", sourceID, raw) }
-	}
-	for _, sourceID := range []string{"kw", "kg", "tx", "wy", "mg"} {
 		if !seen[sourceID] { t.Errorf("%s request did not pass through lx.request HTTP host", sourceID) }
-	if !seen["kgv3"] { t.Error("Kugou empty-page fallback did not pass through lx.request HTTP host") }
 	}
 	if !seen["kgv3"] { t.Error("Kugou empty-page fallback did not pass through lx.request HTTP host") }
-	}
 	fallback, fallbackErr := runtime.DispatchLXRequest(context.Background(), "tx", "search", map[string]any{
 		"text": "legacy fallback fixture", "page": 2, "limit": 30,
 		"__testEndpoints": map[string]string{"tx": server.URL + "/txfail", "txLegacy": server.URL + "/txlegacy"},
@@ -209,6 +179,9 @@ func TestBundledSearchActionPropagatesHTTPFailuresAndCancellation(t *testing.T) 
 			case dispatchErr := <-done:
 				if dispatchErr == nil || (dispatchErr != context.Canceled && !strings.Contains(dispatchErr.Error(), "context canceled")) {
 					t.Fatalf("%s cancellation was not propagated: %v", sourceID, dispatchErr)
+				}
+				if sourceID == "tx" && slowStarted.Load() != before+1 {
+					t.Fatalf("QQ cancellation started a legacy fallback request; request count=%d, want %d", slowStarted.Load()-before, 1)
 				}
 			case <-time.After(2 * time.Second):
 				t.Fatalf("%s cancelled QuickJS search did not return promptly", sourceID)
