@@ -388,6 +388,12 @@ func main() {
 		item := item
 		mainWindow.OnWindowEvent(item.event, func(_ *application.WindowEvent) {
 			logMainWindowState(item.name)
+			switch item.name {
+			case "hide", "minimise":
+				monitorService.SetFrontendMonitoringSuspended(true)
+			case "show", "unminimise", "restore":
+				monitorService.SetFrontendMonitoringSuspended(false)
+			}
 		})
 	}
 	showMainWindow := func(reason string) {
