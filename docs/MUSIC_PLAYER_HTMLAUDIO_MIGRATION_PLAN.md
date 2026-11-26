@@ -327,12 +327,12 @@ A、B、C、D 的阶段完成门均已通过；D 阶段 HTMLAudio PoC 与正式�
 
 目前三个脚本返回的是 URL 字符串；仓库尚无对这三个脚本、五个平台在目标 Windows WebView 上的完整真实 URL、MIME/编码、Range、重定向、Cookie/Referer 播放要求矩阵。因此不能宣称已完成真实格式兼容性验证。
 
-#### C. 已发现的关键架构缺口
+#### C. 已发现的关键架构缺口（2026-11-23 历史审查记录，后续状态见本文 E 阶段更新）
 
 1. **播放 URL 解析已接入主链路。** `playNext → resolveAndStartLXTrack` 复用现有 QuickJS URL resolver，并将结构化 PlaybackResource 交给 HTMLAudio 引擎；不得另写一套脚本解析入口。
 2. **播放 URL 资源模型过窄。** 目前 resolver 返回 `string`，丢失媒体响应所需的 headers、MIME/编码提示、过期信息及来源信息。脚本的 API 请求 headers 与媒体 GET headers 是两个不同概念。阶段 0/1 应先定义 `PlaybackResource`，默认不携带可写入日志的敏感 Cookie/签名参数。
 3. **HTMLAudio 请求头限制需要实测。** 如果最终媒体 GET 必须携带 Referer/Cookie/自定义 header，单纯把 URL 赋给 Audio.src 可能无法播放。阶段 4 需要依据真实响应决定直连、音源降级或 Go 流代理；代理必须支持 Range、取消、Content-Type、Content-Length/分块传输和重定向语义。
-4. **当前歌词确实被旧播放器绑定。** `GetLyrics` 依赖 `PlaybackEngine.GetCurrentLyrics` 和 Snapshot 前后核对；歌词独立于播放执行器的按 Track 获取接口尚未存在。
+4. **历史问题，已由后续实现解决。** 当时 `GetLyrics` 依赖旧 `PlaybackEngine.GetCurrentLyrics`；后续已改为按 Track/音源调用脚本 lyric action 或平台歌词适配器，旧歌词 API 依赖已删除。
 5. **队列推进已由 My-LiveHub 自己管理。** `PlayNext`、`Next` 和播放结束处理只消费 My-LiveHub 的请求队列/歌单；队列为空时进入 idle，不再访问外部播放器队列。
 
 #### D. Wails v3 前后端通信方案
@@ -429,7 +429,7 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 
 本节记录对当前分支实现和本方案的可行性复核，优先级高于前文尚未细化的阶段描述。结论区分“技术路线可行”与“当前代码已经具备交付条件”，不得将两者混为一谈。
 
-### 9.1 总体结论
+### 9.1 总体结论（2026-11-23 历史快照，已被后续阶段验收更新）
 
 **总体技术路线可行，但当前方案尚不能不经前置收敛就直接进入大规模功能开发。**
 
@@ -449,7 +449,7 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 
 因此：**架构方向通过可行性审查；A/B/C 已完成，D 已接通生产 HTMLAudio 并通过自动化 CI，当前仍等待目标 Windows/WebView 实播验收。**
 
-### 9.2 关键缺口及处理决定
+### 9.2 关键缺口及处理决定（2026-11-23 历史快照；表内“当前事实”不代表当前代码状态）
 
 | 编号 | 缺口 | 当前事实 | 必须采取的处理 |
 |---|---|---|---|
@@ -459,7 +459,7 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 | F-04 | 播放资源结构 | 当前 resolver 返回 URL 字符串 | 将返回契约升级为结构化 PlaybackResource，至少包含 URL、source/track/quality、媒体 headers（敏感字段受控）、MIME/编码提示、过期/刷新信息、代理策略和脱敏元数据 |
 | F-05 | 媒体传输能力 | HTMLAudio 不能任意设置请求头，真实媒体要求尚未采样 | 先采集真实资源的响应和请求限制；优先直连或脚本音质回退，确有必要才实现支持 Range/取消/重定向/流式响应的受控 Go 代理 |
 | F-06 | 导入脚本安全 | QuickJS 无直接 OS API 不代表网络能力安全 | 对 lx.request 实施 SSRF 防护（回环、私网、链路本地、云元数据地址及 DNS 解析后地址校验）、协议/端口策略、超时、响应体上限、并发配额、重定向逐跳校验；对 JS 执行设置内存/栈/时间限制、脚本隔离、取消和资源回收 |
-| F-07 | 搜索/详情/歌词契约 | 当前搜索是 Go provider；歌词路径仍依赖旧 PlaybackEngine | 先定义 JS action 输入/输出 schema、分页/排序、错误码和 Track 映射；歌词按 Track/source 获取，不依赖外部播放器当前曲目 |
+| F-07 | 搜索/详情/歌词契约 | （历史状态）当时搜索是 Go provider，歌词路径依赖旧 PlaybackEngine；后续歌词路径已迁移，搜索/详情能力按后续阶段记录验收 | 先定义 JS action 输入/输出 schema、分页/排序、错误码和 Track 映射；歌词按 Track/source 获取，不依赖外部播放器当前曲目 |
 | F-08 | 并发和生命周期 | SourceManager 的全局 dispatch 锁可能限制并发；脚本持久上下文需定义 | 明确每脚本串行还是并行、跨脚本并行策略、上下文线程归属、取消传播、卸载等待和锁粒度；用并发/竞态测试验证 |
 | F-09 | 生产构建约束 | QuickJS 生产实现受 lxproduction && cgo build tag 控制 | 验证开发、CI、Windows 生产构建的 tag/CGO 配置一致；非生产 fallback 不得被误判为运行时正常可用 |
 
