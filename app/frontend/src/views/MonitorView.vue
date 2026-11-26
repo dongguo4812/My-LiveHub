@@ -188,18 +188,24 @@ onUnmounted(() => {
 
 
     <el-card shadow="never">
-      <template #header><div class="card-heading"><strong>系统资源与运行时间</strong><el-tag size="small" effect="plain">Go 运行时数据</el-tag></div></template>
+      <template #header><div class="card-heading"><strong>系统资源与运行时间</strong><el-tag size="small" effect="plain">Windows 进程与 Go 运行时</el-tag></div></template>
       <div class="system-grid">
         <div><span>程序运行时间</span><strong>{{ formatDuration(metrics?.uptime_seconds) }}</strong></div>
         <div><span>系统 CPU 占用</span><strong>{{ metrics ? metrics.system_cpu_percent.toFixed(1) + '%' : '—' }}</strong></div>
         <div><span>My-LiveHub 进程 CPU 占用</span><strong>{{ metrics ? metrics.process_cpu_percent.toFixed(1) + '%' : '—' }}</strong></div>
+        <div><span>My-LiveHub 工作集（实际物理内存）</span><strong>{{ formatBytes(metrics?.process_working_set_bytes) }}</strong></div>
+        <div><span>My-LiveHub 私有内存</span><strong>{{ formatBytes(metrics?.process_private_bytes) }}</strong></div>
+        <div><span>主进程工作集较基线变化</span><strong>{{ metrics?.memory_baseline_ready ? (metrics.process_working_set_delta_bytes >= 0 ? '+' : '') + formatBytes(Math.abs(metrics.process_working_set_delta_bytes)) : '采样中' }}</strong></div>
+        <div><span>所属 WebView2 子进程</span><strong>{{ metrics?.webview2_process_count ?? '—' }} 个</strong></div>
+        <div><span>所属 WebView2 工作集合计</span><strong>{{ formatBytes(metrics?.webview2_working_set_bytes) }}</strong></div>
+        <div><span>WebView2 工作集较基线变化</span><strong>{{ metrics?.memory_baseline_ready ? (metrics.webview2_working_set_delta_bytes >= 0 ? '+' : '') + formatBytes(Math.abs(metrics.webview2_working_set_delta_bytes)) : '采样中' }}</strong></div>
         <div><span>Go 堆内存使用</span><strong>{{ formatBytes(metrics?.go_heap_alloc_bytes) }}</strong></div>
         <div><span>Go 堆内存保留</span><strong>{{ formatBytes(metrics?.go_heap_sys_bytes) }}</strong></div>
         <div><span>累计内存分配</span><strong>{{ formatBytes(metrics?.go_total_alloc_bytes) }}</strong></div>
         <div><span>运行中的 Goroutine</span><strong>{{ metrics?.goroutines ?? '—' }}</strong></div>
         <div><span>逻辑 CPU 数</span><strong>{{ metrics?.cpu_count ?? '—' }}</strong></div>
       </div>
-      <p class="hint">系统 CPU 取自 Windows 系统处理器时间；进程 CPU 取自 My-LiveHub 进程处理器时间，均按整机逻辑 CPU 总容量归一化。CPU 首次采样显示 0%，后续按采样间隔计算。内存为 Go 堆内存，不等同于 Windows 进程总内存。</p>
+      <p class="hint">系统 CPU 取自 Windows 系统处理器时间；进程 CPU 按整机逻辑 CPU 总容量归一化。Windows 内存指标分别统计 My-LiveHub 主进程，以及通过父子进程关系确认归属的 msedgewebview2.exe 子进程；不按进程名扫描并混入其他软件。工作集为当前驻留物理内存，私有内存为进程私有提交量。基线取应用启动后首次成功采样值，变化量为相对该基线的差值；Go Heap 是其中的运行时子集，不等同于进程总内存。<span v-if="metrics?.process_memory_error"> 进程内存采样失败：{{ metrics.process_memory_error }}</span></p>
     </el-card>
 
 
