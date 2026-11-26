@@ -123,7 +123,7 @@ func (r *captureLXSearchRuntime) DispatchExtensionAction(_ context.Context, _, _
 func TestScriptAwareSearcherUsesLXNativeSearchRequestFields(t *testing.T) {
  runtime := &captureLXSearchRuntime{}
  service := &MusicService{scriptRuntime:runtime}
- searcher := scriptAwareSourceSearcher{base:music.NewLXSearchClient(nil),service:service}
+ searcher := scriptAwareSourceSearcher{service:service}
  got,err := searcher.SearchProvider(context.Background(),"wy","稻香",2)
  if err != nil { t.Fatal(err) }
  if len(got.Tracks)!=1 || got.Tracks[0].Title!="稻香" { t.Fatalf("script search result not normalized: %#v",got) }
@@ -174,10 +174,7 @@ func (r *multiPlatformSearchActionRuntime) DispatchExtensionAction(_ context.Con
 func TestScriptAwareSearcherDispatchesSearchActionForAllFivePlatforms(t *testing.T) {
 	runtime := &multiPlatformSearchActionRuntime{}
 	service := &MusicService{scriptRuntime: runtime}
-	searcher := scriptAwareSourceSearcher{
-		base: music.NewLXSearchClient(nil),
-		service: service,
-	}
+	searcher := scriptAwareSourceSearcher{service: service}
 	for _, source := range []string{"tx", "kw", "kg", "wy", "mg"} {
 		page, err := searcher.SearchProvider(context.Background(), source, "fixture", 1)
 		if err != nil {
@@ -195,24 +192,13 @@ func TestScriptAwareSearcherDispatchesSearchActionForAllFivePlatforms(t *testing
 }
 
 
-type countingNativeSearchFallback struct {
-	music.SourceSearcher
-	calls []string
-}
-func (s *countingNativeSearchFallback) SearchProvider(ctx context.Context, source, keyword string, page int) (music.SearchPage, error) {
-	s.calls = append(s.calls, source)
-	return music.SearchPage{}, errors.New("native Go search fallback must not be called")
-}
-
-func TestScriptAwareSearcherNeverUsesNativeFallbackAndPreservesConfiguredPriority(t *testing.T) {
+func TestScriptAwareSearcherPreservesConfiguredPriorityWithoutGoProvider(t *testing.T) {
 	runtime := &multiPlatformSearchActionRuntime{}
-	base := &countingNativeSearchFallback{SourceSearcher: music.NewLXSearchClient(nil)}
-	searcher := scriptAwareSourceSearcher{base: base, service: &MusicService{scriptRuntime: runtime}}
+	searcher := scriptAwareSourceSearcher{service: &MusicService{scriptRuntime: runtime}}
 	priority := []string{"mg", "kw", "tx", "wy", "kg"}
 	result, failures, err := searcher.SearchSources(context.Background(), "priority fixture", 1, priority)
 	if err != nil { t.Fatalf("QuickJS multi-source search failed: %v", err) }
 	if len(failures) != 0 { t.Fatalf("unexpected provider failures: %#v", failures) }
-	if len(base.calls) != 0 { t.Fatalf("native Go fallback was called for: %#v", base.calls) }
 	if len(result.Tracks) != len(priority) { t.Fatalf("result count=%d, want %d: %#v", len(result.Tracks), len(priority), result.Tracks) }
 	for i, source := range priority {
 		if result.Tracks[i].SourceID != source {
@@ -222,11 +208,8 @@ func TestScriptAwareSearcherNeverUsesNativeFallbackAndPreservesConfiguredPriorit
 	}
 }
 
-
 func TestScriptAwareSearcherBlocksNativeFallbackWhenQuickJSActionIsUnavailable(t *testing.T) {
-	base := &countingNativeSearchFallback{SourceSearcher: music.NewLXSearchClient(nil)}
 	searcher := scriptAwareSourceSearcher{
-		base: base,
 		service: &MusicService{scriptRuntime: fakeLXActionRuntime{available: false}},
 	}
 	for _, source := range []string{"kw", "kg", "tx", "wy", "mg"} {
@@ -235,5 +218,4 @@ func TestScriptAwareSearcherBlocksNativeFallbackWhenQuickJSActionIsUnavailable(t
 			t.Errorf("%s should fail closed when QuickJS search is unavailable, got %v", source, err)
 		}
 	}
-	if len(base.calls) != 0 { t.Fatalf("Go native search fallback was called: %#v", base.calls) }
 }
