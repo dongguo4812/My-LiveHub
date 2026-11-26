@@ -88,7 +88,6 @@ type MusicService struct {
 	playResolveGeneration uint64
 	playResolveCancel context.CancelFunc
 	playbackResolutionStatus string
-	searcher *music.LXSearchClient
 	scriptRuntime lxScriptRuntime
 	lxRuntimeStatus string
 	lxRuntimeError string
@@ -128,7 +127,7 @@ func NewMusicServiceWithDependencies(manager *config.Manager, value config.Music
 	service := &MusicService{
 		manager: manager, buffer: buffer, value: cloneMusicConfig(value), playlistPlaybackMode: value.PlaylistPlaybackMode,
 		engine: engine, queue: music.NewQueue(value.QueueCapacity),
-		searcher: music.NewLXSearchClient(nil), scriptRuntime: newLXScriptRuntime(manager), 	lyricsCache: make(map[string]string), lyricsRequests: make(map[string]lyricsRequest), lyricsTasks: make(map[uint64]context.CancelFunc), playbackResourceCache: music.NewPlaybackResourceCache(2*time.Minute, 512), playbackRefreshResults: make(map[string]music.PlaybackResource), requestCooldowns: make(map[string]time.Time),
+		scriptRuntime: newLXScriptRuntime(manager), 	lyricsCache: make(map[string]string), lyricsRequests: make(map[string]lyricsRequest), lyricsTasks: make(map[uint64]context.CancelFunc), playbackResourceCache: music.NewPlaybackResourceCache(2*time.Minute, 512), playbackRefreshResults: make(map[string]music.PlaybackResource), requestCooldowns: make(map[string]time.Time),
 	}
 	// Keep the lightweight command listener alive while the module is stopped,
 	// matching the video module so users still receive an explicit failure notice.
@@ -612,7 +611,7 @@ func (s *MusicService) recordRequestCooldown(event events.Event) {
 
 // searchSongRequestTrack tries enabled sources in configured priority order.
 func (s *MusicService) searchSongRequestTrack(parent context.Context, keyword, requestedTitle, requestedArtist string) (music.Track, bool, []string) {
-	if s == nil || s.searcher == nil {
+	if s == nil {
 		return music.Track{}, false, []string{"洛雪搜索 SDK 未初始化"}
 	}
 	if parent == nil { parent = context.Background() }
@@ -623,9 +622,9 @@ func (s *MusicService) searchSongRequestTrack(parent context.Context, keyword, r
 		ctx, cancel := context.WithTimeout(parent, 18*time.Second)
 		defer cancel()
 		s.mu.RLock()
-		searcher, resolver := s.searcher, s.scriptRuntime
+		resolver := s.scriptRuntime
 		s.mu.RUnlock()
-		result, err := music.NewUnifiedSourceService(scriptAwareSourceSearcher{base: searcher, service: s}, resolver).SearchSource(ctx, source, keyword, 1)
+		result, err := music.NewUnifiedSourceService(scriptAwareSourceSearcher{service: s}, resolver).SearchSource(ctx, source, keyword, 1)
 		if err != nil { return nil, err }
 		return result.Tracks, nil
 	}, requestedTitle, requestedArtist)
@@ -833,14 +832,14 @@ func (s *MusicService) SaveConfig(value config.MusicConfig) error {
 }
 
 func (s *MusicService) GetSources() []music.SourceSnapshot {
-	if s == nil || s.searcher == nil { return []music.SourceSnapshot{} }
+	if s == nil { return []music.SourceSnapshot{} }
 	priority := s.enabledSearchSourceIDs()
 	rank := make(map[string]int, len(priority))
 	for i, id := range priority { rank[id] = i }
 	s.mu.RLock()
 	resolveAvailable := s.scriptRuntime != nil && s.scriptRuntime.Available()
 	s.mu.RUnlock()
-	result := s.searcher.Sources()
+	result := music.SourceCatalog()
 	for i := range result {
 		result[i].Capabilities.Resolve = resolveAvailable
 		result[i].Enabled = false
@@ -864,7 +863,7 @@ func (s *MusicService) SearchPage(keyword string, page int) (MusicSearchResponse
 }
 
 func (s *MusicService) SearchSourcePage(keyword, source string, page int) (MusicSearchResponse, error) {
-	if s == nil || s.searcher == nil {
+	if s == nil {
 		return MusicSearchResponse{}, errors.New("洛雪搜索 SDK 未初始化")
 	}
 	if strings.TrimSpace(keyword) == "" {
@@ -884,9 +883,9 @@ func (s *MusicService) SearchSourcePage(keyword, source string, page int) (Music
 	ctx, cancel := context.WithTimeout(context.Background(), 18*time.Second)
 	defer cancel()
 	s.mu.RLock()
-	searcher, resolver := s.searcher, s.scriptRuntime
+	resolver := s.scriptRuntime
 	s.mu.RUnlock()
-	result, err := music.NewUnifiedSourceService(scriptAwareSourceSearcher{base: searcher, service: s}, resolver).SearchSource(ctx, source, keyword, page)
+	result, err := music.NewUnifiedSourceService(scriptAwareSourceSearcher{service: s}, resolver).SearchSource(ctx, source, keyword, page)
 	if err != nil {
 		return MusicSearchResponse{}, err
 	}
@@ -898,16 +897,16 @@ func (s *MusicService) SearchSourcePage(keyword, source string, page int) (Music
 
 // enabledSearchSourceIDs reads the independent platform selection from music.json.
 func (s *MusicService) enabledSearchSourceIDs() []string {
-	if s == nil || s.searcher == nil { return []string{} }
+	if s == nil { return []string{} }
 	s.mu.RLock()
 	var configured []string
 	if s.value.EnabledSearchSources != nil { configured = append([]string{}, s.value.EnabledSearchSources...) }
 	s.mu.RUnlock()
 	if configured == nil {
-		for _, item := range s.searcher.Sources() { configured = append(configured, item.ID) }
+		for _, item := range music.SourceCatalog() { configured = append(configured, item.ID) }
 	}
 	available := make(map[string]bool)
-	for _, item := range s.searcher.Sources() { available[item.ID] = true }
+	for _, item := range music.SourceCatalog() { available[item.ID] = true }
 	result := make([]string, 0, len(configured))
 	seen := make(map[string]bool)
 	for _, id := range configured {
@@ -921,7 +920,7 @@ func (s *MusicService) search(parent context.Context, keyword string) (MusicSear
 }
 
 func (s *MusicService) searchPage(parent context.Context, keyword string, page int) (MusicSearchResponse, error) {
-	if s == nil || s.searcher == nil { return MusicSearchResponse{}, errors.New("洛雪搜索 SDK 未初始化") }
+	if s == nil { return MusicSearchResponse{}, errors.New("洛雪搜索 SDK 未初始化") }
 	if parent == nil { parent = context.Background() }
 	if err := s.waitForLXRuntime(parent); err != nil { return MusicSearchResponse{}, err }
 	sourceIDs := s.enabledSearchSourceIDs()
@@ -931,9 +930,9 @@ func (s *MusicService) searchPage(parent context.Context, keyword string, page i
 	ctx, cancel := context.WithTimeout(parent, 18*time.Second)
 	defer cancel()
 	s.mu.RLock()
-	searcher, resolver := s.searcher, s.scriptRuntime
+	resolver := s.scriptRuntime
 	s.mu.RUnlock()
-	result, sourceErrors, err := music.NewUnifiedSourceService(scriptAwareSourceSearcher{base: searcher, service: s}, resolver).Search(ctx, keyword, page, sourceIDs)
+	result, sourceErrors, err := music.NewUnifiedSourceService(scriptAwareSourceSearcher{service: s}, resolver).Search(ctx, keyword, page, sourceIDs)
 	response := MusicSearchResponse{
 		Tracks: result.Tracks, Errors: sourceErrors, Page: result.Page,
 		PageSize: result.PageSize, Total: result.Total, MaxPage: result.MaxPage,
