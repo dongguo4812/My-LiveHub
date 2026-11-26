@@ -805,3 +805,88 @@ func TestCachedPlaybackStatusExposesActiveResolution(t *testing.T) {
 	if snapshot.ResolutionStatus != "resolving" { t.Fatalf("resolution status = %q, want resolving", snapshot.ResolutionStatus) }
 	if snapshot.Track == nil || snapshot.Track.ID != track.ID { t.Fatalf("resolving track not exposed in playback snapshot: %#v", snapshot.Track) }
 }
+
+type blockingLXScriptRuntime struct {
+	started chan struct{}
+	release chan struct{}
+	startErr error
+	startCalls atomic.Int32
+	closeCalls atomic.Int32
+}
+func (r *blockingLXScriptRuntime) Available() bool { return true }
+func (r *blockingLXScriptRuntime) Start(ctx context.Context) error {
+	r.startCalls.Add(1)
+	close(r.started)
+	select {
+	case <-r.release:
+		return r.startErr
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+func (r *blockingLXScriptRuntime) ResolvePlaybackURL(context.Context, string, any) (string, error) {
+	return "", errors.New("not implemented")
+}
+func (r *blockingLXScriptRuntime) Close() error { r.closeCalls.Add(1); return nil }
+
+func TestMusicStartDoesNotWaitForLXRuntimeInitialization(t *testing.T) {
+	runtime := &blockingLXScriptRuntime{started: make(chan struct{}), release: make(chan struct{})}
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, &nextTrackTestEngine{}, events.NewBuffer())
+	service.scriptRuntime = runtime
+	startedAt := time.Now()
+	if err := service.start(context.Background()); err != nil { t.Fatal(err) }
+	if elapsed := time.Since(startedAt); elapsed > 250*time.Millisecond {
+		t.Fatalf("music service startup waited %s for LX runtime initialization", elapsed)
+	}
+	select {
+	case <-runtime.started:
+	case <-time.After(time.Second):
+		t.Fatal("background LX runtime initialization did not start")
+	}
+	if got := service.GetStatus().LXRuntimeStatus; got != "initializing" {
+		t.Fatalf("LX runtime status = %q while initialization is blocked, want initializing", got)
+	}
+	waitResult := make(chan error, 1)
+	go func() { waitResult <- service.waitForLXRuntime(context.Background()) }()
+	select {
+	case err := <-waitResult:
+		t.Fatalf("first-use wait returned before initialization completed: %v", err)
+	case <-time.After(30 * time.Millisecond):
+	}
+	close(runtime.release)
+	select {
+	case err := <-waitResult:
+		if err != nil { t.Fatalf("wait for successful runtime initialization: %v", err) }
+	case <-time.After(time.Second):
+		t.Fatal("first-use wait did not finish after runtime initialization")
+	}
+	if got := service.GetStatus().LXRuntimeStatus; got != "ready" {
+		t.Fatalf("LX runtime status = %q, want ready", got)
+	}
+	if got := runtime.startCalls.Load(); got != 1 { t.Fatalf("runtime Start called %d times, want exactly once", got) }
+	stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := service.stop(stopCtx); err != nil { t.Fatal(err) }
+}
+
+func TestMusicFirstUseReceivesLXRuntimeInitializationFailure(t *testing.T) {
+	wantErr := errors.New("墨澜聚合音源 初始化失败（阶段：initialize_script）：网络超时")
+	runtime := &blockingLXScriptRuntime{started: make(chan struct{}), release: make(chan struct{}), startErr: wantErr}
+	close(runtime.release)
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, &nextTrackTestEngine{}, events.NewBuffer())
+	service.scriptRuntime = runtime
+	if err := service.start(context.Background()); err != nil { t.Fatal(err) }
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := service.waitForLXRuntime(ctx); err == nil || !strings.Contains(err.Error(), wantErr.Error()) {
+		t.Fatalf("first-use error = %v, want detailed initialization failure %q", err, wantErr)
+	}
+	status := service.GetStatus()
+	if status.LXRuntimeStatus != "failed" || !strings.Contains(status.LXRuntimeError, "墨澜聚合音源") {
+		t.Fatalf("failed runtime status did not preserve script details: %#v", status)
+	}
+	if got := runtime.startCalls.Load(); got != 1 { t.Fatalf("runtime Start called %d times, want exactly once", got) }
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), time.Second)
+	defer stopCancel()
+	if err := service.stop(stopCtx); err != nil { t.Fatal(err) }
+}
