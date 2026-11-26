@@ -25,6 +25,10 @@ type ProcessMemorySnapshot struct {
 	WebView2ProcessCount int
 	WebView2WorkingSetBytes uint64
 	WebView2PrivateBytes uint64
+	WebView2RendererCount int
+	WebView2RendererWorkingSetBytes uint64
+	WebView2RendererPrivateBytes uint64
+	WebView2UnclassifiedProcessCount int
 }
 
 type SystemMetricsSnapshot struct {
@@ -34,11 +38,17 @@ type SystemMetricsSnapshot struct {
 	WebView2ProcessCount int `json:"webview2_process_count"`
 	WebView2WorkingSetBytes uint64 `json:"webview2_working_set_bytes"`
 	WebView2PrivateBytes uint64 `json:"webview2_private_bytes"`
+	WebView2RendererCount int `json:"webview2_renderer_count"`
+	WebView2RendererWorkingSetBytes uint64 `json:"webview2_renderer_working_set_bytes"`
+	WebView2RendererPrivateBytes uint64 `json:"webview2_renderer_private_bytes"`
+	WebView2UnclassifiedProcessCount int `json:"webview2_unclassified_process_count"`
 	MemoryBaselineReady bool `json:"memory_baseline_ready"`
 	ProcessWorkingSetDeltaBytes int64 `json:"process_working_set_delta_bytes"`
 	ProcessPrivateDeltaBytes int64 `json:"process_private_delta_bytes"`
 	WebView2WorkingSetDeltaBytes int64 `json:"webview2_working_set_delta_bytes"`
 	WebView2PrivateDeltaBytes int64 `json:"webview2_private_delta_bytes"`
+	WebView2RendererWorkingSetDeltaBytes int64 `json:"webview2_renderer_working_set_delta_bytes"`
+	WebView2RendererPrivateDeltaBytes int64 `json:"webview2_renderer_private_delta_bytes"`
 	ProcessMemoryError string `json:"process_memory_error,omitempty"`
 	UptimeSeconds int64 `json:"uptime_seconds"`
 	GoHeapAllocBytes uint64 `json:"go_heap_alloc_bytes"`
@@ -90,6 +100,8 @@ type MonitorService struct {
 	processPrivateBaseline uint64
 	webView2WorkingSetBaseline uint64
 	webView2PrivateBaseline uint64
+	webView2RendererWorkingSetBaseline uint64
+	webView2RendererPrivateBaseline uint64
 	memorySamplerStarted bool
 }
 
@@ -333,6 +345,8 @@ func (s *MonitorService) GetSystemMetrics() SystemMetricsSnapshot {
 				s.processPrivateBaseline = processMemory.ProcessPrivateBytes
 				s.webView2WorkingSetBaseline = processMemory.WebView2WorkingSetBytes
 				s.webView2PrivateBaseline = processMemory.WebView2PrivateBytes
+				s.webView2RendererWorkingSetBaseline = processMemory.WebView2RendererWorkingSetBytes
+				s.webView2RendererPrivateBaseline = processMemory.WebView2RendererPrivateBytes
 			}
 		}
 		s.mu.Unlock()
@@ -357,6 +371,10 @@ func (s *MonitorService) GetSystemMetrics() SystemMetricsSnapshot {
 		metrics.WebView2ProcessCount = processMemory.WebView2ProcessCount
 		metrics.WebView2WorkingSetBytes = processMemory.WebView2WorkingSetBytes
 		metrics.WebView2PrivateBytes = processMemory.WebView2PrivateBytes
+		metrics.WebView2RendererCount = processMemory.WebView2RendererCount
+		metrics.WebView2RendererWorkingSetBytes = processMemory.WebView2RendererWorkingSetBytes
+		metrics.WebView2RendererPrivateBytes = processMemory.WebView2RendererPrivateBytes
+		metrics.WebView2UnclassifiedProcessCount = processMemory.WebView2UnclassifiedProcessCount
 		if s != nil {
 			s.mu.Lock()
 			metrics.MemoryBaselineReady = s.memoryBaselineReady
@@ -364,6 +382,8 @@ func (s *MonitorService) GetSystemMetrics() SystemMetricsSnapshot {
 			metrics.ProcessPrivateDeltaBytes = int64(processMemory.ProcessPrivateBytes) - int64(s.processPrivateBaseline)
 			metrics.WebView2WorkingSetDeltaBytes = int64(processMemory.WebView2WorkingSetBytes) - int64(s.webView2WorkingSetBaseline)
 			metrics.WebView2PrivateDeltaBytes = int64(processMemory.WebView2PrivateBytes) - int64(s.webView2PrivateBaseline)
+			metrics.WebView2RendererWorkingSetDeltaBytes = int64(processMemory.WebView2RendererWorkingSetBytes) - int64(s.webView2RendererWorkingSetBaseline)
+			metrics.WebView2RendererPrivateDeltaBytes = int64(processMemory.WebView2RendererPrivateBytes) - int64(s.webView2RendererPrivateBaseline)
 			s.mu.Unlock()
 		}
 	} else {
