@@ -48,6 +48,8 @@ type MusicService struct {
 	manager *config.Manager
 	buffer *events.Buffer
 	mu sync.RWMutex
+	playbackStartMu sync.Mutex
+	playbackStartedItemID string
 	playlistMu sync.Mutex
 	lifecycleMu sync.Mutex
 	value config.MusicConfig
@@ -984,6 +986,11 @@ func (s *MusicService) PlayNext() error { return s.playNext(context.Background()
 
 func (s *MusicService) playNext(parent context.Context) error {
 	if s == nil || s.engine == nil || s.queue == nil { return errors.New("music playback service is unavailable") }
+	// Only one queue promotion/resolution may run at a time. Concurrent calls
+	// otherwise cancel each other's resolver contexts and can load the same
+	// current item more than once.
+	s.playbackStartMu.Lock()
+	defer s.playbackStartMu.Unlock()
 	if parent == nil { parent = context.Background() }
 	if err := s.waitForLXRuntime(parent); err != nil { return err }
 	s.mu.RLock()
@@ -994,6 +1001,12 @@ func (s *MusicService) playNext(parent context.Context) error {
 	var lastStartErr error
 	for {
 		current := s.queue.Snapshot().Current
+		if current != nil {
+			s.mu.RLock()
+			alreadyStarted := s.playbackStartedItemID == current.ID
+			s.mu.RUnlock()
+			if alreadyStarted { return nil }
+		}
 		if current == nil {
 			playlistWasActive := s.hasActivePlaylistPlayback()
 			item, ok := s.queue.TakeNext()
@@ -1028,9 +1041,22 @@ func (s *MusicService) playNext(parent context.Context) error {
 			continue
 		}
 		current.Track = resolvedTrack
+		// A user action may have superseded this resolution while the provider
+		// was loading. Do not resurrect an item that is no longer current.
+		s.mu.RLock()
+		latest := s.queue.Snapshot().Current
+		if latest == nil || latest.ID != current.ID {
+			s.mu.RUnlock()
+			return nil
+		}
 		if err := s.queue.SetCurrent(*current); err != nil {
+			s.mu.RUnlock()
 			return fmt.Errorf("更新自动换源后的当前歌曲失败：%w", err)
 		}
+		s.mu.RUnlock()
+		s.mu.Lock()
+		s.playbackStartedItemID = current.ID
+		s.mu.Unlock()
 		s.startPlaybackWatcher()
 		return nil
 	}
@@ -1339,6 +1365,7 @@ func (s *MusicService) cancelPlaybackWatcher() {
 		s.playResolveGeneration++
 	}
 	s.playbackResolutionStatus = "idle"
+	s.playbackStartedItemID = ""
 	if s.watchCancel != nil {
 		s.watchCancel()
 		s.watchCancel = nil
