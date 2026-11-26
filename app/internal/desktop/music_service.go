@@ -1024,6 +1024,15 @@ func (s *MusicService) playNext(parent context.Context) error {
 				if playlistWasActive { return nil }
 				return errors.New("播放队列为空")
 			}
+			// Playlist scheduler items are produced outside the audience queue.
+			// Promote them to Current before resolving so concurrent audience
+			// requests can atomically preempt them and the stale-request guard can
+			// distinguish a valid playlist start from a superseded one.
+			if item.RequestedBy == playlistPlayMarker {
+				if err := s.queue.SetCurrent(item); err != nil {
+					return fmt.Errorf("设置歌单当前歌曲失败：%w", err)
+				}
+			}
 			current = &item
 		}
 
