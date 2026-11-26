@@ -184,16 +184,24 @@ func (s *MonitorService) StartFrontendHeartbeatWatchdog(checkEvery, staleAfter t
 			now := time.Now()
 			s.mu.Lock()
 			lastSeen := s.lastFrontendHeartbeat
-				started := s.frontendHeartbeatStarted
+			lastActivity := s.startedAt
+			if s.frontendHeartbeatStarted {
+				lastActivity = lastSeen
+			}
 			alreadyStale := s.frontendHeartbeatStale
-			if started && !alreadyStale && now.Sub(lastSeen) >= staleAfter {
+			if !alreadyStale && !lastActivity.IsZero() && now.Sub(lastActivity) >= staleAfter {
 				s.frontendHeartbeatStale = true
 			}
-			becameStale := started && !alreadyStale && s.frontendHeartbeatStale
+			becameStale := !alreadyStale && s.frontendHeartbeatStale
 			s.mu.Unlock()
 			if becameStale {
-				log.Printf("frontend heartbeat: STALE; last_seen=%s; threshold=%s; renderer/event-loop unresponsive or page suspended",
-					lastSeen.Format(time.RFC3339Nano), staleAfter)
+				if lastSeen.IsZero() {
+					log.Printf("frontend heartbeat: STALE; no heartbeat received since application startup; threshold=%s; frontend may have failed to mount or renderer/event-loop may be unresponsive",
+						staleAfter)
+				} else {
+					log.Printf("frontend heartbeat: STALE; last_seen=%s; threshold=%s; renderer/event-loop unresponsive or page suspended",
+						lastSeen.Format(time.RFC3339Nano), staleAfter)
+				}
 			}
 		}
 	}()
