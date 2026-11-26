@@ -18,7 +18,26 @@ import (
 	"github.com/dongguo4812/My-LiveHub/app/internal/platform"
 )
 
+type ProcessMemorySnapshot struct {
+	ProcessID uint32
+	ProcessWorkingSetBytes uint64
+	ProcessPrivateBytes uint64
+	WebView2ProcessCount int
+	WebView2WorkingSetBytes uint64
+	WebView2PrivateBytes uint64
+}
+
 type SystemMetricsSnapshot struct {
+	ProcessID uint32 `json:"process_id"`
+	ProcessWorkingSetBytes uint64 `json:"process_working_set_bytes"`
+	ProcessPrivateBytes uint64 `json:"process_private_bytes"`
+	WebView2ProcessCount int `json:"webview2_process_count"`
+	WebView2WorkingSetBytes uint64 `json:"webview2_working_set_bytes"`
+	WebView2PrivateBytes uint64 `json:"webview2_private_bytes"`
+	MemoryBaselineReady bool `json:"memory_baseline_ready"`
+	ProcessWorkingSetDeltaBytes int64 `json:"process_working_set_delta_bytes"`
+	WebView2WorkingSetDeltaBytes int64 `json:"webview2_working_set_delta_bytes"`
+	ProcessMemoryError string `json:"process_memory_error,omitempty"`
 	UptimeSeconds int64 `json:"uptime_seconds"`
 	GoHeapAllocBytes uint64 `json:"go_heap_alloc_bytes"`
 	GoHeapSysBytes uint64 `json:"go_heap_sys_bytes"`
@@ -64,6 +83,9 @@ type MonitorService struct {
 	frontendHeartbeatStale bool
 	frontendHeartbeatStarted bool
 	frontendMonitoringSuspended bool
+	memoryBaselineReady bool
+	processWorkingSetBaseline uint64
+	webView2WorkingSetBaseline uint64
 }
 
 func NewMonitorService(logDir string, additionalLogDirs ...string) *MonitorService {
@@ -249,6 +271,7 @@ func (s *MonitorService) GetSystemMetrics() SystemMetricsSnapshot {
 	runtime.ReadMemStats(&memory)
 	collectedAt := time.Now()
 	systemTotal, systemIdle, processTotal, cpuErr := readCPUSnapshot()
+	processMemory, memoryErr := readProcessMemorySnapshot()
 	systemCPUPercent, processCPUPercent := 0.0, 0.0
 	if s != nil {
 		s.mu.Lock()
@@ -270,11 +293,18 @@ func (s *MonitorService) GetSystemMetrics() SystemMetricsSnapshot {
 			s.lastCPUAt = collectedAt
 			s.lastSystemTotal, s.lastSystemIdle, s.lastProcessTotal = systemTotal, systemIdle, processTotal
 		}
+		if memoryErr == nil {
+			if !s.memoryBaselineReady {
+				s.memoryBaselineReady = true
+				s.processWorkingSetBaseline = processMemory.ProcessWorkingSetBytes
+				s.webView2WorkingSetBaseline = processMemory.WebView2WorkingSetBytes
+			}
+		}
 		s.mu.Unlock()
 	}
 	startedAt := collectedAt
 	if s != nil && !s.startedAt.IsZero() { startedAt = s.startedAt }
-	return SystemMetricsSnapshot{
+	metrics := SystemMetricsSnapshot{
 		UptimeSeconds: int64(time.Since(startedAt).Seconds()),
 		GoHeapAllocBytes: memory.HeapAlloc,
 		GoHeapSysBytes: memory.HeapSys,
@@ -285,6 +315,24 @@ func (s *MonitorService) GetSystemMetrics() SystemMetricsSnapshot {
 		ProcessCPUPercent: processCPUPercent,
 		CollectedAt: collectedAt,
 	}
+	if memoryErr == nil {
+		metrics.ProcessID = processMemory.ProcessID
+		metrics.ProcessWorkingSetBytes = processMemory.ProcessWorkingSetBytes
+		metrics.ProcessPrivateBytes = processMemory.ProcessPrivateBytes
+		metrics.WebView2ProcessCount = processMemory.WebView2ProcessCount
+		metrics.WebView2WorkingSetBytes = processMemory.WebView2WorkingSetBytes
+		metrics.WebView2PrivateBytes = processMemory.WebView2PrivateBytes
+		if s != nil {
+			s.mu.Lock()
+			metrics.MemoryBaselineReady = s.memoryBaselineReady
+			metrics.ProcessWorkingSetDeltaBytes = int64(processMemory.ProcessWorkingSetBytes) - int64(s.processWorkingSetBaseline)
+			metrics.WebView2WorkingSetDeltaBytes = int64(processMemory.WebView2WorkingSetBytes) - int64(s.webView2WorkingSetBaseline)
+			s.mu.Unlock()
+		}
+	} else {
+		metrics.ProcessMemoryError = memoryErr.Error()
+	}
+	return metrics
 }
 
 // GetRecentLogs returns the newest entries across every configured log source.
