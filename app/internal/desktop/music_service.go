@@ -74,6 +74,7 @@ type MusicService struct {
 	playbackSnapshot music.PlaybackSnapshot
 	playbackSnapshotValid bool
 	playGeneration uint64
+	playbackFallbackItemID string
 	playResolveGeneration uint64
 	playResolveCancel context.CancelFunc
 	playbackResolutionStatus string
@@ -841,6 +842,7 @@ func (s *MusicService) PlayTrackNow(track music.Track) error {
 	current := s.queue.Snapshot().Current
 	if current != nil { s.pushHistory(*current) }
 	s.cancelPlaybackWatcher()
+	s.mu.Lock(); s.playbackFallbackItemID = ""; s.mu.Unlock()
 	if _, err := s.queue.SetCurrentTrack(track, searchPlayMarker); err != nil { return err }
 	if err := s.PlayNext(); err != nil {
 		if errors.Is(err, context.Canceled) { return err }
@@ -919,6 +921,9 @@ func (s *MusicService) playNext(parent context.Context) error {
 			current = &item
 		}
 
+		s.mu.Lock()
+		if s.playbackFallbackItemID != current.ID { s.playbackFallbackItemID = "" }
+		s.mu.Unlock()
 		resolvedTrack, err := s.resolveAndStartLXTrack(parent, current.Track, false)
 		if err != nil {
 			// A superseded request is expected cancellation, not a provider failure.
@@ -1343,9 +1348,14 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 				s.mu.RUnlock()
 				if !generationCurrent || ctx.Err() != nil { return }
 				message := strings.TrimSpace(snapshot.Error)
-				if message == "" { message = "洛雪播放器报告播放错误" }
-				s.setLastError(errors.New(message))
+				if message == "" { message = "播放器报告媒体播放错误" }
 				currentItem := s.queue.Snapshot().Current
+				if attempted, fallbackErr := s.retryPlaybackWithFallback(ctx, generation, currentItem); attempted && fallbackErr == nil {
+					return
+				} else if fallbackErr != nil {
+					message += "；自动换源失败：" + fallbackErr.Error()
+				}
+				s.setLastError(errors.New(message))
 				if currentItem != nil { s.pushHistory(*currentItem) }
 				s.queue.FinishCurrent()
 				if advanceErr := s.advanceAfterPlaybackEnd(snapshot, currentItem); advanceErr != nil {
@@ -1359,8 +1369,13 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 				if time.Since(startedAt) >= musicPlaybackStartTimeout {
 					if ctx.Err() != nil { return }
 					timeoutErr := errors.New("播放器启动超时（10 秒内未进入播放状态）")
-					s.setLastError(timeoutErr)
 					currentItem := s.queue.Snapshot().Current
+					if attempted, fallbackErr := s.retryPlaybackWithFallback(ctx, generation, currentItem); attempted && fallbackErr == nil {
+						return
+					} else if fallbackErr != nil {
+						timeoutErr = fmt.Errorf("%w；自动换源失败：%v", timeoutErr, fallbackErr)
+					}
+					s.setLastError(timeoutErr)
 					if currentItem != nil { s.pushHistory(*currentItem) }
 					s.queue.FinishCurrent()
 					if advanceErr := s.advanceAfterPlaybackEnd(snapshot, currentItem); advanceErr != nil {
@@ -1386,6 +1401,37 @@ func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
 			return
 		}
 	}
+}
+
+func (s *MusicService) claimPlaybackFallback(current *music.QueueItem, generation uint64) bool {
+	if s == nil || current == nil { return false }
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.playGeneration != generation || s.playbackFallbackItemID == current.ID { return false }
+	s.playbackFallbackItemID = current.ID
+	return true
+}
+
+// retryPlaybackWithFallback retries the same queue item on another enabled
+// provider after an asynchronous media failure. A queue item gets one such
+// retry so a second provider's asynchronous failure cannot create a source loop.
+func (s *MusicService) retryPlaybackWithFallback(ctx context.Context, generation uint64, current *music.QueueItem) (bool, error) {
+	if !s.claimPlaybackFallback(current, generation) { return false, nil }
+	track, err := s.resolveAndStartLXTrack(ctx, current.Track, true)
+	if err != nil { return true, err }
+	if ctx.Err() != nil { return true, ctx.Err() }
+	s.mu.RLock()
+	generationCurrent := s.playGeneration == generation
+	s.mu.RUnlock()
+	if !generationCurrent { return true, context.Canceled }
+	latest := s.queue.Snapshot().Current
+	if latest == nil || latest.ID != current.ID { return true, context.Canceled }
+	latest.Track = track
+	if err := s.queue.SetCurrent(*latest); err != nil {
+		return true, fmt.Errorf("更新自动换源后的当前歌曲失败：%w", err)
+	}
+	s.startPlaybackWatcher()
+	return true, nil
 }
 
 const musicPlaybackStartTimeout = 10 * time.Second
