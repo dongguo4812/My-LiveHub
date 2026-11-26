@@ -8,7 +8,6 @@ import {
   Grid, Monitor, Setting, Document, Fold, Expand, Microphone, Headset, VideoPlay,
 } from '@element-plus/icons-vue'
 import { coreStatus, refreshCoreStatus } from './services/coreStatus'
-import { initializeVoiceAudio, disposeVoiceAudio } from './services/voiceAudio'
 import { RecordFrontendHeartbeat } from '../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/monitorservice.js'
 
 const route = useRoute()
@@ -60,14 +59,15 @@ onMounted(async () => {
   frontendHeartbeatTimer = setInterval(() => {
     void RecordFrontendHeartbeat().catch(error => console.warn('frontend heartbeat failed:', error))
   }, 10_000)
-  initializeVoiceAudio()
+  const voiceAudio = await import('./services/voiceAudio')
+  voiceAudio.initializeVoiceAudio()
   voiceAudioInitialized = true
   void refreshCoreStatus()
   refreshTimer = setInterval(() => void refreshCoreStatus(), 3000)
 })
 onUnmounted(() => {
   unsubscribeTrayUpdate?.()
-  if (voiceAudioInitialized) disposeVoiceAudio()
+  if (voiceAudioInitialized) void import('./services/voiceAudio').then(module => module.disposeVoiceAudio())
   if (refreshTimer) clearInterval(refreshTimer)
   if (frontendHeartbeatTimer) clearInterval(frontendHeartbeatTimer)
 })
