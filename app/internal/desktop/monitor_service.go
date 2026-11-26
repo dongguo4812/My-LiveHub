@@ -90,6 +90,7 @@ type MonitorService struct {
 	processPrivateBaseline uint64
 	webView2WorkingSetBaseline uint64
 	webView2PrivateBaseline uint64
+	memorySamplerStarted bool
 }
 
 func NewMonitorService(logDir string, additionalLogDirs ...string) *MonitorService {
@@ -266,6 +267,34 @@ func (s *MonitorService) WriteFrontendLog(level, message string) {
 		message = message[:32768] + "…[truncated]"
 	}
 	log.Printf("frontend [%s] %s", level, message)
+}
+
+// StartSystemMetricsSampler keeps process-memory baselines and deltas current
+// even when the real-time monitoring page is not open. The monitor service has
+// the same lifetime as the desktop application.
+func (s *MonitorService) StartSystemMetricsSampler(interval time.Duration) {
+	if s == nil {
+		return
+	}
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+	s.mu.Lock()
+	if s.memorySamplerStarted {
+		s.mu.Unlock()
+		return
+	}
+	s.memorySamplerStarted = true
+	s.mu.Unlock()
+
+	go func() {
+		_ = s.GetSystemMetrics()
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for range ticker.C {
+			_ = s.GetSystemMetrics()
+		}
+	}()
 }
 
 // GetSystemMetrics returns read-only Go runtime and process-lifetime metrics.
