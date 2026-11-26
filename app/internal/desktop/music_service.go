@@ -324,7 +324,7 @@ func (s *MusicService) initializeLXRuntime(ctx context.Context, generation uint6
 	}
 	if err := ctx.Err(); err != nil { return }
 	// A script can fail its own handshake while the SourceManager remains
-	// operational for native fallback. Surface the script-level failure without
+	// operational for other scripts. Surface the script-level failure without
 	// turning it into a fatal MusicService startup error.
 	if reporter, ok := s.scriptRuntime.(interface{ InitializationError() error }); ok {
 		if err := reporter.InitializationError(); err != nil {
@@ -363,9 +363,8 @@ func (s *MusicService) waitForLXRuntime(ctx context.Context) error {
 	case "ready":
 		return nil
 	case "failed":
-		// Initialization has finished. Preserve the failure in MusicStatus,
-		// but let the normal provider pipeline continue so native sources can
-		// still search and play when an optional imported script is unavailable.
+		// Initialization has finished. Preserve the failure in MusicStatus;
+		// individual QuickJS actions below will fail closed when unavailable.
 		return nil
 	case "initializing":
 		if done == nil { return errors.New("LX-JS 音源初始化状态异常：缺少完成信号") }
