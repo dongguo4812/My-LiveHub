@@ -255,9 +255,15 @@ func (r *productionMusicLXRuntime) persistLocked() error {
 }
 
 func (r *productionMusicLXRuntime) rebuildLocked(ctx context.Context) error {
-	definitions := make([]lxruntime.LXSourceScript, 0, len(r.scripts))
+	// The trusted built-in search adapter is always first so all five
+	// platform searches are handled by QuickJS before any imported scripts.
+	// It is not part of the persisted user-script registry and cannot be
+	// disabled when a user imports or enables another LX script.
+	builtinSearch := lxruntime.BundledSearchAction()
+	definitions := make([]lxruntime.LXSourceScript, 0, len(r.scripts)+1)
+	definitions = append(definitions, builtinSearch)
 	enabledIndexes := make([]int, 0, len(r.scripts))
-	total := 0
+	total := len(builtinSearch.Source)
 	for i := range r.scripts {
 		script := &r.scripts[i]
 		if !script.Enabled { continue }
@@ -291,7 +297,7 @@ func (r *productionMusicLXRuntime) rebuildLocked(ctx context.Context) error {
 			Info: info, Source: script.Source,
 			ExtensionActions: append([]string(nil), script.ExtensionActions...),
 		})
-		enabledIndexes = append(enabledIndexes, i)
+		enabledIndexes = append(enabledIndexes, i+1)
 		script.InitializationStatus = "initializing"
 		script.InitializationStage = "startup"
 		script.InitializationAt = time.Time{}
@@ -302,8 +308,16 @@ func (r *productionMusicLXRuntime) rebuildLocked(ctx context.Context) error {
 	if r.started {
 		if err := next.Start(ctx); err != nil { _ = next.Close(); return fmt.Errorf("start imported LX scripts: %w", err) }
 		for position, result := range next.InitializationResults() {
-			if position >= len(enabledIndexes) { break }
-			script := &r.scripts[enabledIndexes[position]]
+			if position == 0 {
+				if result.Status != "ready" {
+					_ = next.Close()
+					return fmt.Errorf("built-in QuickJS search actions failed to initialize（阶段：%s）：%s", result.Stage, result.Error)
+				}
+				continue
+			}
+			importedPosition := position - 1
+			if importedPosition >= len(enabledIndexes) { break }
+			script := &r.scripts[enabledIndexes[importedPosition]]
 			script.InitializationStatus = result.Status
 			script.InitializationStage = result.Stage
 			script.InitializationAt = result.At
