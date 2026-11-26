@@ -779,7 +779,7 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-lyrics{display:flex;flex:1 1 auto;flex-direction:column;justify-content:center;gap:2px;min-height:0;padding:0 8px;overflow:hidden;text-align:left;text-shadow:0 1px 4px #000b}
 .music-lyric-original,.music-lyric-translation{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.35}
 .music-lyric-original{color:var(--random-color);font-size:1em;font-weight:700}
-.music-lyric-translation{color:var(--random-color);font-size:.78em;opacity:.82}
+.music-lyric-translation{color:var(--random-color);font-size:.78em}
 .music-lyrics.is-empty .music-lyric-original{color:var(--random-color);font-size:.8em;font-weight:500}
 .music-main{height:112px;display:flex;gap:8px;min-width:0;position:relative}
 .music-cover-wrap{height:112px;width:112px;flex:0 0 112px;position:relative;overflow:hidden;border-radius:5px;background:rgba(102,76,60,.35)}
