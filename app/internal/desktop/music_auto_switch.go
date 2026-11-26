@@ -108,42 +108,45 @@ func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original m
 			if strings.TrimSpace(resource.URL) != "" { candidate.PlaybackResource = &resource }
 			var loadErr error
 			s.mu.RLock()
-			if s.playResolveGeneration != resolutionGeneration {
-				s.mu.RUnlock()
-				return music.Track{}, context.Canceled
-			}
-			resourceEngine, resourceAware := s.engine.(interface {
+			generationCurrent := s.playResolveGeneration == resolutionGeneration
+			engine := s.engine
+			resourceEngine, resourceAware := engine.(interface {
 				LoadResource(context.Context, music.Track, music.PlaybackResource) error
 			})
+			s.mu.RUnlock()
+			if !generationCurrent || ctx.Err() != nil {
+				return music.Track{}, context.Canceled
+			}
+			// Do not hold MusicService.mu while calling the engine. Stop must be
+			// able to acquire the lock and cancel this in-flight Load operation.
 			if resource.URL != "" && resourceAware {
 				loadErr = resourceEngine.LoadResource(ctx, candidate, resource)
 			} else {
-				loadErr = s.engine.Load(ctx, candidate)
+				loadErr = engine.Load(ctx, candidate)
 			}
-			s.mu.RUnlock()
 			if loadErr != nil && resource.URL != "" && resourceAware {
 				// A resource-aware engine gets exactly one invalidation/re-resolution
 				// retry. Media adapters still own the final HTTP failure signal.
 				s.mu.RLock()
-				if s.playResolveGeneration != resolutionGeneration {
-					s.mu.RUnlock()
-					return music.Track{}, context.Canceled
-				}
+				generationCurrent = s.playResolveGeneration == resolutionGeneration
 				cache := s.playbackResourceCache
 				searcher, resolver := s.searcher, s.scriptRuntime
 				s.mu.RUnlock()
+				if !generationCurrent || ctx.Err() != nil {
+					return music.Track{}, context.Canceled
+				}
 				fresh, refreshErr := music.NewUnifiedSourceService(searcher, resolver).RefreshPlaybackResource(ctx, candidate, resource, cache)
 				if refreshErr == nil {
 					candidate.ResolvedQuality = fresh.Quality
 					candidate.PlaybackResource = &fresh
 					resource = fresh
 					s.mu.RLock()
-					if s.playResolveGeneration != resolutionGeneration {
-						s.mu.RUnlock()
+					generationCurrent = s.playResolveGeneration == resolutionGeneration
+					s.mu.RUnlock()
+					if !generationCurrent || ctx.Err() != nil {
 						return music.Track{}, context.Canceled
 					}
 					loadErr = resourceEngine.LoadResource(ctx, candidate, fresh)
-					s.mu.RUnlock()
 				} else {
 					loadErr = fmt.Errorf("%v; refresh failed: %w", loadErr, refreshErr)
 				}
