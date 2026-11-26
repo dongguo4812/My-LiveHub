@@ -245,7 +245,14 @@ func (s *MusicService) start(ctx context.Context) error {
 	// playback engine.
 	if lifecycle, ok := engine.(music.PlaybackEngineLifecycle); ok {
 		if err := lifecycle.Start(ctx); err != nil {
-			return fmt.Errorf("启动音乐播放服务失败：%w", err)
+			startErr := fmt.Errorf("启动音乐播放服务失败：%w", err)
+			// Start may allocate resources before reporting failure. Always invoke
+			// Close so partially initialized engines cannot leak listeners,
+			// transports, or native handles into a later startup attempt.
+			if closeErr := lifecycle.Close(); closeErr != nil {
+				return errors.Join(startErr, fmt.Errorf("清理启动失败的音乐播放服务：%w", closeErr))
+			}
+			return startErr
 		}
 	}
 	s.mu.Lock()
