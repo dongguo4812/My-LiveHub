@@ -264,7 +264,7 @@
         cover, sourceData, qualities));
     }
     const total = num(data.total);
-    if (!tracks.length && pageNo > 1) {
+    if (!tracks.length) {
       const fallbackURL = appendQuery(endpoints.kgV3 || defaults.kgV3, {
         format: 'json', keyword, page: pageNo, pagesize: limit, showtype: '1'
       });
