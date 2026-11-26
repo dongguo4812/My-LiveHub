@@ -80,6 +80,7 @@ try {
   assert.equal((await page.locator('.translated-lyric').textContent()).trim(), 'Second translation')
 
   await page.evaluate(() => {
+    globalThis.__lyricsPosition = 1000
     globalThis.__lyricsTrack = { id: 'tx_fixture_pending', source_id: 'tx', title: '待取消歌词曲', artist: '回归测试' }
   })
   await page.waitForFunction(() => document.querySelector('.lyrics-track strong')?.textContent?.includes('待取消歌词曲'))
@@ -87,6 +88,7 @@ try {
   const pendingRequestID = await page.evaluate(() => globalThis.__lyricsRequests?.at(-1))
   assert.ok(pendingRequestID, 'desktop lyrics did not issue a cancellable request ID')
   await page.evaluate(() => {
+    globalThis.__lyricsPosition = 1000
     globalThis.__lyricsTrack = { id: 'tx_fixture_next', source_id: 'tx', title: '切歌取消验收曲', artist: '回归测试' }
   })
   await page.waitForFunction(() => document.querySelector('.lyrics-track strong')?.textContent?.includes('切歌取消验收曲'))
@@ -94,6 +96,7 @@ try {
   await page.waitForFunction(() => document.querySelector('.original-lyric')?.textContent?.includes('第一句'))
 
   await page.evaluate(() => {
+    globalThis.__lyricsPosition = 1000
     globalThis.__lyricsTrack = { id: 'tx_fixture_error', source_id: 'tx', title: '歌词重试验收曲', artist: '回归测试' }
   })
   await page.waitForFunction(() => document.querySelector('.lyrics-track strong')?.textContent?.includes('歌词重试验收曲'))
