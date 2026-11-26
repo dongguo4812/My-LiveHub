@@ -33,7 +33,7 @@ func TestSystemMetricsCapturesMemoryBaseline(t *testing.T) {
 	if !first.MemoryBaselineReady {
 		t.Fatal("first successful sample did not establish a memory baseline")
 	}
-	if first.ProcessWorkingSetDeltaBytes != 0 || first.WebView2WorkingSetDeltaBytes != 0 {
+	if first.ProcessWorkingSetDeltaBytes != 0 || first.ProcessPrivateDeltaBytes != 0 || first.WebView2WorkingSetDeltaBytes != 0 || first.WebView2PrivateDeltaBytes != 0 || first.WebView2RendererWorkingSetDeltaBytes != 0 || first.WebView2RendererPrivateDeltaBytes != 0 {
 		t.Fatalf("first sample deltas should be zero: %#v", first)
 	}
 	second := service.GetSystemMetrics()
