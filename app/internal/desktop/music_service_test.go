@@ -162,7 +162,6 @@ func TestPlaybackSnapshotEnded(t *testing.T) {
 
 type queueAdvanceTestEngine struct {
 	loadCalls atomic.Int32
-	nextCalls atomic.Int32
 }
 
 func (e *queueAdvanceTestEngine) Load(context.Context, music.Track) error {
@@ -172,10 +171,6 @@ func (e *queueAdvanceTestEngine) Load(context.Context, music.Track) error {
 func (e *queueAdvanceTestEngine) Pause(context.Context) error { return nil }
 func (e *queueAdvanceTestEngine) Resume(context.Context) error { return nil }
 func (e *queueAdvanceTestEngine) Stop(context.Context) error { return nil }
-func (e *queueAdvanceTestEngine) NextTrack(context.Context) error {
-	e.nextCalls.Add(1)
-	return nil
-}
 func (e *queueAdvanceTestEngine) Snapshot(context.Context) (music.PlaybackSnapshot, error) {
 	return music.PlaybackSnapshot{State: music.PlaybackIdle}, nil
 }
@@ -202,9 +197,6 @@ func TestAdvanceAfterPlaybackEndPrioritizesMyLiveHubQueue(t *testing.T) {
 	if got := engine.loadCalls.Load(); got != 1 {
 		t.Fatalf("playback engine Load calls = %d, want 1", got)
 	}
-	if got := engine.nextCalls.Load(); got != 0 {
-		t.Fatalf("external NextTrack calls = %d, want 0 when My-LiveHub queue has a song", got)
-	}
 }
 
 func TestAdvanceAfterPlaybackEndLeavesExternalPlaylistsUntouched(t *testing.T) {
@@ -215,9 +207,6 @@ func TestAdvanceAfterPlaybackEndLeavesExternalPlaylistsUntouched(t *testing.T) {
 
 	if err := service.advanceAfterPlaybackEnd(snapshot, finished); err != nil {
 		t.Fatalf("advanceAfterPlaybackEnd returned error: %v", err)
-	}
-	if got := engine.nextCalls.Load(); got != 0 {
-		t.Fatalf("external NextTrack calls = %d, want 0 for an empty My-LiveHub queue", got)
 	}
 }
 
