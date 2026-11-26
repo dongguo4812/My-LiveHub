@@ -87,6 +87,7 @@ type MusicService struct {
 	lxRuntimeCtx context.Context
 	lyricsMu sync.Mutex
 	lyricsCache map[string]string
+	lyricsRequests map[string]context.CancelFunc
 	playbackResourceCache *music.PlaybackResourceCache
 	playbackRefreshMu sync.Mutex
 	playbackRefreshResults map[string]music.PlaybackResource
@@ -113,7 +114,7 @@ func NewMusicServiceWithDependencies(manager *config.Manager, value config.Music
 	service := &MusicService{
 		manager: manager, buffer: buffer, value: cloneMusicConfig(value), playlistPlaybackMode: value.PlaylistPlaybackMode,
 		engine: engine, queue: music.NewQueue(value.QueueCapacity),
-		searcher: music.NewLXSearchClient(nil), scriptRuntime: newLXScriptRuntime(manager), lyricsCache: make(map[string]string), playbackResourceCache: music.NewPlaybackResourceCache(2*time.Minute, 512), playbackRefreshResults: make(map[string]music.PlaybackResource), requestCooldowns: make(map[string]time.Time),
+		searcher: music.NewLXSearchClient(nil), scriptRuntime: newLXScriptRuntime(manager), lyricsCache: make(map[string]string), lyricsRequests: make(map[string]context.CancelFunc), playbackResourceCache: music.NewPlaybackResourceCache(2*time.Minute, 512), playbackRefreshResults: make(map[string]music.PlaybackResource), requestCooldowns: make(map[string]time.Time),
 	}
 	// Keep the lightweight command listener alive while the module is stopped,
 	// matching the video module so users still receive an explicit failure notice.
@@ -1132,27 +1133,78 @@ func (s *MusicService) Stop() error {
 	return err
 }
 
+// GetLyrics preserves the legacy synchronous entry point used by scene snapshots.
 func (s *MusicService) GetLyrics(track music.Track) (string, error) {
+	return s.getLyrics(context.Background(), track)
+}
+
+// GetLyricsForRequest associates one UI request with a cancellable context.
+// Reusing an ID replaces and cancels the previous operation with that ID.
+func (s *MusicService) GetLyricsForRequest(track music.Track, requestID string) (string, error) {
 	if s == nil { return "", errors.New("music lyrics service is unavailable") }
-	value, handled, extensionErr := s.dispatchLXExtension(context.Background(), firstNonEmpty(track.LXSourceKey, track.SourceID), "lyric", map[string]any{"musicInfo": track, "track": track})
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" { return "", errors.New("music lyrics request ID is required") }
+	ctx, cancel := context.WithCancel(context.Background())
+	s.lyricsMu.Lock()
+	if s.lyricsRequests == nil { s.lyricsRequests = make(map[string]context.CancelFunc) }
+	if previous := s.lyricsRequests[requestID]; previous != nil { previous() }
+	s.lyricsRequests[requestID] = cancel
+	s.lyricsMu.Unlock()
+	defer func() {
+		cancel()
+		s.lyricsMu.Lock()
+		delete(s.lyricsRequests, requestID)
+		s.lyricsMu.Unlock()
+	}()
+	return s.getLyrics(ctx, track)
+}
+
+// CancelLyrics cancels an in-flight lyrics request without affecting playback
+// or the shared LX runtime.
+func (s *MusicService) CancelLyrics(requestID string) {
+	if s == nil { return }
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" { return }
+	s.lyricsMu.Lock()
+	cancel := s.lyricsRequests[requestID]
+	delete(s.lyricsRequests, requestID)
+	s.lyricsMu.Unlock()
+	if cancel != nil { cancel() }
+}
+
+func (s *MusicService) cancelAllLyricsRequests() {
+	if s == nil { return }
+	s.lyricsMu.Lock()
+	cancels := make([]context.CancelFunc, 0, len(s.lyricsRequests))
+	for id, cancel := range s.lyricsRequests { cancels = append(cancels, cancel); delete(s.lyricsRequests, id) }
+	s.lyricsMu.Unlock()
+	for _, cancel := range cancels { cancel() }
+}
+
+func (s *MusicService) getLyrics(ctx context.Context, track music.Track) (string, error) {
+	if s == nil { return "", errors.New("music lyrics service is unavailable") }
+	if ctx == nil { ctx = context.Background() }
+	if err := ctx.Err(); err != nil { return "", err }
+	value, handled, extensionErr := s.dispatchLXExtension(ctx, firstNonEmpty(track.LXSourceKey, track.SourceID), "lyric", map[string]any{"musicInfo": track, "track": track})
+	if err := ctx.Err(); err != nil { return "", err }
 	if handled && extensionErr == nil {
-		var lyrics string
-		lyrics, extensionErr = normalizeLXScriptLyrics(value)
-		if extensionErr == nil && strings.TrimSpace(lyrics) != "" {
-			return lyrics, nil
-		}
+		lyrics, normalizeErr := normalizeLXScriptLyrics(value)
+		if normalizeErr == nil && strings.TrimSpace(lyrics) != "" { return lyrics, nil }
+		extensionErr = normalizeErr
 	}
-	// Community scripts may omit or fail their optional lyric action. Use the
-	// matching provider adapter rather than querying an external player's API.
-	lyrics, nativeErr := s.getNativeProviderLyrics(track)
+	// Cancellation is terminal: never start a native fallback after the UI has
+	// moved to another track or closed the lyrics window.
+	if errors.Is(extensionErr, context.Canceled) || errors.Is(extensionErr, context.DeadlineExceeded) || ctx.Err() != nil {
+		if extensionErr != nil { return "", extensionErr }
+		return "", ctx.Err()
+	}
+	lyrics, nativeErr := s.getNativeProviderLyrics(ctx, track)
 	if nativeErr != nil && extensionErr != nil { return "", errors.Join(extensionErr, nativeErr) }
 	return lyrics, nativeErr
 }
 
-// getNativeProviderLyrics retrieves lyrics independently of playback state.
-// The selected provider adapter uses the normalized Track metadata
-// already returned by search and returns synchronized LRC for HTMLAudio/Desktop Lyrics.
-func (s *MusicService) getNativeProviderLyrics(track music.Track) (string, error) {
+// getNativeProviderLyrics retrieves synchronized LRC independently of playback state.
+func (s *MusicService) getNativeProviderLyrics(parent context.Context, track music.Track) (string, error) {
 	source := firstNonEmpty(track.LXSourceKey, track.SourceID)
 	cacheKey := strings.Join([]string{source, track.ID, track.Title, track.Artist}, "\x00")
 	s.lyricsMu.Lock()
@@ -1160,29 +1212,23 @@ func (s *MusicService) getNativeProviderLyrics(track music.Track) (string, error
 	s.lyricsMu.Unlock()
 	if ok { return cached, nil }
 
-	ctx, cancel := context.WithTimeout(context.Background(), 18*time.Second)
+	if parent == nil { parent = context.Background() }
+	ctx, cancel := context.WithTimeout(parent, 18*time.Second)
 	defer cancel()
 	client := &http.Client{Timeout: 18 * time.Second}
 	var lyrics string
 	var err error
 	switch source {
-	case "tx":
-		lyrics, err = music.GetQQMusicLyrics(ctx, client, track)
-	case "kg":
-		lyrics, err = music.GetKugouMusicLyrics(ctx, client, track)
-	case "kw":
-		lyrics, err = music.GetKuwoMusicLyrics(ctx, client, track)
-	case "wy":
-		lyrics, err = music.GetNeteaseMusicLyrics(ctx, client, track)
-	case "mg":
-		lyrics, err = music.GetMiguMusicLyrics(ctx, client, track)
-	default:
-		return "", fmt.Errorf("音源 %q 暂不支持独立歌词解析", source)
+	case "tx": lyrics, err = music.GetQQMusicLyrics(ctx, client, track)
+	case "kg": lyrics, err = music.GetKugouMusicLyrics(ctx, client, track)
+	case "kw": lyrics, err = music.GetKuwoMusicLyrics(ctx, client, track)
+	case "wy": lyrics, err = music.GetNeteaseMusicLyrics(ctx, client, track)
+	case "mg": lyrics, err = music.GetMiguMusicLyrics(ctx, client, track)
+	default: return "", fmt.Errorf("音源 %q 暂不支持独立歌词解析", source)
 	}
 	if err != nil { return "", fmt.Errorf("获取 %s 歌词失败：%w", source, err) }
 	lyrics = strings.TrimSpace(lyrics)
 	if lyrics == "" { return "", nil }
-
 	s.lyricsMu.Lock()
 	if s.lyricsCache == nil { s.lyricsCache = make(map[string]string) }
 	if len(s.lyricsCache) >= 128 { s.lyricsCache = make(map[string]string) }
@@ -1238,6 +1284,7 @@ func (s *MusicService) GetStatus() MusicStatus {
 }
 func (s *MusicService) Shutdown() error {
 	if s == nil { return nil }
+	s.cancelAllLyricsRequests()
 	s.cancelPlaybackWatcher()
 
 	s.mu.Lock()
