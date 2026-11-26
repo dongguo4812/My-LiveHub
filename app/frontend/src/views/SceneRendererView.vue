@@ -348,15 +348,18 @@ async function loadScene() {
     if (root) root.style.background = 'transparent'
   } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) }
 }
+// The display queue contains every current/pending track, regardless of whether
+// it came from an audience command, the host's playlist, or manual playback.
+// Only real audience-command requests have a requester label.
 function isAudienceRequest(value?: string) {
   return Boolean(value?.trim())
     && value !== '__my_livehub_search_play__'
     && value !== '__my_livehub_host_playlist__'
 }
-const audienceCurrent = computed(() => isAudienceRequest(musicQueue.value.current?.requested_by) ? musicQueue.value.current : null)
-const audienceQueueItems = computed(() => musicQueue.value.items.filter(item => isAudienceRequest(item.requested_by)))
-function audienceQueueDisplayItems(layer: Layer) {
-  return audienceQueueItems.value.slice(0, Math.max(1, layer.queue_display_count || 10))
+const displayCurrent = computed(() => musicQueue.value.current)
+const displayQueueItems = computed(() => musicQueue.value.items)
+function displayQueueItemsForLayer(layer: Layer) {
+  return displayQueueItems.value.slice(0, Math.max(1, layer.queue_display_count || 10))
 }
 async function loadLive2DDisplay() {
   try {
@@ -577,26 +580,26 @@ onUnmounted(() => {
           </div>
         </section>
         <section class="music-queue-section music-queue-current-section">
-          <div v-if="audienceCurrent" class="music-queue-item music-queue-current music-queue-current-inline music-queue-current-stacked">
+          <div v-if="displayCurrent" class="music-queue-item music-queue-current music-queue-current-inline music-queue-current-stacked">
             <strong class="music-queue-current-label"><span class="music-queue-heading-mark">♫</span> 当前播放</strong>
             <span class="music-queue-current-track">
-              <strong class="music-queue-current-title">{{ audienceCurrent.track.title }}</strong>
-              <span class="music-queue-current-artist">{{ audienceCurrent.track.artist || '未知歌手' }}</span>
+              <strong class="music-queue-current-title">{{ displayCurrent.track.title }}</strong>
+              <span class="music-queue-current-artist">{{ displayCurrent.track.artist || '未知歌手' }}</span>
             </span>
-            <span class="music-queue-requester">{{ audienceCurrent.requested_by }}</span>
+            <span v-if="isAudienceRequest(displayCurrent.requested_by)" class="music-queue-requester">{{ displayCurrent.requested_by }}</span>
           </div>
           <div v-else class="music-queue-item music-queue-current music-queue-current-inline music-queue-current-stacked">
             <strong class="music-queue-current-label"><span class="music-queue-heading-mark">♫</span> 当前播放</strong>
-            <span class="music-queue-empty">暂无点播歌曲</span>
+            <span class="music-queue-empty">暂无播放歌曲</span>
           </div>
         </section>
         <section class="music-queue-section music-queue-pending">
-          <strong class="music-queue-heading"><span class="music-queue-heading-mark">Ⅱ</span> 待播队列 <span class="music-queue-count">{{ audienceQueueItems.length }} 首</span></strong>
-          <div v-if="audienceQueueItems.length" class="music-queue-list">
-            <div v-for="(item, index) in audienceQueueDisplayItems(layer)" :key="item.id" class="music-queue-item">
+          <strong class="music-queue-heading"><span class="music-queue-heading-mark">Ⅱ</span> 待播队列 <span class="music-queue-count">{{ displayQueueItems.length }} 首</span></strong>
+          <div v-if="displayQueueItems.length" class="music-queue-list">
+            <div v-for="(item, index) in displayQueueItemsForLayer(layer)" :key="item.id" class="music-queue-item">
               <span class="music-queue-index">{{ String(index + 1).padStart(2, '0') }}</span>
               <span class="music-queue-track"><strong>{{ item.track.title }}</strong><small>{{ item.track.artist || '未知歌手' }}</small></span>
-              <span class="music-queue-requester">{{ item.requested_by }}</span>
+              <span v-if="isAudienceRequest(item.requested_by)" class="music-queue-requester">{{ item.requested_by }}</span>
             </div>
           </div>
           <div v-else class="music-queue-empty">暂无待播歌曲</div>
