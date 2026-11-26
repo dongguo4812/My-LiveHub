@@ -265,6 +265,7 @@ func main() {
 	}
 	monitorService := desktop.NewMonitorServiceWithPlatformManager(logDirectory, platformManager, lolHexLogDir)
 	monitorService.StartFrontendHeartbeatWatchdog(15*time.Second, 45*time.Second)
+	monitorService.StartSystemMetricsSampler(5 * time.Second)
 	lolHexService, err := desktop.NewLOLHexService(runtimeRoot, filepath.Join(paths.LocalDir, "lol_hex_display.json"))
 	if err != nil {
 		log.Printf("LOL Hex built-in module unavailable: %v", err)
