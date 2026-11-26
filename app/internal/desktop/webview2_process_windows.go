@@ -4,6 +4,7 @@ package desktop
 
 import (
 	"fmt"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -13,7 +14,7 @@ func readOwnedWebView2Processes(ownerPID uint32) ([]WebView2ProcessSnapshot, err
 	if err != nil { return nil, fmt.Errorf("create process snapshot: %w", err) }
 	defer windows.CloseHandle(snapshot)
 
-	entry := windows.ProcessEntry32{Size: uint32(windows.SizeofProcessEntry32)}
+	entry := windows.ProcessEntry32{Size: uint32(unsafe.Sizeof(windows.ProcessEntry32{}))}
 	if err := windows.Process32First(snapshot, &entry); err != nil {
 		return nil, fmt.Errorf("read first process entry: %w", err)
 	}
