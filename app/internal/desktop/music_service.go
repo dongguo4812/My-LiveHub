@@ -741,6 +741,7 @@ func (s *MusicService) SaveConfig(value config.MusicConfig) error {
 		return err
 	}
 	s.mu.Lock()
+	wasEnabled := s.value.Enabled
 	wasLoudnessNormalization := s.value.LoudnessNormalization
 	s.value = cloneMusicConfig(value)
 	s.playlistPlaybackMode = value.PlaylistPlaybackMode
