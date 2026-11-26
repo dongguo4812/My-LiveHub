@@ -274,16 +274,30 @@ func (s *MusicService) initializeLXRuntime(ctx context.Context) {
 		s.mu.Unlock()
 	}()
 	if err := s.scriptRuntime.Start(ctx); err != nil {
-		s.mu.Lock()
-		s.lxRuntimeStatus = "failed"
-		s.lxRuntimeError = err.Error()
-		s.lastError = "LX-JS 音源初始化失败：" + err.Error()
-		s.mu.Unlock()
+		s.setLXRuntimeFailure(err)
 		return
+	}
+	// A script can fail its own handshake while the SourceManager remains
+	// operational for native fallback. Surface the script-level failure without
+	// turning it into a fatal MusicService startup error.
+	if reporter, ok := s.scriptRuntime.(interface{ InitializationError() error }); ok {
+		if err := reporter.InitializationError(); err != nil {
+			s.setLXRuntimeFailure(err)
+			return
+		}
 	}
 	s.mu.Lock()
 	s.lxRuntimeStatus = "ready"
 	s.lxRuntimeError = ""
+	s.mu.Unlock()
+}
+
+func (s *MusicService) setLXRuntimeFailure(err error) {
+	if err == nil { return }
+	s.mu.Lock()
+	s.lxRuntimeStatus = "failed"
+	s.lxRuntimeError = err.Error()
+	s.lastError = "LX-JS 音源初始化失败：" + err.Error()
 	s.mu.Unlock()
 }
 
