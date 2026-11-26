@@ -375,8 +375,10 @@ func (p kuwoSearchProvider) Search(ctx context.Context, keyword string, page, li
 		}
 		for i,j:=0,len(types)-1;i<j;i,j=i+1,j-1 { types[i],types[j]=types[j],types[i] }
 		duration, _ := strconv.ParseInt(stringValue(item["DURATION"]),10,64)
+		cover := normalizeKuwoCoverURL(firstLXString(item, "web_albumpic_short", "ALBUMPIC", "albumpic", "albumPic", "pic", "cover"))
 		data := map[string]string{"songmid":id,"album_id":decodeLXName(stringValue(item["ALBUMID"]))}
-		list = append(list,newLXTrack("kw",id,stringValue(item["SONGNAME"]),strings.ReplaceAll(decodeLXName(stringValue(item["ARTIST"])), "&", "、"),stringValue(item["ALBUM"]),formatLXDuration(duration),"",data,types))
+		if cover != "" { data["cover_url"] = cover }
+		list = append(list,newLXTrack("kw",id,stringValue(item["SONGNAME"]),strings.ReplaceAll(decodeLXName(stringValue(item["ARTIST"])), "&", "、"),stringValue(item["ALBUM"]),formatLXDuration(duration),cover,data,types))
 	}
 	return SearchPage{Tracks:list,Total:total,Page:page,PageSize:limit,MaxPage:pageCount(total,limit),Source:"kw"},nil
 }
@@ -475,15 +477,48 @@ func (p kugouSearchProvider) Search(ctx context.Context, keyword string, page, l
 		}
 		duration := intValue(item["Duration"])
 		album := firstTrackValue(stringValue(item["AlbumName"]), stringValue(item["Album"]))
+		cover := normalizeKugouCoverURL(firstLXString(item, "Image", "Img", "AlbumImg", "AlbumImage", "album_img", "cover", "Cover", "pic"))
 		sourceData := map[string]string{
 			"songmid": id,
 			"hash": hash,
 			"album_id": firstTrackValue(stringValue(item["AlbumID"]), stringValue(item["album_id"])),
 			"album_audio_id": stringValue(item["MixSongID"]),
 		}
-		list = append(list, newLXTrack("kg", id, name, strings.Join(artists, "、"), album, formatLXDuration(duration), "", sourceData, types))
+		if cover != "" { sourceData["cover_url"] = cover }
+		list = append(list, newLXTrack("kg", id, name, strings.Join(artists, "、"), album, formatLXDuration(duration), cover, sourceData, types))
 	}
 	return SearchPage{Tracks: list, Total: total, Page: page, PageSize: limit, MaxPage: pageCount(total, limit), Source: "kg"}, nil
+}
+
+// firstLXString returns the first non-empty string field from a provider payload.
+func firstLXString(item map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(stringValue(item[key])); value != "" { return value }
+	}
+	return ""
+}
+
+// normalizeKuwoCoverURL converts Kuwo's web_albumpic_short relative path into
+// the public album-cover URL used by its desktop/mobile clients.
+func normalizeKuwoCoverURL(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" { return "" }
+	if strings.HasPrefix(value, "//") { return "https:" + value }
+	if strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://") { return value }
+	parts := strings.Split(strings.Trim(value, "/"), "/")
+	if len(parts) > 1 { value = "300/" + strings.Join(parts[1:], "/") }
+	return "https://img3.kuwo.cn/star/albumcover/" + value
+}
+
+// Kugou search responses commonly expose Image as a size-templated image URL.
+func normalizeKugouCoverURL(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" { return "" }
+	value = strings.ReplaceAll(value, "{size}", "400")
+	value = strings.ReplaceAll(value, "{SIZE}", "400")
+	if strings.HasPrefix(value, "//") { return "https:" + value }
+	if strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://") { return value }
+	return ""
 }
 
 func cleanLXSearchText(value string) string {
