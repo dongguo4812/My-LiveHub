@@ -59,7 +59,10 @@ func (s *MusicService) ImportLXScript(name, source string) (LXScriptSummary, err
 	s.mu.RUnlock()
 	manager, ok := runtime.(lxScriptManagement)
 	if !ok { return LXScriptSummary{}, errors.New("LX script import is available only in lxproduction builds") }
-	return manager.ImportScript(context.Background(), name, source)
+	result, err := manager.ImportScript(context.Background(), name, source)
+	if err != nil { return LXScriptSummary{}, err }
+	s.refreshLXRuntimeStatus()
+	return result, nil
 }
 
 // ListLXScripts returns script metadata only; executable source is never sent back to the UI.
@@ -80,7 +83,9 @@ func (s *MusicService) SetLXScriptEnabled(id string, enabled bool) error {
 	s.mu.RUnlock()
 	manager, ok := runtime.(lxScriptManagement)
 	if !ok { return errors.New("LX script management is available only in lxproduction builds") }
-	return manager.SetScriptEnabled(context.Background(), id, enabled)
+	if err := manager.SetScriptEnabled(context.Background(), id, enabled); err != nil { return err }
+	s.refreshLXRuntimeStatus()
+	return nil
 }
 
 func (s *MusicService) DeleteLXScript(id string) error {
@@ -90,7 +95,9 @@ func (s *MusicService) DeleteLXScript(id string) error {
 	s.mu.RUnlock()
 	manager, ok := runtime.(lxScriptManagement)
 	if !ok { return errors.New("LX script management is available only in lxproduction builds") }
-	return manager.DeleteScript(context.Background(), id)
+	if err := manager.DeleteScript(context.Background(), id); err != nil { return err }
+	s.refreshLXRuntimeStatus()
+	return nil
 }
 
 func (s *MusicService) TestLXScript(id string) (LXScriptTestResult, error) {
@@ -100,4 +107,39 @@ func (s *MusicService) TestLXScript(id string) (LXScriptTestResult, error) {
 	if !ok { return LXScriptTestResult{}, errors.New("LX script testing is available only in lxproduction builds") }
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute); defer cancel()
 	return manager.TestScript(ctx, id)
+}
+
+
+// refreshLXRuntimeStatus reconciles the service-level startup indicator after
+// a script management operation changes the active runtime. In particular, a
+// previously failed startup can recover after a broken script is removed or
+// replaced without requiring the user to restart the music module.
+func (s *MusicService) refreshLXRuntimeStatus() {
+	if s == nil { return }
+	// Management operations serialize on the production runtime mutex. Wait for
+	// any concurrent startup to publish its final result before reading it.
+	_ = s.waitForLXRuntime(context.Background())
+	s.mu.RLock()
+	runtime := s.scriptRuntime
+	started := s.started
+	generation := s.lxRuntimeGeneration
+	done := s.lxRuntimeDone
+	s.mu.RUnlock()
+	if !started || done != nil || runtime == nil { return }
+	var initializationErr error
+	if reporter, ok := runtime.(interface{ InitializationError() error }); ok {
+		initializationErr = reporter.InitializationError()
+	}
+	s.mu.Lock()
+	if s.started && s.lxRuntimeGeneration == generation && s.lxRuntimeDone == nil {
+		if initializationErr != nil {
+			s.lxRuntimeStatus = "failed"
+			s.lxRuntimeError = initializationErr.Error()
+			s.lastError = "LX-JS 音源初始化失败：" + initializationErr.Error()
+		} else {
+			s.lxRuntimeStatus = "ready"
+			s.lxRuntimeError = ""
+		}
+	}
+	s.mu.Unlock()
 }
