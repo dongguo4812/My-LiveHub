@@ -1377,6 +1377,96 @@ func (e *lifecycleRaceTestEngine) Start(ctx context.Context) error {
 }
 func (e *lifecycleRaceTestEngine) Close() error { e.closeCalls.Add(1); return e.closeErr }
 
+type shutdownBlockingSnapshotEngine struct {
+	entered chan struct{}
+	release chan struct{}
+	closeCalls atomic.Int32
+}
+func (*shutdownBlockingSnapshotEngine) Load(context.Context, music.Track) error { return nil }
+func (*shutdownBlockingSnapshotEngine) Pause(context.Context) error { return nil }
+func (*shutdownBlockingSnapshotEngine) Resume(context.Context) error { return nil }
+func (*shutdownBlockingSnapshotEngine) Stop(context.Context) error { return nil }
+func (e *shutdownBlockingSnapshotEngine) Snapshot(context.Context) (music.PlaybackSnapshot, error) {
+	select { case <-e.entered: default: close(e.entered) }
+	<-e.release // Deliberately ignore cancellation to verify Shutdown joins the task.
+	return music.PlaybackSnapshot{State:music.PlaybackIdle}, nil
+}
+func (*shutdownBlockingSnapshotEngine) Start(context.Context) error { return nil }
+func (e *shutdownBlockingSnapshotEngine) Close() error { e.closeCalls.Add(1); return nil }
+
+func TestMusicShutdownWaitsForPlaybackWatcherBeforeClosingEngine(t *testing.T) {
+	engine := &shutdownBlockingSnapshotEngine{entered:make(chan struct{}), release:make(chan struct{})}
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), engine, events.NewBuffer())
+	service.startPlaybackWatcher()
+	select {
+	case <-engine.entered:
+	case <-time.After(2*time.Second):
+		t.Fatal("playback watcher did not enter Snapshot")
+	}
+	shutdownDone := make(chan error, 1)
+	go func() { shutdownDone <- service.Shutdown() }()
+	select {
+	case err := <-shutdownDone:
+		t.Fatalf("Shutdown returned before playback watcher exited: %v", err)
+	case <-time.After(50*time.Millisecond):
+	}
+	if got := engine.closeCalls.Load(); got != 0 {
+		t.Fatalf("engine Close called while watcher still used it: %d", got)
+	}
+	close(engine.release)
+	select {
+	case err := <-shutdownDone:
+		if err != nil { t.Fatalf("Shutdown failed: %v", err) }
+	case <-time.After(time.Second):
+		t.Fatal("Shutdown did not finish after playback watcher exited")
+	}
+	if got := engine.closeCalls.Load(); got != 1 { t.Fatalf("engine Close calls = %d, want 1", got) }
+}
+
+type shutdownBlockingFanMedalChecker struct {
+	entered chan struct{}
+	release chan struct{}
+}
+func (c *shutdownBlockingFanMedalChecker) Check(context.Context, int, int) (bool, int, error) {
+	close(c.entered)
+	<-c.release // Deliberately ignore cancellation to verify the worker is joined.
+	return false, 0, nil
+}
+
+func TestMusicShutdownCancelsAndJoinsRequestWorker(t *testing.T) {
+	value := config.DefaultMusicConfig()
+	value.Enabled = true
+	value.CommandEnabled = true
+	value.CommandPrefix = "!点歌"
+	value.RequireFanMedal = true
+	value.FanMedalLevel = 1
+	service := NewMusicServiceWithDependencies(nil, value, &nextTrackTestEngine{}, events.NewBuffer())
+	checker := &shutdownBlockingFanMedalChecker{entered:make(chan struct{}), release:make(chan struct{})}
+	service.fanMedalChecker = checker
+	if err := service.start(context.Background()); err != nil { t.Fatal(err) }
+	service.requests <- events.Event{Type:"danmaku", Content:"!点歌 测试歌曲", UserID:123, UserName:"viewer"}
+	select {
+	case <-checker.entered:
+	case <-time.After(time.Second):
+		t.Fatal("request worker did not enter fan medal check")
+	}
+	shutdownDone := make(chan error, 1)
+	go func() { shutdownDone <- service.Shutdown() }()
+	select {
+	case err := <-shutdownDone:
+		t.Fatalf("Shutdown returned before request worker exited: %v", err)
+	case <-time.After(50*time.Millisecond):
+	}
+	close(checker.release)
+	select {
+	case err := <-shutdownDone:
+		if err != nil { t.Fatalf("Shutdown failed: %v", err) }
+	case <-time.After(time.Second):
+		t.Fatal("Shutdown did not finish after request worker exited")
+	}
+	if service.GetStatus().Running { t.Fatal("music service remains running after Shutdown") }
+}
+
 func TestMusicStartClosesPlaybackEngineAfterPartialStartFailure(t *testing.T) {
 	startErr := errors.New("partial playback engine startup failure")
 	closeErr := errors.New("playback engine cleanup failure")
