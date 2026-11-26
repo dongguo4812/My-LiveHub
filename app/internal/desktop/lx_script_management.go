@@ -116,11 +116,12 @@ func (s *MusicService) TestLXScript(id string) (LXScriptTestResult, error) {
 // replaced without requiring the user to restart the music module.
 func (s *MusicService) refreshLXRuntimeStatus() {
 	if s == nil { return }
+	// Management operations serialize on the production runtime mutex. Wait for
+	// any concurrent startup to publish its final result before taking the
+	// lifecycle lock; Stop must remain able to cancel a stalled initialization.
+	_ = s.waitForLXRuntime(context.Background())
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()
-	// Management operations serialize on the production runtime mutex. Wait for
-	// any concurrent startup to publish its final result before reading it.
-	_ = s.waitForLXRuntime(context.Background())
 	s.mu.RLock()
 	runtime := s.scriptRuntime
 	started := s.started
