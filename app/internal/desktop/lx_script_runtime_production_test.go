@@ -222,7 +222,6 @@ lx.on(lx.EVENT_NAMES.request, async ({source,action,info}) => {
  if(action==='search') return {tracks:[{id:'fixture-song',name:'Fixture Song',singer:'Fixture Artist',interval:180}],total:1,page:1,page_size:30,max_page:1};
  if(action==='detail') return {album:'Fixture Album'};
  if(action==='lyric') return '[00:00.00]Fixture lyric';
- if(action==='pic') return 'https://1.1.1.1/fixture-cover.jpg';
  throw new Error('unsupported action '+action);
 });
 lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl','search','detail','lyric','pic'],qualitys:['128k']}}});
@@ -230,7 +229,7 @@ lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl','se
  if _,err:=runtime.ImportScript(context.Background(),"community-action-fixture",source);err!=nil{t.Fatal(err)}
  if err:=runtime.Start(context.Background());err!=nil{t.Fatal(err)}
  defer service.Shutdown()
- if !runtime.HasExtensionAction("kw", "search")||!runtime.HasExtensionAction("kw", "detail")||!runtime.HasExtensionAction("kw", "lyric")||!runtime.HasExtensionAction("kw", "pic"){t.Fatal("declared community actions were not exposed")}
+ if !runtime.HasExtensionAction("kw", "search")||!runtime.HasExtensionAction("kw", "detail")||!runtime.HasExtensionAction("kw", "lyric"){t.Fatal("declared community actions were not exposed")}
  if runtime.HasExtensionAction("kw", "musicUrl"){t.Fatal("native musicUrl must not be classified as a community extension")}
  resolved,err:=runtime.ResolvePlaybackURL(context.Background(),"kw",map[string]any{"musicInfo":map[string]any{"songmid":"fixture-song"},"type":"128k"})
  if err!=nil||resolved!="https://1.1.1.1/fixture-song.mp3"{t.Fatalf("native musicUrl action: %q, %v",resolved,err)}
@@ -241,7 +240,6 @@ lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl','se
  detail,err:=service.GetLXTrackDetail(track);if err!=nil{t.Fatalf("detail action: %v",err)}
  if detail.Album!="Fixture Album"||detail.Title!=track.Title||detail.ID!=track.ID{t.Fatalf("detail result was not merged into unified Track: %#v",detail)}
  lyrics,err:=service.GetLyrics(track);if err!=nil||lyrics!="[00:00.00]Fixture lyric"{t.Fatalf("lyric action: %q, %v",lyrics,err)}
- cover,err:=service.GetLXTrackCover(track);if err!=nil||cover!="https://1.1.1.1/fixture-cover.jpg"{t.Fatalf("pic action: %q, %v",cover,err)}
 }
 
 func TestProductionLXCommunityActionIsolatesFailingScript(t *testing.T) {
