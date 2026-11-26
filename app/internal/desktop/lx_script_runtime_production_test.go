@@ -785,25 +785,6 @@ func containsLXXinghaiSource(values []string, target string) bool {
 }
 
 
-type lxScriptTestBaseSearcher struct { calls map[string]int }
-
-func (s *lxScriptTestBaseSearcher) Sources() []music.SourceSnapshot { return nil }
-func (s *lxScriptTestBaseSearcher) SearchProvider(_ context.Context, source, _ string, page int) (music.SearchPage, error) {
-	if s.calls == nil { s.calls = make(map[string]int) }
-	s.calls[source]++
-	return music.SearchPage{Tracks: []music.Track{}, Page: page, PageSize: 30, MaxPage: 1}, nil
-}
-func (s *lxScriptTestBaseSearcher) SearchSources(ctx context.Context, keyword string, page int, sourceIDs []string) (music.SearchPage, map[string]string, error) {
-	result := music.SearchPage{Tracks: []music.Track{}, Page: page, PageSize: 30, MaxPage: 1}
-	failures := make(map[string]string)
-	for _, source := range sourceIDs {
-		item, err := s.SearchProvider(ctx, source, keyword, page)
-		if err != nil { failures[source] = err.Error(); continue }
-		result.Tracks = append(result.Tracks, item.Tracks...)
-	}
-	return result, failures, ctx.Err()
-}
-
 func TestProductionLXScriptTestBlocksNativeSearchFallbackWhenScriptOmitsSearch(t *testing.T) {
 	manager := testLXConfigManager(t)
 	runtime := newLXScriptRuntime(manager).(*productionMusicLXRuntime)
@@ -824,8 +805,7 @@ lx.send(lx.EVENT_NAMES.inited, {sources: {
 	if err := runtime.Start(context.Background()); err != nil { t.Fatal(err) }
 	defer runtime.Close()
 
-	base := &lxScriptTestBaseSearcher{calls: make(map[string]int)}
-	result, err := runtime.testScriptWithSearcher(context.Background(), added.ID, base)
+	result, err := runtime.testScript(context.Background(), added.ID)
 	if err != nil { t.Fatal(err) }
 	if len(result.Platforms) != 3 {
 		t.Fatalf("tested platforms = %#v; want kw, mg, and tx (explicitly unsupported)", result.Platforms)
