@@ -146,13 +146,6 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 						continue
 					}
 
-					// Exercise every community action this script explicitly
-					// advertises for this provider before attempting playback.
-					if runtime.manager.HasExtensionAction(sourceID, "detail") {
-						if _, detailErr := service.GetLXTrackDetail(*candidate); detailErr != nil {
-							t.Logf("optional detail action unavailable for %s: %v", sourceID, detailErr)
-						}
-					}
 					if runtime.manager.HasExtensionAction(sourceID, "lyric") {
 						lyrics, lyricErr := service.GetLyrics(*candidate)
 						if lyricErr != nil || strings.TrimSpace(lyrics) == "" {
