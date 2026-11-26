@@ -1139,79 +1139,19 @@ func (s *MusicService) GetLyrics(track music.Track) (string, error) {
 	if s == nil { return "", errors.New("music lyrics service is unavailable") }
 	value, handled, extensionErr := s.dispatchLXExtension(context.Background(), firstNonEmpty(track.LXSourceKey, track.SourceID), "lyric", map[string]any{"musicInfo":track, "track":track})
 	if handled && extensionErr == nil {
-		if lyrics, ok := value.(string); ok && strings.TrimSpace(lyrics) != "" {
-			return lyrics, nil
-		}
-		if _, htmlAudio := s.engine.(*htmlAudioPlaybackEngine); !htmlAudio {
-			if _, ok := value.(string); !ok { return "", errors.New("LX lyric action must return a string") }
-			return "", nil
-		}
+		lyrics, ok := value.(string)
+		if !ok { return "", errors.New("LX lyric action must return a string") }
+		if strings.TrimSpace(lyrics) != "" { return lyrics, nil }
 	}
-	if _, htmlAudio := s.engine.(*htmlAudioPlaybackEngine); htmlAudio {
-		// A community script's optional lyric action must not block the native
-		// provider adapter. Imported scripts frequently expose search/playback
-		// while their lyric action is absent, incomplete, or incompatible with
-		// the current track metadata. Fall back to the matching provider API.
-		lyrics, nativeErr := s.getNativeProviderLyrics(track)
-		if nativeErr != nil && extensionErr != nil {
-			return "", errors.Join(extensionErr, nativeErr)
-		}
-		return lyrics, nativeErr
-	}
-	if handled && extensionErr != nil { return "", extensionErr }
-	if handled {
-		if _, ok := value.(string); !ok { return "", errors.New("LX lyric action must return a string") }
-		return "", nil
-	}
-	if s.engine == nil { return "", errors.New("music lyrics service is unavailable") }
-	provider, ok := s.engine.(interface {
-		GetCurrentLyrics(context.Context) (string, error)
-	})
-	if !ok { return "", errors.New("当前播放引擎不支持读取洛雪歌词 API") }
-	if normalizeLXTrackIdentity(track.Title) == "" || normalizeLXTrackIdentity(track.Artist) == "" {
-		return "", errors.New("请求歌曲缺少歌名或歌手，无法核对洛雪当前播放歌曲")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-	defer cancel()
-	// 先确认洛雪当前播放的歌曲，不能直接把 /lyric-all 的结果归属给请求歌曲。
-	before, err := s.engine.Snapshot(ctx)
-	if err != nil { return "", fmt.Errorf("读取洛雪当前播放状态失败，暂不显示歌词：%w", err) }
-	if before.Track == nil || !sameLXTrackIdentity(track, *before.Track) {
-		return "", nil
-	}
-
-	source := firstNonEmpty(track.LXSourceKey, track.SourceID)
-	cacheKey := strings.Join([]string{source, track.ID, track.Title, track.Artist}, "\x00")
-	s.lyricsMu.Lock()
-	cached, cachedOK := s.lyricsCache[cacheKey]
-	s.lyricsMu.Unlock()
-	if cachedOK {
-		// 缓存也必须以本次已核对的洛雪播放状态为前提。
-		return cached, nil
-	}
-
-	lyrics, err := provider.GetCurrentLyrics(ctx)
-	if err != nil { return "", err }
-	if strings.TrimSpace(lyrics) == "" { return "", nil }
-
-	// 歌词读取期间可能刚好切歌；再次核对，避免把上一首/下一首歌词写入当前歌曲缓存。
-	after, err := s.engine.Snapshot(ctx)
-	if err != nil { return "", fmt.Errorf("读取洛雪歌词后无法再次确认当前歌曲：%w", err) }
-	if after.Track == nil || !sameLXTrackIdentity(track, *after.Track) || !sameLXTrackIdentity(*before.Track, *after.Track) {
-		return "", nil
-	}
-
-	s.lyricsMu.Lock()
-	if s.lyricsCache == nil { s.lyricsCache = make(map[string]string) }
-	if len(s.lyricsCache) >= 128 { s.lyricsCache = make(map[string]string) }
-	s.lyricsCache[cacheKey] = lyrics
-	s.lyricsMu.Unlock()
-	return lyrics, nil
+	// Community scripts may omit or fail their optional lyric action. Use the
+	// matching provider adapter rather than querying an external player's API.
+	lyrics, nativeErr := s.getNativeProviderLyrics(track)
+	if nativeErr != nil && extensionErr != nil { return "", errors.Join(extensionErr, nativeErr) }
+	return lyrics, nativeErr
 }
 
-// getNativeProviderLyrics keeps lyric retrieval independent from the legacy 洛雪
-// player API. The selected provider adapter uses the normalized Track metadata
+// getNativeProviderLyrics retrieves lyrics independently of playback state.
+// The selected provider adapter uses the normalized Track metadata
 // already returned by search and returns synchronized LRC for HTMLAudio/Desktop Lyrics.
 func (s *MusicService) getNativeProviderLyrics(track music.Track) (string, error) {
 	source := firstNonEmpty(track.LXSourceKey, track.SourceID)
