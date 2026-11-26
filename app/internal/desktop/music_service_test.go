@@ -598,6 +598,65 @@ func TestConcurrentPlayNextLoadsCurrentQueueItemOnlyOnce(t *testing.T) {
 	}
 }
 
+type stopDuringPlaybackLoadTestEngine struct {
+	loadStarted chan struct{}
+	loadCalls atomic.Int32
+	stopCalls atomic.Int32
+}
+
+func (e *stopDuringPlaybackLoadTestEngine) Load(ctx context.Context, _ music.Track) error {
+	if e.loadCalls.Add(1) == 1 { close(e.loadStarted) }
+	<-ctx.Done()
+	return ctx.Err()
+}
+func (e *stopDuringPlaybackLoadTestEngine) Pause(context.Context) error { return nil }
+func (e *stopDuringPlaybackLoadTestEngine) Resume(context.Context) error { return nil }
+func (e *stopDuringPlaybackLoadTestEngine) Stop(context.Context) error {
+	e.stopCalls.Add(1)
+	return nil
+}
+func (e *stopDuringPlaybackLoadTestEngine) Snapshot(context.Context) (music.PlaybackSnapshot, error) {
+	return music.PlaybackSnapshot{State: music.PlaybackStopped}, nil
+}
+
+func TestMusicServiceStopCancelsInFlightLoadBeforeStoppingEngine(t *testing.T) {
+	value := config.DefaultMusicConfig()
+	value.Enabled = true
+	value.EnabledSearchSources = []string{"tx"}
+	engine := &stopDuringPlaybackLoadTestEngine{loadStarted: make(chan struct{})}
+	service := NewMusicServiceWithDependencies(nil, value, engine)
+	track := music.Track{ID: "tx_stop_race", SourceID: "tx", LXSourceKey: "tx", Title: "停止竞态测试", Artist: "测试歌手"}
+	if _, err := service.queue.Enqueue(track, "viewer"); err != nil { t.Fatal(err) }
+
+	playDone := make(chan error, 1)
+	go func() { playDone <- service.PlayNext() }()
+	select {
+	case <-engine.loadStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("playback did not enter engine Load")
+	}
+
+	stopDone := make(chan error, 1)
+	go func() { stopDone <- service.Stop() }()
+	select {
+	case err := <-stopDone:
+		if err != nil { t.Fatalf("Stop returned error: %v", err) }
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop blocked instead of canceling the in-flight engine Load")
+	}
+	select {
+	case err := <-playDone:
+		if err != nil { t.Fatalf("PlayNext returned error after Stop cancellation: %v", err) }
+	case <-time.After(2 * time.Second):
+		t.Fatal("in-flight PlayNext did not exit after Stop")
+	}
+	if got := engine.stopCalls.Load(); got != 1 { t.Fatalf("engine Stop calls = %d, want 1", got) }
+	if current := service.queue.Snapshot().Current; current != nil {
+		t.Fatalf("queue Current survived Stop: %#v", current)
+	}
+	if service.playbackStopping { t.Fatal("playbackStopping remained set after Stop completed") }
+}
+
 func TestMusicPlaybackStartTimeoutIsTenSeconds(t *testing.T) {
 	if musicPlaybackStartTimeout != 10*time.Second {
 		t.Fatalf("music playback start timeout = %s, want 10s", musicPlaybackStartTimeout)
