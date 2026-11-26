@@ -9,8 +9,8 @@ import (
 	"strconv"
 )
 
-// doLXJSON and the small JSON accessors are shared by the legacy search
-// implementation and the independent LX lyrics adapters.
+// doLXJSON and the small JSON accessors are shared by the independent LX
+// lyrics adapters.
 func doLXJSON(ctx context.Context, client *http.Client, method, rawURL string, headers map[string]string, body io.Reader) (map[string]any, error) {
 	req, err := http.NewRequestWithContext(ctx, method, rawURL, body)
 	if err != nil { return nil, err }
