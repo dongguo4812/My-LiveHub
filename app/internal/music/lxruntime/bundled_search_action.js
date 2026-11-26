@@ -3,6 +3,35 @@
  * The five LX provider search implementations live here and use only lx.request.
  */
 (() => {
+  // QuickJS exposes Uint8Array but not Node's Buffer global. The native
+  // crypto bridge returns Buffer.from(...) values, so install the small
+  // compatible byte wrapper required by the existing LX crypto contract.
+  if (typeof globalThis.Buffer === 'undefined') {
+    globalThis.Buffer = class Buffer extends Uint8Array {
+      static from(value, encoding) {
+        if (typeof value === 'string') {
+          if (encoding === 'hex') {
+            const out = [];
+            for (let i = 0; i + 1 < value.length; i += 2) {
+              const byte = parseInt(value.slice(i, i + 2), 16);
+              if (!Number.isFinite(byte)) break;
+              out.push(byte);
+            }
+            return new Buffer(out);
+          }
+          return new Buffer(new TextEncoder().encode(value));
+        }
+        if (value instanceof ArrayBuffer) return new Buffer(new Uint8Array(value));
+        if (ArrayBuffer.isView(value)) return new Buffer(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+        if (Array.isArray(value)) return new Buffer(value);
+        throw new TypeError('Buffer.from expects a string or byte array');
+      }
+      toString(encoding) {
+        if (encoding === 'hex') return Array.from(this, byte => byte.toString(16).padStart(2, '0')).join('');
+        return new TextDecoder().decode(this);
+      }
+    };
+  }
   const sources = ['kw', 'kg', 'tx', 'wy', 'mg'];
   const defaults = {
     kw: 'http://search.kuwo.cn/r.s',
