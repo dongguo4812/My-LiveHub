@@ -170,7 +170,7 @@ jobs:
         run: go test ./...
 
       - name: Test production LX runtime and capability import paths
-        run: go test -tags lxproduction ./internal/music/lxruntime ./internal/desktop -run '^TestProductionLX'
+        run: go test -v -timeout 5m -tags lxproduction ./internal/music/lxruntime ./internal/desktop -run '^TestProductionLX'
 
       - name: Embed Windows application manifest and icon
         shell: pwsh
