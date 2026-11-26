@@ -52,6 +52,9 @@ type MusicService struct {
 	playbackNavigationMu sync.Mutex
 	playbackStartedItemID string
 	playbackStopping bool
+	shuttingDown bool
+	watchWG sync.WaitGroup
+	lyricsWG sync.WaitGroup
 	playbackStopGeneration uint64
 	playlistMu sync.Mutex
 	lifecycleMu sync.Mutex
@@ -97,6 +100,8 @@ type MusicService struct {
 	lyricsCache map[string]string
 	lyricsRequests map[string]lyricsRequest
 	lyricsRequestGeneration uint64
+	lyricsTaskGeneration uint64
+	lyricsTasks map[uint64]context.CancelFunc
 	playbackResourceCache *music.PlaybackResourceCache
 	playbackRefreshMu sync.Mutex
 	playbackRefreshResults map[string]music.PlaybackResource
@@ -123,7 +128,7 @@ func NewMusicServiceWithDependencies(manager *config.Manager, value config.Music
 	service := &MusicService{
 		manager: manager, buffer: buffer, value: cloneMusicConfig(value), playlistPlaybackMode: value.PlaylistPlaybackMode,
 		engine: engine, queue: music.NewQueue(value.QueueCapacity),
-		searcher: music.NewLXSearchClient(nil), scriptRuntime: newLXScriptRuntime(manager), lyricsCache: make(map[string]string), lyricsRequests: make(map[string]lyricsRequest), playbackResourceCache: music.NewPlaybackResourceCache(2*time.Minute, 512), playbackRefreshResults: make(map[string]music.PlaybackResource), requestCooldowns: make(map[string]time.Time),
+		searcher: music.NewLXSearchClient(nil), scriptRuntime: newLXScriptRuntime(manager), 	lyricsCache: make(map[string]string), lyricsRequests: make(map[string]lyricsRequest), lyricsTasks: make(map[uint64]context.CancelFunc), playbackResourceCache: music.NewPlaybackResourceCache(2*time.Minute, 512), playbackRefreshResults: make(map[string]music.PlaybackResource), requestCooldowns: make(map[string]time.Time),
 	}
 	// Keep the lightweight command listener alive while the module is stopped,
 	// matching the video module so users still receive an explicit failure notice.
@@ -237,6 +242,10 @@ func (s *MusicService) start(ctx context.Context) error {
 		s.mu.Unlock()
 		return errors.New("music service has already started")
 	}
+	if s.shuttingDown {
+		s.mu.Unlock()
+		return errors.New("music service is still shutting down")
+	}
 	engine := s.engine
 	s.mu.Unlock()
 	// Serialize the engine and service lifecycle as one operation. Starting
@@ -256,6 +265,8 @@ func (s *MusicService) start(ctx context.Context) error {
 		}
 	}
 	s.mu.Lock()
+	s.shuttingDown = false
+	s.playbackStopping = false
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 	s.requests = make(chan events.Event, musicRequestQueueCapacity)
 	s.workerDone = make(chan struct{})
@@ -393,6 +404,7 @@ func (s *MusicService) stop(ctx context.Context) error {
 	// Keep the command listener subscribed while stopped so disabled-command
 	// attempts can still be reported through the shared request-notice stream.
 	s.started = false
+	s.shuttingDown = true
 	s.mu.Unlock()
 	if cancel != nil { cancel() }
 	if runtimeCancel != nil {
@@ -1413,27 +1425,51 @@ func (s *MusicService) GetStatus() MusicStatus {
 }
 func (s *MusicService) Shutdown() error {
 	if s == nil { return nil }
-	s.mu.Lock()
-	s.playbackStopGeneration++
-	s.playbackStopping = true
-	s.mu.Unlock()
-	s.cancelAllLyricsRequests()
-	s.cancelPlaybackWatcher()
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
 
 	s.mu.Lock()
+	s.shuttingDown = true
+	s.started = false
+	s.playbackStopping = true
+	workerCancel, workerDone := s.cancel, s.workerDone
 	runtimeCancel, runtimeDone := s.lxRuntimeCancel, s.lxRuntimeDone
+	s.cancel = nil
 	s.lxRuntimeCancel = nil
 	s.lxRuntimeCtx = nil
 	s.mu.Unlock()
+
+	// Stop accepting work before cancelling and joining every owned task.
+	if workerCancel != nil { workerCancel() }
 	if runtimeCancel != nil { runtimeCancel() }
+	s.cancelAllLyricsRequests()
+	s.cancelPlaybackWatcher()
+
+	if workerDone != nil { <-workerDone }
+	s.watchWG.Wait()
+	s.lyricsWG.Wait()
 	if runtimeDone != nil { <-runtimeDone }
-	// Runtime cancellation releases any PlayNext waiting for initialization.
-	// Serialize engine teardown behind any remaining playback start operation.
+
+	// Playback start/load operations are serialized separately from the service
+	// lifecycle. Join them before closing either runtime or playback resources.
 	s.playbackStartMu.Lock()
-	defer s.playbackStartMu.Unlock()
 	var failures []error
-	if s.scriptRuntime != nil { if err := s.scriptRuntime.Close(); err != nil { failures = append(failures, fmt.Errorf("关闭 LX JavaScript Runtime：%w", err)) } }
-	if lifecycle, ok := s.engine.(music.PlaybackEngineLifecycle); ok { if err := lifecycle.Close(); err != nil { failures = append(failures, err) } }
+	if s.scriptRuntime != nil {
+		if err := s.scriptRuntime.Close(); err != nil {
+			failures = append(failures, fmt.Errorf("关闭 LX JavaScript Runtime：%w", err))
+		}
+	}
+	if lifecycle, ok := s.engine.(music.PlaybackEngineLifecycle); ok {
+		if err := lifecycle.Close(); err != nil { failures = append(failures, err) }
+	}
+	s.playbackStartMu.Unlock()
+
+	s.mu.Lock()
+	if len(failures) == 0 {
+		s.shuttingDown = false
+		s.playbackStopping = false
+	}
+	s.mu.Unlock()
 	return errors.Join(failures...)
 }
 
