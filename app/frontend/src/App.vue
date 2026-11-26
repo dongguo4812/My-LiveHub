@@ -53,7 +53,8 @@ onMounted(async () => {
     if (route.meta.standalone) return
     void router.push({ path: '/settings', query: { ...route.query, checkUpdate: String(Date.now()) } })
   })
-  if (route.path.startsWith('/scene/')) return
+  // Standalone windows must not initialize main-window audio listeners or services.
+  if (route.meta.standalone || route.path.startsWith('/scene/')) return
   console.info('main frontend mounted; heartbeat monitoring enabled')
   void RecordFrontendHeartbeat().catch(error => console.warn('initial frontend heartbeat failed:', error))
   frontendHeartbeatTimer = setInterval(() => {
