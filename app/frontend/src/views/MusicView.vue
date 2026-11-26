@@ -136,7 +136,6 @@ async function loadConfig() {
   error.value = ''
   try {
     config.value = await MusicService.GetConfig()
-    config.value.lx_api_endpoints ??= []
     config.value.enabled_search_sources ??= []
     selectedSource.value = config.value.enabled_search_sources.find(id => musicSourceOptions.some(item => item.id === id)) ?? 'all'
     const savedVolume = Math.min(100, Math.max(0, Number(config.value.volume ?? 1) * 100))
@@ -201,9 +200,8 @@ async function clearQueue() {
   }
 }
 async function refreshPlayback() {
-  // 洛雪 can be playing a song started outside My-LiveHub's request queue.
-  // Read the backend's shared playback snapshot so both external and queued
-  // playback are reflected without issuing another direct 洛雪 API request.
+  // Read the local HTMLAudio playback snapshot shared by the music service.
+  // The My-LiveHub queue is the sole source of track transitions.
   await Promise.all([refreshQueue(), refreshMusicStatus()])
   try {
     playback.value = await MusicService.GetCachedPlaybackStatus()
