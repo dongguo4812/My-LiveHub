@@ -64,7 +64,10 @@ func TestProductionLXBuiltInSearchAllFiveProviders(t *testing.T) {
 			maxAttempts := 2
 			if provider.id == "mg" {
 				candidateKeywords = candidateKeywords[:2]
-				maxAttempts = 1
+				// Migu's primary and fallback endpoints occasionally time out
+				// together on CI runners; retry once before treating the provider
+				// as unavailable. Each individual request remains bounded at 7s.
+				maxAttempts = 2
 			}
 			for _, candidateKeyword := range candidateKeywords {
 				for attempt := 1; attempt <= maxAttempts; attempt++ {
