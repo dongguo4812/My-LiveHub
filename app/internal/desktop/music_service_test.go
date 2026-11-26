@@ -938,6 +938,59 @@ func (r *blockingLXScriptRuntime) ResolvePlaybackURL(context.Context, string, an
 }
 func (r *blockingLXScriptRuntime) Close() error { r.closeCalls.Add(1); return nil }
 
+func TestStaleLXRuntimeInitializationCannotCloseOrOverwriteNewGeneration(t *testing.T) {
+	runtime := &blockingLXScriptRuntime{started: make(chan struct{}), release: make(chan struct{})}
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), &nextTrackTestEngine{}, events.NewBuffer())
+	service.scriptRuntime = runtime
+	oldDone := make(chan struct{})
+	newDone := make(chan struct{})
+	service.mu.Lock()
+	service.lxRuntimeGeneration = 1
+	service.lxRuntimeDone = oldDone
+	service.lxRuntimeStatus = "initializing"
+	service.mu.Unlock()
+
+	oldFinished := make(chan struct{})
+	go func() {
+		service.initializeLXRuntime(context.Background(), 1, oldDone)
+		close(oldFinished)
+	}()
+	select {
+	case <-runtime.started:
+	case <-time.After(time.Second):
+		t.Fatal("old runtime initialization did not start")
+	}
+
+	service.mu.Lock()
+	service.lxRuntimeGeneration = 2
+	service.lxRuntimeDone = newDone
+	service.lxRuntimeStatus = "initializing"
+	service.lxRuntimeError = ""
+	service.mu.Unlock()
+	close(runtime.release)
+
+	select {
+	case <-oldFinished:
+	case <-time.After(time.Second):
+		t.Fatal("stale runtime initialization did not finish")
+	}
+	select {
+	case <-newDone:
+		t.Fatal("stale initialization closed the newer generation completion channel")
+	default:
+	}
+	status := service.GetStatus()
+	if status.LXRuntimeStatus != "initializing" {
+		t.Fatalf("stale initialization overwrote new runtime status: %#v", status)
+	}
+	service.mu.RLock()
+	currentDone, generation := service.lxRuntimeDone, service.lxRuntimeGeneration
+	service.mu.RUnlock()
+	if currentDone != newDone || generation != 2 {
+		t.Fatalf("new runtime lifecycle was replaced: generation=%d done=%p, want generation=2 done=%p", generation, currentDone, newDone)
+	}
+}
+
 func TestMusicStartDoesNotWaitForLXRuntimeInitialization(t *testing.T) {
 	runtime := &blockingLXScriptRuntime{started: make(chan struct{}), release: make(chan struct{})}
 	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), &nextTrackTestEngine{}, events.NewBuffer())
