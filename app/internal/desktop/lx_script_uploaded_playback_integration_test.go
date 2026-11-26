@@ -26,13 +26,13 @@ import (
 // exercised through MusicService when the selected source supports them.
 func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 	if os.Getenv("MYLIVEHUB_LX_UPLOADED_PLAYBACK_INTEGRATION") != "1" {
-		t.Skip("set MYLIVEHUB_LX_UPLOADED_PLAYBACK_INTEGRATION=1 to test real playback for every uploaded lx-js script")
+		t.Skip("set MYLIVEHUB_LX_UPLOADED_PLAYBACK_INTEGRATION=1 to test real playback through the selected 墨澜聚合音源 script")
 	}
 
-	// The user-selected production source is the sole target for this
-	// integration suite. Do not fan out to unrelated uploaded scripts/providers.
+	// Validate the exact user-selected 墨澜聚合音源 script. Do not substitute
+	// another uploaded script or a native provider in this integration suite.
 	scripts := []string{
-		"回避聚合V0.0.1.js",
+		"墨澜音乐源v2.3.8.js",
 	}
 	// Run independent script runtimes concurrently, but cap outbound provider
 	// traffic so CI does not overload upstream music APIs.
@@ -287,7 +287,7 @@ func (e *playlistResolutionProbeEngine) loadCount() int { e.mu.Lock(); defer e.m
 // TestProductionLXPlaylistFirstAndRepeatedClickTiming creates a real two-song
 // playlist from the uploaded aggregate script and times the requested clicks.
 func TestProductionLXPlaylistFirstAndRepeatedClickTiming(t *testing.T) {
-	if os.Getenv("MYLIVEHUB_LX_UPLOADED_PLAYBACK_INTEGRATION")!="1" { t.Skip("requires live uploaded-script integration CI") }
+	if os.Getenv("MYLIVEHUB_LX_UPLOADED_PLAYBACK_INTEGRATION")!="1" { t.Skip("requires live selected 墨澜 aggregate-script integration CI") }
 	ctx,cancel:=context.WithTimeout(context.Background(),4*time.Minute); defer cancel()
 	const filename="回避聚合V0.0.1.js"
 	scriptPath:=filepath.Join("..","..","..","lx-js",filename)
