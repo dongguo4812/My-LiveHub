@@ -26,10 +26,16 @@ const mockBindings = {
     if (id === mocks.music) return `
       export async function GetCachedPlaybackStatus() {
         return { state: 'paused', position_ms: globalThis.__lyricsPosition ?? 1000, duration_ms: 10000,
-          track: { id: 'tx_fixture', source_id: 'tx', title: '桌面歌词验收曲', artist: '回归测试' } }
+          track: globalThis.__lyricsTrack ?? { id: 'tx_fixture', source_id: 'tx', title: '桌面歌词验收曲', artist: '回归测试' } }
       }
-      export async function GetLyrics() {
+      export async function GetLyricsForRequest(track, requestID) {
+        globalThis.__lyricsRequests ??= []
+        globalThis.__lyricsRequests.push(requestID)
         return ['[00:01.00]第一句', '[00:01.00]First translation', '[00:02.50]第二句', '[00:02.50]Second translation'].join(String.fromCharCode(10))
+      }
+      export function CancelLyrics(requestID) {
+        globalThis.__cancelledLyricsRequests ??= []
+        globalThis.__cancelledLyricsRequests.push(requestID)
       }
     `
     if (id === mocks.window) return 'export async function CloseWindow() {}'
@@ -63,8 +69,16 @@ try {
   await page.evaluate(() => { globalThis.__lyricsPosition = 2600 })
   await page.waitForFunction(() => document.querySelector('.original-lyric')?.textContent?.includes('第二句'), null, { timeout: 5000 })
   assert.equal((await page.locator('.translated-lyric').textContent()).trim(), 'Second translation')
+
+  const firstRequestID = await page.evaluate(() => globalThis.__lyricsRequests?.[0])
+  assert.ok(firstRequestID, 'desktop lyrics did not issue a cancellable request ID')
+  await page.evaluate(() => {
+    globalThis.__lyricsTrack = { id: 'tx_fixture_next', source_id: 'tx', title: '切歌取消验收曲', artist: '回归测试' }
+  })
+  await page.waitForFunction(() => document.querySelector('.lyrics-track strong')?.textContent?.includes('切歌取消验收曲'))
+  await page.waitForFunction(id => globalThis.__cancelledLyricsRequests?.includes(id), firstRequestID)
   assert.deepEqual(errors, [], `desktop lyrics overlay browser errors: ${errors.join('; ')}`)
-  console.log('Desktop lyrics overlay browser smoke passed: provider lyrics rendered, translation displayed, active line advanced with playback position.')
+  console.log('Desktop lyrics overlay browser smoke passed: provider lyrics rendered, translation displayed, active line advanced, and superseded request cancelled on track change.')
 } finally {
   if (browser) await browser.close()
   await server.close()
