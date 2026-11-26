@@ -329,29 +329,27 @@ func (r *productionMusicLXRuntime) Start(ctx context.Context) error {
 	if ctx == nil { ctx = context.Background() }
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.started {
-		var failures []string
-		for _, script := range r.scripts {
-			if script.Enabled && script.InitializationStatus != "ready" {
-				failures = append(failures, fmt.Sprintf("%s 初始化失败（阶段：%s）：%s", script.Name, script.InitializationStage, script.LastError))
-			}
-		}
-		if len(failures) > 0 { return errors.New(strings.Join(failures, "；")) }
-		return nil
-	}
+	if r.started { return nil }
 	if err := r.loadStoreLocked(); err != nil { return err }
 	r.started = true
 	if err := r.rebuildLocked(ctx); err != nil { r.started = false; return err }
-	// Keep per-script failure details persisted, but also report a failed
-	// runtime initialization to the MusicService lifecycle state.
+	return nil
+}
+
+// InitializationError reports per-script failures after Start has completed.
+// These failures must remain visible without preventing native provider fallback.
+func (r *productionMusicLXRuntime) InitializationError() error {
+	if r == nil { return errors.New("production LX source runtime is unavailable") }
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	var failures []string
 	for _, script := range r.scripts {
 		if script.Enabled && script.InitializationStatus != "ready" {
 			failures = append(failures, fmt.Sprintf("%s 初始化失败（阶段：%s）：%s", script.Name, script.InitializationStage, script.LastError))
 		}
 	}
-	if len(failures) > 0 { return errors.New(strings.Join(failures, "；")) }
-	return nil
+	if len(failures) == 0 { return nil }
+	return errors.New(strings.Join(failures, "；"))
 }
 
 func (r *productionMusicLXRuntime) ImportScript(ctx context.Context, name, source string) (LXScriptSummary, error) {
