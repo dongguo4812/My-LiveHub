@@ -9,7 +9,7 @@ import {
 } from '@element-plus/icons-vue'
 import { coreStatus, refreshCoreStatus } from './services/coreStatus'
 import { initializeVoiceAudio, disposeVoiceAudio } from './services/voiceAudio'
-import { RecordFrontendHeartbeat } from './bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/monitorservice'
+import { RecordFrontendHeartbeat } from '../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/monitorservice.js'
 
 const route = useRoute()
 const router = useRouter()
