@@ -651,7 +651,7 @@ func TestProductionLXXinghaiDaoxiangPlaybackURL(t *testing.T) {
 			t.Fatalf("Xinghai did not register %s; registered sources: %v", expected, imported.SupportedSources)
 		}
 	}
-	t.Logf("Xinghai imported and enabled: sources=%v native_actions=%v community_actions=%v; search is intentionally delegated to native LX providers", imported.SupportedSources, imported.NativeActions, imported.ExtensionActions)
+	t.Logf("Xinghai imported and enabled: sources=%v native_actions=%v community_actions=%v; search is intentionally delegated to QuickJS LX actions", imported.SupportedSources, imported.NativeActions, imported.ExtensionActions)
 
 	enabledSources := []string{"tx", "kw", "kg", "mg"}
 	service := NewMusicServiceWithDependencies(testLXConfigManager(t),
