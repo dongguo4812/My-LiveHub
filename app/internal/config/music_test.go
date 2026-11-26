@@ -80,10 +80,6 @@ func TestLoadMusicConfigMigratesLegacySettingsWithoutLosingUserPreferences(t *te
 		got.RequestCooldownSeconds != 30 || got.QueueDisplayCount != 8 || got.PlaylistPlaybackMode != "random" {
 		t.Fatalf("queue/command preferences were not preserved: %+v", got)
 	}
-	if len(got.LXAPIEndpoints) != 2 || got.LXAPIEndpoints[0] != "http://127.0.0.1:23331" ||
-		got.LXAPIEndpoints[1] != "http://127.0.0.1:23332" {
-		t.Fatalf("legacy endpoints should remain available to the migration/compatibility layer: %#v", got.LXAPIEndpoints)
-	}
 	if len(got.EnabledSearchSources) != 3 || got.EnabledSearchSources[0] != "kg" ||
 		got.EnabledSearchSources[1] != "tx" || got.EnabledSearchSources[2] != "mg" {
 		t.Fatalf("search source priority was not preserved: %#v", got.EnabledSearchSources)
@@ -102,6 +98,9 @@ func TestLoadMusicConfigMigratesLegacySettingsWithoutLosingUserPreferences(t *te
 	}
 	if _, exists := saved["retired_platform_config"]; exists {
 		t.Fatal("retired platform configuration should be removed during migration")
+	}
+	if _, exists := saved["lx_api_endpoints"]; exists {
+		t.Fatal("legacy LX API endpoints should be removed during migration")
 	}
 }
 
@@ -211,29 +210,21 @@ func TestMusicConfigFanMedalLevelValidation(t *testing.T) {
 }
 
 
-func TestMusicConfigV11MigrationAddsLXConnectionDefaults(t *testing.T) {
+func TestMusicConfigV11MigrationAddsSearchSourceDefaults(t *testing.T) {
 	got, changed := MigrateMusicConfig(MusicConfig{
 		ConfigVersion: 11, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
 		SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100, QueueDisplayCount: 5,
 	})
 	if !changed { t.Fatal("expected v11 configuration migration") }
 	if err := got.Validate(); err != nil { t.Fatal(err) }
-	if len(got.LXAPIEndpoints) != 1 || got.LXAPIEndpoints[0] != "http://127.0.0.1:23330" {
-		t.Fatalf("unexpected 洛雪 API defaults: %#v", got.LXAPIEndpoints)
-	}
 	if len(got.EnabledSearchSources) != 5 || got.EnabledSearchSources[0] != "tx" {
 		t.Fatalf("unexpected search source priority: %#v", got.EnabledSearchSources)
 	}
 }
 
-func TestMusicConfigValidatesLXAPIEndpointsAndSearchSources(t *testing.T) {
+func TestMusicConfigValidatesSearchSources(t *testing.T) {
 	c := DefaultMusicConfig()
 	if err := c.Validate(); err != nil { t.Fatalf("defaults should validate: %v", err) }
-	c.LXAPIEndpoints = []string{"ftp://127.0.0.1:23330"}
-	if err := c.Validate(); err == nil { t.Fatal("expected invalid API scheme to be rejected") }
-	c = DefaultMusicConfig()
-	c.LXAPIEndpoints = []string{"http://127.0.0.1:23330", "http://127.0.0.1:23330/"}
-	if err := c.Validate(); err == nil { t.Fatal("expected duplicate API endpoints to be rejected") }
 	c = DefaultMusicConfig()
 	c.EnabledSearchSources = []string{"tx", "unknown"}
 	if err := c.Validate(); err == nil { t.Fatal("expected unknown search source to be rejected") }
@@ -245,29 +236,14 @@ func TestMusicConfigValidatesLXAPIEndpointsAndSearchSources(t *testing.T) {
 func TestMusicConfigMigrationPreservesExplicitEmptySelections(t *testing.T) {
 	got, changed := MigrateMusicConfig(MusicConfig{
 		ConfigVersion: 11, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
-		QueueCapacity: 100, LXAPIEndpoints: []string{}, EnabledSearchSources: []string{},
+		QueueCapacity: 100, EnabledSearchSources: []string{},
 	})
 	if !changed { t.Fatal("expected v11 configuration migration") }
-	if got.LXAPIEndpoints == nil || got.EnabledSearchSources == nil {
-		t.Fatalf("explicit empty selections should remain empty, got endpoints=%#v sources=%#v", got.LXAPIEndpoints, got.EnabledSearchSources)
-	}
-	if len(got.LXAPIEndpoints) != 0 || len(got.EnabledSearchSources) != 0 {
-		t.Fatalf("expected empty selections, got endpoints=%#v sources=%#v", got.LXAPIEndpoints, got.EnabledSearchSources)
+	if got.EnabledSearchSources == nil || len(got.EnabledSearchSources) != 0 {
+		t.Fatalf("explicit empty search source selection should remain empty, got %#v", got.EnabledSearchSources)
 	}
 }
 
-
-func TestMusicConfigV12MigrationClearsDefaultBackupEndpoint(t *testing.T) {
-	got, changed := MigrateMusicConfig(MusicConfig{ConfigVersion: 12, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌", SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100, QueueDisplayCount: 5, LXAPIEndpoints: []string{"http://127.0.0.1:23330", "http://192.168.1.3:23330"}})
-	if !changed { t.Fatal("expected v12 configuration migration") }
-	if len(got.LXAPIEndpoints) != 1 || got.LXAPIEndpoints[0] != "http://127.0.0.1:23330" { t.Fatalf("expected only primary 洛雪 API address, got %#v", got.LXAPIEndpoints) }
-}
-
-func TestMusicConfigV12MigrationPreservesEmptyEndpoints(t *testing.T) {
-	got, changed := MigrateMusicConfig(MusicConfig{ConfigVersion: 12, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌", QueueCapacity: 100, LXAPIEndpoints: []string{}})
-	if !changed { t.Fatal("expected v12 configuration migration") }
-	if got.LXAPIEndpoints == nil || len(got.LXAPIEndpoints) != 0 { t.Fatalf("explicitly empty API endpoints should remain empty, got %#v", got.LXAPIEndpoints) }
-}
 
 
 func TestMusicConfigRequestCooldownValidation(t *testing.T) {
