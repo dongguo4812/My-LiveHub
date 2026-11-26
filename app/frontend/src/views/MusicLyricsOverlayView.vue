@@ -124,6 +124,7 @@ async function refreshPlayback() {
     if (lyricsTrackKey) {
       lyricsTrackKey = ''
       lyricsRequestID++
+      if (activeLyricsRequestID) { MusicService.CancelLyrics(activeLyricsRequestID); activeLyricsRequestID = '' }
       syncedLyrics.value = []
       lyricsStatus.value = 'idle'
     }
