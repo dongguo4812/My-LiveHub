@@ -281,7 +281,10 @@ jobs:
           MYLIVEHUB_LX_BUILTIN_SEARCH_INTEGRATION: '1'
           CGO_ENABLED: '0'
           MYLIVEHUB_QUICKJS_LIB: ${{ github.workspace }}\\app\\bin\\lxqjs.dll
-        run: go test -tags lxproduction -timeout 8m -count=1 -v -run '^TestProductionLXBuiltInSearchAllFiveProviders        shell: pwsh
+        run: go test -tags lxproduction -timeout 8m -count=1 -v -run 'TestProductionLXBuiltInSearchAllFiveProviders' ./internal/desktop
+
+      - name: Resolve real playback through selected Mo Lan aggregate source
+        shell: pwsh
         env:
           MYLIVEHUB_LX_UPLOADED_PLAYBACK_INTEGRATION: '1'
           MYLIVEHUB_PLAYBACK_URL_FILE: ${{ runner.temp }}\my-livehub-playback-url.txt
