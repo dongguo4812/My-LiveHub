@@ -1269,6 +1269,13 @@ func (s *MusicService) GetLyrics(track music.Track) (string, error) {
 	return s.getLyrics(context.Background(), track)
 }
 
+// GetLyricsWithContext lets browser-source requests cancel provider work when the
+// requesting scene renderer changes tracks or closes.
+func (s *MusicService) GetLyricsWithContext(ctx context.Context, track music.Track) (string, error) {
+	if ctx == nil { ctx = context.Background() }
+	return s.getLyrics(ctx, track)
+}
+
 // GetLyricsForRequest associates one UI request with a cancellable context.
 // Reusing an ID replaces and cancels the previous operation with that ID.
 func (s *MusicService) GetLyricsForRequest(track music.Track, requestID string) (string, error) {
