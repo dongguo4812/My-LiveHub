@@ -82,16 +82,7 @@ func NewLXSearchClientWithEndpoints(client *http.Client, endpoints LXSearchEndpo
 }
 
 func (c *LXSearchClient) Sources() []SourceSnapshot {
-	if c == nil { return []SourceSnapshot{} }
-	result := make([]SourceSnapshot, 0, len(c.providers))
-	for _, provider := range c.providers {
-		result = append(result, SourceSnapshot{
-			ID: provider.ID(), Name: provider.Name(),
-			Capabilities: SourceCapabilities{Search: true},
-			Enabled: true, Available: true,
-		})
-	}
-	return result
+	return SourceCatalog()
 }
 
 // Search runs all five LX desktop providers concurrently. Results retain the
