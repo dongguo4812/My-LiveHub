@@ -133,27 +133,6 @@ func normalizeLXScriptSearchResult(source, keyword string, page int, value any) 
 func scriptString(m map[string]any,keys ...string)string{for _,k:=range keys{switch v:=m[k].(type){case string:if strings.TrimSpace(v)!=""{return strings.TrimSpace(v)};case float64:return fmt.Sprintf("%.0f",v)}};return ""}
 func scriptInt(m map[string]any,keys ...string)int64{for _,k:=range keys{switch v:=m[k].(type){case float64:return int64(v);case string:var n int64;_,_=fmt.Sscan(v,&n);if n>0{return n}}};return 0}
 
-func (s *MusicService) GetLXTrackDetail(track music.Track)(music.Track,error){
- source:=firstNonEmpty(track.LXSourceKey,track.SourceID)
- value,handled,err:=s.dispatchLXExtension(context.Background(),source,"detail",map[string]any{"musicInfo":track,"track":track})
- if !handled{return music.Track{},errors.New("当前音源未声明 My-LiveHub detail 扩展 action")}
- if err!=nil{return music.Track{},err}
- raw,err:=json.Marshal(value);if err!=nil{return music.Track{},fmt.Errorf("encode LX detail result: %w",err)}
- var detail music.Track
- if err=json.Unmarshal(raw,&detail);err!=nil{return music.Track{},fmt.Errorf("decode LX detail result: %w",err)}
- var fields map[string]any;_=json.Unmarshal(raw,&fields)
- if detail.ID==""{detail.ID=scriptString(fields,"songmid","song_id","hash","rid","id");if detail.ID==""{detail.ID=track.ID}}
- if detail.Title==""{detail.Title=scriptString(fields,"title","name","songname","song_name");if detail.Title==""{detail.Title=track.Title}}
- if detail.Artist==""{detail.Artist=scriptString(fields,"artist","singer","author");if detail.Artist==""{detail.Artist=track.Artist}}
- if detail.Album==""{detail.Album=scriptString(fields,"album","albumName");if detail.Album==""{detail.Album=track.Album}}
- if detail.SourceID==""{detail.SourceID=track.SourceID};if detail.LXSourceKey==""{detail.LXSourceKey=firstNonEmpty(track.LXSourceKey,track.SourceID)}
- if detail.DurationMS==0{detail.DurationMS=track.DurationMS};if detail.CoverURL==""{detail.CoverURL=scriptString(fields,"cover","pic","picUrl","albumPic","img");if detail.CoverURL==""{detail.CoverURL=track.CoverURL}}
- if detail.SourceData==nil{detail.SourceData=map[string]string{}}
- for key,value:=range track.SourceData{if _,ok:=detail.SourceData[key];!ok{detail.SourceData[key]=value}}
- if len(detail.Qualities)==0{detail.Qualities=track.Qualities}
- if detail.SelectedQuality==""{detail.SelectedQuality=track.SelectedQuality}
- return detail,nil
-}
 func normalizeLXScriptLyrics(value any) (string, error) {
 	switch result := value.(type) {
 	case string:
