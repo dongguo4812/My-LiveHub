@@ -5,10 +5,8 @@ package lxruntime
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -164,12 +162,15 @@ func TestBundledSearchActionDeclaresOnlyFiveMusicSources(t *testing.T) {
 		if !strings.Contains(source.Source, "'"+sourceID+"'") { t.Errorf("built-in script is missing source %s", sourceID) }
 	}
 	if strings.Contains(source.Source, "net/http") { t.Fatal("built-in JavaScript must not contain a Go HTTP implementation") }
-	_ = fmt.Sprintf("%s", source.Info.Name)
+
+	manager, err := NewSourceManagerWithScripts(nil, []LXSourceScript{source})
+	if err != nil { t.Fatalf("construct source manager: %v", err) }
+	defer manager.Close()
+	if err := manager.Start(context.Background()); err != nil { t.Fatalf("initialize source manager: %v", err) }
+	for _, sourceID := range []string{"kw", "kg", "tx", "wy", "mg"} {
+		if !manager.HasExtensionAction(sourceID, "search") {
+			t.Errorf("%s is not registered as a QuickJS search action", sourceID)
+		}
+	}
 }
 
-func TestBundledSearchActionTestEndpointsAreAbsoluteURLs(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-	defer server.Close()
-	u, err := url.Parse(server.URL)
-	if err != nil || u.Host == "" { t.Fatalf("invalid fixture endpoint: %v", err) }
-}
