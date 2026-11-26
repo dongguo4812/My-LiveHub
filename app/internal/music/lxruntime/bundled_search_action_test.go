@@ -73,7 +73,9 @@ func TestProductionLXBundledSearchActionsUseQuickJSHTTPForAllFivePlatforms(t *te
 	defer runtime.Close()
 	runtime.allowPrivateNetworkForTests = true
 	source := BundledSearchAction()
-	if err := runtime.InitializeLXSource(context.Background(), source.Info, source.Source, server.Client()); err != nil {
+	initCtx, cancelInit := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelInit()
+	if err := runtime.InitializeLXSource(initCtx, source.Info, source.Source, server.Client()); err != nil {
 		t.Fatalf("initialize built-in QuickJS search actions: %v", err)
 	}
 
