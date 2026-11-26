@@ -1207,3 +1207,96 @@ func TestDisablingMusicClearsQueueAndHistoryEvenWhenEngineStopFails(t *testing.T
 	}
 }
 
+type cancelFirstNavigationLoadTestEngine struct {
+	calls atomic.Int32
+	started chan string
+}
+func (e *cancelFirstNavigationLoadTestEngine) Load(ctx context.Context, track music.Track) error {
+	call := e.calls.Add(1)
+	e.started <- track.ID
+	if call == 1 {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return nil
+}
+func (*cancelFirstNavigationLoadTestEngine) Pause(context.Context) error { return nil }
+func (*cancelFirstNavigationLoadTestEngine) Resume(context.Context) error { return nil }
+func (*cancelFirstNavigationLoadTestEngine) Stop(context.Context) error { return nil }
+func (*cancelFirstNavigationLoadTestEngine) Snapshot(context.Context) (music.PlaybackSnapshot, error) {
+	return music.PlaybackSnapshot{State:music.PlaybackPlaying}, nil
+}
+
+func TestNavigationSupersedesInFlightTrackLoad(t *testing.T) {
+	tests := []struct {
+		name string
+		navigate func(*MusicService) error
+		wantCurrent string
+		wantPending []string
+		withHistory bool
+	}{
+		{name:"next while loading", navigate:func(s *MusicService) error { return s.Next() }, wantCurrent:"tx_nav_next", wantPending:[]string{}},
+		{name:"previous while loading", navigate:func(s *MusicService) error { return s.Previous() }, wantCurrent:"tx_nav_previous", wantPending:[]string{"tx_nav_loading","tx_nav_next"}, withHistory:true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			value := config.DefaultMusicConfig()
+			value.Enabled = true
+			value.EnabledSearchSources = []string{"tx"}
+			engine := &cancelFirstNavigationLoadTestEngine{started:make(chan string, 3)}
+			service := NewMusicServiceWithDependencies(nil, value, engine)
+			service.scriptRuntime = nil
+			defer service.cancelPlaybackWatcher()
+
+			loading := music.Track{ID:"tx_nav_loading", SourceID:"tx", LXSourceKey:"tx", Title:"正在解析", Artist:"测试"}
+			next := music.Track{ID:"tx_nav_next", SourceID:"tx", LXSourceKey:"tx", Title:"下一首", Artist:"测试"}
+			previous := music.Track{ID:"tx_nav_previous", SourceID:"tx", LXSourceKey:"tx", Title:"上一首", Artist:"测试"}
+			if tt.withHistory {
+				service.pushHistory(music.QueueItem{ID:"history-previous", Track:previous, RequestedBy:searchPlayMarker})
+			}
+			if _, err := service.queue.Enqueue(loading, "viewer"); err != nil { t.Fatal(err) }
+			if _, err := service.queue.Enqueue(next, "viewer"); err != nil { t.Fatal(err) }
+
+			firstPlay := make(chan error, 1)
+			go func() { firstPlay <- service.PlayNext() }()
+			select {
+			case got := <-engine.started:
+				if got != loading.ID { t.Fatalf("first loading track = %q, want %q", got, loading.ID) }
+			case <-time.After(2*time.Second):
+				t.Fatal("initial track did not enter engine Load")
+			}
+
+			navigationResult := make(chan error, 1)
+			go func() { navigationResult <- tt.navigate(service) }()
+			select {
+			case err := <-navigationResult:
+				if err != nil { t.Fatalf("navigation returned error: %v", err) }
+			case <-time.After(2*time.Second):
+				t.Fatal("navigation did not supersede the in-flight load")
+			}
+			select {
+			case err := <-firstPlay:
+				if err != nil { t.Fatalf("superseded initial PlayNext returned error: %v", err) }
+			case <-time.After(2*time.Second):
+				t.Fatal("superseded initial PlayNext did not exit")
+			}
+			select {
+			case got := <-engine.started:
+				if got != tt.wantCurrent { t.Fatalf("replacement load track = %q, want %q", got, tt.wantCurrent) }
+			case <-time.After(2*time.Second):
+				t.Fatal("replacement track did not enter engine Load")
+			}
+
+			snapshot := service.queue.Snapshot()
+			if snapshot.Current == nil || snapshot.Current.Track.ID != tt.wantCurrent {
+				t.Fatalf("current after navigation = %#v, want %q", snapshot.Current, tt.wantCurrent)
+			}
+			if len(snapshot.Items) != len(tt.wantPending) { t.Fatalf("pending items = %#v, want %v", snapshot.Items, tt.wantPending) }
+			for i, want := range tt.wantPending {
+				if snapshot.Items[i].Track.ID != want { t.Fatalf("pending item %d = %q, want %q", i, snapshot.Items[i].Track.ID, want) }
+			}
+			if got := engine.calls.Load(); got != 2 { t.Fatalf("engine Load calls = %d, want 2", got) }
+		})
+	}
+}
+
