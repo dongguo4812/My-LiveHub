@@ -578,17 +578,17 @@ func playlistLXString(value any) string {
 // independent of the normal search-priority toggles. It powers manual
 // replacement so the user can inspect all available platform candidates.
 func (s *MusicService) SearchAllSourcesPage(keyword string, page int) (MusicSearchResponse, error) {
-	if s == nil || s.searcher == nil { return MusicSearchResponse{}, errors.New("洛雪搜索 SDK 未初始化") }
+	if s == nil { return MusicSearchResponse{}, errors.New("洛雪搜索 SDK 未初始化") }
 	if strings.TrimSpace(keyword) == "" { return MusicSearchResponse{}, errors.New("请输入歌曲名称或歌手") }
 	if page < 1 { return MusicSearchResponse{}, errors.New("搜索页码必须大于 0") }
 	sourceIDs := make([]string, 0)
-	for _, source := range s.searcher.Sources() { sourceIDs = append(sourceIDs, source.ID) }
+	for _, source := range music.SourceCatalog() { sourceIDs = append(sourceIDs, source.ID) }
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 	s.mu.RLock()
-	searcher, resolver := s.searcher, s.scriptRuntime
+	resolver := s.scriptRuntime
 	s.mu.RUnlock()
-	result, sourceErrors, err := music.NewUnifiedSourceService(scriptAwareSourceSearcher{base:searcher, service:s}, resolver).Search(ctx, keyword, page, sourceIDs)
+	result, sourceErrors, err := music.NewUnifiedSourceService(scriptAwareSourceSearcher{service:s}, resolver).Search(ctx, keyword, page, sourceIDs)
 	response := MusicSearchResponse{Tracks:result.Tracks, Errors:sourceErrors, Page:result.Page, PageSize:result.PageSize, Total:result.Total, MaxPage:result.MaxPage}
 	if response.Tracks == nil { response.Tracks = []music.Track{} }
 	return response, err
