@@ -33,6 +33,9 @@ func TestSystemMetricsCapturesMemoryBaseline(t *testing.T) {
 	if !first.MemoryBaselineReady {
 		t.Fatal("first successful sample did not establish a memory baseline")
 	}
+	if first.MemorySampleCount != 1 || first.ProcessWorkingSetPeakBytes != first.ProcessWorkingSetBytes || first.ProcessPrivatePeakBytes != first.ProcessPrivateBytes {
+		t.Fatalf("first sample did not initialize process peaks and sample count: %#v", first)
+	}
 	if first.ProcessWorkingSetDeltaBytes != 0 || first.ProcessPrivateDeltaBytes != 0 || first.WebView2WorkingSetDeltaBytes != 0 || first.WebView2PrivateDeltaBytes != 0 || first.WebView2RendererWorkingSetDeltaBytes != 0 || first.WebView2RendererPrivateDeltaBytes != 0 {
 		t.Fatalf("first sample deltas should be zero: %#v", first)
 	}
@@ -42,6 +45,9 @@ func TestSystemMetricsCapturesMemoryBaseline(t *testing.T) {
 	}
 	if second.ProcessID != first.ProcessID {
 		t.Fatalf("process ID changed between samples: %d -> %d", first.ProcessID, second.ProcessID)
+	}
+	if second.MemorySampleCount != 2 || second.ProcessWorkingSetPeakBytes < second.ProcessWorkingSetBytes || second.ProcessPrivatePeakBytes < second.ProcessPrivateBytes || second.WebView2WorkingSetPeakBytes < second.WebView2WorkingSetBytes || second.WebView2RendererWorkingSetPeakBytes < second.WebView2RendererWorkingSetBytes {
+		t.Fatalf("memory peaks/sample count were not retained: %#v", second)
 	}
 }
 
