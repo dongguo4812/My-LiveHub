@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"regexp"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 type SystemMetricsSnapshot struct {
@@ -33,10 +35,22 @@ type MonitorLogEntry struct {
 	Message string `json:"message"`
 }
 
+// WebView2InstanceSnapshot describes a Wails window that hosts a WebView2
+// instance. It reports window existence/visibility, not WebView2 subprocesses.
+type WebView2InstanceSnapshot struct {
+	Name string `json:"name"`
+	Purpose string `json:"purpose"`
+	Kind string `json:"kind"`
+	Status string `json:"status"`
+	Visible bool `json:"visible"`
+}
+
 type MonitorService struct {
 	startedAt time.Time
 	logDirs []string
 	mu sync.Mutex
+	webViewApp *application.App
+	platformService *PlatformService
 	lastCPUAt time.Time
 	lastSystemTotal uint64
 	lastSystemIdle uint64
@@ -53,6 +67,52 @@ func NewMonitorService(logDir string, additionalLogDirs ...string) *MonitorServi
 		if !duplicate { logDirs = append(logDirs, dir) }
 	}
 	return &MonitorService{startedAt: time.Now(), logDirs: logDirs}
+}
+
+
+// AttachWebView2Monitoring supplies the live Wails window registry context.
+func (s *MonitorService) AttachWebView2Monitoring(app *application.App, platforms *PlatformService) {
+	if s == nil { return }
+	s.mu.Lock()
+	s.webViewApp = app
+	s.platformService = platforms
+	s.mu.Unlock()
+}
+
+// GetWebView2Instances returns the complete inventory of known application
+// WebView2 windows, including known windows that have not been created yet.
+func (s *MonitorService) GetWebView2Instances() []WebView2InstanceSnapshot {
+	if s == nil { return []WebView2InstanceSnapshot{} }
+	s.mu.Lock()
+	app, platforms := s.webViewApp, s.platformService
+	s.mu.Unlock()
+	definitions := []WebView2InstanceSnapshot{
+		{Name: "main-window", Purpose: "主程序界面；音乐播放、HTMLAudio 与 Web Audio 音频链路运行在此 WebView2 中", Kind: "主窗口"},
+		{Name: "danmaku-overlay", Purpose: "弹幕透明展示与置顶窗口", Kind: "辅助窗口"},
+		{Name: "music-lyrics-overlay", Purpose: "桌面歌词展示；不负责播放歌曲", Kind: "辅助窗口"},
+		{Name: "bilibili-webview-player", Purpose: "Bilibili 网页视频播放器", Kind: "辅助窗口"},
+	}
+	if platforms != nil {
+		for _, platform := range platforms.GetPlatforms() {
+			name := "simulator-" + platform.PlatformID
+			definitions = append(definitions, WebView2InstanceSnapshot{
+				Name: name, Purpose: platform.PlatformID + " 互动事件模拟器", Kind: "辅助窗口",
+			})
+		}
+	}
+	sort.Slice(definitions, func(i, j int) bool {
+		if definitions[i].Kind != definitions[j].Kind { return definitions[i].Kind == "主窗口" }
+		return definitions[i].Name < definitions[j].Name
+	})
+	for i := range definitions {
+		definitions[i].Status = "not_created"
+		if app == nil { continue }
+		window, ok := app.Window.GetByName(definitions[i].Name)
+		if !ok || window == nil { continue }
+		definitions[i].Visible = window.IsVisible()
+		if definitions[i].Visible { definitions[i].Status = "visible" } else { definitions[i].Status = "hidden" }
+	}
+	return definitions
 }
 
 // WriteFrontendLog persists frontend console output and uncaught runtime errors
