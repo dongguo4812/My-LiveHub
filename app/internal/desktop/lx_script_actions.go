@@ -45,8 +45,8 @@ func (s *MusicService) dispatchLXExtension(ctx context.Context, source, action s
  return value, true, nil
 }
 
-// scriptAwareSourceSearcher routes explicitly declared community actions to
-// imported scripts; native provider implementations remain a separate fallback.
+// scriptAwareSourceSearcher routes every search through the imported QuickJS
+// Action. Go-native provider search is deliberately not a fallback.
 type scriptAwareSourceSearcher struct { service *MusicService }
 func (a scriptAwareSourceSearcher) Sources() []music.SourceSnapshot { return music.SourceCatalog() }
 func (a scriptAwareSourceSearcher) SearchProvider(ctx context.Context, source, keyword string, page int) (music.SearchPage, error) {
