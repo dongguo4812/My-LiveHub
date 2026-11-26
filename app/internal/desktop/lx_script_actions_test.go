@@ -189,3 +189,31 @@ func TestScriptAwareSearcherDispatchesSearchActionForAllFivePlatforms(t *testing
 		}
 	}
 }
+
+
+type countingNativeSearchFallback struct {
+	music.SourceSearcher
+	calls []string
+}
+func (s *countingNativeSearchFallback) SearchProvider(ctx context.Context, source, keyword string, page int) (music.SearchPage, error) {
+	s.calls = append(s.calls, source)
+	return music.SearchPage{}, errors.New("native Go search fallback must not be called")
+}
+
+func TestScriptAwareSearcherNeverUsesNativeFallbackAndPreservesConfiguredPriority(t *testing.T) {
+	runtime := &multiPlatformSearchActionRuntime{}
+	base := &countingNativeSearchFallback{SourceSearcher: music.NewLXSearchClient(nil)}
+	searcher := scriptAwareSourceSearcher{base: base, service: &MusicService{scriptRuntime: runtime}}
+	priority := []string{"mg", "kw", "tx", "wy", "kg"}
+	result, failures, err := searcher.SearchSources(context.Background(), "priority fixture", 1, priority)
+	if err != nil { t.Fatalf("QuickJS multi-source search failed: %v", err) }
+	if len(failures) != 0 { t.Fatalf("unexpected provider failures: %#v", failures) }
+	if len(base.calls) != 0 { t.Fatalf("native Go fallback was called for: %#v", base.calls) }
+	if len(result.Tracks) != len(priority) { t.Fatalf("result count=%d, want %d: %#v", len(result.Tracks), len(priority), result.Tracks) }
+	for i, source := range priority {
+		if result.Tracks[i].SourceID != source {
+			t.Fatalf("configured priority order changed at %d: got %q, want %q; tracks=%#v", i, result.Tracks[i].SourceID, source, result.Tracks)
+		}
+		if runtime.calls[source] != 1 { t.Errorf("%s QuickJS action calls=%d, want 1", source, runtime.calls[source]) }
+	}
+}
