@@ -17,6 +17,7 @@ type VideoSnapshot = Awaited<ReturnType<typeof VideoQueueService.GetSnapshot>>
 type HexStatus = Awaited<ReturnType<typeof LOLHexService.GetStatus>>
 type Metrics = Awaited<ReturnType<typeof MonitorService.GetSystemMetrics>>
 type WebView2Instance = Awaited<ReturnType<typeof MonitorService.GetWebView2Instances>>[number]
+type WebView2ProcessInventory = Awaited<ReturnType<typeof MonitorService.GetWebView2ProcessInventory>>
 
 const core = ref<CoreStatus | null>(null)
 const modules = ref<ModuleStatus[]>([])
@@ -28,6 +29,7 @@ const video = ref<VideoSnapshot | null>(null)
 const hex = ref<HexStatus | null>(null)
 const metrics = ref<Metrics | null>(null)
 const webView2Instances = ref<WebView2Instance[]>([])
+const webView2ProcessInventory = ref<WebView2ProcessInventory | null>(null)
 const errors = ref<Record<string, string>>({})
 const refreshing = ref(false)
 const lastUpdated = ref<Date | null>(null)
@@ -81,7 +83,7 @@ async function refreshAll() {
     ['视频点播', async () => { video.value = await VideoQueueService.GetSnapshot() }],
     ['LOL Hex', async () => { hex.value = await LOLHexService.GetStatus() }],
     ['系统资源', async () => { metrics.value = await MonitorService.GetSystemMetrics() }],
-    ['WebView2 实例', async () => { webView2Instances.value = await MonitorService.GetWebView2Instances() }],
+    ['WebView2 实例', async () => { webView2Instances.value = await MonitorService.GetWebView2Instances(); webView2ProcessInventory.value = await MonitorService.GetWebView2ProcessInventory() }],
   ] as const
   const results = await Promise.allSettled(tasks.map(([, run]) => run()))
   const nextErrors: Record<string, string> = {}
@@ -184,6 +186,24 @@ onUnmounted(() => {
         <el-table-column prop="purpose" label="用途" min-width="330" show-overflow-tooltip />
       </el-table>
       <p class="hint">清单按应用窗口逐个统计 WebView2 宿主，不把 WebView2 Runtime 等共享子进程误算成独立窗口。主窗口承载音乐播放；桌面歌词窗口只负责显示歌词。</p>
+    </el-card>
+
+    <el-card shadow="never">
+      <template #header>
+        <div class="card-heading">
+          <strong>WebView2 进程归属</strong>
+          <el-tag size="small" :type="webView2ProcessInventory?.error ? 'warning' : 'success'">
+            {{ webView2ProcessInventory?.processes?.length ?? 0 }} 个已归属进程
+          </el-tag>
+        </div>
+      </template>
+      <el-alert v-if="webView2ProcessInventory?.error" :title="webView2ProcessInventory.error" type="warning" :closable="false" show-icon />
+      <el-table v-else :data="webView2ProcessInventory?.processes ?? []" size="small" row-key="pid" empty-text="当前没有检测到归属于 My-LiveHub 的 WebView2 子进程">
+        <el-table-column prop="pid" label="进程 PID" width="120" />
+        <el-table-column prop="parent_pid" label="父进程 PID" width="130" />
+        <el-table-column prop="executable" label="可执行文件" min-width="220" />
+      </el-table>
+      <p class="hint">只将父进程链能够追溯到 My-LiveHub 主进程的 WebView2 Runtime 进程登记为本应用所有；其他软件的 WebView2 不会被纳入，也不会在此执行终止操作。</p>
     </el-card>
 
     <el-card shadow="never">
