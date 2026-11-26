@@ -798,6 +798,54 @@ func (*canceledLoadTestEngine) Snapshot(context.Context) (music.PlaybackSnapshot
 	return music.PlaybackSnapshot{State: music.PlaybackIdle}, nil
 }
 
+func TestConcurrentNextNavigationsAdvanceEachRequestedStep(t *testing.T) {
+	value := config.DefaultMusicConfig()
+	value.Enabled = true
+	value.EnabledSearchSources = []string{"tx"}
+	engine := &queueAdvanceTestEngine{}
+	service := NewMusicServiceWithDependencies(nil, value, engine)
+	service.scriptRuntime = nil
+	defer service.cancelPlaybackWatcher()
+
+	previous := music.Track{ID:"tx_nav_previous", SourceID:"tx", LXSourceKey:"tx", Title:"起始歌曲", Artist:"测试歌手"}
+	first := music.Track{ID:"tx_nav_first", SourceID:"tx", LXSourceKey:"tx", Title:"下一首", Artist:"测试歌手"}
+	second := music.Track{ID:"tx_nav_second", SourceID:"tx", LXSourceKey:"tx", Title:"再下一首", Artist:"测试歌手"}
+	if _, err := service.queue.SetCurrentTrack(previous, searchPlayMarker); err != nil { t.Fatal(err) }
+	if _, err := service.queue.Enqueue(first, "viewer-one"); err != nil { t.Fatal(err) }
+	if _, err := service.queue.Enqueue(second, "viewer-two"); err != nil { t.Fatal(err) }
+
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			<-start
+			results <- service.Next()
+		}()
+	}
+	close(start)
+	for i := 0; i < 2; i++ {
+		select {
+		case err := <-results:
+			if err != nil { t.Fatalf("concurrent Next() error = %v", err) }
+		case <-time.After(2 * time.Second):
+			t.Fatal("concurrent Next() did not finish")
+		}
+	}
+
+	snapshot := service.queue.Snapshot()
+	if snapshot.Current == nil || snapshot.Current.Track.ID != second.ID {
+		t.Fatalf("current track = %#v, want second requested navigation target %q", snapshot.Current, second.ID)
+	}
+	if len(snapshot.Items) != 0 { t.Fatalf("pending queue after two Next() operations = %#v, want empty", snapshot.Items) }
+	if got := engine.loadCalls.Load(); got != 2 { t.Fatalf("engine Load calls = %d, want 2", got) }
+	service.mu.RLock()
+	history := append([]music.QueueItem(nil), service.history...)
+	service.mu.RUnlock()
+	if len(history) != 2 || history[0].Track.ID != previous.ID || history[1].Track.ID != first.ID {
+		t.Fatalf("navigation history = %#v, want [previous, first]", history)
+	}
+}
+
 func TestPlayNextDoesNotRetireTrackWhenResolutionIsSuperseded(t *testing.T) {
 	value := config.DefaultMusicConfig()
 	value.Enabled = true
