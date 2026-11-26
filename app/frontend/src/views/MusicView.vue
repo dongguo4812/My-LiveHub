@@ -8,6 +8,7 @@ import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/
 import * as MusicLyricsWindowService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musiclyricswindowservice.js'
 
 type MusicConfig = Awaited<ReturnType<typeof MusicService.GetConfig>>
+type MusicStatus = Awaited<ReturnType<typeof MusicService.GetStatus>>
 type Track = Awaited<ReturnType<typeof MusicService.Search>>['tracks'][number]
 type Playlist = Awaited<ReturnType<typeof MusicService.ListPlaylists>>[number]
 type QueueSnapshot = Awaited<ReturnType<typeof MusicService.GetQueue>>
@@ -21,6 +22,7 @@ watch(() => route.query.tab, value => {
 }, { immediate: true })
 
 const config = ref<MusicConfig | null>(null)
+const musicStatus = ref<MusicStatus | null>(null)
 type MusicSourceOption = { id: string; name: string }
 const musicSourceOptions: MusicSourceOption[] = [
   { id: 'tx', name: 'QQ 音乐' },
@@ -156,6 +158,9 @@ async function loadConfig() {
   } finally {
   }
 }
+async function refreshMusicStatus() {
+  try { musicStatus.value = await MusicService.GetStatus() } catch { /* Keep the last known runtime state. */ }
+}
 async function refreshQueue() {
   try { queue.value = await MusicService.GetQueue() } catch { /* Keep the last known queue. */ }
 }
@@ -207,7 +212,7 @@ async function refreshPlayback() {
   // 洛雪 can be playing a song started outside My-LiveHub's request queue.
   // Read the backend's shared playback snapshot so both external and queued
   // playback are reflected without issuing another direct 洛雪 API request.
-  await refreshQueue()
+  await Promise.all([refreshQueue(), refreshMusicStatus()])
   try {
     playback.value = await MusicService.GetCachedPlaybackStatus()
     canPrevious.value = await MusicService.CanPrevious()
@@ -414,6 +419,7 @@ onMounted(() => {
   if (playbackVolume.value > 0) lastAudibleVolume.value = playbackVolume.value
   void loadConfig()
   void refreshPlayback()
+  void refreshMusicStatus()
   statusTimer = setInterval(() => void refreshPlayback(), 1500)
   playbackClockTimer = setInterval(updatePlaybackClock, 100)
 })
@@ -432,9 +438,14 @@ onUnmounted(() => {
         <p class="description">管理独立 HTMLAudio 音乐播放、歌曲搜索与观众点播队列。</p>
         <el-alert v-if="config && !config.enabled" title="音乐模块当前已关闭：无法加入歌曲队列或播放。请在下方「点歌设置」中启用音乐模块并保存全部设置。" type="warning" :closable="false" show-icon style="margin-top:12px" />
       </div>
-      <el-tag type="success" effect="plain">直播音乐控制台</el-tag>
+      <el-tag v-if="musicStatus?.lx_runtime_status === 'initializing'" type="warning" effect="plain">JS 音源初始化中</el-tag>
+      <el-tag v-else-if="musicStatus?.lx_runtime_status === 'failed'" type="danger" effect="plain">JS 音源初始化失败</el-tag>
+      <el-tag v-else-if="musicStatus?.lx_runtime_status === 'ready'" type="success" effect="plain">JS 音源已就绪</el-tag>
+      <el-tag v-else type="success" effect="plain">直播音乐控制台</el-tag>
     </header>
 
+    <el-alert v-if="musicStatus?.lx_runtime_status === 'initializing'" title="正在初始化已启用的 JS 音源；主界面已就绪，首次搜索或播放会等待初始化完成。" type="info" :closable="false" show-icon />
+    <el-alert v-if="musicStatus?.lx_runtime_status === 'failed'" :title="`JS 音源初始化失败：${musicStatus.lx_runtime_error || '未提供详细原因'}`" type="error" :closable="false" show-icon />
     <el-alert v-if="error" :title="error" type="error" :closable="true" show-icon @close="error = ''" />
     <el-alert v-if="playback?.error" :title="playback.error" type="error" :closable="false" show-icon />
     <el-alert v-if="success" :title="success" type="success" :closable="true" show-icon @close="success = ''" />
