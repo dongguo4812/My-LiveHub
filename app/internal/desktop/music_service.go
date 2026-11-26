@@ -1203,7 +1203,7 @@ func (s *MusicService) getLyrics(ctx context.Context, track music.Track) (string
 	}
 	// Cancellation is terminal: never start a native fallback after the UI has
 	// moved to another track or closed the lyrics window.
-	if errors.Is(extensionErr, context.Canceled) || errors.Is(extensionErr, context.DeadlineExceeded) || ctx.Err() != nil {
+	if errors.Is(extensionErr, context.Canceled) || ctx.Err() != nil {
 		if extensionErr != nil { return "", extensionErr }
 		return "", ctx.Err()
 	}
