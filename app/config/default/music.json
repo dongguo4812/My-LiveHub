@@ -1,5 +1,5 @@
 {
-  "config_version": 17,
+  "config_version": 18,
   "volume": 1,
   "loudness_normalization": false,
   "enabled": true,
@@ -13,9 +13,6 @@
   "playlist_playback_mode": "sequential",
   "require_fan_medal": false,
   "fan_medal_level": 1,
-  "lx_api_endpoints": [
-    "http://127.0.0.1:23330"
-  ],
   "enabled_search_sources": [
     "tx",
     "kw",
