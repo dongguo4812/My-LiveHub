@@ -46,16 +46,6 @@ type WebView2InstanceSnapshot struct {
 	Visible bool `json:"visible"`
 }
 
-type AudioServiceProcessSnapshot struct {
- PID int `json:"pid"`
- ParentPID int `json:"parent_pid"`
- UserDataDir string `json:"user_data_dir"`
- StartedAt time.Time `json:"started_at"`
- UptimeSeconds int64 `json:"uptime_seconds"`
- ExecutablePath string `json:"executable_path"`
- CommandLine string `json:"command_line"`
-}
-
 type FrontendHeartbeatSnapshot struct {
 	LastSeenAt time.Time `json:"last_seen_at"`
 	Stale bool `json:"stale"`
@@ -136,11 +126,6 @@ func (s *MonitorService) GetWebView2Instances() []WebView2InstanceSnapshot {
 		if definitions[i].Visible { definitions[i].Status = "visible" } else { definitions[i].Status = "hidden" }
 	}
 	return definitions
-}
-
-// GetAudioServiceProcesses lists WebView2 Audio Service subprocesses owned by this app.
-func (s *MonitorService) GetAudioServiceProcesses() ([]AudioServiceProcessSnapshot, error) {
- return readOwnedWebView2AudioServices(os.Getpid(), time.Now())
 }
 
 // RecordFrontendHeartbeat records that the main frontend JavaScript event loop
