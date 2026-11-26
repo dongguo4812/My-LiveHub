@@ -49,7 +49,6 @@ type MusicService struct {
 	playlistMu sync.Mutex
 	lifecycleMu sync.Mutex
 	value config.MusicConfig
-	sources *music.SourceRegistry
 	engine music.PlaybackEngine
 	queue *music.Queue
 	history []music.QueueItem
