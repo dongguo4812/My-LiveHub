@@ -9,6 +9,7 @@ import {
 } from '@element-plus/icons-vue'
 import { coreStatus, refreshCoreStatus } from './services/coreStatus'
 import { initializeVoiceAudio, disposeVoiceAudio } from './services/voiceAudio'
+import { RecordFrontendHeartbeat } from './bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/monitorservice'
 
 const route = useRoute()
 const router = useRouter()
@@ -38,6 +39,7 @@ const groups = [
 ]
 
 let refreshTimer: ReturnType<typeof setInterval> | undefined
+let frontendHeartbeatTimer: ReturnType<typeof setInterval> | undefined
 let voiceAudioInitialized = false
 let unsubscribeTrayUpdate: (() => void) | undefined
 function navigate(path: string) { router.push(path) }
@@ -52,6 +54,11 @@ onMounted(async () => {
     void router.push({ path: '/settings', query: { ...route.query, checkUpdate: String(Date.now()) } })
   })
   if (route.path.startsWith('/scene/')) return
+  console.info('main frontend mounted; heartbeat monitoring enabled')
+  void RecordFrontendHeartbeat()
+  frontendHeartbeatTimer = setInterval(() => {
+    void RecordFrontendHeartbeat().catch(error => console.warn('frontend heartbeat failed:', error))
+  }, 10_000)
   initializeVoiceAudio()
   voiceAudioInitialized = true
   void refreshCoreStatus()
@@ -61,6 +68,7 @@ onUnmounted(() => {
   unsubscribeTrayUpdate?.()
   if (voiceAudioInitialized) disposeVoiceAudio()
   if (refreshTimer) clearInterval(refreshTimer)
+  if (frontendHeartbeatTimer) clearInterval(frontendHeartbeatTimer)
 })
 </script>
 
