@@ -45,6 +45,16 @@ type WebView2InstanceSnapshot struct {
 	Visible bool `json:"visible"`
 }
 
+type AudioServiceProcessSnapshot struct {
+ PID int `json:"pid"`
+ ParentPID int `json:"parent_pid"`
+ UserDataDir string `json:"user_data_dir"`
+ StartedAt time.Time `json:"started_at"`
+ UptimeSeconds int64 `json:"uptime_seconds"`
+ ExecutablePath string `json:"executable_path"`
+ CommandLine string `json:"command_line"`
+}
+
 type MonitorService struct {
 	startedAt time.Time
 	logDirs []string
@@ -113,6 +123,11 @@ func (s *MonitorService) GetWebView2Instances() []WebView2InstanceSnapshot {
 		if definitions[i].Visible { definitions[i].Status = "visible" } else { definitions[i].Status = "hidden" }
 	}
 	return definitions
+}
+
+// GetAudioServiceProcesses lists WebView2 Audio Service subprocesses owned by this app.
+func (s *MonitorService) GetAudioServiceProcesses() ([]AudioServiceProcessSnapshot, error) {
+ return readOwnedWebView2AudioServices(os.Getpid(), time.Now())
 }
 
 // WriteFrontendLog persists frontend console output and uncaught runtime errors
