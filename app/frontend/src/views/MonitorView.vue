@@ -17,7 +17,6 @@ type VideoSnapshot = Awaited<ReturnType<typeof VideoQueueService.GetSnapshot>>
 type HexStatus = Awaited<ReturnType<typeof LOLHexService.GetStatus>>
 type Metrics = Awaited<ReturnType<typeof MonitorService.GetSystemMetrics>>
 type WebView2Instance = Awaited<ReturnType<typeof MonitorService.GetWebView2Instances>>[number]
-type AudioServiceProcess = Awaited<ReturnType<typeof MonitorService.GetAudioServiceProcesses>>[number]
 
 const core = ref<CoreStatus | null>(null)
 const modules = ref<ModuleStatus[]>([])
@@ -29,7 +28,6 @@ const video = ref<VideoSnapshot | null>(null)
 const hex = ref<HexStatus | null>(null)
 const metrics = ref<Metrics | null>(null)
 const webView2Instances = ref<WebView2Instance[]>([])
-const audioServiceProcesses = ref<AudioServiceProcess[]>([])
 const errors = ref<Record<string, string>>({})
 const refreshing = ref(false)
 const lastUpdated = ref<Date | null>(null)
@@ -84,7 +82,6 @@ async function refreshAll() {
     ['LOL Hex', async () => { hex.value = await LOLHexService.GetStatus() }],
     ['系统资源', async () => { metrics.value = await MonitorService.GetSystemMetrics() }],
     ['WebView2 实例', async () => { webView2Instances.value = await MonitorService.GetWebView2Instances() }],
-    ['Audio Service 进程', async () => { audioServiceProcesses.value = await MonitorService.GetAudioServiceProcesses() }],
   ] as const
   const results = await Promise.allSettled(tasks.map(([, run]) => run()))
   const nextErrors: Record<string, string> = {}
@@ -187,20 +184,6 @@ onUnmounted(() => {
         <el-table-column prop="purpose" label="用途" min-width="330" show-overflow-tooltip />
       </el-table>
       <p class="hint">清单按应用窗口逐个统计 WebView2 宿主，不把 WebView2 Runtime、Audio Service 等共享子进程误算成独立窗口。主窗口承载音乐播放；桌面歌词窗口只负责显示歌词。</p>
-    </el-card>
-
-    <el-card shadow="never">
-      <template #header><div class="card-heading"><strong>WebView2 Audio Service 进程明细</strong><el-tag size="small" :type="audioServiceProcesses.length ? 'success' : 'info'">{{ audioServiceProcesses.length }} 个运行中</el-tag></div></template>
-      <el-table :data="audioServiceProcesses" size="small" row-key="pid" empty-text="当前未检测到归属于 My-LiveHub 的 WebView2 Audio Service">
-        <el-table-column prop="pid" label="PID" width="90" />
-        <el-table-column prop="parent_pid" label="父 PID" width="90" />
-        <el-table-column prop="user_data_dir" label="WebView2 用户数据目录" min-width="220" show-overflow-tooltip />
-        <el-table-column label="启动时间" min-width="175"><template #default="{ row }">{{ new Date(row.started_at).toLocaleString() }}</template></el-table-column>
-        <el-table-column label="运行时长" width="115"><template #default="{ row }">{{ formatDuration(row.uptime_seconds) }}</template></el-table-column>
-        <el-table-column prop="executable_path" label="Runtime 程序路径" min-width="210" show-overflow-tooltip />
-        <el-table-column prop="command_line" label="完整命令行" min-width="280" show-overflow-tooltip />
-      </el-table>
-      <p class="hint">仅统计命令行为 WebView2 audio.mojom.AudioService，且父进程链最终归属于当前 My-LiveHub 进程的子进程；其他软件的 WebView2 和 Windows Audio（Audiosrv）不会计入。每 2 秒刷新。</p>
     </el-card>
 
     <el-card shadow="never">
