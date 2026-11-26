@@ -132,3 +132,60 @@ func TestScriptAwareSearcherUsesLXNativeSearchRequestFields(t *testing.T) {
   if payload[key]!=want { t.Errorf("search payload[%q]=%v, want %v",key,payload[key],want) }
  }
 }
+
+
+type multiPlatformSearchActionRuntime struct {
+	calls map[string]int
+}
+
+func (r *multiPlatformSearchActionRuntime) Available() bool { return true }
+func (r *multiPlatformSearchActionRuntime) Start(context.Context) error { return nil }
+func (r *multiPlatformSearchActionRuntime) ResolvePlaybackURL(context.Context, string, any) (string, error) { return "", nil }
+func (r *multiPlatformSearchActionRuntime) Close() error { return nil }
+func (r *multiPlatformSearchActionRuntime) HasExtensionAction(source, action string) bool {
+	return action == "search" && (source == "tx" || source == "kw" || source == "kg" || source == "wy" || source == "mg")
+}
+func (r *multiPlatformSearchActionRuntime) DispatchExtensionAction(_ context.Context, source, action string, _ any) (any, error) {
+	if action != "search" {
+		return nil, errors.New("unexpected action: " + action)
+	}
+	if r.calls == nil {
+		r.calls = make(map[string]int)
+	}
+	r.calls[source]++
+	return map[string]any{
+		"page": 1,
+		"page_size": 30,
+		"total": 1,
+		"max_page": 1,
+		"tracks": []any{map[string]any{
+			"id": source + "_native_1",
+			"source_id": source,
+			"title": "JS Search Fixture",
+			"artist": "Fixture Artist",
+		}},
+	}, nil
+}
+
+func TestScriptAwareSearcherDispatchesSearchActionForAllFivePlatforms(t *testing.T) {
+	runtime := &multiPlatformSearchActionRuntime{}
+	service := &MusicService{scriptRuntime: runtime}
+	searcher := scriptAwareSourceSearcher{
+		base: music.NewLXSearchClient(nil),
+		service: service,
+	}
+	for _, source := range []string{"tx", "kw", "kg", "wy", "mg"} {
+		page, err := searcher.SearchProvider(context.Background(), source, "fixture", 1)
+		if err != nil {
+			t.Fatalf("%s JS search action failed: %v", source, err)
+		}
+		if len(page.Tracks) != 1 || page.Tracks[0].SourceID != source || page.Tracks[0].Title != "JS Search Fixture" {
+			t.Fatalf("%s JS search result was not normalized: %#v", source, page)
+		}
+	}
+	for _, source := range []string{"tx", "kw", "kg", "wy", "mg"} {
+		if runtime.calls[source] != 1 {
+			t.Errorf("%s JS search action calls = %d, want 1", source, runtime.calls[source])
+		}
+	}
+}
