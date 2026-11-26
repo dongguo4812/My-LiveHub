@@ -1057,7 +1057,7 @@ func (s *MusicService) playNext(parent context.Context) error {
 		s.mu.Lock()
 		s.playbackStartedItemID = current.ID
 		s.mu.Unlock()
-		s.startPlaybackWatcher()
+		s.startPlaybackWatcherForItem(current.ID)
 		return nil
 	}
 }
@@ -1382,6 +1382,23 @@ func (s *MusicService) setPlaybackSnapshot(snapshot music.PlaybackSnapshot) {
 	s.mu.Unlock()
 }
 
+func (s *MusicService) startPlaybackWatcherForItem(itemID string) {
+	if s == nil || s.queue == nil || strings.TrimSpace(itemID) == "" { return }
+	s.mu.Lock()
+	current := s.queue.Snapshot().Current
+	if current == nil || current.ID != itemID || s.playbackStartedItemID != itemID {
+		s.mu.Unlock()
+		return
+	}
+	if s.watchCancel != nil { s.watchCancel() }
+	ctx, cancel := context.WithCancel(context.Background())
+	s.watchCancel = cancel
+	s.playGeneration++
+	generation := s.playGeneration
+	s.mu.Unlock()
+	go s.watchPlayback(ctx, generation)
+}
+
 func (s *MusicService) startPlaybackWatcher() {
 	s.mu.Lock()
 	if s.watchCancel != nil { s.watchCancel() }
@@ -1497,7 +1514,7 @@ func (s *MusicService) retryPlaybackWithFallback(ctx context.Context, generation
 	if err := s.queue.SetCurrent(*latest); err != nil {
 		return true, fmt.Errorf("更新自动换源后的当前歌曲失败：%w", err)
 	}
-	s.startPlaybackWatcher()
+	s.startPlaybackWatcherForItem(current.ID)
 	return true, nil
 }
 
