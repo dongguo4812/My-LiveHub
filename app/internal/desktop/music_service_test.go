@@ -1467,6 +1467,49 @@ func TestMusicShutdownCancelsAndJoinsRequestWorker(t *testing.T) {
 	if service.GetStatus().Running { t.Fatal("music service remains running after Shutdown") }
 }
 
+func TestMusicStopTimeoutBlocksRestartUntilShutdownJoinsWorker(t *testing.T) {
+	value := config.DefaultMusicConfig()
+	value.Enabled = true
+	value.CommandEnabled = true
+	value.CommandPrefix = "!点歌"
+	value.RequireFanMedal = true
+	value.FanMedalLevel = 1
+	engine := &lifecycleRaceTestEngine{}
+	service := NewMusicServiceWithDependencies(nil, value, engine, events.NewBuffer())
+	checker := &shutdownBlockingFanMedalChecker{entered:make(chan struct{}), release:make(chan struct{})}
+	service.fanMedalChecker = checker
+	if err := service.start(context.Background()); err != nil { t.Fatal(err) }
+	service.requests <- events.Event{Type:"danmaku", Content:"!点歌 测试歌曲", UserID:123, UserName:"viewer"}
+	select {
+	case <-checker.entered:
+	case <-time.After(time.Second):
+		t.Fatal("request worker did not enter fan medal check")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	err := service.stop(ctx)
+	cancel()
+	if !errors.Is(err, context.DeadlineExceeded) { t.Fatalf("Stop error = %v, want context deadline", err) }
+	if err := service.start(context.Background()); err == nil || !strings.Contains(err.Error(), "still shutting down") {
+		t.Fatalf("restart should be blocked while previous worker is still active, got %v", err)
+	}
+	if got := engine.startCalls.Load(); got != 1 { t.Fatalf("engine Start calls during pending shutdown = %d, want 1", got) }
+
+	service.mu.RLock()
+	workerDone := service.workerDone
+	service.mu.RUnlock()
+	close(checker.release)
+	select {
+	case <-workerDone:
+	case <-time.After(time.Second):
+		t.Fatal("request worker did not exit after releasing checker")
+	}
+	if err := service.Shutdown(); err != nil { t.Fatalf("finish timed-out shutdown: %v", err) }
+	if err := service.start(context.Background()); err != nil { t.Fatalf("restart after shutdown cleanup: %v", err) }
+	if got := engine.startCalls.Load(); got != 2 { t.Fatalf("engine Start calls after cleanup = %d, want 2", got) }
+	if err := service.Shutdown(); err != nil { t.Fatalf("shutdown restarted service: %v", err) }
+}
+
 func TestMusicStartClosesPlaybackEngineAfterPartialStartFailure(t *testing.T) {
 	startErr := errors.New("partial playback engine startup failure")
 	closeErr := errors.New("playback engine cleanup failure")
