@@ -86,7 +86,7 @@ func readProcessMemorySnapshot() (ProcessMemorySnapshot, error) {
 		if !strings.EqualFold(windows.UTF16ToString(process.ExeFile[:]), "msedgewebview2.exe") {
 			continue
 		}
-		memory, memoryErr := readOneProcessMemory(windows.Handle(process.ProcessID))
+		memory, memoryErr := readPIDProcessMemory(process.ProcessID)
 		if memoryErr != nil {
 			// A child can exit between process enumeration and OpenProcess.
 			// Ignore only that per-process race; the next sample will reconcile it.
@@ -156,6 +156,11 @@ func readOneProcessMemory(process windows.Handle) (oneProcessMemory, error) {
 	}, nil
 }
 
-func readCurrentProcessMemory() (oneProcessMemory, error) {
-	return readOneProcessMemory(windows.CurrentProcess)
+func readPIDProcessMemory(pid uint32) (oneProcessMemory, error) {
+	handle, err := windows.OpenProcess(processQueryInformation|processVMRead, false, pid)
+	if err != nil {
+		return oneProcessMemory{}, err
+	}
+	defer windows.CloseHandle(handle)
+	return readOneProcessMemory(handle)
 }
