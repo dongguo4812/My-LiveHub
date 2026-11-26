@@ -102,3 +102,27 @@ func TestGetLogsByDateMergesExtensionLogsNewestFirst(t *testing.T) {
 		t.Fatalf("recent merged logs = %#v, want same newest-first order as date view", recent)
 	}
 }
+
+
+func TestRecordFrontendHeartbeatUpdatesSnapshot(t *testing.T) {
+	service := NewMonitorService(t.TempDir())
+	before := service.GetFrontendHeartbeatSnapshot()
+	if !before.LastSeenAt.IsZero() || before.Stale {
+		t.Fatalf("initial heartbeat snapshot = %#v, want empty and healthy", before)
+	}
+
+	service.RecordFrontendHeartbeat()
+	first := service.GetFrontendHeartbeatSnapshot()
+	if first.LastSeenAt.IsZero() || first.Stale {
+		t.Fatalf("recorded heartbeat snapshot = %#v, want timestamp and healthy state", first)
+	}
+
+	service.mu.Lock()
+	service.frontendHeartbeatStale = true
+	service.mu.Unlock()
+	service.RecordFrontendHeartbeat()
+	recovered := service.GetFrontendHeartbeatSnapshot()
+	if recovered.Stale || !recovered.LastSeenAt.After(first.LastSeenAt) {
+		t.Fatalf("recovered heartbeat snapshot = %#v, want newer timestamp and healthy state", recovered)
+	}
+}
