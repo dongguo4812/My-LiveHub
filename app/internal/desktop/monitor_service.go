@@ -36,7 +36,9 @@ type SystemMetricsSnapshot struct {
 	WebView2PrivateBytes uint64 `json:"webview2_private_bytes"`
 	MemoryBaselineReady bool `json:"memory_baseline_ready"`
 	ProcessWorkingSetDeltaBytes int64 `json:"process_working_set_delta_bytes"`
+	ProcessPrivateDeltaBytes int64 `json:"process_private_delta_bytes"`
 	WebView2WorkingSetDeltaBytes int64 `json:"webview2_working_set_delta_bytes"`
+	WebView2PrivateDeltaBytes int64 `json:"webview2_private_delta_bytes"`
 	ProcessMemoryError string `json:"process_memory_error,omitempty"`
 	UptimeSeconds int64 `json:"uptime_seconds"`
 	GoHeapAllocBytes uint64 `json:"go_heap_alloc_bytes"`
@@ -85,7 +87,9 @@ type MonitorService struct {
 	frontendMonitoringSuspended bool
 	memoryBaselineReady bool
 	processWorkingSetBaseline uint64
+	processPrivateBaseline uint64
 	webView2WorkingSetBaseline uint64
+	webView2PrivateBaseline uint64
 }
 
 func NewMonitorService(logDir string, additionalLogDirs ...string) *MonitorService {
@@ -297,7 +301,9 @@ func (s *MonitorService) GetSystemMetrics() SystemMetricsSnapshot {
 			if !s.memoryBaselineReady {
 				s.memoryBaselineReady = true
 				s.processWorkingSetBaseline = processMemory.ProcessWorkingSetBytes
+				s.processPrivateBaseline = processMemory.ProcessPrivateBytes
 				s.webView2WorkingSetBaseline = processMemory.WebView2WorkingSetBytes
+				s.webView2PrivateBaseline = processMemory.WebView2PrivateBytes
 			}
 		}
 		s.mu.Unlock()
@@ -326,7 +332,9 @@ func (s *MonitorService) GetSystemMetrics() SystemMetricsSnapshot {
 			s.mu.Lock()
 			metrics.MemoryBaselineReady = s.memoryBaselineReady
 			metrics.ProcessWorkingSetDeltaBytes = int64(processMemory.ProcessWorkingSetBytes) - int64(s.processWorkingSetBaseline)
+			metrics.ProcessPrivateDeltaBytes = int64(processMemory.ProcessPrivateBytes) - int64(s.processPrivateBaseline)
 			metrics.WebView2WorkingSetDeltaBytes = int64(processMemory.WebView2WorkingSetBytes) - int64(s.webView2WorkingSetBaseline)
+			metrics.WebView2PrivateDeltaBytes = int64(processMemory.WebView2PrivateBytes) - int64(s.webView2PrivateBaseline)
 			s.mu.Unlock()
 		}
 	} else {
