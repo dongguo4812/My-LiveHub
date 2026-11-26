@@ -112,8 +112,8 @@
       if (!cancel) reject(new Error('lx.request did not return a cancellation handle'));
     });
   }
-  async function getJSON(url, headers) {
-    const body = await http(url, { method: 'get', headers: headers || {}, timeout: 15000 });
+  async function getJSON(url, headers, timeout) {
+    const body = await http(url, { method: 'get', headers: headers || {}, timeout: num(timeout) || 15000 });
     if (!body || typeof body !== 'object') throw new Error('platform returned a non-JSON response');
     return body;
   }
@@ -264,7 +264,7 @@
         cover, sourceData, qualities));
     }
     const total = num(data.total);
-    if (!tracks.length && total > (pageNo - 1) * limit) {
+    if (!tracks.length && pageNo > 1) {
       const fallbackURL = appendQuery(endpoints.kgV3 || defaults.kgV3, {
         format: 'json', keyword, page: pageNo, pagesize: limit, showtype: '1'
       });
@@ -433,7 +433,7 @@
     };
     let primaryError;
     try {
-      const raw = await getJSON(appendQuery(endpoints.mg || defaults.mg, params), headers);
+      const raw = await getJSON(appendQuery(endpoints.mg || defaults.mg, params), headers, 7000);
       const result = parseMigu(raw, pageNo, limit);
       if (result.tracks.length) return result;
       primaryError = new Error('主搜索接口未返回歌曲');
@@ -448,7 +448,7 @@
       const fallback = await getJSON(fallbackURL, {
         'User-Agent': 'Mozilla/5.0 (Linux; Android 11; zh-cn) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
         channel: '0146921', Accept: 'application/json, text/plain, */*'
-      });
+      }, 7000);
       const result = parseMigu(fallback, pageNo, limit);
       if (!result.tracks.length) throw new Error('备用接口未返回歌曲');
       return result;
