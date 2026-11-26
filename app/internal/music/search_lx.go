@@ -513,11 +513,6 @@ func normalizeKuwoCoverURL(value string) string {
 	for i, part := range parts {
 		if strings.EqualFold(part, "albumcover") {
 			tail := parts[i+1:]
-			if len(tail) > 0 {
-				allDigits := true
-				for _, r := range tail[0] { if r < '0' || r > '9' { allDigits = false; break } }
-				if allDigits { tail = tail[1:] }
-			}
 			if len(tail) == 0 { return "" }
 			return "https://img3.kuwo.cn/star/albumcover/300/" + strings.Join(tail, "/")
 		}
