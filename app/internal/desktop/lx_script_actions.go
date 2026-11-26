@@ -154,26 +154,19 @@ func (s *MusicService) GetLXTrackDetail(track music.Track)(music.Track,error){
  if detail.SelectedQuality==""{detail.SelectedQuality=track.SelectedQuality}
  return detail,nil
 }
-func (s *MusicService) GetLXTrackLyrics(track music.Track)(string,error){
- source:=firstNonEmpty(track.LXSourceKey,track.SourceID)
- value,handled,err:=s.dispatchLXExtension(context.Background(),source,"lyric",map[string]any{"musicInfo":track,"track":track})
- if !handled{return "",errors.New("当前音源未声明 My-LiveHub lyric 扩展 action")}
- if err!=nil{return "",err}
- // LX community sources commonly return either a raw LRC string or the
- // object shape used by production scripts: {lyric, tlyric}. Accept both
- // without stringifying an object into "[object Object]".
- switch result:=value.(type){
- case string:
-  return result,nil
- case map[string]any:
-  lyric:=scriptString(result,"lyric","lrc","lyricText")
-  tlyric:=scriptString(result,"tlyric","trans")
-  if lyric=="" { return tlyric,nil }
-  if tlyric=="" { return lyric,nil }
-  return lyric+"\n"+tlyric,nil
- case nil:
-  return "",nil
- default:
-  return "",fmt.Errorf("LX lyric action returned unsupported %T value",value)
- }
+func normalizeLXScriptLyrics(value any) (string, error) {
+	switch result := value.(type) {
+	case string:
+		return strings.TrimSpace(result), nil
+	case map[string]any:
+		lyric := scriptString(result, "lyric", "lrc", "lyricText")
+		tlyric := scriptString(result, "tlyric", "trans")
+		if lyric == "" { return tlyric, nil }
+		if tlyric == "" { return lyric, nil }
+		return lyric + "\n" + tlyric, nil
+	case nil:
+		return "", nil
+	default:
+		return "", fmt.Errorf("LX lyric action returned unsupported %T value", value)
+	}
 }
