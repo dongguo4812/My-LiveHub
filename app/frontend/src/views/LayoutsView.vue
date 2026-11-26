@@ -401,7 +401,7 @@ onUnmounted(() => {
             <div v-else-if="layer.type === 'gift'" class="gift-layer-preview"><div class="gift-preview-image">🎁</div><strong>礼物名称 × 1</strong><span>观众昵称 赠送</span></div>
             <div v-else-if="layer.type === 'emoticon'" class="emoticon-layer-preview"><span>🥰</span><span>✨</span><span>🎉</span><span>❤️</span></div>
             <div v-else-if="layer.type === 'music_queue'" class="music-queue-layer-preview">
-              <div class="queue-preview-prompt"><strong>✦ 点歌提示</strong><span>点歌：点歌 歌曲名称</span><span>切歌：切歌（主播 / 房管）</span></div>
+              <div class="queue-preview-prompt"><strong>✦ 点歌提示</strong><span>点歌：点歌 歌曲名 歌手名</span><span>切歌：切歌（主播 / 房管）</span></div>
               <div class="queue-preview-current"><strong>♫ 当前播放</strong><span>歌曲名称 · 歌手 <small>观众昵称</small></span></div>
               <div class="queue-preview-pending"><strong>Ⅱ 待播队列 <small>2 首</small></strong><span>01　歌曲名称 · 歌手 <small>观众昵称</small></span><span>02　歌曲名称 · 歌手 <small>观众昵称</small></span></div>
             </div>
