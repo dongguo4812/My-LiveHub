@@ -72,7 +72,6 @@ type MusicService struct {
 	lastError string
 
 	watchCancel context.CancelFunc
-	externalWatchCancel context.CancelFunc
 	playbackSnapshot music.PlaybackSnapshot
 	playbackSnapshotValid bool
 	playGeneration uint64
@@ -98,7 +97,7 @@ type MusicService struct {
 
 func NewMusicService(manager *config.Manager, value config.MusicConfig, buffers ...*events.Buffer) *MusicService {
 	sources := music.NewSourceRegistry()
-	return NewMusicServiceWithDependencies(manager, value, sources, NewLXPlaybackEngine(value.LXAPIEndpoints), buffers...)
+	return NewMusicServiceWithDependencies(manager, value, sources, newHTMLAudioPlaybackEngine(nil), buffers...)
 }
 
 // NewMusicServiceWithFanMedalChecker wires the medal checker as an internal dependency.
@@ -110,7 +109,7 @@ func NewMusicServiceWithFanMedalChecker(manager *config.Manager, value config.Mu
 
 func NewMusicServiceWithDependencies(manager *config.Manager, value config.MusicConfig, sources *music.SourceRegistry, engine music.PlaybackEngine, buffers ...*events.Buffer) *MusicService {
 	if sources == nil { sources = music.NewSourceRegistry() }
-	if engine == nil { engine = NewLXPlaybackEngine(value.LXAPIEndpoints) }
+	if engine == nil { engine = newHTMLAudioPlaybackEngine(nil) }
 	var buffer *events.Buffer
 	if len(buffers) > 0 { buffer = buffers[0] }
 	if value.PlaylistPlaybackMode == "" { value.PlaylistPlaybackMode = "sequential" }
@@ -260,7 +259,7 @@ func (s *MusicService) start(ctx context.Context) error {
 		// The main window can render while enabled scripts perform their normal handshake.
 		go s.initializeLXRuntime(runtimeCtx)
 	}
-	s.startExternalPlaybackWatcher()
+
 	return nil
 }
 
@@ -361,7 +360,7 @@ func (s *MusicService) stop(ctx context.Context) error {
 	if cancel != nil { cancel() }
 	if runtimeCancel != nil { runtimeCancel() }
 	s.cancelPlaybackWatcher()
-	s.cancelExternalPlaybackWatcher()
+
 	s.lifecycleMu.Unlock()
 
 	select {
@@ -742,24 +741,16 @@ func (s *MusicService) SaveConfig(value config.MusicConfig) error {
 		return err
 	}
 	s.mu.Lock()
-	wasEnabled := s.value.Enabled
 	wasLoudnessNormalization := s.value.LoudnessNormalization
 	s.value = cloneMusicConfig(value)
 	s.playlistPlaybackMode = value.PlaylistPlaybackMode
 	s.mu.Unlock()
-	if player, ok := s.engine.(*LXPlaybackEngine); ok { player.SetEndpoints(value.LXAPIEndpoints) }
 	if bridge, ok := s.engine.(*htmlAudioPlaybackEngine); ok && wasLoudnessNormalization != value.LoudnessNormalization {
 		if err := bridge.SetLoudnessNormalization(value.LoudnessNormalization); err != nil { return fmt.Errorf("应用响度标准化设置失败：%w", err) }
 	}
-	if !wasEnabled && value.Enabled {
-		s.mu.RLock()
-		started := s.started
-		s.mu.RUnlock()
-		if started { s.startExternalPlaybackWatcher() }
-	}
 	if wasEnabled && !value.Enabled {
 		s.cancelPlaybackWatcher()
-		s.cancelExternalPlaybackWatcher()
+
 		_ = s.engine.Stop(context.Background())
 		s.queue.Clear()
 		s.queue.FinishCurrent()
@@ -886,9 +877,8 @@ func (s *MusicService) Enqueue(track music.Track, requestedBy string) (music.Que
 	s.mu.RLock(); enabled := s.value.Enabled; s.mu.RUnlock()
 	if !enabled { return music.QueueItem{}, errors.New("music module is disabled") }
 
-	// A stale queue.Current must not strand new requests after 洛雪 was stopped
-	// outside My-LiveHub. Keep the current item only while playback is actually
-	// playing or intentionally paused.
+	// A stale queue.Current must not strand new requests after HTMLAudio has
+	// stopped or failed. Keep the current item only while it is active.
 	queueBefore := s.queue.Snapshot()
 	startImmediately := queueBefore.Current == nil
 	interruptPlaylist := queueBefore.Current != nil && queueBefore.Current.RequestedBy == playlistPlayMarker
@@ -1017,14 +1007,6 @@ func (s *MusicService) playNext(parent context.Context) error {
 				// failure so the caller and UI can explain why playback did not start.
 				if lastStartErr != nil { return lastStartErr }
 				if playlistWasActive { return nil }
-				if lastStartErr != nil {
-					if nextTrack, supported := s.engine.(interface { NextTrack(context.Context) error }); supported {
-						if err := nextTrack.NextTrack(context.Background()); err == nil { return nil } else {
-							return fmt.Errorf("队列歌曲启动失败（%v），且洛雪切换下一首失败：%w", lastStartErr, err)
-						}
-					}
-					return lastStartErr
-				}
 				return errors.New("播放队列为空")
 			}
 			current = &item
@@ -1055,8 +1037,8 @@ func (s *MusicService) playNext(parent context.Context) error {
 
 func (s *MusicService) Pause() error {
 	if s == nil || s.engine == nil { return music.ErrPlaybackEngineUnavailable }
-	// Keep the watcher alive while paused so the UI and lyrics retain the
-	// current track and the service can detect when playback resumes externally.
+	// Keep the local HTMLAudio snapshot watcher alive while paused so the UI
+	// and lyrics retain the current track until playback resumes.
 	return s.engine.Pause(context.Background())
 }
 func (s *MusicService) Resume() error {
@@ -1068,24 +1050,13 @@ func (s *MusicService) Resume() error {
 func (s *MusicService) Next() error {
 	if s == nil || s.engine == nil || s.queue == nil { return errors.New("music playback service is unavailable") }
 	snapshot := s.queue.Snapshot()
-	var nextTrack interface { NextTrack(context.Context) error }
 	if len(snapshot.Items) == 0 && !s.hasActivePlaylistPlayback() {
-		// Validate 洛雪 queue support before retiring the current track. A
-		// failed capability check must leave the current playback untouched.
-		var ok bool
-		nextTrack, ok = s.engine.(interface { NextTrack(context.Context) error })
-		if !ok { return errors.New("当前播放引擎不支持切换洛雪队列") }
+		return errors.New("没有待播歌曲")
 	}
 	s.cancelPlaybackWatcher()
 	if current := snapshot.Current; current != nil { s.pushHistory(*current) }
 	s.queue.FinishCurrent()
-	if len(snapshot.Items) > 0 || s.hasActivePlaylistPlayback() { return s.PlayNext() }
-	// When the My-LiveHub request queue is empty, advance 洛雪's own playlist.
-	if err := nextTrack.NextTrack(context.Background()); err != nil {
-		s.startPlaybackWatcher()
-		return fmt.Errorf("切换洛雪队列下一首失败：%w", err)
-	}
-	return nil
+	return s.PlayNext()
 }
 
 func (s *MusicService) CanPrevious() bool {
@@ -1128,8 +1099,6 @@ func (s *MusicService) Previous() error {
 		s.history = s.history[:len(s.history)-1]
 	}
 	s.mu.Unlock()
-	// lxmusic:// 播放协议会直接切换歌曲；不要调用 Stop，因为洛雪的
-	// Stop 兼容实现实际会调用 /pause。
 	if err := s.queue.SetCurrent(previous); err != nil { return err }
 	return s.PlayNext()
 }
@@ -1284,7 +1253,7 @@ func (s *MusicService) getNativeProviderLyrics(track music.Track) (string, error
 
 func absFloat(value float64) float64 { if value < 0 { return -value }; return value }
 
-// GetPlaybackStatus performs an explicit live API read (used by the connection test).
+// GetPlaybackStatus returns the current playback engine snapshot. In production this is the local HTMLAudio state.
 func (s *MusicService) GetPlaybackStatus() (music.PlaybackSnapshot, error) {
 	if s == nil || s.engine == nil { return music.PlaybackSnapshot{}, music.ErrPlaybackEngineUnavailable }
 	snapshot, err := s.engine.Snapshot(context.Background())
@@ -1293,8 +1262,8 @@ func (s *MusicService) GetPlaybackStatus() (music.PlaybackSnapshot, error) {
 	return s.attachCurrentQueueTrack(snapshot), nil
 }
 
-// GetCachedPlaybackStatus returns the latest snapshot collected by the single
-// background watcher. UI surfaces must use this instead of querying 洛雪 directly.
+// GetCachedPlaybackStatus returns the latest snapshot collected by the local
+// HTMLAudio state watcher.
 func (s *MusicService) GetCachedPlaybackStatus() (music.PlaybackSnapshot, error) {
 	if s == nil || s.engine == nil { return music.PlaybackSnapshot{}, music.ErrPlaybackEngineUnavailable }
 	s.mu.RLock()
@@ -1330,7 +1299,7 @@ func (s *MusicService) GetStatus() MusicStatus {
 func (s *MusicService) Shutdown() error {
 	if s == nil { return nil }
 	s.cancelPlaybackWatcher()
-	s.cancelExternalPlaybackWatcher()
+
 	s.mu.Lock()
 	runtimeCancel, runtimeDone := s.lxRuntimeCancel, s.lxRuntimeDone
 	s.lxRuntimeCancel = nil
@@ -1373,62 +1342,6 @@ func (s *MusicService) setPlaybackSnapshot(snapshot music.PlaybackSnapshot) {
 	s.playbackSnapshot = snapshot
 	s.playbackSnapshotValid = true
 	s.mu.Unlock()
-}
-
-// The external watcher discovers songs started directly in 洛雪. It uses a
-// low-frequency idle probe, then increases to the playback cadence while a
-// song is playing or paused. My-LiveHub's queue watcher owns queue transitions.
-func (s *MusicService) startExternalPlaybackWatcher() {
-	if s == nil { return }
-	s.mu.Lock()
-	if !s.started || !s.value.Enabled || s.externalWatchCancel != nil {
-		s.mu.Unlock()
-		return
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	s.externalWatchCancel = cancel
-	s.mu.Unlock()
-	go s.watchExternalPlayback(ctx)
-}
-
-func (s *MusicService) cancelExternalPlaybackWatcher() {
-	if s == nil { return }
-	s.mu.Lock()
-	if s.externalWatchCancel != nil {
-		s.externalWatchCancel()
-		s.externalWatchCancel = nil
-	}
-	s.mu.Unlock()
-}
-
-func (s *MusicService) watchExternalPlayback(ctx context.Context) {
-	interval := 1500 * time.Millisecond
-	for {
-		timer := time.NewTimer(interval)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return
-		case <-timer.C:
-		}
-		// The queue watcher polls at 500 ms while a My-LiveHub track is current.
-		if current := s.queue.Snapshot().Current; current != nil {
-			interval = 1500 * time.Millisecond
-			continue
-		}
-		snapshot, err := s.engine.Snapshot(ctx)
-		if err != nil {
-			// 洛雪 may be closed. This is an idle discovery miss, not a module error.
-			interval = 1500 * time.Millisecond
-			continue
-		}
-		s.setPlaybackSnapshot(snapshot)
-		if snapshot.State == music.PlaybackPlaying || snapshot.State == music.PlaybackPaused {
-			interval = 500 * time.Millisecond
-		} else {
-			interval = 1500 * time.Millisecond
-		}
-	}
 }
 
 func (s *MusicService) startPlaybackWatcher() {
@@ -1562,35 +1475,14 @@ func playbackSnapshotEnded(sawPlaying bool, snapshot music.PlaybackSnapshot) boo
 		snapshot.PositionMS >= snapshot.DurationMS-2000
 }
 
-// lxAlreadyAdvancedPastCurrent is only a guard against skipping twice after
-// 洛雪 has already auto-advanced. It must not be used as an end-of-track signal.
-func lxAlreadyAdvancedPastCurrent(current *music.QueueItem, snapshot music.PlaybackSnapshot) bool {
-	return current != nil &&
-		snapshot.State == music.PlaybackPlaying &&
-		snapshot.Track != nil &&
-		!sameLXTrackIdentity(current.Track, *snapshot.Track)
-}
-
-// advanceAfterPlaybackEnd always gives My-LiveHub's request queue priority.
-// Only an empty request queue may fall through to 洛雪's own playlist.
-func (s *MusicService) advanceAfterPlaybackEnd(snapshot music.PlaybackSnapshot, finished *music.QueueItem) error {
+// advanceAfterPlaybackEnd advances only My-LiveHub's own queue. An empty
+// queue is a normal idle transition; external player playlists are not consulted.
+func (s *MusicService) advanceAfterPlaybackEnd(_ music.PlaybackSnapshot, _ *music.QueueItem) error {
 	if s == nil || s.engine == nil || s.queue == nil {
 		return errors.New("music playback service is unavailable")
 	}
 	if len(s.queue.Snapshot().Items) > 0 || s.hasActivePlaylistPlayback() {
 		return s.PlayNext()
-	}
-	// HTMLAudio owns only My-LiveHub's queue. An empty queue is a normal end,
-	// never a reason to call the legacy 洛雪 playlist API.
-	if _, htmlAudio := s.engine.(*htmlAudioPlaybackEngine); htmlAudio { return nil }
-	// A legacy 洛雪 engine may already have started its own next song at the end boundary.
-	if lxAlreadyAdvancedPastCurrent(finished, snapshot) { return nil }
-	nextTrack, ok := s.engine.(interface { NextTrack(context.Context) error })
-	if !ok {
-		return errors.New("当前播放引擎不支持切换洛雪队列")
-	}
-	if err := nextTrack.NextTrack(context.Background()); err != nil {
-		return fmt.Errorf("My-LiveHub 队列为空，切换洛雪下一首失败：%w", err)
 	}
 	return nil
 }
