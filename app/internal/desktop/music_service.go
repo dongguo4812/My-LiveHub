@@ -38,6 +38,8 @@ type MusicStatus struct {
 	PendingRequests int `json:"pending_requests"`
 	DroppedRequests uint64 `json:"dropped_requests"`
 	LastError string `json:"last_error,omitempty"`
+	LXRuntimeStatus string `json:"lx_runtime_status"`
+	LXRuntimeError string `json:"lx_runtime_error,omitempty"`
 }
 
 type MusicService struct {
@@ -80,6 +82,10 @@ type MusicService struct {
 	playbackResolutionStatus string
 	searcher *music.LXSearchClient
 	scriptRuntime lxScriptRuntime
+	lxRuntimeStatus string
+	lxRuntimeError string
+	lxRuntimeDone chan struct{}
+	lxRuntimeCancel context.CancelFunc
 	lyricsMu sync.Mutex
 	lyricsCache map[string]string
 	playbackResourceCache *music.PlaybackResourceCache
@@ -218,7 +224,6 @@ func (s *MusicService) start(ctx context.Context) error {
 	if s == nil || ctx == nil { return errors.New("music service and startup context are required") }
 	if s.buffer == nil { return errors.New("music event buffer is required") }
 	if lifecycle, ok := s.engine.(music.PlaybackEngineLifecycle); ok { if err := lifecycle.Start(ctx); err != nil { return fmt.Errorf("启动音乐播放服务失败：%w", err) } }
-	if s.scriptRuntime != nil { if err := s.scriptRuntime.Start(ctx); err != nil { if lifecycle, ok := s.engine.(music.PlaybackEngineLifecycle); ok { _ = lifecycle.Close() }; return fmt.Errorf("启动 LX JavaScript Runtime 失败：%w", err) } }
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()
 	s.mu.Lock()
@@ -230,11 +235,85 @@ func (s *MusicService) start(ctx context.Context) error {
 	s.requests = make(chan events.Event, musicRequestQueueCapacity)
 	s.workerDone = make(chan struct{})
 	s.started = true
+	if s.scriptRuntime != nil {
+		runtimeCtx, runtimeCancel := context.WithCancel(context.Background())
+		s.lxRuntimeStatus = "initializing"
+		s.lxRuntimeError = ""
+		s.lxRuntimeDone = make(chan struct{})
+		s.lxRuntimeCancel = runtimeCancel
+	} else {
+		s.lxRuntimeStatus = "ready"
+		s.lxRuntimeError = ""
+		s.lxRuntimeDone = nil
+		s.lxRuntimeCancel = nil
+	}
 	if s.unsubscribe == nil { s.unsubscribe = s.buffer.Subscribe(s.handleEvent) }
 	s.mu.Unlock()
 	go s.worker()
+	if s.scriptRuntime != nil {
+		s.mu.RLock()
+		runtimeCtx := s.ctx
+		s.mu.RUnlock()
+		// Runtime initialization is deliberately detached from Wails ServiceStartup.
+		// The main window can render while enabled scripts perform their normal handshake.
+		go s.initializeLXRuntime(runtimeCtx)
+	}
 	s.startExternalPlaybackWatcher()
 	return nil
+}
+
+func (s *MusicService) initializeLXRuntime(ctx context.Context) {
+	defer func() {
+		s.mu.Lock()
+		if s.lxRuntimeDone != nil {
+			close(s.lxRuntimeDone)
+			s.lxRuntimeDone = nil
+		}
+		s.mu.Unlock()
+	}()
+	if err := s.scriptRuntime.Start(ctx); err != nil {
+		s.mu.Lock()
+		s.lxRuntimeStatus = "failed"
+		s.lxRuntimeError = err.Error()
+		s.lastError = "LX-JS 音源初始化失败：" + err.Error()
+		s.mu.Unlock()
+		return
+	}
+	s.mu.Lock()
+	s.lxRuntimeStatus = "ready"
+	s.lxRuntimeError = ""
+	s.mu.Unlock()
+}
+
+// waitForLXRuntime shares the single startup initialization across every first
+// search/play request; it never starts or recreates a runtime on demand.
+func (s *MusicService) waitForLXRuntime(ctx context.Context) error {
+	if s == nil || s.scriptRuntime == nil { return nil }
+	if ctx == nil { ctx = context.Background() }
+	s.mu.RLock()
+	status, reason, done := s.lxRuntimeStatus, s.lxRuntimeError, s.lxRuntimeDone
+	s.mu.RUnlock()
+	switch status {
+	case "ready":
+		return nil
+	case "failed":
+		return fmt.Errorf("LX-JS 音源初始化失败：%s", reason)
+	case "initializing":
+		if done == nil { return errors.New("LX-JS 音源初始化状态异常：缺少完成信号") }
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return fmt.Errorf("等待 LX-JS 音源初始化完成失败：%w", ctx.Err())
+		}
+		s.mu.RLock()
+		status, reason = s.lxRuntimeStatus, s.lxRuntimeError
+		s.mu.RUnlock()
+		if status == "ready" { return nil }
+		if status == "failed" { return fmt.Errorf("LX-JS 音源初始化失败：%s", reason) }
+		return fmt.Errorf("LX-JS 音源初始化未完成（当前状态：%s）", status)
+	default:
+		return fmt.Errorf("LX-JS 音源运行时尚未启动（当前状态：%s）", status)
+	}
 }
 
 func (s *MusicService) stop(ctx context.Context) error {
@@ -450,6 +529,7 @@ func (s *MusicService) searchSongRequestTrack(parent context.Context, keyword, r
 		return music.Track{}, false, []string{"洛雪搜索 SDK 未初始化"}
 	}
 	if parent == nil { parent = context.Background() }
+	if err := s.waitForLXRuntime(parent); err != nil { return music.Track{}, false, []string{err.Error()} }
 	sourceIDs := s.enabledSearchSourceIDs()
 	if len(sourceIDs) == 0 { return music.Track{}, false, []string{"没有启用任何搜索音源"} }
 	return searchSongRequestAcrossSources(parent, sourceIDs, func(source string) ([]music.Track, error) {
@@ -705,6 +785,7 @@ func (s *MusicService) SearchSourcePage(keyword, source string, page int) (Music
 	if page < 1 {
 		return MusicSearchResponse{}, errors.New("搜索页码必须大于 0")
 	}
+	if err := s.waitForLXRuntime(context.Background()); err != nil { return MusicSearchResponse{}, err }
 	declaredSource := false
 	for _, id := range s.enabledSearchSourceIDs() {
 		if id == source { declaredSource = true; break }
@@ -754,6 +835,7 @@ func (s *MusicService) search(parent context.Context, keyword string) (MusicSear
 func (s *MusicService) searchPage(parent context.Context, keyword string, page int) (MusicSearchResponse, error) {
 	if s == nil || s.searcher == nil { return MusicSearchResponse{}, errors.New("洛雪搜索 SDK 未初始化") }
 	if parent == nil { parent = context.Background() }
+	if err := s.waitForLXRuntime(parent); err != nil { return MusicSearchResponse{}, err }
 	sourceIDs := s.enabledSearchSourceIDs()
 	if len(sourceIDs) == 0 {
 		return MusicSearchResponse{Tracks: []music.Track{}, Errors: map[string]string{}, Page: page, PageSize: 30, MaxPage: 1}, nil
@@ -885,6 +967,7 @@ func (s *MusicService) PlayNext() error { return s.playNext(context.Background()
 func (s *MusicService) playNext(parent context.Context) error {
 	if s == nil || s.engine == nil || s.queue == nil { return errors.New("music playback service is unavailable") }
 	if parent == nil { parent = context.Background() }
+	if err := s.waitForLXRuntime(parent); err != nil { return err }
 	s.mu.RLock()
 	enabled := s.value.Enabled
 	s.mu.RUnlock()
@@ -1214,7 +1297,7 @@ func (s *MusicService) attachCurrentQueueTrack(snapshot music.PlaybackSnapshot) 
 func (s *MusicService) GetStatus() MusicStatus {
 	if s == nil { return MusicStatus{} }
 	s.mu.RLock()
-	status := MusicStatus{Enabled:s.value.Enabled, Running:s.started, PendingRequests:len(s.requests), DroppedRequests:s.requestDropped.Load(), LastError:s.lastError}
+	status := MusicStatus{Enabled:s.value.Enabled, Running:s.started, PendingRequests:len(s.requests), DroppedRequests:s.requestDropped.Load(), LastError:s.lastError, LXRuntimeStatus:s.lxRuntimeStatus, LXRuntimeError:s.lxRuntimeError}
 	s.mu.RUnlock()
 	return status
 }
@@ -1222,6 +1305,12 @@ func (s *MusicService) Shutdown() error {
 	if s == nil { return nil }
 	s.cancelPlaybackWatcher()
 	s.cancelExternalPlaybackWatcher()
+	s.mu.Lock()
+	runtimeCancel, runtimeDone := s.lxRuntimeCancel, s.lxRuntimeDone
+	s.lxRuntimeCancel = nil
+	s.mu.Unlock()
+	if runtimeCancel != nil { runtimeCancel() }
+	if runtimeDone != nil { <-runtimeDone }
 	var failures []error
 	if s.scriptRuntime != nil { if err := s.scriptRuntime.Close(); err != nil { failures = append(failures, fmt.Errorf("关闭 LX JavaScript Runtime：%w", err)) } }
 	if lifecycle, ok := s.engine.(music.PlaybackEngineLifecycle); ok { if err := lifecycle.Close(); err != nil { failures = append(failures, err) } }
