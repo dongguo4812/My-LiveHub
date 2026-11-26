@@ -189,7 +189,7 @@ func TestProductionLXScriptRuntimeIsolatesInvalidPersistedScript(t *testing.T) {
 
 func TestMusicServiceLXScriptManagementAPI(t *testing.T) {
 	manager := testLXConfigManager(t)
-	service := NewMusicServiceWithDependencies(manager, config.MusicConfig{}, nil, nil)
+	service := NewMusicServiceWithDependencies(manager, config.MusicConfig{}, nil)
 	added, err := service.ImportLXScript("service API fixture", "lx.on(lx.EVENT_NAMES.request, () => []); lx.send(lx.EVENT_NAMES.inited, {sources:{kw:{type:'music',actions:['search']}}});")
 	if err != nil { t.Fatalf("MusicService.ImportLXScript: %v", err) }
 	if added.ID == "" || added.Name != "service API fixture" { t.Fatalf("import result = %#v", added) }
@@ -213,7 +213,7 @@ func TestLXScriptStoreSerializationIsStable(t *testing.T) {
 func TestProductionLXCommunityActionsReachMusicService(t *testing.T) {
  manager:=testLXConfigManager(t)
  runtime:=newLXScriptRuntime(manager).(*productionMusicLXRuntime)
- service:=NewMusicServiceWithDependencies(manager,config.MusicConfig{EnabledSearchSources:[]string{"kw"}},nil,nil)
+ service:=NewMusicServiceWithDependencies(manager,config.MusicConfig{EnabledSearchSources:[]string{"kw"}},nil)
  service.scriptRuntime=runtime
  source:=`
 lx.on(lx.EVENT_NAMES.request, async ({source,action,info}) => {
@@ -406,7 +406,7 @@ func TestProductionLXFishSunnyDayPlaybackURL(t *testing.T) {
 	}
 
 	service := NewMusicServiceWithDependencies(testLXConfigManager(t),
-		config.MusicConfig{EnabledSearchSources: []string{"tx", "kw", "kg"}}, nil, nil)
+		config.MusicConfig{EnabledSearchSources: []string{"tx", "kw", "kg"}}, nil)
 	service.scriptRuntime = manager
 
 	// Kuwo is attempted first and its failure is retained explicitly. If the
@@ -593,7 +593,7 @@ func TestProductionLXXinghaiDaoxiangPlaybackURL(t *testing.T) {
 
 	enabledSources := []string{"tx", "kw", "kg", "mg"}
 	service := NewMusicServiceWithDependencies(testLXConfigManager(t),
-		config.MusicConfig{EnabledSearchSources: enabledSources}, nil, nil)
+		config.MusicConfig{EnabledSearchSources: enabledSources}, nil)
 	service.scriptRuntime = runtime
 	sourceResolver := music.NewUnifiedSourceService(service.searcher, runtime)
 	resourceCache := music.NewPlaybackResourceCache(2*time.Minute, 32)
