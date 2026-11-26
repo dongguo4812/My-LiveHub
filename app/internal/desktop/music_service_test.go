@@ -110,7 +110,7 @@ func (e *nextTrackTestEngine) Snapshot(context.Context) (music.PlaybackSnapshot,
 
 func TestNextWithoutPendingTrackDoesNotPauseCurrentPlayback(t *testing.T) {
 	engine := &nextTrackTestEngine{}
-	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, engine)
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), engine)
 	current, err := service.queue.SetCurrentTrack(music.Track{
 		ID: "tx_current", SourceID: "tx", Title: "当前歌曲", Artist: "歌手",
 	}, searchPlayMarker)
@@ -129,7 +129,7 @@ func TestNextWithoutPendingTrackDoesNotPauseCurrentPlayback(t *testing.T) {
 }
 
 func TestPlaybackFallbackIsClaimedOnlyOncePerQueueItem(t *testing.T) {
-	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, &nextTrackTestEngine{})
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), &nextTrackTestEngine{})
 	item := &music.QueueItem{ID: "queue-item-1", Track: music.Track{Title: "哈哈哈", Artist: "测试歌手"}}
 	service.mu.Lock()
 	service.playGeneration = 7
@@ -187,7 +187,7 @@ func TestAdvanceAfterPlaybackEndPrioritizesMyLiveHubQueue(t *testing.T) {
 	value := config.DefaultMusicConfig()
 	value.Enabled = true
 	engine := &queueAdvanceTestEngine{}
-	service := NewMusicServiceWithDependencies(nil, value, nil, engine)
+	service := NewMusicServiceWithDependencies(nil, value, engine)
 	defer service.cancelPlaybackWatcher()
 
 	track := music.Track{ID: "tx_next", SourceID: "tx", LXSourceKey: "tx", Title: "待播歌曲", Artist: "测试歌手"}
@@ -209,7 +209,7 @@ func TestAdvanceAfterPlaybackEndPrioritizesMyLiveHubQueue(t *testing.T) {
 
 func TestAdvanceAfterPlaybackEndLeavesExternalPlaylistsUntouched(t *testing.T) {
 	engine := &queueAdvanceTestEngine{}
-	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, engine)
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), engine)
 	finished := &music.QueueItem{Track: music.Track{Title: "当前歌曲", Artist: "测试歌手"}}
 	snapshot := music.PlaybackSnapshot{State: music.PlaybackStopped}
 
@@ -220,7 +220,7 @@ func TestAdvanceAfterPlaybackEndLeavesExternalPlaylistsUntouched(t *testing.T) {
 
 func TestGetPlaybackStatusReportsActualResolvedProvider(t *testing.T) {
 	engine := &nextTrackTestEngine{}
-	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, engine)
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), engine)
 	_, err := service.queue.SetCurrentTrack(music.Track{
 		ID: "kg_hash123", SourceID: "kg", LXSourceKey: "kg", Title: "稻香", Artist: "周杰伦",
 	}, searchPlayMarker)
@@ -252,7 +252,7 @@ func (e *queueRecoveryTestEngine) Snapshot(context.Context) (music.PlaybackSnaps
 func TestEnqueueStartsNextWhenQueueCurrentIsStale(t *testing.T) {
 	value := config.DefaultMusicConfig()
 	engine := &queueRecoveryTestEngine{state: music.PlaybackStopped}
-	service := NewMusicServiceWithDependencies(nil, value, nil, engine)
+	service := NewMusicServiceWithDependencies(nil, value, engine)
 	defer service.Shutdown()
 
 	priority := service.enabledSearchSourceIDs()
@@ -276,7 +276,7 @@ func TestEnqueueStartsNextWhenQueueCurrentIsStale(t *testing.T) {
 func TestEnqueueDoesNotInterruptPausedCurrentTrack(t *testing.T) {
 	value := config.DefaultMusicConfig()
 	engine := &queueRecoveryTestEngine{state: music.PlaybackPaused}
-	service := NewMusicServiceWithDependencies(nil, value, nil, engine)
+	service := NewMusicServiceWithDependencies(nil, value, engine)
 	defer service.Shutdown()
 
 	priority := service.enabledSearchSourceIDs()
@@ -345,7 +345,7 @@ func TestMusicCommandsPublishFailureNoticesWhenDisabledOrUnauthorized(t *testing
 			value := config.DefaultMusicConfig()
 			value.Enabled = true
 			tt.configure(&value)
-			service := NewMusicServiceWithDependencies(nil, value, nil, &nextTrackTestEngine{})
+			service := NewMusicServiceWithDependencies(nil, value, &nextTrackTestEngine{})
 			service.started = true
 			service.requests = make(chan events.Event, 1)
 			broker := NewRequestNoticeBroker()
@@ -379,7 +379,7 @@ func TestMusicCommandsAreRoutedUsingConfiguredValuesWhenTogglesAreOff(t *testing
 	value.CommandEnabled = false
 	value.SkipCommand = "换一首"
 	value.SkipCommandEnabled = false
-	service := NewMusicServiceWithDependencies(nil, value, nil, &nextTrackTestEngine{})
+	service := NewMusicServiceWithDependencies(nil, value, &nextTrackTestEngine{})
 	service.started = true
 	service.requests = make(chan events.Event, 2)
 
@@ -398,7 +398,7 @@ func TestStoppedMusicModuleStillReportsConfiguredCommands(t *testing.T) {
 	value := config.DefaultMusicConfig()
 	value.Enabled = true
 	buffer := events.NewBuffer(events.NewBus())
-	service := NewMusicServiceWithDependencies(nil, value, nil, &nextTrackTestEngine{}, buffer)
+	service := NewMusicServiceWithDependencies(nil, value, &nextTrackTestEngine{}, buffer)
 	broker := NewRequestNoticeBroker()
 	service.SetRequestNoticeBroker(broker)
 	notices, cancel := broker.Subscribe()
@@ -519,7 +519,7 @@ func TestPlayNextSkipsFailedTrackAndStartsNextQueuedTrack(t *testing.T) {
 	value.Enabled = true
 	value.EnabledSearchSources = []string{"tx"}
 	engine := &failFirstLoadTestEngine{}
-	service := NewMusicServiceWithDependencies(nil, value, nil, engine)
+	service := NewMusicServiceWithDependencies(nil, value, engine)
 	defer service.cancelPlaybackWatcher()
 
 	first := music.Track{ID: "tx_first", SourceID: "tx", LXSourceKey: "tx", Title: "首首歌曲", Artist: "测试歌手"}
@@ -547,7 +547,7 @@ func TestMusicPlaybackStartTimeoutIsTenSeconds(t *testing.T) {
 func TestMusicRequestCooldownIsPerViewerAndExemptsOwnerAndModerator(t *testing.T) {
 	value := config.DefaultMusicConfig()
 	value.RequestCooldownSeconds = 30
-	service := NewMusicServiceWithDependencies(nil, value, nil, &nextTrackTestEngine{})
+	service := NewMusicServiceWithDependencies(nil, value, &nextTrackTestEngine{})
 	viewer := events.Event{UserID: 101, UserName: "观众"}
 	if got := service.requestCooldownRemaining(viewer); got != 0 { t.Fatalf("new viewer should not be cooling down, got %v", got) }
 	service.recordRequestCooldown(viewer)
@@ -560,7 +560,7 @@ func TestMusicRequestCooldownIsPerViewerAndExemptsOwnerAndModerator(t *testing.T
 
 func TestMusicRequestCooldownDisabledWhenZero(t *testing.T) {
 	value := config.DefaultMusicConfig()
-	service := NewMusicServiceWithDependencies(nil, value, nil, &nextTrackTestEngine{})
+	service := NewMusicServiceWithDependencies(nil, value, &nextTrackTestEngine{})
 	viewer := events.Event{UserID: 101, UserName: "观众"}
 	service.recordRequestCooldown(viewer)
 	if got := service.requestCooldownRemaining(viewer); got != 0 { t.Fatalf("zero cooldown should be disabled, got %v", got) }
@@ -569,7 +569,7 @@ func TestMusicRequestCooldownDisabledWhenZero(t *testing.T) {
 func TestMusicRequestCooldownUsesNameWhenUserIDUnavailable(t *testing.T) {
 	value := config.DefaultMusicConfig()
 	value.RequestCooldownSeconds = 30
-	service := NewMusicServiceWithDependencies(nil, value, nil, &nextTrackTestEngine{})
+	service := NewMusicServiceWithDependencies(nil, value, &nextTrackTestEngine{})
 	viewer := events.Event{UserName: " Viewer "}
 	service.recordRequestCooldown(viewer)
 	if got := service.requestCooldownRemaining(events.Event{UserName: "viewer"}); got <= 0 { t.Fatalf("username fallback should identify the same viewer, got %v", got) }
@@ -585,7 +585,7 @@ func TestSearchAndEnqueueUsesUnifiedSearchAndPlaybackQueue(t *testing.T) {
 	value.Enabled = true
 	value.EnabledSearchSources = []string{"tx"}
 	engine := &queueAdvanceTestEngine{}
-	service := NewMusicServiceWithDependencies(nil, value, nil, engine)
+	service := NewMusicServiceWithDependencies(nil, value, engine)
 	defer service.Shutdown()
 	service.searcher = music.NewLXSearchClientWithEndpoints(server.Client(), music.LXSearchEndpoints{QQ: server.URL})
 
@@ -603,7 +603,7 @@ func TestSearchAndEnqueueUsesUnifiedSearchAndPlaybackQueue(t *testing.T) {
 }
 
 func TestMusicServiceSourceCapabilitiesShareSearchAndPlaybackResolver(t *testing.T) {
-	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, nil)
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil)
 	service.scriptRuntime = &fakeLXScriptRuntime{available: true}
 	sources := service.GetSources()
 	if len(sources) != 5 { t.Fatalf("source count = %d, want 5", len(sources)) }
@@ -618,7 +618,7 @@ func TestMusicServiceSourceCapabilitiesShareSearchAndPlaybackResolver(t *testing
 func TestMusicServiceStopResetsPlaybackToIdleSnapshot(t *testing.T) {
 	engine := newHTMLAudioPlaybackEngine(nil)
 	engine.setEmitter(func(string, any) {})
-	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, engine)
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), engine)
 	track := music.Track{ID:"stop-track", SourceID:"tx", Title:"停止测试", Artist:"测试"}
 	resource := music.PlaybackResource{URL:"https://media.example/stop.mp3", SourceID:"tx", TrackID:track.ID}
 	if err := engine.LoadResource(context.Background(), track, resource); err != nil { t.Fatal(err) }
@@ -634,7 +634,7 @@ func TestMusicServiceStopResetsPlaybackToIdleSnapshot(t *testing.T) {
 
 
 func TestMusicServiceCanPreviousTracksPlaybackHistory(t *testing.T) {
-	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, newHTMLAudioPlaybackEngine(nil))
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), newHTMLAudioPlaybackEngine(nil))
 	if service.CanPrevious() { t.Fatal("previous should be unavailable without playback history") }
 	item := music.QueueItem{ID:"history-1", Track:music.Track{ID:"track-1", SourceID:"tx", Title:"上一首", Artist:"测试"}}
 	service.pushHistory(item)
@@ -647,7 +647,7 @@ func TestMusicServiceNextAndPreviousNavigateHTMLAudioQueueHistory(t *testing.T) 
 	value.Enabled = true
 	value.EnabledSearchSources = []string{"tx"}
 	engine := &nextTrackTestEngine{}
-	service := NewMusicServiceWithDependencies(nil, value, nil, engine)
+	service := NewMusicServiceWithDependencies(nil, value, engine)
 	service.scriptRuntime = nil // Exercise the deterministic provider/engine path without network access.
 	defer service.cancelPlaybackWatcher()
 
@@ -682,7 +682,7 @@ func TestPlayNextDoesNotRetireTrackWhenResolutionIsSuperseded(t *testing.T) {
 	value := config.DefaultMusicConfig()
 	value.Enabled = true
 	value.EnabledSearchSources = []string{"tx"}
-	service := NewMusicServiceWithDependencies(nil, value, nil, &canceledLoadTestEngine{})
+	service := NewMusicServiceWithDependencies(nil, value, &canceledLoadTestEngine{})
 	service.scriptRuntime = nil
 	track := music.Track{ID:"tx_cancelled", SourceID:"tx", LXSourceKey:"tx", Title:"稻香", Artist:"周杰伦"}
 	if _, err := service.queue.SetCurrentTrack(track, searchPlayMarker); err != nil { t.Fatal(err) }
@@ -695,7 +695,7 @@ func TestPlayNextDoesNotRetireTrackWhenResolutionIsSuperseded(t *testing.T) {
 func TestCachedPlaybackStatusExposesActiveResolution(t *testing.T) {
 	value := config.DefaultMusicConfig()
 	value.Enabled = true
-	service := NewMusicServiceWithDependencies(nil, value, nil, &nextTrackTestEngine{})
+	service := NewMusicServiceWithDependencies(nil, value, &nextTrackTestEngine{})
 	track := music.Track{ID:"tx_resolving", SourceID:"tx", Title:"稻香", Artist:"周杰伦"}
 	if _, err := service.queue.SetCurrentTrack(track, searchPlayMarker); err != nil { t.Fatal(err) }
 	oldTrack := music.Track{ID:"old_track", SourceID:"wy", Title:"晴天", Artist:"周杰伦"}
@@ -735,7 +735,7 @@ func (r *blockingLXScriptRuntime) Close() error { r.closeCalls.Add(1); return ni
 
 func TestMusicStartDoesNotWaitForLXRuntimeInitialization(t *testing.T) {
 	runtime := &blockingLXScriptRuntime{started: make(chan struct{}), release: make(chan struct{})}
-	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, &nextTrackTestEngine{}, events.NewBuffer())
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), &nextTrackTestEngine{}, events.NewBuffer())
 	service.scriptRuntime = runtime
 	startedAt := time.Now()
 	startResult := make(chan error, 1)
@@ -789,7 +789,7 @@ func TestMusicFirstUseReceivesLXRuntimeInitializationFailure(t *testing.T) {
 	wantErr := errors.New("墨澜聚合音源 初始化失败（阶段：initialize_script）：网络超时")
 	runtime := &blockingLXScriptRuntime{started: make(chan struct{}), release: make(chan struct{}), startErr: wantErr}
 	close(runtime.release)
-	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, &nextTrackTestEngine{}, events.NewBuffer())
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), &nextTrackTestEngine{}, events.NewBuffer())
 	service.scriptRuntime = runtime
 	if err := service.start(context.Background()); err != nil { t.Fatal(err) }
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -809,7 +809,7 @@ func TestMusicFirstUseReceivesLXRuntimeInitializationFailure(t *testing.T) {
 
 func TestStoppingMusicModuleCancelsBackgroundLXInitialization(t *testing.T) {
 	runtime := &blockingLXScriptRuntime{started: make(chan struct{}), release: make(chan struct{})}
-	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, &nextTrackTestEngine{}, events.NewBuffer())
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), &nextTrackTestEngine{}, events.NewBuffer())
 	service.scriptRuntime = runtime
 	if err := service.start(context.Background()); err != nil { t.Fatal(err) }
 	select {
