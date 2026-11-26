@@ -58,6 +58,13 @@ func (a scriptAwareSourceSearcher) SearchProvider(ctx context.Context, source, k
 		"keyword": keyword, "pageSize": 30,
 	})
  if handled { if err != nil { return music.SearchPage{},err }; return normalizeLXScriptSearchResult(source,keyword,page,value) }
+ // The five built-in LX platforms must never silently fall back to the Go
+ // provider implementation. A missing or failed QuickJS action is surfaced
+ // as an explicit search error so the migration cannot regress invisibly.
+ switch source {
+ case music.LXSearchKW, music.LXSearchKG, music.LXSearchTX, music.LXSearchWY, music.LXSearchMG:
+  return music.SearchPage{}, fmt.Errorf("%s QuickJS 搜索 Action 尚未就绪，已阻止 Go 原生搜索回退", source)
+ }
  return a.base.SearchProvider(ctx,source,keyword,page)
 }
 func (a scriptAwareSourceSearcher) SearchSources(ctx context.Context, keyword string, page int, sourceIDs []string) (music.SearchPage, map[string]string, error) {
