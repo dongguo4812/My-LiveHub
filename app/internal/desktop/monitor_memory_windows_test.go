@@ -4,6 +4,8 @@ package desktop
 
 import (
 	"testing"
+
+	"golang.org/x/sys/windows"
 )
 
 func TestReadProcessMemorySnapshotMeasuresCurrentProcess(t *testing.T) {
@@ -40,5 +42,15 @@ func TestSystemMetricsCapturesMemoryBaseline(t *testing.T) {
 	}
 	if second.ProcessID != first.ProcessID {
 		t.Fatalf("process ID changed between samples: %d -> %d", first.ProcessID, second.ProcessID)
+	}
+}
+
+func TestReadProcessCommandLineForCurrentProcess(t *testing.T) {
+	commandLine, err := readPIDProcessCommandLine(windows.GetCurrentProcessId())
+	if err != nil {
+		t.Fatalf("read current process command line: %v", err)
+	}
+	if commandLine == "" {
+		t.Fatal("current process command line is empty")
 	}
 }
