@@ -804,7 +804,7 @@ func (s *lxScriptTestBaseSearcher) SearchSources(ctx context.Context, keyword st
 	return result, failures, ctx.Err()
 }
 
-func TestProductionLXScriptTestFallsBackToNativeSearchWhenScriptOnlyDeclaresMusicURL(t *testing.T) {
+func TestProductionLXScriptTestBlocksNativeSearchFallbackWhenScriptOmitsSearch(t *testing.T) {
 	manager := testLXConfigManager(t)
 	runtime := newLXScriptRuntime(manager).(*productionMusicLXRuntime)
 	source := `
@@ -841,18 +841,15 @@ lx.send(lx.EVENT_NAMES.inited, {sources: {
 		if item.Platform == "tx" && (item.Status != "unsupported" || !strings.Contains(item.Message, "未声明 musicUrl")) {
 			t.Fatalf("tx should have an explicit unsupported result: %#v", item)
 		}
-		if item.Platform != "tx" && !strings.Contains(item.Message, "搜索未返回歌曲") {
-			t.Fatalf("unexpected %s test result: %#v", item.Platform, item)
+		if item.Platform == "kw" && !strings.Contains(item.Message, "已阻止 Go 原生搜索回退") {
+			t.Fatalf("kw without a script search action must fail closed instead of using Go search: %#v", item)
+		}
+		if item.Platform == "mg" && !strings.Contains(item.Message, "搜索未返回歌曲") {
+			t.Fatalf("mg script search should return its empty fixture: %#v", item)
 		}
 	}
-	if base.calls["kw"] != 1 {
-		t.Fatalf("native provider search calls for kw = %d, want 1", base.calls["kw"])
-	}
-	if base.calls["mg"] != 0 {
-		t.Fatalf("mg unexpectedly used native fallback despite declaring script search: %d", base.calls["mg"])
-	}
-	if base.calls["tx"] != 0 {
-		t.Fatalf("tx without musicUrl must not be searched, got %d calls", base.calls["tx"])
+	if base.calls["kw"] != 0 || base.calls["mg"] != 0 || base.calls["tx"] != 0 {
+		t.Fatalf("Go native search fallback must never be called, got calls: %#v", base.calls)
 	}
 
 	latest := runtime.ListScripts()[0].LastTest
