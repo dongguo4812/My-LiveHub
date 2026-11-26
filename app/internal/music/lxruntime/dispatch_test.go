@@ -56,6 +56,64 @@ lx.on('request', async ({ source, action, info }) => {
 }
 
 
+
+func TestDispatchLXRequestSupportsSequentialAsyncHTTPRequests(t *testing.T) {
+	var firstCalls, secondCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/first":
+			firstCalls++
+			_, _ = w.Write([]byte(`{"step":1}`))
+		case "/second":
+			secondCalls++
+			_, _ = w.Write([]byte(`{"step":2}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	rt := newTestRuntime(t, 5*time.Second)
+	if err := rt.InstallLXHost(context.Background(), ScriptInfo{Name: "sequential-async-dispatch"}); err != nil {
+		t.Fatal(err)
+	}
+	baseURL := string(mustJSONQuote(server.URL))
+	install := `
+lx.on('request', async () => {
+  const request = url => new Promise((resolve, reject) => {
+    lx.request(url, {}, (error, response, body) => {
+      if (error) return reject(error);
+      if (!response || response.statusCode !== 200) return reject(new Error('unexpected HTTP status'));
+      resolve(body);
+    });
+  });
+  const first = await request(` + baseURL + ` + '/first');
+  if (first.step !== 1) throw new Error('first request response was not delivered');
+  const second = await request(` + baseURL + ` + '/second');
+  if (second.step !== 2) throw new Error('second request response was not delivered');
+  return 'sequential-requests-completed';
+});
+'registered';
+`
+	if _, err := rt.Eval(context.Background(), install, "register-sequential-async-dispatch.js"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	value, err := rt.DispatchLXRequest(ctx, "kw", "musicUrl", map[string]any{})
+	if err != nil {
+		t.Fatalf("dispatch sequential async requests: %v", err)
+	}
+	if value != "sequential-requests-completed" {
+		t.Fatalf("dispatch result = %#v", value)
+	}
+	if firstCalls != 1 || secondCalls != 1 {
+		t.Fatalf("HTTP calls = first:%d second:%d, want one each", firstCalls, secondCalls)
+	}
+}
+
+
 func TestDispatchLXRequestPreservesHTTPErrorStatusInCallback(t *testing.T) {
 	const responseBody = "not found"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -111,6 +111,12 @@ JSON.stringify({
 			if err := tasks.finish(ctx, r, result); err != nil {
 				return nil, err
 			}
+			// Delivering the callback can resume an async source action that
+			// immediately queues another lx.request (for example, a backend
+			// fallback chain). The state snapshot above predates that callback;
+			// poll QuickJS again before deciding that an unsupported host
+			// capability is blocking the Promise.
+			continue
 		default:
 		}
 		if state.Done && len(tasks.active) == 0 {
