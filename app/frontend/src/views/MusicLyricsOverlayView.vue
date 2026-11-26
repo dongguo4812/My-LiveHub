@@ -44,9 +44,6 @@ function resetLyricsStyle() {
 
 const playback = ref<PlaybackSnapshot | null>(null)
 const lyricPosition = ref(0)
-let lyricPositionAnchor = 0
-let lyricPositionAnchorAt = 0
-let lyricClockTimer: ReturnType<typeof setInterval> | undefined
 const syncedLyrics = ref<SyncedLyricLine[]>([])
 const lyricsStatus = ref<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle')
 const lyricsError = ref('')
@@ -101,9 +98,9 @@ async function refreshPlayback() {
   try {
     const next = await MusicService.GetCachedPlaybackStatus()
     playback.value = next
-    lyricPositionAnchor = next.position_ms ?? 0
-    lyricPositionAnchorAt = Date.now()
-    lyricPosition.value = lyricPositionAnchor
+    const duration = next.duration_ms ?? 0
+    const position = Math.max(0, next.position_ms ?? 0)
+    lyricPosition.value = duration > 0 ? Math.min(duration, position) : position
     const track = next.track
     const key = track ? `${track.source_id}:${track.id}` : ''
     if (key !== lyricsTrackKey) {
@@ -135,17 +132,10 @@ async function closeWindow() {
 onMounted(() => {
   loadLyricsStyle()
   void refreshPlayback()
-  refreshTimer = setInterval(() => void refreshPlayback(), 500)
-  lyricClockTimer = setInterval(() => {
-    if (!playback.value) return
-    const position = lyricPositionAnchor + (playback.value.state === 'playing' ? Date.now() - lyricPositionAnchorAt : 0)
-    const duration = playback.value.duration_ms ?? 0
-    lyricPosition.value = duration > 0 ? Math.min(duration, Math.max(0, position)) : Math.max(0, position)
-  }, 30)
+  refreshTimer = setInterval(() => void refreshPlayback(), 100)
 })
 onUnmounted(() => {
   if (refreshTimer) clearInterval(refreshTimer)
-  if (lyricClockTimer) clearInterval(lyricClockTimer)
   lyricsRequestID++
 })
 </script>
