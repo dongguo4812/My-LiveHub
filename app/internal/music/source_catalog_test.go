@@ -24,10 +24,9 @@ func TestSourceCatalogContainsFiveBuiltInPlatformsInStableOrder(t *testing.T) {
 	}
 }
 
-func TestLXSearchClientSourceCatalogDoesNotDependOnProviderInitialization(t *testing.T) {
-	var client *LXSearchClient
-	sources := client.Sources()
+func TestSourceCatalogDoesNotDependOnGoSearchClient(t *testing.T) {
+	sources := SourceCatalog()
 	if len(sources) != 5 {
-		t.Fatalf("nil client's source catalog returned %d entries, want 5", len(sources))
+		t.Fatalf("source catalog returned %d entries, want 5", len(sources))
 	}
 }
