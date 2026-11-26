@@ -682,7 +682,7 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
-        <div class="music-lyrics" :class="{ 'is-empty': !activeMusicLyric.text }">
+        <div class="music-lyrics" :class="{ 'is-empty': !activeMusicLyric.text }" :style="{ fontSize: ((layer.font_size || 24) / (scene?.height || 1080) * 100) + 'cqh' }">
           <div class="music-lyric-original">{{ activeMusicLyric.text }}</div>
           <div v-if="activeMusicLyric.translation" class="music-lyric-translation">{{ activeMusicLyric.translation }}</div>
         </div>
@@ -778,9 +778,9 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-widget{box-sizing:border-box;width:min(405px,100%);height:100%;max-height:100%;display:flex;flex-direction:column;gap:6px;position:relative;overflow:hidden;border-radius:9px;user-select:none;color:#e7c89d}
 .music-lyrics{display:flex;flex:1 1 auto;flex-direction:column;justify-content:center;gap:2px;min-height:0;padding:0 8px;overflow:hidden;text-align:left;text-shadow:0 1px 4px #000b}
 .music-lyric-original,.music-lyric-translation{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.35}
-.music-lyric-original{color:#fff;font-size:14px;font-weight:650}
-.music-lyric-translation{color:#c6d0e6;font-size:11px}
-.music-lyrics.is-empty .music-lyric-original{color:#c6cad4;font-size:12px;font-weight:500}
+.music-lyric-original{color:var(--random-color);font-size:1em;font-weight:700}
+.music-lyric-translation{color:var(--random-color);font-size:.78em;opacity:.82}
+.music-lyrics.is-empty .music-lyric-original{color:var(--random-color);font-size:.8em;font-weight:500}
 .music-main{height:112px;display:flex;gap:8px;min-width:0;position:relative}
 .music-cover-wrap{height:112px;width:112px;flex:0 0 112px;position:relative;overflow:hidden;border-radius:5px;background:rgba(102,76,60,.35)}
 .music-cover-blur{position:absolute;inset:-20px;background-position:center;background-size:cover;filter:blur(20px) brightness(.8);opacity:.55;transform:scale(1.2)}
