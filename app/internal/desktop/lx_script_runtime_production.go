@@ -329,10 +329,28 @@ func (r *productionMusicLXRuntime) Start(ctx context.Context) error {
 	if ctx == nil { ctx = context.Background() }
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.started { return nil }
+	if r.started {
+		var failures []string
+		for _, script := range r.scripts {
+			if script.Enabled && script.InitializationStatus != "ready" {
+				failures = append(failures, fmt.Sprintf("%s 初始化失败（阶段：%s）：%s", script.Name, script.InitializationStage, script.LastError))
+			}
+		}
+		if len(failures) > 0 { return errors.New(strings.Join(failures, "；")) }
+		return nil
+	}
 	if err := r.loadStoreLocked(); err != nil { return err }
 	r.started = true
 	if err := r.rebuildLocked(ctx); err != nil { r.started = false; return err }
+	// Keep per-script failure details persisted, but also report a failed
+	// runtime initialization to the MusicService lifecycle state.
+	var failures []string
+	for _, script := range r.scripts {
+		if script.Enabled && script.InitializationStatus != "ready" {
+			failures = append(failures, fmt.Sprintf("%s 初始化失败（阶段：%s）：%s", script.Name, script.InitializationStage, script.LastError))
+		}
+	}
+	if len(failures) > 0 { return errors.New(strings.Join(failures, "；")) }
 	return nil
 }
 
