@@ -45,21 +45,6 @@ type WebView2InstanceSnapshot struct {
 	Visible bool `json:"visible"`
 }
 
-// WebView2ProcessSnapshot describes one WebView2 subprocess attributed to this app.
-type WebView2ProcessSnapshot struct {
-	PID uint32 `json:"pid"`
-	ParentPID uint32 `json:"parent_pid"`
-	Executable string `json:"executable"`
-}
-
-// WebView2ProcessInventory is a read-only snapshot of this application's WebView2 process group.
-type WebView2ProcessInventory struct {
-	OwnerPID uint32 `json:"owner_pid"`
-	Processes []WebView2ProcessSnapshot `json:"processes"`
-	CapturedAt time.Time `json:"captured_at"`
-	Error string `json:"error,omitempty"`
-}
-
 type FrontendHeartbeatSnapshot struct {
 	LastSeenAt time.Time `json:"last_seen_at"`
 	Stale bool `json:"stale"`
@@ -70,7 +55,6 @@ type MonitorService struct {
 	logDirs []string
 	mu sync.Mutex
 	webViewApp *application.App
-	webViewOwnerPID uint32
 	platformManager *platform.Manager
 	lastCPUAt time.Time
 	lastSystemTotal uint64
@@ -104,36 +88,7 @@ func (s *MonitorService) AttachWebView2Monitoring(app *application.App) {
 	if s == nil { return }
 	s.mu.Lock()
 	s.webViewApp = app
-	if app != nil && app.GetPID() > 0 {
-		s.webViewOwnerPID = uint32(app.GetPID())
-	}
 	s.mu.Unlock()
-}
-
-// GetWebView2ProcessInventory returns only msedgewebview2.exe processes whose
-// parent chain leads back to this Wails application process. It never terminates
-// processes and never claims ownership based on executable name alone.
-func (s *MonitorService) GetWebView2ProcessInventory() WebView2ProcessInventory {
-	result := WebView2ProcessInventory{Processes: []WebView2ProcessSnapshot{}, CapturedAt: time.Now()}
-	if s == nil {
-		result.Error = "monitor service is unavailable"
-		return result
-	}
-	s.mu.Lock()
-	ownerPID := s.webViewOwnerPID
-	s.mu.Unlock()
-	result.OwnerPID = ownerPID
-	if ownerPID == 0 {
-		result.Error = "Wails application process is not attached"
-		return result
-	}
-	processes, err := readOwnedWebView2Processes(ownerPID)
-	if err != nil {
-		result.Error = err.Error()
-		return result
-	}
-	result.Processes = processes
-	return result
 }
 
 // GetWebView2Instances returns the complete inventory of known application
