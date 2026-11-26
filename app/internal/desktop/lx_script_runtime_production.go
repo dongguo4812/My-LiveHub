@@ -297,7 +297,7 @@ func (r *productionMusicLXRuntime) rebuildLocked(ctx context.Context) error {
 			Info: info, Source: script.Source,
 			ExtensionActions: append([]string(nil), script.ExtensionActions...),
 		})
-		enabledIndexes = append(enabledIndexes, i+1)
+		enabledIndexes = append(enabledIndexes, i)
 		script.InitializationStatus = "initializing"
 		script.InitializationStage = "startup"
 		script.InitializationAt = time.Time{}
