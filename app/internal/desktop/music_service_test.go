@@ -1358,6 +1358,8 @@ func TestNavigationSupersedesInFlightTrackLoad(t *testing.T) {
 type lifecycleRaceTestEngine struct {
 	startEntered chan struct{}
 	allowStart chan struct{}
+	startErr error
+	closeErr error
 	startCalls atomic.Int32
 	closeCalls atomic.Int32
 }
@@ -1368,10 +1370,26 @@ func (*lifecycleRaceTestEngine) Stop(context.Context) error { return nil }
 func (*lifecycleRaceTestEngine) Snapshot(context.Context) (music.PlaybackSnapshot, error) { return music.PlaybackSnapshot{State:music.PlaybackIdle}, nil }
 func (e *lifecycleRaceTestEngine) Start(ctx context.Context) error {
 	e.startCalls.Add(1)
-	close(e.startEntered)
+	if e.startEntered != nil { close(e.startEntered) }
+	if e.startErr != nil { return e.startErr }
+	if e.allowStart == nil { return nil }
 	select { case <-e.allowStart: return nil; case <-ctx.Done(): return ctx.Err() }
 }
-func (e *lifecycleRaceTestEngine) Close() error { e.closeCalls.Add(1); return nil }
+func (e *lifecycleRaceTestEngine) Close() error { e.closeCalls.Add(1); return e.closeErr }
+
+func TestMusicStartClosesPlaybackEngineAfterPartialStartFailure(t *testing.T) {
+	startErr := errors.New("partial playback engine startup failure")
+	closeErr := errors.New("playback engine cleanup failure")
+	engine := &lifecycleRaceTestEngine{startErr:startErr, closeErr:closeErr}
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), engine, events.NewBuffer())
+	err := service.start(context.Background())
+	if !errors.Is(err, startErr) || !errors.Is(err, closeErr) {
+		t.Fatalf("startup error should preserve both Start and cleanup failures, got %v", err)
+	}
+	if got := engine.startCalls.Load(); got != 1 { t.Fatalf("engine Start calls = %d, want 1", got) }
+	if got := engine.closeCalls.Load(); got != 1 { t.Fatalf("engine Close calls = %d, want 1 after partial startup failure", got) }
+	if service.GetStatus().Running { t.Fatal("service must remain stopped after engine startup failure") }
+}
 
 func TestMusicStartAndStopSerializePlaybackEngineLifecycle(t *testing.T) {
 	engine := &lifecycleRaceTestEngine{startEntered:make(chan struct{}), allowStart:make(chan struct{})}
