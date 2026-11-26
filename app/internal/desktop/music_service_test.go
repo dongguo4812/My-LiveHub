@@ -898,7 +898,7 @@ func (*staticLyricsLXRuntime) Available() bool { return true }
 func (*staticLyricsLXRuntime) Start(context.Context) error { return nil }
 func (*staticLyricsLXRuntime) ResolvePlaybackURL(context.Context, string, any) (string, error) { return "", errors.New("not implemented") }
 func (*staticLyricsLXRuntime) Close() error { return nil }
-func (*staticLyricsLXRuntime) HasExtensionAction(source, action string) bool { return source == "tx" && action == "lyric" }
+func (*staticLyricsLXRuntime) HasExtensionAction(source, action string) bool { return (source == "tx" || source == "zz") && action == "lyric" }
 func (r *staticLyricsLXRuntime) DispatchExtensionAction(context.Context, string, string, any) (any, error) {
 	r.calls.Add(1)
 	return r.value, r.err
@@ -935,4 +935,15 @@ func TestGetLyricsDoesNotCacheFailedProviderResults(t *testing.T) {
 	track := music.Track{ID:"tx_failed", SourceID:"tx", LXSourceKey:"tx", Title:"失败缓存测试", Artist:"测试歌手"}
 	if _, err := service.GetLyricsForRequest(track, "failed-request-1"); err == nil { t.Fatal("failed script and native fallback should return an error") }
 	if _, ok := service.cachedLyrics(track); ok { t.Fatal("failed lyrics request must not be cached") }
+}
+
+
+func TestGetLyricsFallsBackToNativeProviderAfterScriptTimeout(t *testing.T) {
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), &nextTrackTestEngine{})
+	service.scriptRuntime = &staticLyricsLXRuntime{err:context.DeadlineExceeded}
+	track := music.Track{ID:"zz_timeout", SourceID:"zz", LXSourceKey:"zz", Title:"超时回退测试"}
+	_, err := service.GetLyricsForRequest(track, "timeout-fallback-request")
+	if err == nil || !strings.Contains(err.Error(), "暂不支持独立歌词解析") {
+		t.Fatalf("script timeout should still attempt native fallback; error = %v", err)
+	}
 }
