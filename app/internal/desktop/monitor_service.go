@@ -74,6 +74,7 @@ type MonitorService struct {
 	lastFrontendHeartbeat time.Time
 	frontendHeartbeatStale bool
 	frontendHeartbeatStarted bool
+	frontendMonitoringSuspended bool
 }
 
 func NewMonitorService(logDir string, additionalLogDirs ...string) *MonitorService {
@@ -171,6 +172,31 @@ func (s *MonitorService) GetFrontendHeartbeatSnapshot() FrontendHeartbeatSnapsho
 	return FrontendHeartbeatSnapshot{LastSeenAt: s.lastFrontendHeartbeat, Stale: s.frontendHeartbeatStale}
 }
 
+// SetFrontendMonitoringSuspended pauses stale-heartbeat detection while the
+// native main window is hidden or minimised, when WebView timers may be throttled.
+// Resuming grants the frontend a fresh response window before it is marked stale.
+func (s *MonitorService) SetFrontendMonitoringSuspended(suspended bool) {
+	if s == nil { return }
+	s.mu.Lock()
+	changed := s.frontendMonitoringSuspended != suspended
+	s.frontendMonitoringSuspended = suspended
+	if changed && !suspended {
+		if s.frontendHeartbeatStarted {
+			s.lastFrontendHeartbeat = time.Now()
+		} else {
+			s.startedAt = time.Now()
+		}
+	}
+	s.mu.Unlock()
+	if changed {
+		if suspended {
+			log.Printf("frontend heartbeat: stale detection suspended because main window is hidden or minimised")
+		} else {
+			log.Printf("frontend heartbeat: stale detection resumed after main window became visible")
+		}
+	}
+}
+
 // StartFrontendHeartbeatWatchdog logs one warning when the main frontend stops
 // reporting heartbeats and one recovery message when it resumes.
 func (s *MonitorService) StartFrontendHeartbeatWatchdog(checkEvery, staleAfter time.Duration) {
@@ -189,10 +215,11 @@ func (s *MonitorService) StartFrontendHeartbeatWatchdog(checkEvery, staleAfter t
 				lastActivity = lastSeen
 			}
 			alreadyStale := s.frontendHeartbeatStale
-			if !alreadyStale && !lastActivity.IsZero() && now.Sub(lastActivity) >= staleAfter {
+			suspended := s.frontendMonitoringSuspended
+			if !suspended && !alreadyStale && !lastActivity.IsZero() && now.Sub(lastActivity) >= staleAfter {
 				s.frontendHeartbeatStale = true
 			}
-			becameStale := !alreadyStale && s.frontendHeartbeatStale
+			becameStale := !suspended && !alreadyStale && s.frontendHeartbeatStale
 			s.mu.Unlock()
 			if becameStale {
 				if lastSeen.IsZero() {
