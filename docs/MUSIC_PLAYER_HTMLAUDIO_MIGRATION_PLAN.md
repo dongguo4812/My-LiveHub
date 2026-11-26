@@ -5,14 +5,18 @@
 > 最终架构：Go + QuickJS-NG + HTMLAudio + Vue/Wails WebView  
 > 核心架构约束：继续使用洛雪 JS 音源脚本；通过 QuickJS-NG 模拟洛雪 JS 运行时环境，兼容导入脚本所需的宿主 API/全局对象/请求行为，实现搜索、详情、播放 URL、歌词等能力；HTMLAudio 只负责最终音频播放。复用现有音乐业务层，不引入独立播放器进程。
 
-> **当前执行快照（2026-11-25，按开发分支最新代码、真实浏览器集成测试及 CI 证据更新）**
-> - 当前开发分支：`feat/lx-js-runtime-quickjs-poc`；本方案仍是该分支音乐模块迁移的唯一开发依据。最新分支提交：`99eb6da35d1e481e7f6c3b4a309b922f3a5c110e`。
+> **当前执行快照（2026-11-26，按开发分支最新代码、自动化测试、CI 及用户设备反馈更新）**
+> - 当前开发分支：`feat/lx-js-runtime-quickjs-poc`；本方案仍是该分支音乐模块迁移的唯一开发依据。最新分支提交：`1b877ffd56092ff6694ad1f427bcbd96580b8cb8`。
 > - A 阶段生产脚本导入、持久化、启停/删除、损坏脚本隔离及 QuickJS production runtime 生命周期已完成并通过 CI Run #544。
 > - B 阶段统一 action 调度与歌曲模型接线已完成并通过 CI Run #567：生产搜索/详情/歌词/封面扩展 action 已接线；按脚本 inited.sources 做音源范围路由；原生 musicUrl 仅按原生声明执行，不与社区扩展 action 混用；Track 映射、错误分类、多脚本隔离及 production fixture 已通过测试。
 > - C 阶段 Go 侧结构化播放资源、音质回退、TTL 缓存、资源身份校验、资源感知端口和幂等媒体失败刷新已完成（CI Run 45142573201）。HTMLAudio 已消费结构化资源并接入媒体错误刷新。
 > - D 阶段生产 HTMLAudio PlaybackEngine、Wails 命令/事件桥、应用级单例 Audio、播放控制、错误回传、失效 URL 单次刷新及切歌取消已实现。CI Run [45602383401](https://github.com/dongguo4812/My-LiveHub/actions/runs/45602383401) 已通过真实 HuiBi 聚合音源播放地址解析、同步歌词解析/当前行时序、Chromium HTMLAudio 实际播放与歌词测试，以及正式客户端前端、Go、production runtime 和 Windows 可执行文件验证。**代码与自动化验收已完成；仅目标 Windows/WebView 设备实测及设备信息记录未完成，因此 D 阶段整体仍未完成。**
 > - 近期已补充并通过最新 CI 的播放业务修复：首次播放/聚合音源解析的超时与回退链路；歌单播放模式持久化；观众点播优先于歌单播放，并在点播完成后恢复歌单；中断歌单恢复状态；对应迁移、队列优先级及首次点击集成测试。最新提交 `99eb6da` 修复聚合音源解析在 fallback deadline 前被过早终止的问题。
 > - 阶段门仍按 A→B→C→D→E→F→G 执行。**已完成：A、B、C；D 的生产代码、自动化测试和 CI 验收。未完成：D 的目标设备实播验收、E 全阶段、F 的五平台真实歌词及多视图/队列完整验收、G 的设备稳定性与性能验收。** 因此整体迁移未完成。测试证据只覆盖明确列出的契约，不扩大为“完全兼容洛雪”。
+> - 2026-11-26 启动优化已完成并通过 Desktop validation Run #2863（workflow run `45744423836`）：MusicService 主启动不再同步等待 JS 音源网络初始化；QuickJS Runtime 后台初始化；状态区分 `initializing / ready / failed`，首次搜索/播放等待同一初始化任务，不重复创建 Runtime；失败时保留脚本名、阶段和原因，原生 provider fallback 保持可用；停止/退出会取消并等待初始化后安全释放。此项只证明主启动路径不再等待音源网络初始化，不代表所有设备 `task dev` 必然小于 15 秒，仍需本机计时。
+> - 当前分支 `1b877ffd` 的 CI Run #2863 全部 job 成功，覆盖 Go 全量测试、生产 LX Runtime、前端检查/构建、真实音源及浏览器 HTMLAudio 集成测试。未执行 Windows installer / portable ZIP 构建。
+> - 已完成的近期播放业务修复还包括播放错误后的备用已启用 LX 音源 fallback（单个队列项限制一次 fallback，避免循环）；自动化 CI 通过。目标设备对各类真实错误的恢复行为仍应按 D-7/F 对应验收边界记录，不能仅由 CI 推定。
+> - 当前明确待办：歌曲搜索页音源选择器按“搜索平台启用及优先级”排列，所有可用音源置于末尾并默认选中首个音源；该 UI 排序/默认选择需求尚未实现，不计入迁移阶段完成项。
 
 ## 1. 项目目标与最终边界
 
@@ -1220,3 +1224,40 @@ line 3: unexpected EOF while looking for matching single quote
 - **D-7 播放失败后的恢复：未确认**（用户所说“其他都通过”按 D-1 至 D-6 记录；没有单独的自然失败样本反馈，不推定 D-7 通过）。
 
 因此，D 阶段不需要用户重测 D-2 至 D-6。下一步应由开发侧针对首次点击失败开展代码与日志排查，重点区分脚本首次 action 初始化/解析耗时、聚合音源 fallback 时限、播放 URL 交付、HTMLAudio load/play 和自动播放限制；在证据确定前不预设根因。修复后仅要求用户重新执行 D-1 冷启动首次点击回归。
+
+
+### 10.40 QuickJS 后台初始化与主窗口启动解耦（2026-11-26，代码及 CI 验收完成）
+
+**开发分支：** `feat/lx-js-runtime-quickjs-poc`  
+**代码基线：** `1b877ffd56092ff6694ad1f427bcbd96580b8cb8`  
+**CI 验收：** Desktop validation Run [45744423836](https://github.com/dongguo4812/My-LiveHub/actions/runs/45744423836)，workflow run #2863，全部 job 成功。
+
+**实施内容**
+- MusicService 主启动不再同步调用 QuickJS production runtime 的 Start；主窗口启动关键路径不等待 JS 音源脚本网络初始化。
+- QuickJS Runtime 在后台 goroutine 初始化，并使用独立可取消 context；音乐服务生命周期与 Runtime 初始化生命周期分离。
+- 音乐状态明确暴露 `initializing`、`ready`、`failed`，并保留初始化错误详情。
+- 首次搜索、首次播放及相关音源请求等待当前 Runtime 初始化任务；共享同一个完成信号，不重复创建 Runtime 或重复启动初始化。
+- 单脚本初始化失败时记录脚本名称、失败阶段及原因；不把单脚本失败扩大为整个 MusicService fatal failure，保留原生 provider fallback。
+- 停止/退出时取消后台初始化，并在 Runtime 初始化结束后再执行 Close，避免初始化与释放并发。
+- 音乐页面展示 Runtime 初始化状态及失败详情。
+
+**验收结果**
+- [x] 主窗口启动路径不再等待 JS 音源网络初始化。
+- [x] QuickJS Runtime 后台初始化。
+- [x] 初始化中/已就绪/初始化失败状态可见。
+- [x] 首次搜索/播放等待同一初始化任务，不重复创建 Runtime。
+- [x] 初始化失败保留脚本名、阶段和具体原因，原生音源 fallback 保持可用。
+- [x] 停止及退出流程取消并安全释放 Runtime。
+- [x] Desktop validation Run #2863 全部 job 成功。
+
+**设备验收边界**
+- CI 通过证明实现与自动化回归通过；不等于每台 Windows 设备的 `task dev` 从执行到主页面必然低于 15 秒。
+- 用户已确认当前启动优化效果可接受。若后续仍有启动慢的设备，应记录该设备从执行 `task dev` 到主页面出现的实际耗时，再按 Go 启动、Wails/WebView2 初始化、前端挂载等阶段定位；不得重新把已解耦的 JS 网络初始化当作主窗口同步阻塞点。
+
+**当前未完成且不得误标完成的事项**
+- D 阶段此前记录的首次点击真实音源播放问题（D-1）仍需依据修复后的目标设备冷启动首次播放实测更新；本次异步初始化 CI 不自动等同于 D-1 设备验收通过。
+- D-7 播放失败后的恢复仍按实际设备样本记录。
+- E 阶段旧播放引擎清理、媒体传输/Range/redirect/代理与连接安全端到端验收仍未完成。
+- F 阶段五平台真实歌词、桌面歌词时序、多视图及完整队列场景仍未完成。
+- G 阶段两小时设备 soak、资源/内存数据和最终稳定性验收仍未完成。
+- 歌曲搜索音源选择器的启用状态/优先级排序、“全部可用音源”置底及默认选中第一项是已确认的待开发需求，尚未作为已完成迁移能力计入阶段状态。
