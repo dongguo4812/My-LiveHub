@@ -199,6 +199,12 @@ onUnmounted(() => {
         <div><span>主进程私有内存较基线变化</span><strong>{{ metrics?.memory_baseline_ready ? (metrics.process_private_delta_bytes >= 0 ? '+' : '') + formatBytes(Math.abs(metrics.process_private_delta_bytes)) : '采样中' }}</strong></div>
         <div><span>所属 WebView2 子进程</span><strong>{{ metrics?.webview2_process_count ?? '—' }} 个</strong></div>
         <div><span>所属 WebView2 工作集合计</span><strong>{{ formatBytes(metrics?.webview2_working_set_bytes) }}</strong></div>
+        <div><span>所属 WebView2 Renderer 数量</span><strong>{{ metrics?.webview2_renderer_count ?? '—' }} 个</strong></div>
+        <div><span>Renderer 工作集合计</span><strong>{{ formatBytes(metrics?.webview2_renderer_working_set_bytes) }}</strong></div>
+        <div><span>Renderer 私有内存</span><strong>{{ formatBytes(metrics?.webview2_renderer_private_bytes) }}</strong></div>
+        <div><span>Renderer 工作集较基线变化</span><strong>{{ metrics?.memory_baseline_ready ? (metrics.webview2_renderer_working_set_delta_bytes >= 0 ? '+' : '') + formatBytes(Math.abs(metrics.webview2_renderer_working_set_delta_bytes)) : '采样中' }}</strong></div>
+        <div><span>Renderer 私有内存较基线变化</span><strong>{{ metrics?.memory_baseline_ready ? (metrics.webview2_renderer_private_delta_bytes >= 0 ? '+' : '') + formatBytes(Math.abs(metrics.webview2_renderer_private_delta_bytes)) : '采样中' }}</strong></div>
+        <div><span>WebView2 子进程未能分类</span><strong>{{ metrics?.webview2_unclassified_process_count ?? '—' }} 个</strong></div>
         <div><span>WebView2 工作集较基线变化</span><strong>{{ metrics?.memory_baseline_ready ? (metrics.webview2_working_set_delta_bytes >= 0 ? '+' : '') + formatBytes(Math.abs(metrics.webview2_working_set_delta_bytes)) : '采样中' }}</strong></div>
         <div><span>WebView2 私有内存较基线变化</span><strong>{{ metrics?.memory_baseline_ready ? (metrics.webview2_private_delta_bytes >= 0 ? '+' : '') + formatBytes(Math.abs(metrics.webview2_private_delta_bytes)) : '采样中' }}</strong></div>
         <div><span>Go 堆内存使用</span><strong>{{ formatBytes(metrics?.go_heap_alloc_bytes) }}</strong></div>
@@ -207,7 +213,7 @@ onUnmounted(() => {
         <div><span>运行中的 Goroutine</span><strong>{{ metrics?.goroutines ?? '—' }}</strong></div>
         <div><span>逻辑 CPU 数</span><strong>{{ metrics?.cpu_count ?? '—' }}</strong></div>
       </div>
-      <p class="hint">系统 CPU 取自 Windows 系统处理器时间；进程 CPU 按整机逻辑 CPU 总容量归一化。Windows 内存指标分别统计 My-LiveHub 主进程，以及通过父子进程关系确认归属的 msedgewebview2.exe 子进程；不按进程名扫描并混入其他软件。工作集为当前驻留物理内存，私有内存为进程私有提交量。基线取应用启动后首次成功采样值，变化量为相对该基线的差值；Go Heap 是其中的运行时子集，不等同于进程总内存。<span v-if="metrics?.process_memory_error"> 进程内存采样失败：{{ metrics.process_memory_error }}</span></p>
+      <p class="hint">系统 CPU 取自 Windows 系统处理器时间；进程 CPU 按整机逻辑 CPU 总容量归一化。Windows 内存指标分别统计 My-LiveHub 主进程，以及通过父子进程关系确认归属的 msedgewebview2.exe 子进程；不按进程名扫描并混入其他软件。工作集为当前驻留物理内存，私有内存为进程私有提交量。Renderer 通过所属 WebView2 进程命令行中的 `--type=renderer` 精确分类；无法读取命令行的子进程单独计数，不混入 Renderer 数值。基线取应用启动后首次成功采样值，变化量为相对该基线的差值；Go Heap 是主进程内存的子集，不等同于进程总内存。<span v-if="metrics?.process_memory_error"> 进程内存采样失败：{{ metrics.process_memory_error }}</span></p>
     </el-card>
 
 
