@@ -1297,8 +1297,9 @@ func (s *MusicService) CancelLyrics(requestID string) {
 func (s *MusicService) cancelAllLyricsRequests() {
 	if s == nil { return }
 	s.lyricsMu.Lock()
-	cancels := make([]context.CancelFunc, 0, len(s.lyricsRequests))
+	cancels := make([]context.CancelFunc, 0, len(s.lyricsRequests)+len(s.lyricsTasks))
 	for id, request := range s.lyricsRequests { cancels = append(cancels, request.cancel); delete(s.lyricsRequests, id) }
+	for id, cancel := range s.lyricsTasks { cancels = append(cancels, cancel); delete(s.lyricsTasks, id) }
 	s.lyricsMu.Unlock()
 	for _, cancel := range cancels { cancel() }
 }
@@ -1307,6 +1308,29 @@ func (s *MusicService) getLyrics(ctx context.Context, track music.Track) (string
 	if s == nil { return "", errors.New("music lyrics service is unavailable") }
 	if ctx == nil { ctx = context.Background() }
 	if err := ctx.Err(); err != nil { return "", err }
+	taskCtx, taskCancel := context.WithCancel(ctx)
+	s.mu.Lock()
+	if s.shuttingDown {
+		s.mu.Unlock()
+		taskCancel()
+		return "", errors.New("music lyrics service is shutting down")
+	}
+	s.lyricsWG.Add(1)
+	s.lyricsMu.Lock()
+	s.lyricsTaskGeneration++
+	taskID := s.lyricsTaskGeneration
+	if s.lyricsTasks == nil { s.lyricsTasks = make(map[uint64]context.CancelFunc) }
+	s.lyricsTasks[taskID] = taskCancel
+	s.lyricsMu.Unlock()
+	s.mu.Unlock()
+	defer func() {
+		taskCancel()
+		s.lyricsMu.Lock()
+		delete(s.lyricsTasks, taskID)
+		s.lyricsMu.Unlock()
+		s.lyricsWG.Done()
+	}()
+	ctx = taskCtx
 	if cached, ok := s.cachedLyrics(track); ok { return cached, nil }
 	value, handled, extensionErr := s.dispatchLXExtension(ctx, firstNonEmpty(track.LXSourceKey, track.SourceID), "lyric", map[string]any{"musicInfo": track, "track": track})
 	if err := ctx.Err(); err != nil { return "", err }
@@ -1508,6 +1532,7 @@ func (s *MusicService) setPlaybackSnapshot(snapshot music.PlaybackSnapshot) {
 func (s *MusicService) startPlaybackWatcherForItem(itemID string) {
 	if s == nil || s.queue == nil || strings.TrimSpace(itemID) == "" { return }
 	s.mu.Lock()
+	if s.shuttingDown || s.playbackStopping { s.mu.Unlock(); return }
 	current := s.queue.Snapshot().Current
 	if current == nil || current.ID != itemID || s.playbackStartedItemID != itemID {
 		s.mu.Unlock()
@@ -1518,19 +1543,22 @@ func (s *MusicService) startPlaybackWatcherForItem(itemID string) {
 	s.watchCancel = cancel
 	s.playGeneration++
 	generation := s.playGeneration
+	s.watchWG.Add(1)
 	s.mu.Unlock()
-	go s.watchPlayback(ctx, generation)
+	go func() { defer s.watchWG.Done(); s.watchPlayback(ctx, generation) }()
 }
 
 func (s *MusicService) startPlaybackWatcher() {
 	s.mu.Lock()
+	if s.shuttingDown || s.playbackStopping { s.mu.Unlock(); return }
 	if s.watchCancel != nil { s.watchCancel() }
 	ctx, cancel := context.WithCancel(context.Background())
 	s.watchCancel = cancel
 	s.playGeneration++
 	generation := s.playGeneration
+	s.watchWG.Add(1)
 	s.mu.Unlock()
-	go s.watchPlayback(ctx, generation)
+	go func() { defer s.watchWG.Done(); s.watchPlayback(ctx, generation) }()
 }
 
 func (s *MusicService) watchPlayback(ctx context.Context, generation uint64) {
