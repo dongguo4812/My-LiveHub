@@ -31,11 +31,15 @@ const mockBindings = {
       export async function GetLyricsForRequest(track, requestID) {
         globalThis.__lyricsRequests ??= []
         globalThis.__lyricsRequests.push(requestID)
+        if (track.id === 'tx_fixture_pending') {
+          return await new Promise(resolve => { globalThis.__pendingLyricsResolve = resolve })
+        }
         return ['[00:01.00]第一句', '[00:01.00]First translation', '[00:02.50]第二句', '[00:02.50]Second translation'].join(String.fromCharCode(10))
       }
       export function CancelLyrics(requestID) {
         globalThis.__cancelledLyricsRequests ??= []
         globalThis.__cancelledLyricsRequests.push(requestID)
+        globalThis.__pendingLyricsResolve?.('')
       }
     `
     if (id === mocks.window) return 'export async function CloseWindow() {}'
@@ -70,15 +74,21 @@ try {
   await page.waitForFunction(() => document.querySelector('.original-lyric')?.textContent?.includes('第二句'), null, { timeout: 5000 })
   assert.equal((await page.locator('.translated-lyric').textContent()).trim(), 'Second translation')
 
-  const firstRequestID = await page.evaluate(() => globalThis.__lyricsRequests?.[0])
-  assert.ok(firstRequestID, 'desktop lyrics did not issue a cancellable request ID')
+  await page.evaluate(() => {
+    globalThis.__lyricsTrack = { id: 'tx_fixture_pending', source_id: 'tx', title: '待取消歌词曲', artist: '回归测试' }
+  })
+  await page.waitForFunction(() => document.querySelector('.lyrics-track strong')?.textContent?.includes('待取消歌词曲'))
+  await page.waitForFunction(() => (globalThis.__lyricsRequests?.length ?? 0) >= 2)
+  const pendingRequestID = await page.evaluate(() => globalThis.__lyricsRequests?.at(-1))
+  assert.ok(pendingRequestID, 'desktop lyrics did not issue a cancellable request ID')
   await page.evaluate(() => {
     globalThis.__lyricsTrack = { id: 'tx_fixture_next', source_id: 'tx', title: '切歌取消验收曲', artist: '回归测试' }
   })
   await page.waitForFunction(() => document.querySelector('.lyrics-track strong')?.textContent?.includes('切歌取消验收曲'))
-  await page.waitForFunction(id => globalThis.__cancelledLyricsRequests?.includes(id), firstRequestID)
+  await page.waitForFunction(id => globalThis.__cancelledLyricsRequests?.includes(id), pendingRequestID)
+  await page.waitForFunction(() => document.querySelector('.original-lyric')?.textContent?.includes('第一句'))
   assert.deepEqual(errors, [], `desktop lyrics overlay browser errors: ${errors.join('; ')}`)
-  console.log('Desktop lyrics overlay browser smoke passed: provider lyrics rendered, translation displayed, active line advanced, and superseded request cancelled on track change.')
+  console.log('Desktop lyrics overlay browser smoke passed: provider lyrics rendered, translation displayed, active line advanced, and an in-flight request was cancelled on track change.')
 } finally {
   if (browser) await browser.close()
   await server.close()
