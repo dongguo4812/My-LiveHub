@@ -1365,6 +1365,10 @@ func (s *MusicService) GetStatus() MusicStatus {
 }
 func (s *MusicService) Shutdown() error {
 	if s == nil { return nil }
+	s.mu.Lock()
+	s.playbackStopGeneration++
+	s.playbackStopping = true
+	s.mu.Unlock()
 	s.cancelAllLyricsRequests()
 	s.cancelPlaybackWatcher()
 
