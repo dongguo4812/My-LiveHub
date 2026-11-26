@@ -50,6 +50,8 @@ type MusicService struct {
 	mu sync.RWMutex
 	playbackStartMu sync.Mutex
 	playbackStartedItemID string
+	playbackStopping bool
+	playbackStopGeneration uint64
 	playlistMu sync.Mutex
 	lifecycleMu sync.Mutex
 	value config.MusicConfig
@@ -753,11 +755,10 @@ func (s *MusicService) SaveConfig(value config.MusicConfig) error {
 		if err := bridge.SetLoudnessNormalization(value.LoudnessNormalization); err != nil { return fmt.Errorf("应用响度标准化设置失败：%w", err) }
 	}
 	if wasEnabled && !value.Enabled {
-		s.cancelPlaybackWatcher()
-
-		_ = s.engine.Stop(context.Background())
+		if err := s.Stop(); err != nil {
+			return fmt.Errorf("停止音乐播放失败：%w", err)
+		}
 		s.queue.Clear()
-		s.queue.FinishCurrent()
 		s.mu.Lock()
 		s.history = nil
 		s.mu.Unlock()
@@ -997,6 +998,10 @@ func (s *MusicService) playNext(parent context.Context) error {
 	enabled := s.value.Enabled
 	s.mu.RUnlock()
 	if !enabled { return errors.New("music module is disabled") }
+	s.mu.RLock()
+	stopping := s.playbackStopping
+	s.mu.RUnlock()
+	if stopping { return context.Canceled }
 
 	var lastStartErr error
 	for {
@@ -1064,6 +1069,10 @@ func (s *MusicService) playNext(parent context.Context) error {
 		}
 		s.mu.RUnlock()
 		s.mu.Lock()
+		if s.playbackStopping {
+			s.mu.Unlock()
+			return context.Canceled
+		}
 		s.playbackStartedItemID = current.ID
 		s.mu.Unlock()
 		s.startPlaybackWatcherForItem(current.ID)
@@ -1153,6 +1162,9 @@ func (s *MusicService) pushHistory(item music.QueueItem) {
 func (s *MusicService) Stop() error {
 	if s == nil || s.engine == nil || s.queue == nil { return nil }
 	s.mu.Lock()
+	s.playbackStopGeneration++
+	stopGeneration := s.playbackStopGeneration
+	s.playbackStopping = true
 	s.playlistPlaybackActive = false
 	s.playlistPlaybackTracks = nil
 	s.playlistPlaybackID = ""
@@ -1160,7 +1172,12 @@ func (s *MusicService) Stop() error {
 	s.playlistPlaybackResumeTrack = nil
 	if s.playResolveCancel != nil { s.playResolveCancel(); s.playResolveCancel = nil; s.playResolveGeneration++ }
 	s.mu.Unlock()
+
+	// Cancel the resolver before waiting for the serialized start operation.
+	// Once it exits, no stale Load may race with engine.Stop or queue cleanup.
 	s.cancelPlaybackWatcher()
+	s.playbackStartMu.Lock()
+	defer s.playbackStartMu.Unlock()
 	err := s.engine.Stop(context.Background())
 	s.queue.FinishCurrent()
 	if snapshot, snapshotErr := s.engine.Snapshot(context.Background()); snapshotErr == nil {
@@ -1168,6 +1185,9 @@ func (s *MusicService) Stop() error {
 	} else if err == nil {
 		err = snapshotErr
 	}
+	s.mu.Lock()
+	if s.playbackStopGeneration == stopGeneration { s.playbackStopping = false }
+	s.mu.Unlock()
 	return err
 }
 
