@@ -1238,6 +1238,9 @@ func (s *MusicService) Stop() error {
 	// Cancel the resolver before waiting for the serialized start operation.
 	// Once it exits, no stale Load may race with engine.Stop or queue cleanup.
 	s.cancelPlaybackWatcher()
+	// The watcher may be inside Snapshot; join it before issuing Stop/Snapshot
+	// on the same engine instance.
+	s.watchWG.Wait()
 	s.playbackStartMu.Lock()
 	defer s.playbackStartMu.Unlock()
 	err := s.engine.Stop(context.Background())
