@@ -120,6 +120,23 @@ func TestNextWithoutPendingTrackDoesNotPauseCurrentPlayback(t *testing.T) {
 	}
 }
 
+func TestPlaybackFallbackIsClaimedOnlyOncePerQueueItem(t *testing.T) {
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, &nextTrackTestEngine{})
+	item := &music.QueueItem{ID: "queue-item-1", Track: music.Track{Title: "哈哈哈", Artist: "测试歌手"}}
+	service.mu.Lock()
+	service.playGeneration = 7
+	service.mu.Unlock()
+	if !service.claimPlaybackFallback(item, 7) {
+		t.Fatal("first asynchronous failure should be allowed one cross-source fallback")
+	}
+	if service.claimPlaybackFallback(item, 7) {
+		t.Fatal("same queue item must not repeatedly fall back and loop between providers")
+	}
+	if service.claimPlaybackFallback(item, 6) {
+		t.Fatal("stale playback watcher must not claim a fallback")
+	}
+}
+
 func TestPlaybackSnapshotEnded(t *testing.T) {
 	tests := []struct {
 		name string
