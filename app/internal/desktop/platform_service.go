@@ -48,7 +48,7 @@ func (s *PlatformService) GetMediaResources(platformID, resourceType, keyword st
 }
 
 // SetApplication is called after the Wails application has been created.
-func AttachApplication(s *PlatformService, app *application.App, lightTheme bool) {
+func attachApplication(s *PlatformService, app *application.App, lightTheme bool) {
 	if s == nil {
 		return
 	}

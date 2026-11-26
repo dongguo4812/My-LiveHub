@@ -338,9 +338,9 @@ func main() {
 	})
 
 	wailsApp = app
-	monitorService.AttachWebView2Monitoring(app, platformService)
+	monitorService.attachWebView2Monitoring(app, platformService)
 	desktop.AttachHTMLAudioPlayback(musicService, app)
-	desktop.AttachApplication(platformService, app, appConfig.Appearance.Theme == "light")
+	desktop.attachApplication(platformService, app, appConfig.Appearance.Theme == "light")
 	desktop.AttachDanmakuDisplayApplication(danmakuDisplayService, app)
 	desktop.AttachMusicLyricsWindowApplication(musicLyricsWindowService, app)
 	desktop.AttachBilibiliWebViewApplication(bilibiliWebViewService, app)

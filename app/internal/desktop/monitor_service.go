@@ -81,7 +81,7 @@ func NewMonitorService(logDir string, additionalLogDirs ...string) *MonitorServi
 
 
 // AttachWebView2Monitoring supplies the live Wails window registry context.
-func (s *MonitorService) AttachWebView2Monitoring(app *application.App, platforms *PlatformService) {
+func (s *MonitorService) attachWebView2Monitoring(app *application.App, platforms *PlatformService) {
 	if s == nil { return }
 	s.mu.Lock()
 	s.webViewApp = app
