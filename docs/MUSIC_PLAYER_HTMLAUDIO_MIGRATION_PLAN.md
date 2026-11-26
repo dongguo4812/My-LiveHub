@@ -56,9 +56,9 @@ My-LiveHub 自己完成音乐搜索、音源脚本运行、播放 URL 解析、�
 当前分支已有以下实现：
 
 - `app/internal/music/engine.go` 定义了 Go `PlaybackEngine`，当前接口包含 `Load/Pause/Resume/Stop/Snapshot`。
-- `app/internal/desktop/music_service.go` 已有 `MusicService`，管理音源注册、队列、播放状态、歌词缓存及脚本运行时；默认构造函数仍注入 `NewLXPlaybackEngine(value.LXAPIEndpoints)`。
-- `app/internal/desktop/lx_playback_engine.go` 通过洛雪本地 API、`lxmusic://music/play` 和系统协议启动外部客户端，是必须被替换的旧播放实现。
-- `app/internal/config/music.go` 仍包含 `LXAPIEndpoints` 配置和默认地址，迁移时必须兼容旧配置文件。
+- `app/internal/desktop/music_service.go` 的 `MusicService` 管理音源注册、队列、播放状态、歌词缓存及脚本运行时；默认播放端口为 My-LiveHub 自己的 HTMLAudio 引擎。
+- 旧 `lx_playback_engine.go`、平台启动器及对应测试已删除；播放控制不再访问外部播放器。
+- `app/internal/config/music.go` 已移除 `LXAPIEndpoints`；配置版本升级至 v18，加载旧配置时会丢弃 `lx_api_endpoints`，并保留其他用户设置。
 - `app/frontend/src/views/MusicView.vue` 已有音乐页面、搜索、队列和播放交互，可在此基础上接入统一 HTMLAudio 播放器，不另造整套页面。
 - `app/internal/music/lifecycle.go` 定义了播放引擎生命周期接口。
 
@@ -181,13 +181,13 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 
 ### E. 媒体传输适配与旧引擎替换
 
-**当前代码状态：部分完成。** 生产主窗口已切换到 HTMLAudio；媒体代理及 Range、取消、重定向校验、连接 pinning 和流式转发已有实现。按用户决定，不再将“逐项媒体传输真实音源验收”作为 E 阶段阻塞任务；后续仅在发现具体音源兼容问题时针对性处理。旧配置迁移与设置页收尾已完成：旧版本 music.json 会迁移到当前配置版本并保留用户音乐设置；设置页已移除旧版洛雪 API 地址编辑控件，搜索平台启用及优先级独立显示。为兼容尚待清理的旧引擎，后端暂时保留 `lx_api_endpoints` 读取/迁移字段。旧 `LXPlaybackEngine` 实现及旧客户端依赖仍待清理。
+**当前代码状态：旧播放依赖清理已实施，待 CI 验证。** 生产主窗口使用 HTMLAudio；媒体代理及 Range、取消、重定向校验、连接 pinning 和流式转发已有实现。按用户决定，不再将“逐项媒体传输真实音源验收”作为 E 阶段阻塞任务；后续仅在发现具体音源兼容问题时针对性处理。旧配置迁移与设置页收尾已完成：配置版本升级至 v18，旧 `lx_api_endpoints` 字段会在加载时移除且不丢失其他音乐设置；设置页不再展示旧 API 地址。旧播放器实现、平台启动器、外部播放状态轮询和外部队列控制已从代码中清理。
 
 **工作内容**
 - [x] 保留现有受控媒体代理实现；不再要求逐音源开展独立的真实传输验收，出现具体兼容故障时再针对性补齐。
 - [x] 禁止整曲预下载；代理继续执行 DNS 校验、重定向限制、请求大小/并发限制。
-- [ ] 清理生产播放路径及代码库中对 LXPlaybackEngine、洛雪本地 API 状态轮询和 `lxmusic://` 启动协议的旧依赖。
-- [x] 保留旧配置迁移兼容，确保既有 music.json 其他设置不丢失；旧版洛雪 API 地址不再作为可编辑设置展示。
+- [x] 清理生产播放路径及代码库中对旧 LX 播放引擎、洛雪本地 API 状态轮询和 `lxmusic://` 启动协议的旧依赖（待本次 CI 最终验证）。
+- [x] 旧配置升级至 v18 时移除 `lx_api_endpoints`，并保留既有 music.json 的其他用户设置；设置页不再展示旧 API 地址。
 - [x] 增加旧配置迁移回归测试，覆盖音量、响度标准化、点歌/切歌命令、队列参数、歌单模式、音源优先级、粉丝勋章和旧 API 地址兼容数据。
 
 **完成门**
@@ -221,7 +221,7 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 - 验证停止/切歌后请求取消、Audio 事件监听清理、对象引用释放和异常恢复。
 - 分别测量 My-LiveHub 主进程、WebView renderer 的基线与音乐模块增量，覆盖空闲、搜索、播放、歌词+队列、多音源并发和停止释放。
 - 在目标 Windows 设备连续播放至少 2 小时，记录稳定期内存、播放错误、切歌及停止后的内存回落。
-- 全仓检查旧洛雪本地 API、`lxmusic://`、外部播放器进程和旧引擎残留，记录最终验收结论。
+- [x] 全仓检查旧洛雪本地 API、`lxmusic://`、外部播放器进程和旧引擎引用；本次清理后不再保留生产代码依赖。
 
 **完成门**
 - 安全、缓存、取消、资源释放和异常恢复测试通过；无无限重试、无界缓存或旧会话资源泄漏。
@@ -263,7 +263,7 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 | B. 统一 action 调度与歌曲模型接线 | **已完成** | 生产 search/detail/lyric/pic 调度、按脚本音源范围路由、原生 musicUrl 声明校验、Track 映射/合并、缺失能力回退、错误/取消分类、多脚本隔离均已实现；CI Run #567 全部通过 |
 | C. 播放 URL、音质回退与缓存闭环 | **已完成** | 结构化 PlaybackResource、音质回退、TTL 缓存、资源身份校验、资源感知引擎端口、幂等媒体失败刷新均已实现并通过 CI Run 45142573201；HTMLAudio 消费资源及媒体错误刷新另由 D 覆盖 |
 | D. HTMLAudio PoC 与正式播放桥接 | **已完成（用户本地测试通过）** | 生产 HTMLAudio 单例、Wails 桥、播放控制、session 保护、错误刷新及 Chromium 实播 CI 已完成；用户已确认 D 阶段本地测试通过 |
-| E. 媒体传输适配与旧引擎替换 | **部分完成** | HTMLAudio、结构化媒体资源及媒体代理已有实现；逐项真实音源验收不再作为阻塞项；旧配置迁移回归测试与设置页收尾已完成并通过 CI；仍需清理旧 LXPlaybackEngine/兼容路径及旧洛雪客户端依赖 |
+| E. 媒体传输适配与旧引擎替换 | **部分完成** | HTMLAudio、结构化媒体资源及媒体代理已有实现；逐项真实音源验收不再作为阻塞项；旧配置迁移与设置页收尾已完成；旧引擎/本地 API/启动协议清理已实施，等待本次 CI 验证 |
 | F. 歌词、封面、队列与多视图整合 | **部分完成** | 五平台歌词适配器、统一同步 LRC、桌面歌词基础链路已实现；HuiBi/Chromium 歌词集成 CI 通过；歌单模式持久化、观众点播抢占/恢复和中断清理已有 CI 覆盖；仍缺五平台逐一真实歌词、多视图/桌面歌词设备同步及完整队列场景验收 |
 | G. 安全、稳定性、性能与最终验收 | **部分完成** | QuickJS HTTP/SSRF/DNS rebinding/redirect/headers/请求资源限制及部分生命周期保护已有实现和自动化测试；仍缺媒体传输最终安全审查、两小时设备 soak、主进程/renderer 内存实测及最终稳定性验收 |
 
@@ -279,12 +279,12 @@ A、B、C、D 的阶段完成门均已通过；D 阶段 HTMLAudio PoC 与正式�
 
 1. `MusicView.vue` 的搜索结果通过 `Enqueue` / `PlayTrackNow` 交给 Go；前端没有直接的 Audio 播放实现。
 2. `MusicService.playNext()` 调用 `resolveAndStartLXTrack()`，后者位于 `music_auto_switch.go`，会按已启用音源优先级尝试候选歌曲，并直接调用 `s.engine.Load(ctx, candidate)`。
-3. 自动换源当前不是独立的 URL 解析服务：候选 Track 被交给旧 LX 播放引擎后，由旧播放路径委托洛雪客户端完成实际播放与确认。新方案必须把“解析播放 URL”从“执行播放”中拆出来，不能只把 `LXPlaybackEngine` 改名。
-4. `MusicService.watchPlayback()` 每 500ms 读取一次 `engine.Snapshot()`，依赖真实播放状态、停止状态和剩余时长判断歌曲结束；歌曲结束后由 Go 推进 My-LiveHub 队列，队列为空时当前代码会尝试调用洛雪自己的 `NextTrack`。新方案必须改成以 HTMLAudio 的 `ended` 事件为可靠结束信号，并移除外部播放器队列回退。
+3. 播放 URL 解析已接入 My-LiveHub 自己的 HTMLAudio 播放链路：Go 通过现有脚本运行时解析结构化 PlaybackResource，再交给 HTMLAudio 执行媒体加载；不再把 Track 委托给洛雪桌面客户端。
+4. `MusicService.watchPlayback()` 每 500ms 读取本地 HTMLAudio 引擎快照；HTMLAudio 的 `ended` 事件会更新快照，Go 据此推进 My-LiveHub 自己的队列。队列为空时保持 idle，不会调用外部播放器的 `NextTrack`。
 5. `Pause/Resume/Stop` 当前直接调用 Go PlaybackEngine。新方案需要由前端 HTMLAudio adapter 执行，并将实际结果/事件回传。
-6. `GetLyrics(track)` 当前通过 PlaybackEngine 扩展接口读取洛雪客户端 `/lyric-all`、`/lyric`，并先用当前外部播放器 Snapshot 核对歌曲。歌词必须改为按 Track/音源独立获取，不能再依赖“洛雪当前正在播放哪首歌”。
+6. `GetLyrics(track)` 已按 Track/音源调用脚本 lyric action 或平台歌词适配器；不读取洛雪本地 `/lyric-all`、`/lyric`，也不依赖外部播放器当前曲目。
 7. 主音乐页通过 `GetCachedPlaybackStatus()` 读取 Go watcher 缓存；独立歌词窗口也以约 500ms 频率轮询状态，并用本地时钟每 30ms 外推歌词位置。接入 HTMLAudio 后，应优先共享同一播放状态快照/事件，避免 Go watcher 与前端 Audio 各自成为状态权威。
-8. `MusicConfig` 当前版本为 14，包含 `LXAPIEndpoints` 和默认 `http://127.0.0.1:23330`。移除旧播放路径时必须做向后兼容迁移，并调整设置 UI 中“洛雪客户端连接”文案。
+8. `MusicConfig` 当前版本为 18；旧 `lx_api_endpoints` 在配置加载时作为废弃字段清除，迁移测试确保音量、响度标准化、队列、命令、播放模式和音源优先级等用户设置保留。
 
 ### 阶段 0 的接口设计结论（待 PoC 验证后定稿）
 
@@ -329,11 +329,11 @@ A、B、C、D 的阶段完成门均已通过；D 阶段 HTMLAudio PoC 与正式�
 
 #### C. 已发现的关键架构缺口
 
-1. **解析服务已有，但尚未接入播放主链路。** `MusicService.ResolvePlaybackURL` 可供调用；当前 `playNext → resolveAndStartLXTrack → engine.Load` 仍把 Track 交给 `LXPlaybackEngine`，并没有先调用这个 URL resolver。阶段 3 必须复用现有 resolver，不应另写一套 QuickJS 调用。
+1. **播放 URL 解析已接入主链路。** `playNext → resolveAndStartLXTrack` 复用现有 QuickJS URL resolver，并将结构化 PlaybackResource 交给 HTMLAudio 引擎；不得另写一套脚本解析入口。
 2. **播放 URL 资源模型过窄。** 目前 resolver 返回 `string`，丢失媒体响应所需的 headers、MIME/编码提示、过期信息及来源信息。脚本的 API 请求 headers 与媒体 GET headers 是两个不同概念。阶段 0/1 应先定义 `PlaybackResource`，默认不携带可写入日志的敏感 Cookie/签名参数。
 3. **HTMLAudio 请求头限制需要实测。** 如果最终媒体 GET 必须携带 Referer/Cookie/自定义 header，单纯把 URL 赋给 Audio.src 可能无法播放。阶段 4 需要依据真实响应决定直连、音源降级或 Go 流代理；代理必须支持 Range、取消、Content-Type、Content-Length/分块传输和重定向语义。
 4. **当前歌词确实被旧播放器绑定。** `GetLyrics` 依赖 `PlaybackEngine.GetCurrentLyrics` 和 Snapshot 前后核对；歌词独立于播放执行器的按 Track 获取接口尚未存在。
-5. **自动换源与第三方队列深度耦合。** `PlayNext` 的队列空分支和 `Next/Previous` 都会回退到 `LXPlaybackEngine.NextTrack`；新播放器必须让 My-LiveHub 自己的队列成为唯一队列，队列为空时进入 idle，不再推进洛雪客户端队列。
+5. **队列推进已由 My-LiveHub 自己管理。** `PlayNext`、`Next` 和播放结束处理只消费 My-LiveHub 的请求队列/歌单；队列为空时进入 idle，不再访问外部播放器队列。
 
 #### D. Wails v3 前后端通信方案
 
