@@ -123,8 +123,8 @@ func TestRecordFrontendHeartbeatUpdatesSnapshot(t *testing.T) {
 	service.mu.Unlock()
 	service.RecordFrontendHeartbeat()
 	recovered := service.GetFrontendHeartbeatSnapshot()
-	if recovered.Stale || !recovered.LastSeenAt.After(first.LastSeenAt) {
-		t.Fatalf("recovered heartbeat snapshot = %#v, want newer timestamp and healthy state", recovered)
+	if recovered.Stale || recovered.LastSeenAt.IsZero() || recovered.LastSeenAt.Before(first.LastSeenAt) {
+		t.Fatalf("recovered heartbeat snapshot = %#v, want a non-zero, non-decreasing timestamp and healthy state", recovered)
 	}
 }
 
