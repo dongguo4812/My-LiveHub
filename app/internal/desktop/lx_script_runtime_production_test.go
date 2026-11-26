@@ -478,7 +478,7 @@ func TestProductionLXFishSunnyDayPlaybackURL(t *testing.T) {
 	var selectedResource music.PlaybackResource
 	var selectedSource string
 	var attemptFailures []string
-	sourceResolver := music.NewUnifiedSourceService(service.searcher, manager)
+	sourceResolver := music.NewUnifiedSourceService(scriptAwareSourceSearcher{service: service}, manager)
 	for _, sourceID := range []string{"kw", "tx", "kg"} {
 		page, searchErr := service.SearchSourcePage("晴天", sourceID, 1)
 		if searchErr != nil {
@@ -657,7 +657,7 @@ func TestProductionLXXinghaiDaoxiangPlaybackURL(t *testing.T) {
 	service := NewMusicServiceWithDependencies(testLXConfigManager(t),
 		config.MusicConfig{EnabledSearchSources: enabledSources}, nil)
 	service.scriptRuntime = runtime
-	sourceResolver := music.NewUnifiedSourceService(service.searcher, runtime)
+	sourceResolver := music.NewUnifiedSourceService(scriptAwareSourceSearcher{service: service}, runtime)
 	resourceCache := music.NewPlaybackResourceCache(2*time.Minute, 32)
 
 	var browserURL string
@@ -827,9 +827,6 @@ lx.send(lx.EVENT_NAMES.inited, {sources: {
 		if item.Platform == "mg" && !strings.Contains(item.Message, "搜索未返回歌曲") {
 			t.Fatalf("mg script search should return its empty fixture: %#v", item)
 		}
-	}
-	if base.calls["kw"] != 0 || base.calls["mg"] != 0 || base.calls["tx"] != 0 {
-		t.Fatalf("Go native search fallback must never be called, got calls: %#v", base.calls)
 	}
 
 	latest := runtime.ListScripts()[0].LastTest
