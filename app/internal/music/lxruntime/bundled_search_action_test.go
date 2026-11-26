@@ -70,7 +70,12 @@ func TestProductionLXBundledSearchActionsUseQuickJSHTTPForAllFivePlatforms(t *te
 
 	runtime, err := New(Options{})
 	if err != nil { t.Fatalf("create QuickJS runtime: %v", err) }
-	defer runtime.Close()
+	closeRuntime := true
+	defer func() {
+		if closeRuntime {
+			_ = runtime.Close()
+		}
+	}()
 	runtime.allowPrivateNetworkForTests = true
 	source := BundledSearchAction()
 	initCtx, cancelInit := context.WithTimeout(context.Background(), 5*time.Second)
@@ -94,6 +99,7 @@ func TestProductionLXBundledSearchActionsUseQuickJSHTTPForAllFivePlatforms(t *te
 		}, server.Client())
 		cancel()
 		if dispatchErr != nil {
+			closeRuntime = false
 			t.Fatalf("%s QuickJS search failed: %v", sourceID, dispatchErr)
 		}
 		encoded, marshalErr := json.Marshal(result)
@@ -127,7 +133,10 @@ func TestProductionLXBundledSearchActionsUseQuickJSHTTPForAllFivePlatforms(t *te
 		"__testEndpoints": map[string]string{"tx": server.URL + "/txfail", "txLegacy": server.URL + "/txlegacy"},
 	}, server.Client())
 	cancelFallback()
-	if fallbackErr != nil { t.Fatalf("QQ legacy fallback failed after primary HTTP 500: %v", fallbackErr) }
+	if fallbackErr != nil {
+		closeRuntime = false
+		t.Fatalf("QQ legacy fallback failed after primary HTTP 500: %v", fallbackErr)
+	}
 	fallbackJSON, _ := json.Marshal(fallback)
 	var fallbackResult struct {
 		Tracks []struct { ID string `json:"id"`; Title string `json:"title"`; SourceData map[string]string `json:"source_data"` } `json:"tracks"`
