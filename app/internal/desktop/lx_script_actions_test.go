@@ -5,6 +5,7 @@ import (
  "context"
  "errors"
  "strings"
+ "sync"
 
  "github.com/dongguo4812/My-LiveHub/app/internal/config"
  "github.com/dongguo4812/My-LiveHub/app/internal/music"
@@ -135,6 +136,7 @@ func TestScriptAwareSearcherUsesLXNativeSearchRequestFields(t *testing.T) {
 
 
 type multiPlatformSearchActionRuntime struct {
+	mu sync.Mutex
 	calls map[string]int
 }
 
@@ -149,6 +151,8 @@ func (r *multiPlatformSearchActionRuntime) DispatchExtensionAction(_ context.Con
 	if action != "search" {
 		return nil, errors.New("unexpected action: " + action)
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.calls == nil {
 		r.calls = make(map[string]int)
 	}
