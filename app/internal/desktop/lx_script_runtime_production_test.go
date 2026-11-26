@@ -190,6 +190,33 @@ func TestMusicServiceLXRuntimeRecoversAfterReplacingFailedStartupScript(t *testi
 	if err := service.Shutdown(); err != nil { t.Fatalf("shutdown recovered runtime: %v", err) }
 }
 
+func TestMusicServiceLXRuntimeRetriesAfterTopLevelStartupFailure(t *testing.T) {
+	manager := testLXConfigManager(t)
+	runtime := newLXScriptRuntime(nil).(*productionMusicLXRuntime)
+	if err := runtime.Start(context.Background()); err == nil {
+		t.Fatal("runtime without persistence manager should fail startup")
+	}
+	runtime.config = manager
+
+	service := NewMusicServiceWithDependencies(manager, config.DefaultMusicConfig(), &nextTrackTestEngine{}, events.NewBuffer())
+	service.scriptRuntime = runtime
+	service.mu.Lock()
+	service.started = true
+	service.lxRuntimeStatus = "failed"
+	service.lxRuntimeError = "LX script persistence requires the application configuration manager"
+	service.mu.Unlock()
+
+	validSource := `lx.on(lx.EVENT_NAMES.request, () => []); lx.send(lx.EVENT_NAMES.inited, {sources:{kw:{type:"music",actions:["search"]}}});`
+	if _, err := service.ImportLXScript("recovered source", validSource); err != nil {
+		t.Fatalf("import source after persistence recovery: %v", err)
+	}
+	if !runtime.Available() { t.Fatal("script management did not retry the stopped runtime") }
+	if got := service.GetStatus(); got.LXRuntimeStatus != "ready" || got.LXRuntimeError != "" {
+		t.Fatalf("top-level startup failure did not recover to ready: %#v", got)
+	}
+	if err := service.Shutdown(); err != nil { t.Fatalf("shutdown recovered runtime: %v", err) }
+}
+
 func TestProductionLXScriptRuntimeQuarantinesMalformedStore(t *testing.T) {
 	manager := testLXConfigManager(t)
 	if err := manager.WriteLocalJSON(lxScriptStoreFile, []byte("{}"), lxScriptStoreLimit); err != nil { t.Fatal(err) }
