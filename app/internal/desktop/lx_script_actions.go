@@ -47,8 +47,8 @@ func (s *MusicService) dispatchLXExtension(ctx context.Context, source, action s
 
 // scriptAwareSourceSearcher routes explicitly declared community actions to
 // imported scripts; native provider implementations remain a separate fallback.
-type scriptAwareSourceSearcher struct { base music.SourceSearcher; service *MusicService }
-func (a scriptAwareSourceSearcher) Sources() []music.SourceSnapshot { return a.base.Sources() }
+type scriptAwareSourceSearcher struct { service *MusicService }
+func (a scriptAwareSourceSearcher) Sources() []music.SourceSnapshot { return music.SourceCatalog() }
 func (a scriptAwareSourceSearcher) SearchProvider(ctx context.Context, source, keyword string, page int) (music.SearchPage, error) {
  // LX production scripts use the native request payload names text/page/limit.
 	// Keep keyword/pageSize aliases as well for community scripts written
@@ -58,14 +58,9 @@ func (a scriptAwareSourceSearcher) SearchProvider(ctx context.Context, source, k
 		"keyword": keyword, "pageSize": 30,
 	})
  if handled { if err != nil { return music.SearchPage{},err }; return normalizeLXScriptSearchResult(source,keyword,page,value) }
- // The five built-in LX platforms must never silently fall back to the Go
- // provider implementation. A missing or failed QuickJS action is surfaced
- // as an explicit search error so the migration cannot regress invisibly.
- switch source {
- case music.LXSearchKW, music.LXSearchKG, music.LXSearchTX, music.LXSearchWY, music.LXSearchMG:
-  return music.SearchPage{}, fmt.Errorf("%s QuickJS 搜索 Action 尚未就绪，已阻止 Go 原生搜索回退", source)
- }
- return a.base.SearchProvider(ctx,source,keyword,page)
+ // Search execution is QuickJS-only. Do not retain a Go-native provider
+ // fallback for unknown or not-yet-registered source actions.
+ return music.SearchPage{}, fmt.Errorf("%s QuickJS 搜索 Action 尚未就绪，已阻止 Go 原生搜索回退", source)
 }
 func (a scriptAwareSourceSearcher) SearchSources(ctx context.Context, keyword string, page int, sourceIDs []string) (music.SearchPage, map[string]string, error) {
  if ctx==nil { ctx=context.Background() }
