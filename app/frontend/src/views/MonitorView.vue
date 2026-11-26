@@ -196,9 +196,11 @@ onUnmounted(() => {
         <div><span>My-LiveHub 工作集（实际物理内存）</span><strong>{{ formatBytes(metrics?.process_working_set_bytes) }}</strong></div>
         <div><span>My-LiveHub 私有内存</span><strong>{{ formatBytes(metrics?.process_private_bytes) }}</strong></div>
         <div><span>主进程工作集较基线变化</span><strong>{{ metrics?.memory_baseline_ready ? (metrics.process_working_set_delta_bytes >= 0 ? '+' : '') + formatBytes(Math.abs(metrics.process_working_set_delta_bytes)) : '采样中' }}</strong></div>
+        <div><span>主进程私有内存较基线变化</span><strong>{{ metrics?.memory_baseline_ready ? (metrics.process_private_delta_bytes >= 0 ? '+' : '') + formatBytes(Math.abs(metrics.process_private_delta_bytes)) : '采样中' }}</strong></div>
         <div><span>所属 WebView2 子进程</span><strong>{{ metrics?.webview2_process_count ?? '—' }} 个</strong></div>
         <div><span>所属 WebView2 工作集合计</span><strong>{{ formatBytes(metrics?.webview2_working_set_bytes) }}</strong></div>
         <div><span>WebView2 工作集较基线变化</span><strong>{{ metrics?.memory_baseline_ready ? (metrics.webview2_working_set_delta_bytes >= 0 ? '+' : '') + formatBytes(Math.abs(metrics.webview2_working_set_delta_bytes)) : '采样中' }}</strong></div>
+        <div><span>WebView2 私有内存较基线变化</span><strong>{{ metrics?.memory_baseline_ready ? (metrics.webview2_private_delta_bytes >= 0 ? '+' : '') + formatBytes(Math.abs(metrics.webview2_private_delta_bytes)) : '采样中' }}</strong></div>
         <div><span>Go 堆内存使用</span><strong>{{ formatBytes(metrics?.go_heap_alloc_bytes) }}</strong></div>
         <div><span>Go 堆内存保留</span><strong>{{ formatBytes(metrics?.go_heap_sys_bytes) }}</strong></div>
         <div><span>累计内存分配</span><strong>{{ formatBytes(metrics?.go_total_alloc_bytes) }}</strong></div>
