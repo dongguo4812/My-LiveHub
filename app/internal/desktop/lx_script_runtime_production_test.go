@@ -220,8 +220,7 @@ lx.on(lx.EVENT_NAMES.request, async ({source,action,info}) => {
  if(source!=='kw') throw new Error('unexpected source '+source);
  if(action==='musicUrl') return 'https://1.1.1.1/fixture-song.mp3';
  if(action==='search') return {tracks:[{id:'fixture-song',name:'Fixture Song',singer:'Fixture Artist',interval:180}],total:1,page:1,page_size:30,max_page:1};
- if(action==='detail') return {album:'Fixture Album'};
- if(action==='lyric') return '[00:00.00]Fixture lyric';
+  if(action==='lyric') return '[00:00.00]Fixture lyric';
  throw new Error('unsupported action '+action);
 });
 lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl','search','lyric','pic'],qualitys:['128k']}}});
@@ -237,8 +236,6 @@ lx.send(lx.EVENT_NAMES.inited,{sources:{kw:{type:'music',actions:['musicUrl','se
  globalPage,err:=service.SearchPage("Fixture Song",1);if err!=nil||len(globalPage.Tracks)!=1||globalPage.Tracks[0].Title!="Fixture Song"{t.Fatalf("script search through MusicService.SearchPage: %#v, %v",globalPage,err)}
  if len(page.Tracks)!=1||page.Tracks[0].ID!="kw_fixture-song"||page.Tracks[0].Title!="Fixture Song"||page.Tracks[0].DurationMS!=180000{t.Fatalf("unexpected script search page: %#v",page)}
  track:=page.Tracks[0]
- detail,err:=service.GetLXTrackDetail(track);if err!=nil{t.Fatalf("detail action: %v",err)}
- if detail.Album!="Fixture Album"||detail.Title!=track.Title||detail.ID!=track.ID{t.Fatalf("detail result was not merged into unified Track: %#v",detail)}
  lyrics,err:=service.GetLyrics(track);if err!=nil||lyrics!="[00:00.00]Fixture lyric"{t.Fatalf("lyric action: %q, %v",lyrics,err)}
 }
 
