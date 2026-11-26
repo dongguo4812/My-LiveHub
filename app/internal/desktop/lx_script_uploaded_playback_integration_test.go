@@ -85,13 +85,12 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 				config.MusicConfig{EnabledSearchSources: enabledSources}, nil, nil)
 			service.scriptRuntime = runtime
 			defer service.Shutdown()
-			resolver := music.NewUnifiedSourceService(service.searcher, runtime)
+			resolver := music.NewUnifiedSourceService(scriptAwareSourceSearcher{service: service}, runtime)
 			cache := music.NewPlaybackResourceCache(2*time.Minute, 32)
 
 			var success bool
 			var upstreamIPBlocked bool
 			var otherPlaybackFailure bool
-			var communitySearchDNSUnavailable bool
 			var failures []string
 			for _, query := range []string{"稻香", "晴天"} {
 				if success {
@@ -100,23 +99,11 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 				for _, sourceID := range enabledSources {
 					page, searchErr := service.SearchSourcePage(query, sourceID, 1)
 					if searchErr != nil {
-						// The QSVIP script's two configured API domains may be absent
-						// from the GitHub runner's DNS. In that case, keep the failure
-						// visible and use native search only to independently exercise
-						// this script's musicUrl action; this is NOT a QSVIP search pass.
-						if strings.Contains(filename, "裤佬") && strings.Contains(strings.ToLower(searchErr.Error()), "no such host") {
-							communitySearchDNSUnavailable = true
-							nativePage, nativeErr := service.searcher.SearchProvider(ctx, sourceID, query, 1)
-							if nativeErr != nil {
-								failures = append(failures, sourceID+" native search after QSVIP DNS failure: "+nativeErr.Error())
-								continue
-							}
-							page.Tracks = nativePage.Tracks
-							t.Logf("QSVIP search NOT VERIFIED (runner DNS failure: %v); native search is used only to test the uploaded script's musicUrl action", searchErr)
-						} else {
-							failures = append(failures, sourceID+" search("+query+"): "+searchErr.Error())
-							continue
-						}
+						// Search must remain on the selected uploaded script's QuickJS
+						// Action. A DNS or provider failure is reported; never replace it
+						// with a Go-native provider search.
+						failures = append(failures, sourceID+" search("+query+"): "+searchErr.Error())
+						continue
 					}
 					var candidate *music.Track
 					// Prefer the exact title and canonical artist, but tolerate
@@ -142,7 +129,7 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 							preview = append(preview, fmt.Sprintf("%q/%q", item.Title, item.Artist))
 						}
 						t.Logf("%s search(%s) produced no usable match; community results=%d preview=%v", sourceID, query, len(page.Tracks), preview)
-						failures = append(failures, sourceID+" search("+query+"): no 周杰伦 result from script or native provider")
+						failures = append(failures, sourceID+" search("+query+"): no 周杰伦 result from uploaded script")
 						continue
 					}
 
@@ -228,9 +215,6 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 					if upstreamIPBlocked { break }
 				}
 				if upstreamIPBlocked { break }
-			}
-			if success && communitySearchDNSUnavailable {
-				t.Log("uploaded script musicUrl playback passed; its independent QSVIP search remains unverified because both QSVIP API hostnames failed DNS resolution on the GitHub runner")
 			}
 			if !success {
 				if upstreamIPBlocked && !otherPlaybackFailure && strings.Contains(strings.ToLower(filename), "v8") {
