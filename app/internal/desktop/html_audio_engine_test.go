@@ -327,7 +327,7 @@ func TestHTMLAudioPlaybackEngineStopReleasesTrackAndResourceReferences(t *testin
 	if err := engine.Stop(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if engine.track != (music.Track{}) || engine.resource != (music.PlaybackResource{}) {
+	if engine.track.ID != "" || engine.track.Title != "" || engine.resource.URL != "" || engine.resource.SourceID != "" || engine.resource.TrackID != "" || engine.resource.Headers != nil {
 		t.Fatalf("Stop retained track/resource references: track=%#v resource=%#v", engine.track, engine.resource)
 	}
 	if engine.sessionID <= oldSession {
