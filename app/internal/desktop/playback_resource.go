@@ -17,12 +17,12 @@ import (
 func (s *MusicService) ResolvePlaybackResource(track music.Track, quality string) (music.PlaybackResource, error) {
 	if s == nil { return music.PlaybackResource{}, errors.New("music service is unavailable") }
 	s.mu.RLock()
-	runtime, searcher, cache := s.scriptRuntime, s.searcher, s.playbackResourceCache
+	runtime, cache := s.scriptRuntime, s.playbackResourceCache
 	s.mu.RUnlock()
 	if runtime == nil { return music.PlaybackResource{}, errors.New("production LX JavaScript runtime is not enabled in this build") }
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	return music.NewUnifiedSourceService(searcher, runtime).ResolvePlaybackResource(ctx, track, quality, cache)
+	return music.NewUnifiedSourceService(scriptAwareSourceSearcher{service: s}, runtime).ResolvePlaybackResource(ctx, track, quality, cache)
 }
 
 // RefreshPlaybackResource invalidates the failed signed URL and performs one
@@ -31,12 +31,12 @@ func (s *MusicService) ResolvePlaybackResource(track music.Track, quality string
 func (s *MusicService) RefreshPlaybackResource(track music.Track, failed music.PlaybackResource) (music.PlaybackResource, error) {
 	if s == nil { return music.PlaybackResource{}, errors.New("music service is unavailable") }
 	s.mu.RLock()
-	runtime, searcher, cache := s.scriptRuntime, s.searcher, s.playbackResourceCache
+	runtime, cache := s.scriptRuntime, s.playbackResourceCache
 	s.mu.RUnlock()
 	if runtime == nil { return music.PlaybackResource{}, errors.New("production LX JavaScript runtime is not enabled in this build") }
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	return music.NewUnifiedSourceService(searcher, runtime).RefreshPlaybackResource(ctx, track, failed, cache)
+	return music.NewUnifiedSourceService(scriptAwareSourceSearcher{service: s}, runtime).RefreshPlaybackResource(ctx, track, failed, cache)
 }
 
 
