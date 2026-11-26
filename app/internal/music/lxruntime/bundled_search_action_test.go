@@ -25,7 +25,12 @@ func TestBundledSearchActionsUseQuickJSHTTPForAllFivePlatforms(t *testing.T) {
 			seen["kg"] = true
 			q := r.URL.Query()
 			if q.Get("page") != "2" || q.Get("pagesize") != "30" || q.Get("platform") != "WebFilter" || q.Get("privilege_filter") != "0" { t.Errorf("Kugou request params = %v", q) }
-			_, _ = w.Write([]byte(`{"error_code":0,"data":{"total":31,"lists":[{"Audioid":202,"FileHash":"HASH202","SongName":"Kugou page two","SingerName":"Singer","AlbumName":"Album","Duration":181,"FileSize":1024,"HQFileSize":2048}]}}`))
+			_, _ = w.Write([]byte(`{"error_code":0,"data":{"total":31,"lists":[]}}`))
+		case "/kgv3":
+			seen["kgv3"] = true
+			q := r.URL.Query()
+			if q.Get("page") != "2" || q.Get("pagesize") != "30" || q.Get("format") != "json" { t.Errorf("Kugou V3 pagination = %v", q) }
+			_, _ = w.Write([]byte(`{"status":1,"data":{"total":31,"info":[{"audio_id":202,"hash":"HASH202","songname":"Kugou page two","singername":"Singer","album_name":"Album","duration":181,"filesize":1024,"320filesize":2048,"320hash":"HQHASH202"}]}}`))
 		case "/tx":
 			seen["tx"] = true
 			var body map[string]any
@@ -64,7 +69,7 @@ func TestBundledSearchActionsUseQuickJSHTTPForAllFivePlatforms(t *testing.T) {
 	}
 
 	endpoints := map[string]string{
-		"kw": server.URL + "/kw", "kg": server.URL + "/kg",
+		"kw": server.URL + "/kw", "kg": server.URL + "/kg", "kgV3": server.URL + "/kgv3",
 		"tx": server.URL + "/tx", "txLegacy": server.URL + "/txlegacy",
 		"wy": server.URL + "/wy", "mg": server.URL + "/mg",
 		"mgFallback": server.URL + "/mgfallback",
@@ -100,6 +105,7 @@ func TestBundledSearchActionsUseQuickJSHTTPForAllFivePlatforms(t *testing.T) {
 	}
 	for _, sourceID := range []string{"kw", "kg", "tx", "wy", "mg"} {
 		if !seen[sourceID] { t.Errorf("%s request did not pass through lx.request HTTP host", sourceID) }
+	if !seen["kgv3"] { t.Error("Kugou empty-page fallback did not pass through lx.request HTTP host") }
 	}
 }
 
