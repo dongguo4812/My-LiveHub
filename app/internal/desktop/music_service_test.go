@@ -200,28 +200,14 @@ func TestAdvanceAfterPlaybackEndPrioritizesMyLiveHubQueue(t *testing.T) {
 		t.Fatalf("My-LiveHub queue was not promoted to current: %#v", current)
 	}
 	if got := engine.loadCalls.Load(); got != 1 {
-		t.Fatalf("洛雪 Load calls = %d, want 1", got)
+		t.Fatalf("playback engine Load calls = %d, want 1", got)
 	}
 	if got := engine.nextCalls.Load(); got != 0 {
-		t.Fatalf("洛雪 NextTrack calls = %d, want 0 when My-LiveHub queue has a song", got)
+		t.Fatalf("external NextTrack calls = %d, want 0 when My-LiveHub queue has a song", got)
 	}
 }
 
-func TestAdvanceAfterPlaybackEndDoesNotSkipTwiceAfterLXAutoAdvance(t *testing.T) {
-	engine := &queueAdvanceTestEngine{}
-	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, engine)
-	finished := &music.QueueItem{Track: music.Track{Title: "当前歌曲", Artist: "测试歌手"}}
-	snapshot := music.PlaybackSnapshot{State: music.PlaybackPlaying, Track: &music.Track{Title: "洛雪下一首", Artist: "其他歌手"}}
-
-	if err := service.advanceAfterPlaybackEnd(snapshot, finished); err != nil {
-		t.Fatalf("advanceAfterPlaybackEnd returned error: %v", err)
-	}
-	if got := engine.nextCalls.Load(); got != 0 {
-		t.Fatalf("洛雪 NextTrack calls = %d, want 0 because 洛雪 already advanced", got)
-	}
-}
-
-func TestAdvanceAfterPlaybackEndUsesLXNextWhenRequestQueueEmpty(t *testing.T) {
+func TestAdvanceAfterPlaybackEndLeavesExternalPlaylistsUntouched(t *testing.T) {
 	engine := &queueAdvanceTestEngine{}
 	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, engine)
 	finished := &music.QueueItem{Track: music.Track{Title: "当前歌曲", Artist: "测试歌手"}}
@@ -230,28 +216,8 @@ func TestAdvanceAfterPlaybackEndUsesLXNextWhenRequestQueueEmpty(t *testing.T) {
 	if err := service.advanceAfterPlaybackEnd(snapshot, finished); err != nil {
 		t.Fatalf("advanceAfterPlaybackEnd returned error: %v", err)
 	}
-	if got := engine.nextCalls.Load(); got != 1 {
-		t.Fatalf("洛雪 NextTrack calls = %d, want 1 when My-LiveHub queue is empty", got)
-	}
-}
-
-func TestLXAlreadyAdvancedPastCurrentOnlyGuardsEmptyQueueSkip(t *testing.T) {
-	current := &music.QueueItem{Track: music.Track{Title: "稻香", Artist: "周杰伦"}}
-	changed := music.PlaybackSnapshot{State: music.PlaybackPlaying, Track: &music.Track{Title: "晴天", Artist: "周杰伦"}}
-	if !lxAlreadyAdvancedPastCurrent(current, changed) {
-		t.Fatal("a different song already playing in 洛雪 should prevent a duplicate skip-next")
-	}
-	same := music.PlaybackSnapshot{State: music.PlaybackPlaying, Track: &music.Track{Title: "稻香", Artist: "周杰伦"}}
-	if lxAlreadyAdvancedPastCurrent(current, same) {
-		t.Fatal("the same current song must still allow skip-next when the request queue is empty")
-	}
-	stopped := changed
-	stopped.State = music.PlaybackStopped
-	if lxAlreadyAdvancedPastCurrent(current, stopped) {
-		t.Fatal("a stopped player has not already advanced")
-	}
-	if lxAlreadyAdvancedPastCurrent(current, music.PlaybackSnapshot{State: music.PlaybackPlaying}) {
-		t.Fatal("a snapshot without track identity cannot prove that 洛雪 already advanced")
+	if got := engine.nextCalls.Load(); got != 0 {
+		t.Fatalf("external NextTrack calls = %d, want 0 for an empty My-LiveHub queue", got)
 	}
 }
 
