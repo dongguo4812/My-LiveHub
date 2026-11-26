@@ -280,7 +280,7 @@ jobs:
         env:
           MYLIVEHUB_LX_BUILTIN_SEARCH_INTEGRATION: '1'
           CGO_ENABLED: '0'
-          MYLIVEHUB_QUICKJS_LIB: ${{ github.workspace }}\\app\\bin\\lxqjs.dll
+          MYLIVEHUB_QUICKJS_LIB: ${{ github.workspace }}\app\bin\lxqjs.dll
         run: go test -tags lxproduction -timeout 8m -count=1 -v -run 'TestProductionLXBuiltInSearchAllFiveProviders' ./internal/desktop
 
       - name: Resolve real playback through selected Mo Lan aggregate source
