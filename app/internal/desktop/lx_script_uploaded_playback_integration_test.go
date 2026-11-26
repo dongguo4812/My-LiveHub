@@ -101,9 +101,6 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 					if searchErr != nil {
 						// Search is verified only through the uploaded LX action or
 						// the bundled QuickJS platform action. Never substitute Go search.
-						if strings.Contains(filename, "裤佬") && strings.Contains(strings.ToLower(searchErr.Error()), "no such host") {
-							communitySearchDNSUnavailable = true
-						}
 						failures = append(failures, sourceID+" search("+query+"): "+searchErr.Error())
 						continue
 					}
