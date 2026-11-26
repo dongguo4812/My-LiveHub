@@ -42,18 +42,6 @@ const availableSearchSources = computed(() => {
   const enabled = config.value?.enabled_search_sources ?? []
   return musicSourceOptions.filter(item => !enabled.includes(item.id))
 })
-function getLXEndpoint(index: number) {
-  return config.value?.lx_api_endpoints[index] ?? ''
-}
-function setLXEndpoint(index: number, value: string) {
-  if (!config.value) return
-  while (config.value.lx_api_endpoints.length <= index) config.value.lx_api_endpoints.push('')
-  config.value.lx_api_endpoints[index] = value
-}
-function swapLXEndpoints() {
-  if (!config.value || config.value.lx_api_endpoints.length < 2) return
-  ;[config.value.lx_api_endpoints[0], config.value.lx_api_endpoints[1]] = [config.value.lx_api_endpoints[1], config.value.lx_api_endpoints[0]]
-}
 function getSourceName(id: string): string {
   return musicSourceOptions.find((item: MusicSourceOption) => item.id === id)?.name ?? id
 }
@@ -233,7 +221,6 @@ async function saveConfig() {
   error.value = ''
   success.value = ''
   try {
-    config.value.lx_api_endpoints = config.value.lx_api_endpoints.map(item => item.trim()).filter(Boolean)
     await MusicService.SaveConfig(config.value)
     success.value = '音乐设置已保存'
     config.value = await MusicService.GetConfig()
@@ -627,24 +614,7 @@ onUnmounted(() => {
       <div class="card-actions"><el-button type="primary" :loading="saving" :disabled="!config" @click="saveConfig">保存全部设置</el-button></div>
     </el-card>
     <el-card v-if="activeTab === 'settings'" class="player-card player-settings-card" shadow="never">
-      <template #header><strong>旧版洛雪 API 配置（兼容保留）</strong></template>
-      <p class="section-description">以下地址仅为兼容历史 music.json 配置保留，不参与当前搜索和 HTMLAudio 播放；新播放器无需安装或启动洛雪客户端。</p>
-      <div v-if="config" class="setting-list">
-        <div class="setting-row">
-          <strong>主 API 地址</strong>
-          <el-input :model-value="getLXEndpoint(0)" placeholder="http://127.0.0.1:23330" @update:model-value="setLXEndpoint(0, $event)" />
-        </div>
-        <div class="setting-row">
-          <strong>备用 API 地址</strong>
-          <el-input :model-value="getLXEndpoint(1)" placeholder="备用地址（可留空）" @update:model-value="setLXEndpoint(1, $event)" />
-        </div>
-      </div>
-      <div class="card-actions">
-        <el-button plain :disabled="!config || config.lx_api_endpoints.length < 2" @click="swapLXEndpoints">交换主备地址</el-button>
-        <el-button type="primary" :loading="saving" :disabled="!config" @click="saveConfig">保存旧版配置</el-button>
-      </div>
-      <el-divider />
-      <strong>搜索平台启用及优先级</strong>
+      <template #header><strong>搜索平台启用及优先级</strong></template>
       <p class="section-description">勾选参与搜索和自动换源的平台；上方平台优先尝试。QQ 音乐默认排在第一位。</p>
       <div v-if="config" class="setting-list">
         <div v-for="(source, index) in config.enabled_search_sources" :key="source" class="setting-row">
