@@ -82,6 +82,35 @@ func TestBundledSearchActionsUseQuickJSHTTPForAllFivePlatforms(t *testing.T) {
 		"mgFallback": server.URL + "/mgfallback",
 	}
 	wantIDs := map[string]string{"kw":"kw_KW31","kg":"202_HASH202","tx":"tx_TX303","wy":"wy_404","mg":"mg_505"}
+
+	for sourceID, wantID := range wantIDs {
+		result, dispatchErr := runtime.DispatchLXRequest(context.Background(), sourceID, "search", map[string]any{
+			"text": "fixture", "page": 2, "limit": 30, "__testEndpoints": endpoints,
+		})
+		if dispatchErr != nil {
+			t.Fatalf("%s QuickJS search failed: %v", sourceID, dispatchErr)
+		}
+		encoded, marshalErr := json.Marshal(result)
+		if marshalErr != nil {
+			t.Fatalf("%s search result JSON encoding failed: %v", sourceID, marshalErr)
+		}
+		var pageResult struct {
+			Tracks []struct { ID string `json:"id"` } `json:"tracks"`
+			Page int `json:"page"`
+			PageSize int `json:"page_size"`
+			Total int64 `json:"total"`
+			Source string `json:"source"`
+		}
+		if decodeErr := json.Unmarshal(encoded, &pageResult); decodeErr != nil {
+			t.Fatalf("%s search result JSON decoding failed: %v (%s)", sourceID, decodeErr, encoded)
+		}
+		if len(pageResult.Tracks) != 1 || pageResult.Tracks[0].ID != wantID {
+			t.Fatalf("%s native track ID = %#v, want %q (result=%s)", sourceID, pageResult.Tracks, wantID, encoded)
+		}
+		if pageResult.Page != 2 || pageResult.PageSize != 30 || pageResult.Total != 31 || pageResult.Source != sourceID {
+			t.Fatalf("%s pagination/source metadata mismatch: %#v", sourceID, pageResult)
+		}
+	}
 	for _, sourceID := range []string{"kw", "kg", "tx", "wy", "mg"} {
 		if !seen[sourceID] { t.Errorf("%s request did not pass through lx.request HTTP host", sourceID) }
 	}
