@@ -114,9 +114,23 @@ func TestProductionLXBuiltInSearchAllFiveProviders(t *testing.T) {
 				t.Fatalf("%s results did not preserve any provider-native song identifier", provider.name)
 			}
 
-			second, secondErr := service.SearchSourcePage(keyword, provider.id, 2)
+			var second MusicSearchResponse
+			var secondErr error
+			for attempt := 1; attempt <= 2; attempt++ {
+				second, secondErr = service.SearchSourcePage(keyword, provider.id, 2)
+				if secondErr == nil && (len(second.Tracks) > 0 || first.MaxPage <= 1) {
+					break
+				}
+				if attempt < 2 {
+					select {
+					case <-ctx.Done():
+						t.Fatal(ctx.Err())
+					case <-time.After(750 * time.Millisecond):
+					}
+				}
+			}
 			if secondErr != nil {
-				t.Fatalf("%s QuickJS page-two request failed: %v", provider.name, secondErr)
+				t.Fatalf("%s QuickJS page-two request failed after retry: %v", provider.name, secondErr)
 			}
 			if second.Page != 2 || second.PageSize != 30 {
 				t.Fatalf("%s page-two metadata = page:%d size:%d", provider.name, second.Page, second.PageSize)
