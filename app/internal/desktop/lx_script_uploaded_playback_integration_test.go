@@ -99,9 +99,11 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 				for _, sourceID := range enabledSources {
 					page, searchErr := service.SearchSourcePage(query, sourceID, 1)
 					if searchErr != nil {
-						// Search must remain on the selected uploaded script's QuickJS
-						// Action. A DNS or provider failure is reported; never replace it
-						// with a Go-native provider search.
+						// Search is verified only through the uploaded LX action or
+						// the bundled QuickJS platform action. Never substitute Go search.
+						if strings.Contains(filename, "裤佬") && strings.Contains(strings.ToLower(searchErr.Error()), "no such host") {
+							communitySearchDNSUnavailable = true
+						}
 						failures = append(failures, sourceID+" search("+query+"): "+searchErr.Error())
 						continue
 					}
