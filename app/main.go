@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync/atomic"
+	"time"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
 	"github.com/dongguo4812/My-LiveHub/app/internal/core"
@@ -263,6 +264,7 @@ func main() {
 		lolHexLogDir = filepath.Join(runtimeRoot, "dist", "lol_hex_display", "logs")
 	}
 	monitorService := desktop.NewMonitorServiceWithPlatformManager(logDirectory, platformManager, lolHexLogDir)
+	monitorService.StartFrontendHeartbeatWatchdog(15*time.Second, 45*time.Second)
 	lolHexService, err := desktop.NewLOLHexService(runtimeRoot, filepath.Join(paths.LocalDir, "lol_hex_display.json"))
 	if err != nil {
 		log.Printf("LOL Hex built-in module unavailable: %v", err)
@@ -367,10 +369,40 @@ func main() {
 		Name: "main-window", Title: "My-LiveHub", Width: 1440, Height: 900,
 		MinWidth: 1100, MinHeight: 680, BackgroundColour: background, URL: "/",
 	})
+	logMainWindowState := func(reason string) {
+		log.Printf("main-window diagnostic: event=%s visible=%t minimised=%t maximised=%t focused=%t",
+			reason, mainWindow.IsVisible(), mainWindow.IsMinimised(), mainWindow.IsMaximised(), mainWindow.IsFocused())
+	}
+	for _, item := range []struct {
+		event events.WindowEventType
+		name  string
+	}{
+		{events.Common.WindowShow, "show"},
+		{events.Common.WindowHide, "hide"},
+		{events.Common.WindowFocus, "focus"},
+		{events.Common.WindowLostFocus, "lost_focus"},
+		{events.Common.WindowMinimise, "minimise"},
+		{events.Common.WindowUnMinimise, "unminimise"},
+		{events.Common.WindowRestore, "restore"},
+	} {
+		item := item
+		mainWindow.OnWindowEvent(item.event, func(_ *application.WindowEvent) {
+			logMainWindowState(item.name)
+		})
+	}
+	showMainWindow := func(reason string) {
+		logMainWindowState(reason + "_before")
+		mainWindow.Show()
+		logMainWindowState(reason + "_after_show")
+		mainWindow.Focus()
+		logMainWindowState(reason + "_after_focus")
+	}
+	log.Printf("main-window diagnostic: created")
 	// Restore auxiliary windows only after the main WebView runtime is ready.
 	// Creating the transparent overlay before app.Run() can initialise its
 	// WebView before the native event loop and break transparent composition.
 	mainWindow.OnWindowEvent(events.Common.WindowRuntimeReady, func(_ *application.WindowEvent) {
+		logMainWindowState("runtime_ready")
 		if danmakuWindowConfig.OpenOnStartup {
 			if err := danmakuDisplayService.OpenWindow(); err != nil {
 				log.Printf("restore danmaku overlay window: %v", err)
@@ -379,6 +411,7 @@ func main() {
 	})
 	// Respect the user's persisted close-window behavior.
 	mainWindow.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
+		logMainWindowState("closing")
 		event.Cancel()
 		if appearanceService.GetWindowCloseBehavior() == config.WindowCloseExit {
 			app.Quit()
@@ -403,26 +436,31 @@ func main() {
 		}
 	})
 	trayMenu.Add("显示主界面").OnClick(func(_ *application.Context) {
-		mainWindow.Show()
-		mainWindow.Focus()
+		log.Printf("tray diagnostic: menu_action=show_main_window")
+		showMainWindow("tray_menu_show")
 	})
 	trayMenu.Add("检查更新").OnClick(func(_ *application.Context) {
+		log.Printf("tray diagnostic: menu_action=check_updates")
 		trayCheckUpdatesPending.Store(true)
-		mainWindow.Show()
-		mainWindow.Focus()
+		showMainWindow("tray_menu_check_updates")
 	})
 	trayMenu.AddSeparator()
 	trayMenu.Add("退出 My-LiveHub").OnClick(func(_ *application.Context) {
+		log.Printf("tray diagnostic: menu_action=quit")
 		app.Quit()
 	})
 	tray.SetMenu(trayMenu)
 	tray.OnClick(func() {
+		logMainWindowState("tray_click_before")
+		log.Printf("tray diagnostic: click_received")
 		if mainWindow.IsVisible() {
+			log.Printf("tray diagnostic: action=hide")
 			mainWindow.Hide()
+			logMainWindowState("tray_click_after_hide")
 			return
 		}
-		mainWindow.Show()
-		mainWindow.Focus()
+		log.Printf("tray diagnostic: action=show_and_focus")
+		showMainWindow("tray_click_restore")
 	})
 	if err := app.Run(); err != nil {
 		log.Fatal(err)
