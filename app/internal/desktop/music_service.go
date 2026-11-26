@@ -393,6 +393,8 @@ func (s *MusicService) stop(ctx context.Context) error {
 	s.playbackStopGeneration++
 	s.playbackStopping = true
 	if !s.started {
+		s.shuttingDown = true
+		s.playbackStopping = true
 		s.mu.Unlock()
 		s.lifecycleMu.Unlock()
 		s.cancelPlaybackWatcher()
@@ -1494,7 +1496,8 @@ func (s *MusicService) Shutdown() error {
 	s.mu.Lock()
 	if len(failures) == 0 {
 		s.shuttingDown = false
-		s.playbackStopping = false
+		// Keep playbackStopping set until the next successful Start. A stale
+		// PlayNext call must not restart playback after module shutdown.
 	}
 	s.mu.Unlock()
 	return errors.Join(failures...)
