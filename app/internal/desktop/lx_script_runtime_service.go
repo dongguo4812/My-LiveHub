@@ -18,7 +18,8 @@ func (s *MusicService) ResolvePlaybackURL(track music.Track, quality string) (st
 	searcher := s.searcher
 	s.mu.RUnlock()
 	if runtime == nil { return "", errors.New("production LX JavaScript runtime is not enabled in this build") }
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 105*time.Second)
 	defer cancel()
+	if err := s.waitForLXRuntime(ctx); err != nil { return "", err }
 	return music.NewUnifiedSourceService(searcher, runtime).ResolvePlaybackURL(ctx, track, quality)
 }
