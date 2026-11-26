@@ -172,6 +172,12 @@ jobs:
       - name: Test production LX runtime and capability import paths
         run: go test -tags lxproduction ./internal/music/lxruntime ./internal/desktop -run '^TestProductionLX'
 
+      - name: Embed Windows application manifest and icon
+        shell: pwsh
+        run: |
+          wails3 generate syso -manifest build/windows/My-LiveHub.manifest -icon build/icon.ico -arch amd64 -out rsrc_windows_amd64.syso
+          if ($LASTEXITCODE -ne 0) { throw "Embedding Windows application manifest failed" }
+
       - name: Build Windows executable
         shell: pwsh
         run: go build -tags lxproduction -ldflags "-H=windowsgui" -o bin/My-LiveHub.exe .

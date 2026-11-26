@@ -110,25 +110,11 @@ jobs:
       - name: Test Go with production QuickJS runtime
         run: go test -tags lxproduction ./...
 
-      - name: Embed Windows application icon
+      - name: Embed Windows application manifest and icon
         shell: pwsh
         run: |
-          @'
-          <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-          <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-            <assemblyIdentity version="1.0.0.0" name="My-LiveHub"/>
-            <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
-              <security><requestedPrivileges><requestedExecutionLevel level="asInvoker" uiAccess="false"/></requestedPrivileges></security>
-            </trustInfo>
-            <application xmlns="urn:schemas-microsoft-com:asm.v3">
-              <windowsSettings>
-                <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
-                <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2,PerMonitor</dpiAwareness>
-              </windowsSettings>
-            </application>
-          </assembly>
-          '@ | Set-Content -Path build/manifest.xml -Encoding utf8
-          go run github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0 generate syso -manifest build/manifest.xml -icon build/icon.ico -arch amd64 -out rsrc_windows_amd64.syso
+          wails3 generate syso -manifest build/windows/My-LiveHub.manifest -icon build/icon.ico -arch amd64 -out rsrc_windows_amd64.syso
+          if ($LASTEXITCODE -ne 0) { throw "Embedding Windows application manifest failed" }
 
       - name: Build LOL Hex standalone extension
         shell: pwsh

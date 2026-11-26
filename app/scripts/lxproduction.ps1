@@ -44,7 +44,42 @@ function Ensure-LXQuickJSRuntime {
     Write-Host "QuickJS-NG runtime ready: $runtimePath" -ForegroundColor Green
 }
 
+
+function Ensure-WindowsApplicationManifest {
+    $appRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
+    $manifestPath = Join-Path $appRoot 'build\windows\My-LiveHub.manifest'
+    $iconPath = Join-Path $appRoot 'build\icon.ico'
+    $resourcePath = Join-Path $appRoot 'rsrc_windows_amd64.syso'
+
+    if (!(Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        throw "Windows application manifest is missing: $manifestPath"
+    }
+    if (!(Test-Path -LiteralPath $iconPath -PathType Leaf)) {
+        throw "Windows application icon is missing: $iconPath"
+    }
+
+    Push-Location $appRoot
+    try {
+        if (Get-Command wails3 -ErrorAction SilentlyContinue) {
+            & wails3 generate syso -manifest $manifestPath -icon $iconPath -arch amd64 -out $resourcePath
+        } else {
+            & go run github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0 generate syso -manifest $manifestPath -icon $iconPath -arch amd64 -out $resourcePath
+        }
+        if ($LASTEXITCODE -ne 0) {
+            throw "Embedding the Windows application manifest failed with exit code $LASTEXITCODE"
+        }
+        if (!(Test-Path -LiteralPath $resourcePath -PathType Leaf)) {
+            throw "Windows application resource was not generated: $resourcePath"
+        }
+    } finally {
+        Pop-Location
+    }
+
+    Write-Host 'Embedded the shared asInvoker Windows application manifest.' -ForegroundColor Green
+}
+
 Ensure-LXQuickJSRuntime
+Ensure-WindowsApplicationManifest
 $env:MYLIVEHUB_QUICKJS_LIB = (Resolve-Path -LiteralPath $runtimePath).Path
 $env:CGO_ENABLED = '0'
 
