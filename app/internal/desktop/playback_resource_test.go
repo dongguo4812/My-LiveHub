@@ -18,7 +18,7 @@ func (r *playbackResourceTestRuntime) ResolvePlaybackURL(_ context.Context, sour
 }
 
 func TestMusicServiceResolvePlaybackResourceUsesSharedCache(t *testing.T) {
-	service:=NewMusicServiceWithDependencies(nil,config.DefaultMusicConfig(),nil,&nextTrackTestEngine{})
+	service:=NewMusicServiceWithDependencies(nil,config.DefaultMusicConfig(),&nextTrackTestEngine{})
 	runtime:=&playbackResourceTestRuntime{}
 	service.scriptRuntime=runtime
 	track:=music.Track{ID:"tx_1",SourceID:"tx",LXSourceKey:"tx",Title:"Song",SourceData:map[string]string{"songmid":"1"},Qualities:[]music.TrackQuality{{Type:"320k"}}}
@@ -31,7 +31,7 @@ func TestMusicServiceResolvePlaybackResourceUsesSharedCache(t *testing.T) {
 
 
 func TestMusicServiceMediaFailureRefreshIsIdempotent(t *testing.T) {
-	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, &nextTrackTestEngine{})
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), &nextTrackTestEngine{})
 	runtime := &playbackResourceTestRuntime{}
 	service.scriptRuntime = runtime
 	track := music.Track{ID: "tx_failure", SourceID: "tx", LXSourceKey: "tx", Title: "Song", SourceData: map[string]string{"songmid": "failure-song"}, Qualities: []music.TrackQuality{{Type: "320k"}}}
@@ -48,7 +48,7 @@ func TestMusicServiceMediaFailureRefreshIsIdempotent(t *testing.T) {
 }
 
 func TestMusicServiceMediaFailureRefreshRejectsMismatchedResource(t *testing.T) {
-	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), nil, &nextTrackTestEngine{})
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), &nextTrackTestEngine{})
 	service.scriptRuntime = &playbackResourceTestRuntime{}
 	track := music.Track{ID: "tx_expected", SourceID: "tx", LXSourceKey: "tx", Title: "Song"}
 	failed := music.PlaybackResource{URL: "https://media.example.test/fail.mp3", SourceID: "kg", TrackID: track.ID, Quality: "320k"}
