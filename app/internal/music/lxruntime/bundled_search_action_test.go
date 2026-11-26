@@ -86,9 +86,9 @@ func TestProductionLXBundledSearchActionsUseQuickJSHTTPForAllFivePlatforms(t *te
 	wantIDs := map[string]string{"kw":"kw_KW31","kg":"202_HASH202","tx":"tx_TX303","wy":"wy_404","mg":"mg_505"}
 
 	for sourceID, wantID := range wantIDs {
-		result, dispatchErr := runtime.DispatchLXRequest(context.Background(), sourceID, "search", map[string]any{
+		result, dispatchErr := runtime.dispatchLXRequest(context.Background(), sourceID, "search", map[string]any{
 			"text": "fixture", "page": 2, "limit": 30, "__testEndpoints": endpoints,
-		})
+		}, server.Client())
 		if dispatchErr != nil {
 			t.Fatalf("%s QuickJS search failed: %v", sourceID, dispatchErr)
 		}
@@ -117,10 +117,10 @@ func TestProductionLXBundledSearchActionsUseQuickJSHTTPForAllFivePlatforms(t *te
 		if !seen[sourceID] { t.Errorf("%s request did not pass through lx.request HTTP host", sourceID) }
 	}
 	if !seen["kgv3"] { t.Error("Kugou empty-page fallback did not pass through lx.request HTTP host") }
-	fallback, fallbackErr := runtime.DispatchLXRequest(context.Background(), "tx", "search", map[string]any{
+	fallback, fallbackErr := runtime.dispatchLXRequest(context.Background(), "tx", "search", map[string]any{
 		"text": "legacy fallback fixture", "page": 2, "limit": 30,
 		"__testEndpoints": map[string]string{"tx": server.URL + "/txfail", "txLegacy": server.URL + "/txlegacy"},
-	})
+	}, server.Client())
 	if fallbackErr != nil { t.Fatalf("QQ legacy fallback failed after primary HTTP 500: %v", fallbackErr) }
 	fallbackJSON, _ := json.Marshal(fallback)
 	var fallbackResult struct {
@@ -171,7 +171,7 @@ func TestProductionLXBundledSearchActionPropagatesHTTPFailuresAndCancellation(t 
 			if sourceID == "tx" {
 				endpoints["txLegacy"] = server.URL + "/failure"
 			}
-			_, dispatchErr := runtime.DispatchLXRequest(context.Background(), sourceID, "search", map[string]any{
+			_, dispatchErr := runtime.dispatchLXRequest(context.Background(), sourceID, "search", map[string]any{
 				"text": "failure", "page": 1, "limit": 30, "__testEndpoints": endpoints,
 			})
 			if dispatchErr == nil || !strings.Contains(dispatchErr.Error(), "HTTP 502") {
@@ -191,7 +191,7 @@ func TestProductionLXBundledSearchActionPropagatesHTTPFailuresAndCancellation(t 
 				endpoints["txLegacy"] = server.URL + "/slow"
 			}
 			go func() {
-				_, dispatchErr := runtime.DispatchLXRequest(ctx, sourceID, "search", map[string]any{
+				_, dispatchErr := runtime.dispatchLXRequest(ctx, sourceID, "search", map[string]any{
 					"text": "cancel", "page": 1, "limit": 30, "__testEndpoints": endpoints,
 				})
 				done <- dispatchErr
