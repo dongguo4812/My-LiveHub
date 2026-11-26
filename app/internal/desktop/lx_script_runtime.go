@@ -3,7 +3,6 @@ package desktop
 import (
 	"context"
 
-	"github.com/dongguo4812/My-LiveHub/app/internal/music"
 )
 
 type lxScriptRuntime interface {
@@ -13,4 +12,3 @@ type lxScriptRuntime interface {
 	Close() error
 }
 
-var _ music.PlaybackEngineLifecycle = (*LXPlaybackEngine)(nil)
