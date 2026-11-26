@@ -127,8 +127,16 @@ func (s *MusicService) refreshLXRuntimeStatus() {
 	s.mu.RUnlock()
 	if !started || done != nil || runtime == nil { return }
 	var initializationErr error
-	if reporter, ok := runtime.(interface{ InitializationError() error }); ok {
-		initializationErr = reporter.InitializationError()
+	// A previous top-level Start failure leaves the production runtime stopped.
+	// A successful script-management change is an explicit recovery opportunity:
+	// retry Start instead of reporting ready while the manager is still offline.
+	if !runtime.Available() {
+		initializationErr = runtime.Start(context.Background())
+	}
+	if initializationErr == nil {
+		if reporter, ok := runtime.(interface{ InitializationError() error }); ok {
+			initializationErr = reporter.InitializationError()
+		}
 	}
 	s.mu.Lock()
 	if s.started && s.lxRuntimeGeneration == generation && s.lxRuntimeDone == nil {
