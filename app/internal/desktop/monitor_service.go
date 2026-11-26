@@ -34,13 +34,19 @@ type ProcessMemorySnapshot struct {
 type SystemMetricsSnapshot struct {
 	ProcessID uint32 `json:"process_id"`
 	ProcessWorkingSetBytes uint64 `json:"process_working_set_bytes"`
+	ProcessWorkingSetPeakBytes uint64 `json:"process_working_set_peak_bytes"`
 	ProcessPrivateBytes uint64 `json:"process_private_bytes"`
+	ProcessPrivatePeakBytes uint64 `json:"process_private_peak_bytes"`
 	WebView2ProcessCount int `json:"webview2_process_count"`
 	WebView2WorkingSetBytes uint64 `json:"webview2_working_set_bytes"`
+	WebView2WorkingSetPeakBytes uint64 `json:"webview2_working_set_peak_bytes"`
 	WebView2PrivateBytes uint64 `json:"webview2_private_bytes"`
+	WebView2PrivatePeakBytes uint64 `json:"webview2_private_peak_bytes"`
 	WebView2RendererCount int `json:"webview2_renderer_count"`
 	WebView2RendererWorkingSetBytes uint64 `json:"webview2_renderer_working_set_bytes"`
+	WebView2RendererWorkingSetPeakBytes uint64 `json:"webview2_renderer_working_set_peak_bytes"`
 	WebView2RendererPrivateBytes uint64 `json:"webview2_renderer_private_bytes"`
+	WebView2RendererPrivatePeakBytes uint64 `json:"webview2_renderer_private_peak_bytes"`
 	WebView2UnclassifiedProcessCount int `json:"webview2_unclassified_process_count"`
 	MemoryBaselineReady bool `json:"memory_baseline_ready"`
 	ProcessWorkingSetDeltaBytes int64 `json:"process_working_set_delta_bytes"`
@@ -49,6 +55,8 @@ type SystemMetricsSnapshot struct {
 	WebView2PrivateDeltaBytes int64 `json:"webview2_private_delta_bytes"`
 	WebView2RendererWorkingSetDeltaBytes int64 `json:"webview2_renderer_working_set_delta_bytes"`
 	WebView2RendererPrivateDeltaBytes int64 `json:"webview2_renderer_private_delta_bytes"`
+	MemorySampleCount uint64 `json:"memory_sample_count"`
+	LastMemorySampleAt time.Time `json:"last_memory_sample_at"`
 	ProcessMemoryError string `json:"process_memory_error,omitempty"`
 	UptimeSeconds int64 `json:"uptime_seconds"`
 	GoHeapAllocBytes uint64 `json:"go_heap_alloc_bytes"`
@@ -102,6 +110,14 @@ type MonitorService struct {
 	webView2PrivateBaseline uint64
 	webView2RendererWorkingSetBaseline uint64
 	webView2RendererPrivateBaseline uint64
+	processWorkingSetPeak uint64
+	processPrivatePeak uint64
+	webView2WorkingSetPeak uint64
+	webView2PrivatePeak uint64
+	webView2RendererWorkingSetPeak uint64
+	webView2RendererPrivatePeak uint64
+	memorySampleCount uint64
+	lastMemorySampleAt time.Time
 	memorySamplerStarted bool
 }
 
@@ -348,6 +364,14 @@ func (s *MonitorService) GetSystemMetrics() SystemMetricsSnapshot {
 				s.webView2RendererWorkingSetBaseline = processMemory.WebView2RendererWorkingSetBytes
 				s.webView2RendererPrivateBaseline = processMemory.WebView2RendererPrivateBytes
 			}
+			if processMemory.ProcessWorkingSetBytes > s.processWorkingSetPeak { s.processWorkingSetPeak = processMemory.ProcessWorkingSetBytes }
+			if processMemory.ProcessPrivateBytes > s.processPrivatePeak { s.processPrivatePeak = processMemory.ProcessPrivateBytes }
+			if processMemory.WebView2WorkingSetBytes > s.webView2WorkingSetPeak { s.webView2WorkingSetPeak = processMemory.WebView2WorkingSetBytes }
+			if processMemory.WebView2PrivateBytes > s.webView2PrivatePeak { s.webView2PrivatePeak = processMemory.WebView2PrivateBytes }
+			if processMemory.WebView2RendererWorkingSetBytes > s.webView2RendererWorkingSetPeak { s.webView2RendererWorkingSetPeak = processMemory.WebView2RendererWorkingSetBytes }
+			if processMemory.WebView2RendererPrivateBytes > s.webView2RendererPrivatePeak { s.webView2RendererPrivatePeak = processMemory.WebView2RendererPrivateBytes }
+			s.memorySampleCount++
+			if collectedAt.After(s.lastMemorySampleAt) { s.lastMemorySampleAt = collectedAt }
 		}
 		s.mu.Unlock()
 	}
@@ -384,6 +408,14 @@ func (s *MonitorService) GetSystemMetrics() SystemMetricsSnapshot {
 			metrics.WebView2PrivateDeltaBytes = int64(processMemory.WebView2PrivateBytes) - int64(s.webView2PrivateBaseline)
 			metrics.WebView2RendererWorkingSetDeltaBytes = int64(processMemory.WebView2RendererWorkingSetBytes) - int64(s.webView2RendererWorkingSetBaseline)
 			metrics.WebView2RendererPrivateDeltaBytes = int64(processMemory.WebView2RendererPrivateBytes) - int64(s.webView2RendererPrivateBaseline)
+			metrics.ProcessWorkingSetPeakBytes = s.processWorkingSetPeak
+			metrics.ProcessPrivatePeakBytes = s.processPrivatePeak
+			metrics.WebView2WorkingSetPeakBytes = s.webView2WorkingSetPeak
+			metrics.WebView2PrivatePeakBytes = s.webView2PrivatePeak
+			metrics.WebView2RendererWorkingSetPeakBytes = s.webView2RendererWorkingSetPeak
+			metrics.WebView2RendererPrivatePeakBytes = s.webView2RendererPrivatePeak
+			metrics.MemorySampleCount = s.memorySampleCount
+			metrics.LastMemorySampleAt = s.lastMemorySampleAt
 			s.mu.Unlock()
 		}
 	} else {
