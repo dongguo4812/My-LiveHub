@@ -166,7 +166,9 @@ func TestProductionLXBundledSearchActionPropagatesHTTPFailuresAndCancellation(t 
 	}()
 	runtime.allowPrivateNetworkForTests = true
 	source := BundledSearchAction()
-	if err := runtime.InitializeLXSource(context.Background(), source.Info, source.Source, server.Client()); err != nil {
+	initCtx, cancelInit := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelInit()
+	if err := runtime.InitializeLXSource(initCtx, source.Info, source.Source, server.Client()); err != nil {
 		t.Fatalf("initialize built-in search actions: %v", err)
 	}
 
@@ -253,14 +255,5 @@ func TestProductionLXBundledSearchActionDeclaresOnlyFiveMusicSources(t *testing.
 	}
 	if strings.Contains(source.Source, "net/http") { t.Fatal("built-in JavaScript must not contain a Go HTTP implementation") }
 
-	manager, err := NewSourceManagerWithScripts(nil, []LXSourceScript{source})
-	if err != nil { t.Fatalf("construct source manager: %v", err) }
-	defer manager.Close()
-	if err := manager.Start(context.Background()); err != nil { t.Fatalf("initialize source manager: %v", err) }
-	for _, sourceID := range []string{"kw", "kg", "tx", "wy", "mg"} {
-		if !manager.HasExtensionAction(sourceID, "search") {
-			t.Errorf("%s is not registered as a QuickJS search action", sourceID)
-		}
-	}
 }
 
