@@ -49,6 +49,7 @@ type MusicService struct {
 	buffer *events.Buffer
 	mu sync.RWMutex
 	playbackStartMu sync.Mutex
+	playbackNavigationMu sync.Mutex
 	playbackStartedItemID string
 	playbackStopping bool
 	playbackStopGeneration uint64
@@ -1097,6 +1098,8 @@ func (s *MusicService) Resume() error {
 }
 func (s *MusicService) Next() error {
 	if s == nil || s.engine == nil || s.queue == nil { return errors.New("music playback service is unavailable") }
+	s.playbackNavigationMu.Lock()
+	defer s.playbackNavigationMu.Unlock()
 	snapshot := s.queue.Snapshot()
 	if len(snapshot.Items) == 0 && !s.hasActivePlaylistPlayback() {
 		return errors.New("没有待播歌曲")
@@ -1116,6 +1119,8 @@ func (s *MusicService) CanPrevious() bool {
 
 func (s *MusicService) Previous() error {
 	if s == nil || s.engine == nil || s.queue == nil { return errors.New("music playback service is unavailable") }
+	s.playbackNavigationMu.Lock()
+	defer s.playbackNavigationMu.Unlock()
 	s.mu.RLock()
 	if len(s.history) == 0 {
 		s.mu.RUnlock()
