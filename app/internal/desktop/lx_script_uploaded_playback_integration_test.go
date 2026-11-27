@@ -146,8 +146,6 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 						continue
 					}
 
-					t.Logf("playback candidate query=%q title=%q artist=%q track_id=%q native_songmid=%q", query, candidate.Title, candidate.Artist, candidate.ID, candidate.SourceData["songmid"])
-
 					if runtime.manager.HasExtensionAction(sourceID, "lyric") {
 						lyrics, lyricErr := service.GetLyrics(*candidate)
 						if lyricErr != nil || strings.TrimSpace(lyrics) == "" {

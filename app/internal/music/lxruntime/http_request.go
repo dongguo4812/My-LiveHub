@@ -5,7 +5,6 @@ package lxruntime
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,12 +12,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
-	"os"
-	"regexp"
-	"sort"
 	"strings"
 	"time"
-	"unicode/utf8"
 )
 
 const (
@@ -33,7 +28,6 @@ const (
 )
 
 var lxRequestSemaphore = make(chan struct{}, lxMaxConcurrentRequests)
-var lxTraceIPv4Pattern = regexp.MustCompile(`\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b`)
 
 type lxRequestDescriptor struct {
 	ID       uint64                     `json:"id"`
@@ -157,7 +151,6 @@ func executeLXHTTPRequestWithPolicy(parent context.Context, descriptor lxRequest
 		}
 	}
 	statusMessage := strings.TrimPrefix(resp.Status, fmt.Sprintf("%d ", resp.StatusCode))
-	traceLXHTTPRequestResponse(parsed.Host, parsed.EscapedPath(), resp, parsedBody, len(raw))
 	return &lxHTTPResponse{
 		StatusCode: resp.StatusCode, StatusMessage: statusMessage,
 		Headers: headers, Bytes: len(raw), Raw: raw, Body: parsedBody,
@@ -306,69 +299,3 @@ func validHTTPToken(value string) bool {
 }
 
 
-// traceLXHTTPRequestResponse emits host-only diagnostics for an explicitly
-// opted-in integration test. It logs only the request path (never query strings),
-// response keys, and decoded URL/IP hosts; it never logs headers, cookies,
-// request bodies, or response values.
-func traceLXHTTPRequestResponse(requestHost, requestPath string, response *http.Response, body any, responseBytes int) {
-	if os.Getenv("MYLIVEHUB_LX_HTTP_TRACE") != "1" {
-		return
-	}
-	hosts := make(map[string]struct{})
-	ips := make(map[string]struct{})
-	keys := make(map[string]struct{})
-	var visit func(any, int)
-	visit = func(value any, depth int) {
-		switch item := value.(type) {
-		case string:
-			for _, ip := range lxTraceIPv4Pattern.FindAllString(item, -1) {
-				ips[ip] = struct{}{}
-			}
-			candidate := strings.TrimSpace(item)
-			if strings.HasPrefix(strings.ToLower(candidate), "http://") || strings.HasPrefix(strings.ToLower(candidate), "https://") {
-				parsed, err := url.Parse(candidate)
-				if err == nil && parsed.Hostname() != "" {
-					hosts[strings.ToLower(parsed.Hostname())] = struct{}{}
-				}
-			}
-			if depth < 2 && len(candidate) >= 16 && len(candidate) <= 4096 {
-				decoders := []func(string) ([]byte, error){base64.StdEncoding.DecodeString, base64.RawStdEncoding.DecodeString, base64.URLEncoding.DecodeString, base64.RawURLEncoding.DecodeString}
-				for _, decode := range decoders {
-					decoded, err := decode(candidate)
-					if err == nil && utf8.Valid(decoded) && (strings.Contains(string(decoded), "http://") || strings.Contains(string(decoded), "https://") || lxTraceIPv4Pattern.Match(decoded)) {
-						visit(string(decoded), depth+1)
-						break
-					}
-				}
-			}
-		case []any:
-			for _, child := range item {
-				visit(child, depth)
-			}
-		case map[string]any:
-			for key, child := range item {
-				keys[key] = struct{}{}
-				visit(child, depth)
-			}
-		}
-	}
-	visit(body, 0)
-	returnedHosts := make([]string, 0, len(hosts))
-	for host := range hosts {
-		returnedHosts = append(returnedHosts, host)
-	}
-	sort.Strings(returnedHosts)
-	returnedIPs := make([]string, 0, len(ips))
-	for ip := range ips { returnedIPs = append(returnedIPs, ip) }
-	sort.Strings(returnedIPs)
-	responseKeys := make([]string, 0, len(keys))
-	for key := range keys { responseKeys = append(responseKeys, key) }
-	sort.Strings(responseKeys)
-	if len(responseKeys) > 24 { responseKeys = responseKeys[:24] }
-	finalHost := requestHost
-	if response != nil && response.Request != nil && response.Request.URL != nil && response.Request.URL.Hostname() != "" {
-		finalHost = response.Request.URL.Hostname()
-	}
-	fmt.Printf("[LX_HTTP_TRACE] request_host=%s request_path=%s final_host=%s status=%d bytes=%d returned_url_hosts=%s returned_ipv4s=%s response_keys=%s\n",
-		requestHost, requestPath, finalHost, response.StatusCode, responseBytes, strings.Join(returnedHosts, ","), strings.Join(returnedIPs, ","), strings.Join(responseKeys, ","))
-}
