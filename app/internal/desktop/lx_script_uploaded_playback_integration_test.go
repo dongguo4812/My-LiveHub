@@ -3,8 +3,11 @@
 package desktop
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -17,6 +20,103 @@ import (
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
 	"github.com/dongguo4812/My-LiveHub/app/internal/music"
 )
+
+// diagnoseHTSQQBackends probes the two non-BaiMusic QQ resolve-url hosts
+// independently with distinct native QQ song IDs, then checks whether the
+// returned media URLs actually serve audio bytes. It is opt-in and diagnostic:
+// upstream availability must not make the regular CI suite flaky.
+func diagnoseHTSQQBackends(t *testing.T) {
+	t.Helper()
+	type resultEnvelope struct {
+		Data struct {
+			URL string `json:"url"`
+		} `json:"data"`
+		Message string `json:"message"`
+		Msg string `json:"msg"`
+	}
+	type probe struct {
+		name string
+		host string
+	}
+	hosts := []probe{
+		{name: "HTS primary", host: "https://musicserver.haitangw.cc/v1/"},
+		{name: "HTS backup", host: "https://qt.haitangw.net/v1/"},
+	}
+	tracks := []struct {
+		title string
+		songmid string
+		level string
+	}{
+		{title: "稻香", songmid: "003aAYrm3GE0Ac", level: "standard"},
+		{title: "晴天", songmid: "0039MnYb0qxYhV", level: "standard"},
+		{title: "稻香", songmid: "003aAYrm3GE0Ac", level: "exhigh"},
+	}
+	client := &http.Client{Timeout: 15 * time.Second}
+	seen := make(map[string]string)
+	for _, host := range hosts {
+		for _, track := range tracks {
+			payload, _ := json.Marshal(map[string]string{
+				"source": "tx",
+				"rid": track.songmid,
+				"level": track.level,
+			})
+			req, err := http.NewRequest(http.MethodPost, host.host+"music/resolve-url", bytes.NewReader(payload))
+			if err != nil {
+				t.Logf("QQ backend %s %s/%s: build request failed: %v", host.name, track.title, track.level, err)
+				continue
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("User-Agent", "Mozilla/5.0 (Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36")
+			req.Header.Set("x-request-id", fmt.Sprintf("qm-muwat0on-%d", time.Now().UnixNano()))
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Logf("QQ backend %s %s/%s: API request failed: %v", host.name, track.title, track.level, err)
+				continue
+			}
+			raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+			resp.Body.Close()
+			if readErr != nil {
+				t.Logf("QQ backend %s %s/%s: read response failed: %v", host.name, track.title, track.level, readErr)
+				continue
+			}
+			var envelope resultEnvelope
+			_ = json.Unmarshal(raw, &envelope)
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 || envelope.Data.URL == "" {
+				detail := strings.TrimSpace(envelope.Message)
+				if detail == "" { detail = strings.TrimSpace(envelope.Msg) }
+				if detail == "" { detail = strings.TrimSpace(string(raw)) }
+				if len(detail) > 400 { detail = detail[:400] }
+				t.Logf("QQ backend %s %s/%s: HTTP %s, no playable URL; response=%q", host.name, track.title, track.level, resp.Status, detail)
+				continue
+			}
+			parsed, parseErr := url.Parse(envelope.Data.URL)
+			if parseErr != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+				t.Logf("QQ backend %s %s/%s: returned invalid media URL %q", host.name, track.title, track.level, envelope.Data.URL)
+				continue
+			}
+			t.Logf("QQ backend %s %s/%s: API HTTP %s -> media host=%s", host.name, track.title, track.level, resp.Status, parsed.Host)
+			if prior, ok := seen[track.songmid]; ok && prior != envelope.Data.URL {
+				t.Logf("QQ backend %s: same track returned different URLs across quality levels", host.name)
+			}
+			seen[track.songmid] = envelope.Data.URL
+			mediaReq, reqErr := http.NewRequest(http.MethodGet, envelope.Data.URL, nil)
+			if reqErr != nil {
+				t.Logf("QQ backend %s %s/%s: media request build failed: %v", host.name, track.title, track.level, reqErr)
+				continue
+			}
+			mediaReq.Header.Set("Range", "bytes=0-63")
+			mediaReq.Header.Set("User-Agent", "Mozilla/5.0")
+			mediaResp, mediaErr := client.Do(mediaReq)
+			if mediaErr != nil {
+				t.Logf("QQ backend %s %s/%s: media endpoint unreachable: %v", host.name, track.title, track.level, mediaErr)
+				continue
+			}
+			audioBytes, _ := io.ReadAll(io.LimitReader(mediaResp.Body, 64))
+			mediaResp.Body.Close()
+			t.Logf("QQ backend %s %s/%s: media HTTP %s, received=%d bytes", host.name, track.title, track.level, mediaResp.Status, len(audioBytes))
+		}
+	}
+}
 
 // TestProductionLXUploadedScriptsResolveRealPlaybackURL is the functional
 // counterpart to the capability-only import test. It runs each exact uploaded
@@ -66,6 +166,10 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 			if err != nil {
 				t.Fatalf("import exact uploaded script: %v", err)
 			}
+			if os.Getenv("MYLIVEHUB_DIAGNOSE_HTS_QQ") == "1" {
+				diagnoseHTSQQBackends(t)
+			}
+
 			if !imported.Enabled || len(imported.NativeActions) == 0 || imported.NativeActions[0] != "musicUrl" {
 				t.Fatalf("script must be enabled with native musicUrl: %#v", imported)
 			}
