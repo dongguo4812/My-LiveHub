@@ -1261,7 +1261,7 @@ func (s *MusicService) Stop() error {
 	return err
 }
 
-// GetLyrics preserves the legacy synchronous entry point used by scene snapshots.
+// GetLyrics preserves the synchronous entry point used by scene snapshots.
 func (s *MusicService) GetLyrics(track music.Track) (string, error) {
 	return s.getLyrics(context.Background(), track)
 }
