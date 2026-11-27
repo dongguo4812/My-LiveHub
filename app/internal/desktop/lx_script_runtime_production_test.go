@@ -789,7 +789,7 @@ func containsLXXinghaiSource(values []string, target string) bool {
 }
 
 
-func TestProductionLXScriptTestBlocksNativeSearchFallbackWhenScriptOmitsSearch(t *testing.T) {
+func TestProductionLXScriptTestUsesBuiltinQuickJSSearchWhenScriptOmitsSearch(t *testing.T) {
 	manager := testLXConfigManager(t)
 	runtime := newLXScriptRuntime(manager).(*productionMusicLXRuntime)
 	source := `
@@ -825,8 +825,10 @@ lx.send(lx.EVENT_NAMES.inited, {sources: {
 		if item.Platform == "tx" && (item.Status != "unsupported" || !strings.Contains(item.Message, "未声明 musicUrl")) {
 			t.Fatalf("tx should have an explicit unsupported result: %#v", item)
 		}
-		if item.Platform == "kw" && !strings.Contains(item.Message, "已阻止 Go 原生搜索回退") {
-			t.Fatalf("kw without a script search action must fail closed instead of using Go search: %#v", item)
+		if item.Platform == "kw" && (strings.TrimSpace(item.Song) == "" ||
+			strings.Contains(item.Message, "搜索失败") ||
+			strings.Contains(item.Message, "QuickJS 搜索 Action 尚未就绪")) {
+			t.Fatalf("kw without a script search action must use the built-in QuickJS provider search: %#v", item)
 		}
 		if item.Platform == "mg" && !strings.Contains(item.Message, "搜索未返回歌曲") {
 			t.Fatalf("mg script search should return its empty fixture: %#v", item)
