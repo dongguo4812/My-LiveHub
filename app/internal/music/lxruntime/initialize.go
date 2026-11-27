@@ -66,20 +66,23 @@ func (r *Runtime) InitializeLXSourceWithCache(ctx context.Context, info ScriptIn
 		filename = "lx-source.js"
 	}
 	cacheSource := source
-	evalSource, cacheHit, cacheable := prepareLXObfuscationCacheSource(source, cache)
-	if cacheHit {
-		log.Printf("[LX-Obfuscation] script=%q cache=hit sha256=%s rotations=%d", filename, cache.SourceSHA256, cache.RotationCount)
-	} else if cacheable {
-		log.Printf("[LX-Obfuscation] script=%q cache=miss sha256=%s", filename, lxSourceSHA256(source))
-	}
 	profileObfuscation := os.Getenv(lxObfuscationProfileEnv) == "1"
+	var evalSource string
+	var cacheHit, cacheable bool
 	if profileObfuscation {
 		var instrumented bool
-		evalSource, instrumented = instrumentLXObfuscationProfile(evalSource)
+		evalSource, instrumented = instrumentLXObfuscationProfile(source)
 		if instrumented {
 			log.Printf("[LX-Obfuscation] script=%q profiling=enabled", filename)
 		} else {
 			log.Printf("[LX-Obfuscation] script=%q profiling=unsupported_source_shape", filename)
+		}
+	} else {
+		evalSource, cacheHit, cacheable = prepareLXObfuscationCacheSource(source, cache)
+		if cacheHit {
+			log.Printf("[LX-Obfuscation] script=%q cache=hit sha256=%s rotations=%d", filename, cache.SourceSHA256, cache.RotationCount)
+		} else if cacheable {
+			log.Printf("[LX-Obfuscation] script=%q cache=miss sha256=%s", filename, lxSourceSHA256(source))
 		}
 	}
 	sourceEvalStarted := time.Now()
