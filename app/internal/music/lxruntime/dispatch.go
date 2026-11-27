@@ -25,8 +25,14 @@ func (r *Runtime) dispatchLXRequest(ctx context.Context, source, action string, 
 	if r == nil {
 		return nil, errors.New("LX dispatch: runtime is nil")
 	}
+	lockStarted := time.Now()
 	r.dispatchMu.Lock()
-	defer r.dispatchMu.Unlock()
+	logLXTiming("action_wait", lockStarted, fmt.Sprintf("lock=runtime_dispatch source=%q action=%q", source, action))
+	actionStarted := time.Now()
+	defer func() {
+		logLXTiming("action_execute", actionStarted, fmt.Sprintf("scope=runtime_dispatch source=%q action=%q", source, action))
+		r.dispatchMu.Unlock()
+	}()
 	if ctx == nil {
 		ctx = context.Background()
 	}

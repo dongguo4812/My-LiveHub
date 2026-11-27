@@ -134,13 +134,16 @@ func New(opts Options) (*Runtime, error) {
 	if opts.MemoryLimitBytes <= 0 { opts.MemoryLimitBytes = defaultMemoryLimit }
 	if opts.StackLimitBytes <= 0 { opts.StackLimitBytes = defaultStackLimit }
 	if opts.EvalTimeout <= 0 { opts.EvalTimeout = defaultEvalTimeout }
+	loadStarted := time.Now()
 	api, err := loadQuickJSAPI()
+	logLXTiming("quickjs_library_load", loadStarted, "result="+timingResult(err))
 	if err != nil { return nil, err }
 	lifecycle, shutdown := context.WithCancel(context.Background())
 	r := &Runtime{commands: make(chan command), done: make(chan struct{}), lifecycle: lifecycle, shutdown: shutdown, api: api}
 	ready := make(chan error, 1)
 	go r.loop(opts, ready)
 	if err := <-ready; err != nil { return nil, err }
+	logLXTiming("runtime_create", loadStarted, "result=ready")
 	return r, nil
 }
 
@@ -237,15 +240,20 @@ func (r *Runtime) EvalWithTimeout(ctx context.Context, source, filename string, 
 	defer func(){ stopShutdown(); cancelEval() }()
 	result := make(chan evalResult, 1)
 	cmd := command{ctx:evalCtx, evalTimeout:timeout, source:source, filename:filename, result:result}
+	queueStarted := time.Now()
 	select {
 	case <-r.done: return "", errors.New("QuickJS runtime is closed")
 	case <-ctx.Done(): return "", ctx.Err()
 	case r.commands <- cmd:
+		logLXTiming("quickjs_queue_wait", queueStarted, fmt.Sprintf("filename=%q", filename))
 	}
+	evalStarted := time.Now()
 	select {
 	case <-ctx.Done(): return "", ctx.Err()
 	case <-r.done: return "", errors.New("QuickJS runtime is closed")
-	case value := <-result: return value.value, value.err
+	case value := <-result:
+		logLXTiming("quickjs_eval", evalStarted, fmt.Sprintf("filename=%q result=%q", filename, timingResult(value.err)))
+		return value.value, value.err
 	}
 }
 func (r *Runtime) Close() error {

@@ -70,6 +70,10 @@ func executeLXHTTPRequestWithPolicy(parent context.Context, descriptor lxRequest
 	if method == "" {
 		method = http.MethodGet
 	}
+	httpStarted := time.Now()
+	defer func() {
+		logLXTiming("http_request", httpStarted, fmt.Sprintf("host=%q method=%s", parsed.Host, method))
+	}()
 	if !validHTTPToken(method) {
 		return nil, fmt.Errorf("lx.request: invalid HTTP method %q", method)
 	}
@@ -82,8 +86,10 @@ func executeLXHTTPRequestWithPolicy(parent context.Context, descriptor lxRequest
 	// Acquire the global request budget before DNS resolution. Otherwise a
 	// burst of scripts can bypass the concurrency limit by fanning out DNS
 	// lookups before any request reaches the semaphore.
+	semaphoreStarted := time.Now()
 	select {
 	case lxRequestSemaphore <- struct{}{}:
+		logLXTiming("http_semaphore_wait", semaphoreStarted, fmt.Sprintf("host=%q", parsed.Host))
 		defer func() { <-lxRequestSemaphore }()
 	case <-ctx.Done():
 		return nil, ctx.Err()
