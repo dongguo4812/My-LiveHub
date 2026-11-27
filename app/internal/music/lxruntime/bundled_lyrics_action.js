@@ -80,8 +80,12 @@
     const translated = str(pick(data, 'tlyric', 'trans', 'translation'));
     return { lyric, tlyric: translated };
   }
+  function nativeInfo(info, ...keys) {
+    const sourceData = info && (info.source_data || info.sourceData) || {};
+    return pick(info, ...keys) || pick(sourceData, ...keys);
+  }
   async function lyricKuwo(info, endpoints) {
-    const id = str(pick(info, 'songmid', 'song_id', 'id'));
+    const id = str(nativeInfo(info, 'songmid', 'song_id', 'id'));
     if (!id) throw new Error('Kuwo lyric requires songmid');
     const body = await json(append(endpoints.kw || defaults.kw, { musicId: id }), {
       'User-Agent': 'Mozilla/5.0',
@@ -91,7 +95,7 @@
     return { lyric: lrcFromKuwo(data.lrclist || data.lrcList || data.list), tlyric: '' };
   }
   async function lyricKugou(info, endpoints) {
-    const hash = str(pick(info, 'hash', 'FileHash', 'filehash'));
+    const hash = str(nativeInfo(info, 'hash', 'FileHash', 'filehash'));
     if (!hash) throw new Error('Kugou lyric requires native song hash');
     const title = str(pick(info, 'title', 'name'));
     const artist = str(pick(info, 'artist', 'singer'));
@@ -110,8 +114,8 @@
     return { lyric: decodeBase64(downloaded.content), tlyric: '' };
   }
   async function lyricQQ(info, endpoints) {
-    const mid = str(pick(info, 'songmid', 'song_mid'));
-    const id = str(pick(info, 'song_id', 'songid', 'id'));
+    const mid = str(nativeInfo(info, 'songmid', 'song_mid'));
+    const id = str(nativeInfo(info, 'song_id', 'songid', 'id'));
     if (!mid && !id) throw new Error('QQ lyric requires songmid/song_id');
     const body = await json(append(endpoints.tx || defaults.tx, {
       songmid: mid, songid: id, format: 'json', nobase64: '1',
@@ -120,7 +124,7 @@
     return normalizeLyric(body);
   }
   async function lyricNetease(info, endpoints) {
-    const id = str(pick(info, 'songmid', 'song_id', 'id')).replace(/^wy_/, '');
+    const id = str(nativeInfo(info, 'songmid', 'song_id', 'id')).replace(/^wy_/, '');
     if (!id) throw new Error('Netease lyric requires song id');
     const body = await json(append(endpoints.wy || defaults.wy, { id, lv: '-1', tv: '-1' }), {
       'User-Agent': 'Mozilla/5.0', Referer: 'https://music.163.com/'
