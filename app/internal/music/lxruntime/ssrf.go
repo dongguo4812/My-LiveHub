@@ -14,6 +14,38 @@ import (
 	"time"
 )
 
+type lxSafeHTTPClientKey struct {
+	client *http.Client
+	allowPrivate bool
+}
+
+// safeHTTPClient reuses one policy-wrapped transport for this Runtime. The
+// underlying http.Transport owns the keep-alive pool, so rebuilding it for
+// every lx.request would force repeated DNS/TCP/TLS setup.
+func (r *Runtime) safeHTTPClient(client *http.Client, allowPrivate bool) (*http.Client, error) {
+	if client == nil { client = http.DefaultClient }
+	if r == nil { return lxSafeHTTPClientWithPolicy(client, allowPrivate) }
+	key := lxSafeHTTPClientKey{client: client, allowPrivate: allowPrivate}
+	r.httpClientMu.Lock()
+	defer r.httpClientMu.Unlock()
+	if cached := r.safeHTTPClients[key]; cached != nil { return cached, nil }
+	safe, err := lxSafeHTTPClientWithPolicy(client, allowPrivate)
+	if err != nil { return nil, err }
+	if r.safeHTTPClients == nil { r.safeHTTPClients = make(map[lxSafeHTTPClientKey]*http.Client) }
+	r.safeHTTPClients[key] = safe
+	return safe, nil
+}
+
+func (r *Runtime) closeSafeHTTPClients() {
+	if r == nil { return }
+	r.httpClientMu.Lock()
+	clients := make([]*http.Client, 0, len(r.safeHTTPClients))
+	for _, client := range r.safeHTTPClients { clients = append(clients, client) }
+	r.safeHTTPClients = nil
+	r.httpClientMu.Unlock()
+	for _, client := range clients { client.CloseIdleConnections() }
+}
+
 // lxSafeHTTPClient applies the script network boundary independently of the
 // caller's HTTP client. The default transport pins each connection to an IP
 // address that was resolved and checked immediately before dialing, preventing
