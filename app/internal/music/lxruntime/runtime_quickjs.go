@@ -138,12 +138,13 @@ func New(opts Options) (*Runtime, error) {
 	api, err := loadQuickJSAPI()
 	logLXTiming("quickjs_library_load", loadStarted, "result="+timingResult(err))
 	if err != nil { return nil, err }
+	createStarted := time.Now()
 	lifecycle, shutdown := context.WithCancel(context.Background())
 	r := &Runtime{commands: make(chan command), done: make(chan struct{}), lifecycle: lifecycle, shutdown: shutdown, api: api}
 	ready := make(chan error, 1)
 	go r.loop(opts, ready)
 	if err := <-ready; err != nil { return nil, err }
-	logLXTiming("runtime_create", loadStarted, "result=ready")
+	logLXTiming("runtime_create", createStarted, "result=ready")
 	return r, nil
 }
 

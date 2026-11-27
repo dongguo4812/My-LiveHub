@@ -904,7 +904,7 @@ func TestPlayNextDoesNotRetireTrackWhenResolutionIsSuperseded(t *testing.T) {
 	if got := service.GetStatus().LastError; got != "" { t.Fatalf("cancellation was reported as a playback error: %q", got) }
 }
 
-func TestCachedPlaybackStatusExposesActiveResolution(t *testing.T) {
+func TestCachedPlaybackStatusKeepsPlayingTrackDuringResolution(t *testing.T) {
 	value := config.DefaultMusicConfig()
 	value.Enabled = true
 	service := NewMusicServiceWithDependencies(nil, value, &nextTrackTestEngine{})
@@ -919,7 +919,9 @@ func TestCachedPlaybackStatusExposesActiveResolution(t *testing.T) {
 	snapshot, err := service.GetCachedPlaybackStatus()
 	if err != nil { t.Fatal(err) }
 	if snapshot.ResolutionStatus != "resolving" { t.Fatalf("resolution status = %q, want resolving", snapshot.ResolutionStatus) }
-	if snapshot.Track == nil || snapshot.Track.ID != track.ID { t.Fatalf("resolving track not exposed in playback snapshot: %#v", snapshot.Track) }
+	if snapshot.Track == nil || snapshot.Track.ID != oldTrack.ID {
+		t.Fatalf("track during next-track resolution = %#v, want the actually playing track %q", snapshot.Track, oldTrack.ID)
+	}
 }
 
 type blockingLXScriptRuntime struct {
