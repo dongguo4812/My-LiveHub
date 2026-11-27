@@ -58,7 +58,8 @@ type quickJSAPI struct {
 	newRuntime func(uintptr, uintptr, *unsafe.Pointer) unsafe.Pointer
 	freeRuntime func(unsafe.Pointer)
 	setInterrupted func(unsafe.Pointer, int32)
-	eval func(unsafe.Pointer, unsafe.Pointer, unsafe.Pointer, *unsafe.Pointer, *float64, *float64, *float64) unsafe.Pointer
+	evalTimed func(unsafe.Pointer, unsafe.Pointer, unsafe.Pointer, *unsafe.Pointer, *float64, *float64, *float64) unsafe.Pointer
+	evalLegacy func(unsafe.Pointer, unsafe.Pointer, unsafe.Pointer, *unsafe.Pointer) unsafe.Pointer
 	installCrypto func(unsafe.Pointer, *unsafe.Pointer) int32
 	freeString func(unsafe.Pointer)
 	alloc func(uintptr) unsafe.Pointer
@@ -88,12 +89,20 @@ func openQuickJSAPI() (*quickJSAPI, error) {
 	bind := func(target any, symbol string) error { return lib.bind(target, symbol) }
 	for _, item := range []struct{ target any; name string }{
 		{&api.newRuntime, "lxqjs_new"}, {&api.freeRuntime, "lxqjs_free"},
-		{&api.setInterrupted, "lxqjs_set_interrupted"}, {&api.eval, "lxqjs_eval_timed"},
+		{&api.setInterrupted, "lxqjs_set_interrupted"},
 		{&api.installCrypto, "lxqjs_install_crypto"}, {&api.freeString, "lxqjs_string_free"},
 		{&api.alloc, "lxqjs_alloc"}, {&api.dealloc, "lxqjs_dealloc"},
 		{&api.setCallbacks, "lxqjs_set_host_callbacks"},
 	} {
 		if err := bind(item.target, item.name); err != nil { return nil, fmt.Errorf("resolve QuickJS symbol %s: %w", item.name, err) }
+	}
+	if err := bind(&api.evalTimed, "lxqjs_eval_timed"); err != nil {
+		// Older bundled LX ABI 1 libraries expose lxqjs_eval but predate
+		// the timing extension. Keep them usable; timing fields remain zero.
+		if legacyErr := bind(&api.evalLegacy, "lxqjs_eval"); legacyErr != nil {
+			return nil, fmt.Errorf("resolve QuickJS eval symbols: timed API unavailable (%v), legacy API unavailable (%w)", err, legacyErr)
+		}
+		log.Printf("[LX-Timing] compatibility=legacy_eval reason=%q; compile/execute phase timings unavailable", err.Error())
 	}
 	setNativeAllocator(api.alloc)
 	api.setCallbacks(
@@ -188,8 +197,13 @@ func (r *Runtime) loop(opts Options, ready chan<- error) {
 		filenamePtr := r.allocCString(cmd.filename)
 		var evalError unsafe.Pointer
 		var compileMS, executeMS, jobsMS float64
-		value := r.api.eval(state, sourcePtr, filenamePtr, &evalError, &compileMS, &executeMS, &jobsMS)
-		log.Printf("[LX-Timing] stage=quickjs_eval_phases filename=%q compile_ms=%.3f execute_ms=%.3f promise_jobs_ms=%.3f", cmd.filename, compileMS, executeMS, jobsMS)
+		var value unsafe.Pointer
+		if r.api.evalTimed != nil {
+			value = r.api.evalTimed(state, sourcePtr, filenamePtr, &evalError, &compileMS, &executeMS, &jobsMS)
+		} else {
+			value = r.api.evalLegacy(state, sourcePtr, filenamePtr, &evalError)
+		}
+		log.Printf("[LX-Timing] stage=quickjs_eval_phases filename=%q compile_ms=%.3f execute_ms=%.3f promise_jobs_ms=%.3f timing_api=%s", cmd.filename, compileMS, executeMS, jobsMS, map[bool]string{true:"timed",false:"legacy"}[r.api.evalTimed != nil])
 		r.api.dealloc(sourcePtr)
 		r.api.dealloc(filenamePtr)
 		close(stopWatch)
