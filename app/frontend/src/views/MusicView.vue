@@ -497,7 +497,7 @@ onUnmounted(() => {
       <div>
         <p class="eyebrow">MUSIC PLAYER</p>
         <h2>音乐中心</h2>
-        <p class="description">管理独立 HTMLAudio 音乐播放、歌曲搜索与观众点播队列。</p>
+        <p class="description">管理独立 HTMLAudio 音乐播放、歌曲搜索与观众点播队列，无需启动外部播放器。</p>
         <el-alert v-if="config && !config.enabled" title="音乐模块当前已关闭：无法加入歌曲队列或播放。请在下方「点歌设置」中启用音乐模块并保存全部设置。" type="warning" :closable="false" show-icon style="margin-top:12px" />
       </div>
       <el-tag v-if="musicStatus?.lx_runtime_status === 'initializing'" type="warning" effect="plain">JS 音源初始化中</el-tag>
@@ -556,7 +556,7 @@ onUnmounted(() => {
         <el-button :disabled="!canPrevious" @click="previousTrack">上一首</el-button>
         <el-button :disabled="!canNextTrack" @click="nextTrack">下一首</el-button>
       </div>
-      <p class="hint">播放由 My-LiveHub 内置 HTMLAudio 负责，无需启动外部播放器。</p>
+      
     </el-card>
 
     <el-card v-if="activeTab === 'now-playing'" class="player-card lyrics-detail-card" shadow="never">
