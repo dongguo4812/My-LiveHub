@@ -28,6 +28,7 @@ type VoiceEventConfig struct {
 type VoiceConfig struct {
 	ConfigVersion int              `json:"config_version"`
 	Enabled       bool             `json:"enabled"`
+	AudioOutputEnabled bool       `json:"audio_output_enabled"`
 	Engine        string           `json:"engine"`
 	Voice         string           `json:"voice"`
 	Rate          string           `json:"rate"`
