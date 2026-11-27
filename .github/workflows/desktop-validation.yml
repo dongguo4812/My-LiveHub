@@ -180,7 +180,11 @@ jobs:
 
       - name: Build Windows executable
         shell: pwsh
-        run: go build -tags lxproduction -ldflags "-H=windowsgui" -o bin/My-LiveHub.exe .
+        run: |
+          go build -tags lxproduction -ldflags "-H=windowsgui" -o bin/My-LiveHub.exe .
+          if ($LASTEXITCODE -ne 0) { throw "Windows executable build failed" }
+          if (!(Test-Path "bin/My-LiveHub.exe")) { throw "Windows executable output is missing" }
+          if (!(Test-Path "bin/lxqjs.dll")) { throw "Production QuickJS runtime output is missing" }
 
   real-provider-integration:
     name: Real provider and browser integration
