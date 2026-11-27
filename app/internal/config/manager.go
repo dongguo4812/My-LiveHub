@@ -88,6 +88,54 @@ func (m *Manager) Save(name string, value map[string]any) error {
 	return writeAtomically(filepath.Join(m.localDir, name), data)
 }
 
+
+const maxLocalJSONFileBytes = 40 << 20
+
+// ReadLocalJSON reads an application-owned JSON file from config/local without
+// requiring a matching embedded default. It is intended for bounded module data.
+func (m *Manager) ReadLocalJSON(name string, maxBytes int64) ([]byte, bool, error) {
+	if m == nil { return nil, false, errors.New("configuration manager is nil") }
+	if err := validateJSONName(name); err != nil { return nil, false, err }
+	if maxBytes <= 0 || maxBytes > maxLocalJSONFileBytes { maxBytes = maxLocalJSONFileBytes }
+	path := filepath.Join(m.localDir, name)
+	file, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) { return nil, false, nil }
+	if err != nil { return nil, false, fmt.Errorf("open local data %q: %w", name, err) }
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	if err != nil { return nil, false, fmt.Errorf("read local data %q: %w", name, err) }
+	if int64(len(data)) > maxBytes { return nil, false, fmt.Errorf("local data %q exceeds %d-byte limit", name, maxBytes) }
+	return data, true, nil
+}
+
+// WriteLocalJSON atomically persists bounded module-owned JSON data in config/local.
+func (m *Manager) WriteLocalJSON(name string, data []byte, maxBytes int64) error {
+	if m == nil { return errors.New("configuration manager is nil") }
+	if err := validateJSONName(name); err != nil { return err }
+	if maxBytes <= 0 || maxBytes > maxLocalJSONFileBytes { maxBytes = maxLocalJSONFileBytes }
+	if int64(len(data)) > maxBytes { return fmt.Errorf("local data %q exceeds %d-byte limit", name, maxBytes) }
+	if !json.Valid(data) { return fmt.Errorf("local data %q is not valid JSON", name) }
+	if err := os.MkdirAll(m.localDir, 0o700); err != nil { return fmt.Errorf("create local config directory: %w", err) }
+	return writeAtomically(filepath.Join(m.localDir, name), data)
+}
+
+// QuarantineLocalJSON moves an unreadable module data file aside so one damaged
+// store cannot prevent the rest of the application from starting.
+func (m *Manager) QuarantineLocalJSON(name string) (string, error) {
+	if m == nil { return "", errors.New("configuration manager is nil") }
+	if err := validateJSONName(name); err != nil { return "", err }
+	source := filepath.Join(m.localDir, name)
+	target := source + ".corrupt"
+	if _, err := os.Stat(target); err == nil {
+		target = fmt.Sprintf("%s.corrupt.%d", source, os.Getpid())
+	}
+	if err := os.Rename(source, target); err != nil {
+		if errors.Is(err, os.ErrNotExist) { return "", nil }
+		return "", fmt.Errorf("quarantine local data %q: %w", name, err)
+	}
+	return target, nil
+}
+
 // Reset removes the local override so the default values take effect again.
 func (m *Manager) Reset(name string) error {
 	if err := validateJSONName(name); err != nil {

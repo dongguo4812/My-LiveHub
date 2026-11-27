@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { Loading } from '@element-plus/icons-vue'
 import * as VoiceService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/voice/voiceservice.js'
-import { voiceAudioPlaying, voiceAudioUnlocked, unlockVoiceAudio } from '../services/voiceAudio'
+import { disableVoiceAudioAndForget, enableVoiceAudioAndRemember, voiceAudioPlaying, voiceAudioUnlocked, unlockVoiceAudio } from '../services/voiceAudio'
 
 type VoiceConfig = Awaited<ReturnType<typeof VoiceService.GetConfig>>
 type VoiceStatus = Awaited<ReturnType<typeof VoiceService.GetStatus>>
@@ -75,6 +76,38 @@ async function saveConfig() {
   }
 }
 
+async function enableAudioOutput() {
+  error.value = ''
+  success.value = ''
+  try {
+    const enabled = await enableVoiceAudioAndRemember()
+    if (!enabled) {
+      error.value = '浏览器尚未允许音频输出，请再次点击启用音频输出'
+      return
+    }
+    if (config.value) config.value.audio_output_enabled = true
+    success.value = '音频输出已启用，设置将在重启后自动尝试恢复'
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  }
+}
+
+async function disableAudioOutput() {
+  error.value = ''
+  success.value = ''
+  try {
+    const disabled = await disableVoiceAudioAndForget()
+    if (!disabled) {
+      error.value = '音频上下文仍在运行，停用状态未能确认'
+      return
+    }
+    if (config.value) config.value.audio_output_enabled = false
+    success.value = '音频输出已停用，当前播报已停止并清空队列'
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  }
+}
+
 async function testSpeech() {
   error.value = ''
   success.value = ''
@@ -131,9 +164,13 @@ onUnmounted(() => {
     <el-alert v-if="error" :title="error" type="error" :closable="true" show-icon @close="error = ''" />
     <el-alert v-if="success" :title="success" type="success" :closable="true" show-icon @close="success = ''" />
 
-    <el-card shadow="never" v-loading="loading">
+    <el-card shadow="never">
       <template #header><div class="card-heading"><strong>播报引擎</strong><el-tag type="success">Edge TTS</el-tag></div></template>
-      <div v-if="config" class="setting-list">
+      <div v-if="loading && !config" class="loading-state" role="status" aria-live="polite">
+        <el-icon class="is-loading"><Loading /></el-icon>
+        <span>正在加载语音设置…</span>
+      </div>
+      <div v-else-if="config" class="setting-list">
         <div class="setting-row">
           <div><strong>启用语音播报</strong><p>启用后，事件中心的新事件会进入语音播报队列。</p></div>
           <el-switch v-model="config.enabled" />
@@ -177,13 +214,25 @@ onUnmounted(() => {
     </el-card>
 
     <el-card shadow="never">
-      <template #header><strong>播报控制与测试</strong></template>
+      <template #header>
+        <div class="card-heading">
+          <strong>播报控制与测试</strong>
+          <el-tag :type="voiceAudioUnlocked ? 'success' : 'info'" effect="plain">
+            {{ voiceAudioUnlocked ? '音频已启用' : '音频已停用' }}
+          </el-tag>
+        </div>
+      </template>
       <div class="audio-unlock">
-        <div><strong>音频输出</strong><p>首次使用需要手动启用音频，启用后后台事件可自动播报。</p></div>
-        <el-button :type="voiceAudioUnlocked ? 'success' : 'primary'" @click="unlockVoiceAudio">
-          {{ voiceAudioUnlocked ? '音频已启用' : '启用音频输出' }}
+        <div><strong>音频输出</strong><p>启用偏好会保存，重启后自动尝试恢复。</p></div>
+        <el-button
+          type="primary"
+          :disabled="!config"
+          @click="voiceAudioUnlocked || config?.audio_output_enabled ? disableAudioOutput() : enableAudioOutput()"
+        >
+          {{ voiceAudioUnlocked || config?.audio_output_enabled ? '停用音频输出' : '启用音频输出' }}
         </el-button>
       </div>
+      <el-alert v-if="config?.audio_output_enabled && !voiceAudioUnlocked" title="已记住启用偏好，但当前 WebView 尚未获得音频播放权限；请点击按钮恢复。" type="warning" :closable="false" show-icon />
       <el-divider />
       <el-input v-model="testText" maxlength="500" show-word-limit placeholder="输入测试播报内容" @keyup.enter="testSpeech" />
       <div class="card-actions">
@@ -204,5 +253,5 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.voice-page{display:flex;flex-direction:column;gap:20px}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.setting-row p,.hint,.audio-unlock p{color:var(--el-text-color-secondary);font-size:13px}.card-heading{display:flex;align-items:center;justify-content:space-between}.setting-list{display:flex;flex-direction:column;gap:8px}.setting-row,.audio-unlock{display:flex;align-items:center;justify-content:space-between;gap:24px}.setting-row p,.audio-unlock p{margin:6px 0 0}.slider-row{display:grid;grid-template-columns:140px 1fr;align-items:center;gap:24px;margin:16px 0}.slider-row div{display:flex;justify-content:space-between;gap:12px}.slider-row span{color:var(--el-text-color-secondary);font-variant-numeric:tabular-nums}.card-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}.event-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.hint{margin:16px 0 0}.status-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:18px}.status-grid div{display:flex;flex-direction:column;gap:6px;padding:14px;border:1px solid var(--app-border);border-radius:9px;background:var(--app-bg-control)}.status-grid small{color:var(--el-text-color-secondary)}.status-grid strong{font-size:20px}.current-text{color:var(--el-text-color-secondary);font-size:13px;overflow-wrap:anywhere}@media(max-width:900px){.event-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.setting-row,.audio-unlock{align-items:flex-start;flex-direction:column}.slider-row{grid-template-columns:1fr;gap:4px}}
+.voice-page{display:flex;flex-direction:column;gap:20px}.loading-state{display:flex;align-items:center;justify-content:center;gap:10px;min-height:88px;color:var(--el-text-color-secondary);font-size:13px}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.setting-row p,.hint,.audio-unlock p{color:var(--el-text-color-secondary);font-size:13px}.card-heading{display:flex;align-items:center;justify-content:space-between}.setting-list{display:flex;flex-direction:column;gap:8px}.setting-row,.audio-unlock{display:flex;align-items:center;justify-content:space-between;gap:24px}.setting-row p,.audio-unlock p{margin:6px 0 0}.slider-row{display:grid;grid-template-columns:140px 1fr;align-items:center;gap:24px;margin:16px 0}.slider-row div{display:flex;justify-content:space-between;gap:12px}.slider-row span{color:var(--el-text-color-secondary);font-variant-numeric:tabular-nums}.card-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}.event-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.hint{margin:16px 0 0}.status-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:18px}.status-grid div{display:flex;flex-direction:column;gap:6px;padding:14px;border:1px solid var(--app-border);border-radius:9px;background:var(--app-bg-control)}.status-grid small{color:var(--el-text-color-secondary)}.status-grid strong{font-size:20px}.current-text{color:var(--el-text-color-secondary);font-size:13px;overflow-wrap:anywhere}@media(max-width:900px){.event-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.setting-row,.audio-unlock{align-items:flex-start;flex-direction:column}.slider-row{grid-template-columns:1fr;gap:4px}}
 </style>

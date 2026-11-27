@@ -1,0 +1,121 @@
+//go:build lxproduction
+
+package lxruntime
+
+import (
+ "context"
+ "encoding/json"
+ "net/http"
+ "net/http/httptest"
+ "strings"
+ "testing"
+ "time"
+)
+
+func TestProductionLXBundledLyricsActionsUseQuickJSForAllFivePlatforms(t *testing.T) {
+ var kugouDownloads int
+ server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+  switch r.URL.Path {
+  case "/kw":
+   _ = json.NewEncoder(w).Encode(map[string]any{"data":map[string]any{"lrclist":[]any{map[string]any{"time":"00:01.00","lineLyric":"KW original"},map[string]any{"time":"00:02.00","lineLyric":"KW next"}}}})
+  case "/kg-search":
+   _ = json.NewEncoder(w).Encode(map[string]any{"candidates":[]any{map[string]any{"id":"kg-id","accesskey":"kg-key"}}})
+  case "/kg-download":
+   kugouDownloads++
+   _ = json.NewEncoder(w).Encode(map[string]any{"content":"WzAwOjAxLjAwXUtH"})
+  case "/tx":
+   _ = json.NewEncoder(w).Encode(map[string]any{"lyric":"[00:01.00]TX original","tlyric":"[00:01.00]TX translation"})
+  case "/wy":
+   _ = json.NewEncoder(w).Encode(map[string]any{"lrc":map[string]any{"lyric":"[00:01.00]WY original"},"tlyric":map[string]any{"lyric":"[00:01.00]WY translation"}})
+  case "/mg":
+   _, _ = w.Write([]byte("[00:01.00]MG original\n[00:01.00]MG next"))
+  case "/kw-fallback":
+   _ = json.NewEncoder(w).Encode(map[string]any{"data":map[string]any{"lrclist":[]any{
+    map[string]any{"time":"0.5","lineLyric":"KW half second"},
+    map[string]any{"time":"73.45","lineLyric":"KW minute thirteen"},
+   }}})
+  case "/empty":
+   _ = json.NewEncoder(w).Encode(map[string]any{"data":map[string]any{"lrclist":[]any{}}})
+  default:
+   http.NotFound(w,r)
+  }
+ }))
+ defer server.Close()
+
+ runtime, err := New(Options{})
+ if err != nil { t.Fatal(err) }
+ defer runtime.Close()
+ runtime.allowPrivateNetworkForTests = true
+ ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+ defer cancel()
+ source := BundledLyricsAction()
+ if err := runtime.InitializeLXSource(ctx,source.Info,source.Source,server.Client()); err != nil { t.Fatalf("initialize built-in lyrics: %v",err) }
+ capabilities, err := runtime.Eval(ctx,`JSON.stringify(globalThis.__lxHostState.initInfo.sources)`,"lyrics-capabilities-test.js")
+ if err != nil { t.Fatal(err) }
+ var declared map[string]struct{ Actions []string `json:"actions"` }
+ if err := json.Unmarshal([]byte(capabilities),&declared); err != nil { t.Fatal(err) }
+
+ endpoints := map[string]string{
+  "kw":server.URL+"/kw", "kwFallback":server.URL+"/kw-fallback", "kgSearch":server.URL+"/kg-search", "kgDownload":server.URL+"/kg-download",
+  "tx":server.URL+"/tx", "wy":server.URL+"/wy", "mg":server.URL+"/mg",
+ }
+ tracks := map[string]map[string]any{
+  "kw":{"id":"kw-1","title":"KW","songmid":"kw-native"},
+  "kg":{"id":"kg-1","title":"KG","artist":"Singer","duration_ms":180000,"source_data":map[string]any{"hash":"KG-HASH"}},
+  "tx":{"id":"tx-1","title":"TX","songmid":"TX-MID","song_id":"123"},
+  "wy":{"id":"wy_123","title":"WY"},
+  "mg":{"id":"mg-1","title":"MG","source_data":map[string]any{"lrc_url":server.URL+"/mg"}},
+ }
+ for _, source := range []string{"tx","kg","kw","wy","mg"} {
+  registered := false
+  for _, action := range declared[source].Actions { if action=="lyric" { registered=true } }
+  if !registered { t.Fatalf("%s lyric action was not registered: %#v",source,declared[source]) }
+  requestCtx, requestCancel := context.WithTimeout(context.Background(),5*time.Second)
+  value, dispatchErr := runtime.dispatchLXRequest(requestCtx,source,"lyric",map[string]any{
+   "musicInfo":tracks[source],"__testEndpoints":endpoints,
+  },server.Client())
+  requestCancel()
+  if dispatchErr != nil { t.Fatalf("%s lyric action failed: %v",source,dispatchErr) }
+  raw, marshalErr := json.Marshal(value)
+  if marshalErr != nil { t.Fatal(marshalErr) }
+  var result struct { Lyric string `json:"lyric"`; Translation string `json:"tlyric"` }
+  if err := json.Unmarshal(raw,&result); err != nil { t.Fatalf("%s lyric decode: %v (%s)",source,err,raw) }
+  if !strings.Contains(result.Lyric,"[00:01.00]") { t.Errorf("%s lost LRC timeline: %#v",source,result) }
+  if (source=="tx" || source=="wy") && result.Translation=="" { t.Errorf("%s lost translation: %#v",source,result) }
+  if source=="kw" {
+   lines := strings.Split(result.Lyric,"\n")
+   if len(lines)!=2 || lines[0]!="[00:01.00]KW original" || lines[1]!="[00:02.00]KW next" {
+    t.Errorf("Kuwo lyric must be emitted as separate timestamped lines for the shared lyric parser, got %#v",lines)
+   }
+  }
+ }
+ if kugouDownloads != 1 { t.Fatalf("Kugou lyric download requests=%d, want 1",kugouDownloads) }
+
+ // The mobile endpoint can return data:null/empty for valid songs. Verify the
+ // fallback endpoint and conversion from decimal seconds to LRC timestamps.
+ fallbackCtx, fallbackCancel := context.WithTimeout(context.Background(),5*time.Second)
+ fallback, fallbackErr := runtime.dispatchLXRequest(fallbackCtx,"kw","lyric",map[string]any{
+  "musicInfo":map[string]any{"id":"kw_kuwo-fallback","source_data":map[string]any{"songmid":"MUSIC_kuwo-fallback"}},
+  "__testEndpoints":map[string]string{"kw":server.URL+"/empty","kwFallback":server.URL+"/kw-fallback"},
+ },server.Client())
+ fallbackCancel()
+ if fallbackErr != nil { t.Fatalf("Kuwo fallback lyric request failed: %v",fallbackErr) }
+ fallbackJSON,_ := json.Marshal(fallback)
+ var fallbackResult struct { Lyric string `json:"lyric"` }
+ if err := json.Unmarshal(fallbackJSON,&fallbackResult); err != nil { t.Fatal(err) }
+ if !strings.Contains(fallbackResult.Lyric,"[00:00.50]KW half second") || !strings.Contains(fallbackResult.Lyric,"[01:13.45]KW minute thirteen") {
+  t.Fatalf("Kuwo decimal-second timestamps were not normalized: %q",fallbackResult.Lyric)
+ }
+
+ emptyEndpoints := map[string]string{"kw":server.URL+"/empty","kwFallback":server.URL+"/empty"}
+ emptyCtx, emptyCancel := context.WithTimeout(context.Background(),5*time.Second)
+ empty, emptyErr := runtime.dispatchLXRequest(emptyCtx,"kw","lyric",map[string]any{
+  "musicInfo":map[string]any{"id":"kw-empty","songmid":"kw-empty"},"__testEndpoints":emptyEndpoints,
+ },server.Client())
+ emptyCancel()
+ if emptyErr != nil { t.Fatalf("empty lyric response should be valid: %v",emptyErr) }
+ emptyJSON,_ := json.Marshal(empty)
+ var emptyResult struct { Lyric string `json:"lyric"` }
+ _ = json.Unmarshal(emptyJSON,&emptyResult)
+ if emptyResult.Lyric!="" { t.Fatalf("empty lyric result = %q",emptyResult.Lyric) }
+}

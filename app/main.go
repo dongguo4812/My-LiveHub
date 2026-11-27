@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync/atomic"
+	"time"
 
 	"github.com/dongguo4812/My-LiveHub/app/internal/config"
 	"github.com/dongguo4812/My-LiveHub/app/internal/core"
@@ -36,6 +37,7 @@ var assets embed.FS
 var embeddedDefaultConfig embed.FS
 
 func main() {
+	processStartedAt := time.Now()
 	// The updater invokes this lightweight mode to verify the version of the
 	// executable after replacement without starting Wails or touching user data.
 	if len(os.Args) == 3 && os.Args[1] == "--write-version" {
@@ -77,6 +79,7 @@ func main() {
 		}()
 	}
 	log.Printf("starting My-LiveHub (environment=%s, data=%s)", environment, dataDir)
+	log.Printf("[Music-Timing] stage=application_process_start_to_logger_ready duration_ms=%.3f", float64(time.Since(processStartedAt))/float64(time.Millisecond))
 
 	var defaultConfigFS fs.FS
 	if environment == config.EnvironmentDevelopment {
@@ -158,6 +161,7 @@ func main() {
 	bilibiliEvents := eventstream.NewBuffer(eventBus)
 	requestNoticeBroker := desktop.NewRequestNoticeBroker()
 	musicService := desktop.NewMusicServiceWithFanMedalChecker(configManager, musicConfig, fanMedalChecker, bilibiliEvents)
+	log.Printf("[Music-Timing] stage=application_process_start_to_music_service_constructed duration_ms=%.3f", float64(time.Since(processStartedAt))/float64(time.Millisecond))
 	musicLyricsWindowService := desktop.NewMusicLyricsWindowService(musicService)
 	bilibiliVideoResolver, err := bilibili.NewVideoResolver(bilibiliAuth, nil)
 	if err != nil { log.Fatalf("initialize Bilibili video resolver: %v", err) }
@@ -212,6 +216,7 @@ func main() {
 	if err := coreApp.Modules().Register("music", desktop.NewMusicModule(musicService)); err != nil {
 		log.Fatalf("register music module: %v", err)
 	}
+	log.Printf("[Music-Timing] stage=application_process_start_to_music_module_registered duration_ms=%.3f", float64(time.Since(processStartedAt))/float64(time.Millisecond))
 	if err := coreApp.Modules().Register("video", desktop.NewVideoModule(videoQueueService)); err != nil {
 		log.Fatalf("register video module: %v", err)
 	}
@@ -262,7 +267,9 @@ func main() {
 	if _, statErr := os.Stat(packagedHexExecutable); statErr == nil {
 		lolHexLogDir = filepath.Join(runtimeRoot, "dist", "lol_hex_display", "logs")
 	}
-	monitorService := desktop.NewMonitorService(logDirectory, lolHexLogDir)
+	monitorService := desktop.NewMonitorServiceWithPlatformManager(logDirectory, platformManager, lolHexLogDir)
+	monitorService.StartFrontendHeartbeatWatchdog(15*time.Second, 45*time.Second)
+	monitorService.StartSystemMetricsSampler(5 * time.Second)
 	lolHexService, err := desktop.NewLOLHexService(runtimeRoot, filepath.Join(paths.LocalDir, "lol_hex_display.json"))
 	if err != nil {
 		log.Printf("LOL Hex built-in module unavailable: %v", err)
@@ -338,7 +345,10 @@ func main() {
 	})
 
 	wailsApp = app
-	desktop.AttachApplication(platformService, app, appConfig.Appearance.Theme == "light")
+	log.Printf("[Music-Timing] stage=application_process_start_to_wails_app_constructed duration_ms=%.3f", float64(time.Since(processStartedAt))/float64(time.Millisecond))
+	monitorService.AttachWebView2Monitoring(app)
+	desktop.AttachHTMLAudioPlayback(musicService, app)
+	platformService.SetApplication(app, appConfig.Appearance.Theme == "light")
 	desktop.AttachDanmakuDisplayApplication(danmakuDisplayService, app)
 	desktop.AttachMusicLyricsWindowApplication(musicLyricsWindowService, app)
 	desktop.AttachBilibiliWebViewApplication(bilibiliWebViewService, app)
@@ -365,10 +375,47 @@ func main() {
 		Name: "main-window", Title: "My-LiveHub", Width: 1440, Height: 900,
 		MinWidth: 1100, MinHeight: 680, BackgroundColour: background, URL: "/",
 	})
+	logMainWindowState := func(reason string) {
+		log.Printf("main-window diagnostic: event=%s visible=%t minimised=%t maximised=%t focused=%t",
+			reason, mainWindow.IsVisible(), mainWindow.IsMinimised(), mainWindow.IsMaximised(), mainWindow.IsFocused())
+	}
+	for _, item := range []struct {
+		event events.WindowEventType
+		name  string
+	}{
+		{events.Common.WindowShow, "show"},
+		{events.Common.WindowHide, "hide"},
+		{events.Common.WindowFocus, "focus"},
+		{events.Common.WindowLostFocus, "lost_focus"},
+		{events.Common.WindowMinimise, "minimise"},
+		{events.Common.WindowUnMinimise, "unminimise"},
+		{events.Common.WindowRestore, "restore"},
+	} {
+		item := item
+		mainWindow.OnWindowEvent(item.event, func(_ *application.WindowEvent) {
+			logMainWindowState(item.name)
+			switch item.name {
+			case "hide", "minimise":
+				monitorService.SetFrontendMonitoringSuspended(true)
+			case "show", "unminimise", "restore":
+				monitorService.SetFrontendMonitoringSuspended(false)
+			}
+		})
+	}
+	showMainWindow := func(reason string) {
+		logMainWindowState(reason + "_before")
+		mainWindow.Show()
+		logMainWindowState(reason + "_after_show")
+		mainWindow.Focus()
+		logMainWindowState(reason + "_after_focus")
+	}
+	log.Printf("main-window diagnostic: created")
+	log.Printf("[Music-Timing] stage=application_process_start_to_main_window_created duration_ms=%.3f", float64(time.Since(processStartedAt))/float64(time.Millisecond))
 	// Restore auxiliary windows only after the main WebView runtime is ready.
 	// Creating the transparent overlay before app.Run() can initialise its
 	// WebView before the native event loop and break transparent composition.
 	mainWindow.OnWindowEvent(events.Common.WindowRuntimeReady, func(_ *application.WindowEvent) {
+		logMainWindowState("runtime_ready")
 		if danmakuWindowConfig.OpenOnStartup {
 			if err := danmakuDisplayService.OpenWindow(); err != nil {
 				log.Printf("restore danmaku overlay window: %v", err)
@@ -377,6 +424,7 @@ func main() {
 	})
 	// Respect the user's persisted close-window behavior.
 	mainWindow.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
+		logMainWindowState("closing")
 		event.Cancel()
 		if appearanceService.GetWindowCloseBehavior() == config.WindowCloseExit {
 			app.Quit()
@@ -401,26 +449,31 @@ func main() {
 		}
 	})
 	trayMenu.Add("显示主界面").OnClick(func(_ *application.Context) {
-		mainWindow.Show()
-		mainWindow.Focus()
+		log.Printf("tray diagnostic: menu_action=show_main_window")
+		showMainWindow("tray_menu_show")
 	})
 	trayMenu.Add("检查更新").OnClick(func(_ *application.Context) {
+		log.Printf("tray diagnostic: menu_action=check_updates")
 		trayCheckUpdatesPending.Store(true)
-		mainWindow.Show()
-		mainWindow.Focus()
+		showMainWindow("tray_menu_check_updates")
 	})
 	trayMenu.AddSeparator()
 	trayMenu.Add("退出 My-LiveHub").OnClick(func(_ *application.Context) {
+		log.Printf("tray diagnostic: menu_action=quit")
 		app.Quit()
 	})
 	tray.SetMenu(trayMenu)
 	tray.OnClick(func() {
+		logMainWindowState("tray_click_before")
+		log.Printf("tray diagnostic: click_received")
 		if mainWindow.IsVisible() {
+			log.Printf("tray diagnostic: action=hide")
 			mainWindow.Hide()
+			logMainWindowState("tray_click_after_hide")
 			return
 		}
-		mainWindow.Show()
-		mainWindow.Focus()
+		log.Printf("tray diagnostic: action=show_and_focus")
+		showMainWindow("tray_click_restore")
 	})
 	if err := app.Run(); err != nil {
 		log.Fatal(err)

@@ -290,9 +290,6 @@ func (c *Catalog) List(platformID, sourceID string, kind Type) []Resource {
 	}
 	c.mu.RUnlock()
 	sort.Slice(out, func(i, j int) bool {
-		// Positive positions come from the platform directory response and
-		// take precedence over the alphabetical fallback used by older or
-		// event-discovered resources.
 		if out[i].SortOrder > 0 && out[j].SortOrder > 0 && out[i].SortOrder != out[j].SortOrder {
 			return out[i].SortOrder < out[j].SortOrder
 		}

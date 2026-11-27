@@ -452,7 +452,13 @@ func (s *SceneService) handleMusicLyrics(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "invalid music track", http.StatusBadRequest)
 		return
 	}
-	lyrics, err := s.music.GetLyrics(track)
+	var lyrics string
+	var err error
+	if provider, ok := s.music.(interface { GetLyricsWithContext(context.Context, music.Track) (string, error) }); ok {
+		lyrics, err = provider.GetLyricsWithContext(r.Context(), track)
+	} else {
+		lyrics, err = s.music.GetLyrics(track)
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return

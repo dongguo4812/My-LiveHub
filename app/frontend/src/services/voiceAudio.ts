@@ -80,30 +80,82 @@ export function initializeVoiceAudio() {
   }))
 }
 
+function bindContextState(contextToBind: AudioContext) {
+  contextToBind.onstatechange = () => {
+    voiceAudioUnlocked.value = contextToBind.state === 'running'
+    if (voiceAudioUnlocked.value) void playNext()
+  }
+}
+
 export async function unlockVoiceAudio() {
   try {
-    if (!context) context = new AudioContext()
+    if (!context) {
+      context = new AudioContext()
+      bindContextState(context)
+    }
     await context.resume()
     voiceAudioUnlocked.value = context.state === 'running'
     await playNext()
     return voiceAudioUnlocked.value
   } catch {
-    voiceAudioUnlocked.value = false
+    voiceAudioUnlocked.value = context?.state === 'running'
+    return voiceAudioUnlocked.value
+  }
+}
+
+// Persist the user's intent separately from the browser's runtime AudioContext
+// state. A restart may require another user gesture due to WebView autoplay policy.
+export async function enableVoiceAudioAndRemember() {
+  const unlocked = await unlockVoiceAudio()
+  if (!unlocked) return false
+  const config = await VoiceService.GetConfig()
+  config.audio_output_enabled = true
+  await VoiceService.SaveConfig(config)
+  return true
+}
+
+export async function restoreVoiceAudioPreference() {
+  try {
+    const config = await VoiceService.GetConfig()
+    if (!config.audio_output_enabled) return false
+    return await unlockVoiceAudio()
+  } catch {
+    voiceAudioUnlocked.value = context?.state === 'running'
     return false
   }
 }
 
+// Turn audio output off, clear pending speech, and persist the disabled preference.
+export async function disableVoiceAudioAndForget() {
+  const config = await VoiceService.GetConfig()
+  config.audio_output_enabled = false
+  await VoiceService.SaveConfig(config)
+
+  stopVoiceAudio()
+  if (context?.state === 'running') {
+    try {
+      await context.suspend()
+    } catch {
+      // Keep the exported state tied to the actual AudioContext state.
+    }
+  }
+  voiceAudioUnlocked.value = context?.state === 'running'
+  return !voiceAudioUnlocked.value
+}
+
 export async function pauseVoiceAudio() {
   if (context?.state === 'running') await context.suspend()
+  voiceAudioUnlocked.value = context?.state === 'running'
 }
 
 export async function resumeVoiceAudio() {
   if (!context) return unlockVoiceAudio()
   try {
     await context.resume()
+    voiceAudioUnlocked.value = context.state === 'running'
     await playNext()
   } catch {
-    voiceAudioUnlocked.value = false
+    voiceAudioUnlocked.value = context?.state === 'running'
   }
 }
 

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func writeMonitorTestLog(t *testing.T, path string, lines ...string) {
@@ -100,5 +101,53 @@ func TestGetLogsByDateMergesExtensionLogsNewestFirst(t *testing.T) {
 	recent := service.GetRecentLogs(10)
 	if len(recent) != 2 || recent[0].Time != entries[0].Time || recent[1].Time != entries[1].Time {
 		t.Fatalf("recent merged logs = %#v, want same newest-first order as date view", recent)
+	}
+}
+
+
+func TestRecordFrontendHeartbeatUpdatesSnapshot(t *testing.T) {
+	service := NewMonitorService(t.TempDir())
+	before := service.GetFrontendHeartbeatSnapshot()
+	if !before.LastSeenAt.IsZero() || before.Stale {
+		t.Fatalf("initial heartbeat snapshot = %#v, want empty and healthy", before)
+	}
+
+	service.RecordFrontendHeartbeat()
+	first := service.GetFrontendHeartbeatSnapshot()
+	if first.LastSeenAt.IsZero() || first.Stale {
+		t.Fatalf("recorded heartbeat snapshot = %#v, want timestamp and healthy state", first)
+	}
+
+	service.mu.Lock()
+	service.frontendHeartbeatStale = true
+	service.mu.Unlock()
+	service.RecordFrontendHeartbeat()
+	recovered := service.GetFrontendHeartbeatSnapshot()
+	if recovered.Stale || recovered.LastSeenAt.IsZero() || recovered.LastSeenAt.Before(first.LastSeenAt) {
+		t.Fatalf("recovered heartbeat snapshot = %#v, want a non-zero, non-decreasing timestamp and healthy state", recovered)
+	}
+}
+
+
+func TestSetFrontendMonitoringSuspendedResetsWatchdogGracePeriod(t *testing.T) {
+	service := NewMonitorService(t.TempDir())
+	service.startedAt = time.Now().Add(-time.Hour)
+
+	service.SetFrontendMonitoringSuspended(true)
+	service.mu.Lock()
+	if !service.frontendMonitoringSuspended {
+		service.mu.Unlock()
+		t.Fatal("frontend monitoring was not suspended")
+	}
+	service.mu.Unlock()
+
+	service.SetFrontendMonitoringSuspended(false)
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if service.frontendMonitoringSuspended {
+		t.Fatal("frontend monitoring remained suspended")
+	}
+	if time.Since(service.startedAt) > time.Second {
+		t.Fatalf("watchdog grace period was not reset; startedAt=%s", service.startedAt)
 	}
 }

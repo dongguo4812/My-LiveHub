@@ -18,6 +18,7 @@ const (
 
 type PlaybackSnapshot struct {
 	State PlaybackState `json:"state"`
+	ResolutionStatus string `json:"resolution_status,omitempty"`
 	Track *Track `json:"track,omitempty"`
 	PositionMS int64 `json:"position_ms"`
 	DurationMS int64 `json:"duration_ms"`

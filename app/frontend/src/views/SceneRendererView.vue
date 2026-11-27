@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, onUpdated, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { getActiveSyncedLyric, parseSyncedLyrics, type SyncedLyricLine } from '../utils/syncedLyrics'
 
 type Layer = { id: string; type: string; name: string; x: number; y: number; width: number; height: number; z_index: number; visible: boolean; opacity: number; text?: string; url?: string; color?: string; font_size?: number; queue_display_count?: number; gift_display_duration?: number; super_chat_display_duration?: number; live2d_scale?: number; live2d_x?: number; live2d_y?: number; emoticon_size?: number; emoticon_speed?: number; emoticon_drift?: number; emoticon_max_count?: number; content_scale?: number; request_notice_display_duration?: number }
 type Scene = { id: string; name: string; width: number; height: number; background: string; layers: Layer[] }
@@ -91,8 +92,19 @@ const musicError = ref('')
 const currentRequestNotices = ref<RequestNotice[]>([])
 let requestNoticeSource: EventSource | undefined
 const musicAccentColor = ref('#A83232')
+const syncedLyrics = ref<SyncedLyricLine[]>([])
+const lyricsStatus = ref<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle')
+let lyricsRequestID = 0
+let lyricsAbortController: AbortController | null = null
+const activeMusicLyric = computed(() => {
+  if (!playback.value?.track) return { text: '等待播放歌曲', translation: '' }
+  if (lyricsStatus.value === 'loading' || lyricsStatus.value === 'idle') return { text: '歌词加载中…', translation: '' }
+  if (lyricsStatus.value === 'error') return { text: '歌词暂不可用', translation: '' }
+  if (lyricsStatus.value === 'empty' || syncedLyrics.value.length === 0) return { text: '暂无歌词', translation: '' }
+  return getActiveSyncedLyric(syncedLyrics.value, playback.value?.position_ms ?? 0) ?? { text: '', translation: '' }
+})
 const waveBars = Array.from({ length: 31 }, (_, index) => ({ height: 7 + Math.abs(Math.sin(index * 1.71) * 24), speed: 0.45 + (index % 7) * 0.13, delay: -(Math.random() * 1.8) }))
-const musicColors = ['#FF3B30', '#FF7A00', '#FFD000', '#39D353', '#00D6C9', '#00A6FF', '#4169FF', '#9B5CFF', '#FF4FA3', '#FF6B6B']
+const musicColors = ['#FF5C5C', '#FF963B', '#FFE14A', '#78E65A', '#45E0C1', '#43C8FF', '#82A8FF', '#B58BFF', '#FF79C6', '#FF8A70']
 let source: EventSource | undefined
 let clockTimer: ReturnType<typeof setInterval> | undefined
 let sceneRefreshTimer: ReturnType<typeof setInterval> | undefined
@@ -348,15 +360,25 @@ async function loadScene() {
     if (root) root.style.background = 'transparent'
   } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) }
 }
+// The display queue contains every current/pending track, regardless of whether
+// it came from an audience command, the host's playlist, or manual playback.
+// Only real audience-command requests have a requester label.
 function isAudienceRequest(value?: string) {
   return Boolean(value?.trim())
     && value !== '__my_livehub_search_play__'
+    && value !== '__my_livehub_playlist_play__'
     && value !== '__my_livehub_host_playlist__'
 }
-const audienceCurrent = computed(() => isAudienceRequest(musicQueue.value.current?.requested_by) ? musicQueue.value.current : null)
-const audienceQueueItems = computed(() => musicQueue.value.items.filter(item => isAudienceRequest(item.requested_by)))
-function audienceQueueDisplayItems(layer: Layer) {
-  return audienceQueueItems.value.slice(0, Math.max(1, layer.queue_display_count || 10))
+function isPlaylistPlayback(value?: string) {
+  return value === '__my_livehub_playlist_play__'
+}
+const displayCurrent = computed(() => {
+  const current = musicQueue.value.current
+  return current && !isPlaylistPlayback(current.requested_by) ? current : null
+})
+const displayQueueItems = computed(() => musicQueue.value.items.filter(item => !isPlaylistPlayback(item.requested_by)))
+function displayQueueItemsForLayer(layer: Layer) {
+  return displayQueueItems.value.slice(0, Math.max(1, layer.queue_display_count || 10))
 }
 async function loadLive2DDisplay() {
   try {
@@ -424,6 +446,33 @@ async function loadMusicQueue() {
     musicQueue.value = await response.json() as MusicQueue
   } catch { /* Keep the last known queue while the local source reconnects. */ }
 }
+async function loadTrackLyrics(track: Track) {
+  lyricsAbortController?.abort()
+  const controller = new AbortController()
+  lyricsAbortController = controller
+  const requestID = ++lyricsRequestID
+  syncedLyrics.value = []
+  lyricsStatus.value = 'loading'
+  try {
+    const response = await fetch('/api/music/lyrics', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(track),
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+    if (!response.ok) throw new Error('歌词获取失败')
+    const result = await response.json() as { lyrics?: string }
+    if (requestID !== lyricsRequestID || controller.signal.aborted) return
+    syncedLyrics.value = parseSyncedLyrics(result.lyrics ?? '')
+    lyricsStatus.value = syncedLyrics.value.length > 0 ? 'ready' : 'empty'
+  } catch (cause) {
+    if (requestID !== lyricsRequestID || controller.signal.aborted) return
+    lyricsStatus.value = 'error'
+  } finally {
+    if (lyricsAbortController === controller) lyricsAbortController = null
+  }
+}
 async function loadMusic() {
   if (musicRefreshing) return
   musicRefreshing = true
@@ -436,9 +485,16 @@ async function loadMusic() {
     const key = track ? track.source_id + ':' + track.id : ''
     if (key !== musicTrackKey) {
       musicTrackKey = key
+      lyricsAbortController?.abort()
+      lyricsAbortController = null
+      lyricsRequestID++
+      syncedLyrics.value = []
       if (track) {
+        void loadTrackLyrics(track)
         const nextColors = musicColors.filter(color => color !== musicAccentColor.value)
         musicAccentColor.value = nextColors[Math.floor(Math.random() * nextColors.length)] || musicColors[0]
+      } else {
+        lyricsStatus.value = 'idle'
       }
       musicError.value = ''
     }
@@ -480,6 +536,9 @@ onUnmounted(() => {
   }
 
   sceneRendererUnmounted = true
+  lyricsRequestID++
+  lyricsAbortController?.abort()
+  lyricsAbortController = null
   mouthSyncChannel?.close()
   mouthSyncChannel = null
   if (mouthSyncPollTimer) clearInterval(mouthSyncPollTimer)
@@ -573,30 +632,30 @@ onUnmounted(() => {
       <section v-else-if="layer.type === 'music_queue'" class="music-queue-widget" :style="{ '--queue-accent': layer.color || '#9fc0ff', fontSize: ((layer.font_size || 22) / (scene?.height || 1080) * 100) + 'cqh' }">        <section v-if="musicDisplayConfig?.enabled && musicDisplayConfig.command_enabled" class="music-queue-section music-queue-prompt">
           <div class="music-queue-prompt-single">
             <strong class="music-queue-prompt-title"><span class="music-queue-heading-mark">♪</span> 歌曲点播指令</strong>
-            <span><b>{{ musicDisplayConfig.command_prefix }}</b> 歌曲名称</span>
+            <span><b>{{ musicDisplayConfig.command_prefix }}</b> 歌曲名 歌手名</span>
           </div>
         </section>
         <section class="music-queue-section music-queue-current-section">
-          <div v-if="audienceCurrent" class="music-queue-item music-queue-current music-queue-current-inline music-queue-current-stacked">
+          <div v-if="displayCurrent" class="music-queue-item music-queue-current music-queue-current-inline music-queue-current-stacked">
             <strong class="music-queue-current-label"><span class="music-queue-heading-mark">♫</span> 当前播放</strong>
             <span class="music-queue-current-track">
-              <strong class="music-queue-current-title">{{ audienceCurrent.track.title }}</strong>
-              <span class="music-queue-current-artist">{{ audienceCurrent.track.artist || '未知歌手' }}</span>
+              <strong class="music-queue-current-title">{{ displayCurrent.track.title }}</strong>
+              <span class="music-queue-current-artist">{{ displayCurrent.track.artist || '未知歌手' }}</span>
             </span>
-            <span class="music-queue-requester">{{ audienceCurrent.requested_by }}</span>
+            <span v-if="isAudienceRequest(displayCurrent.requested_by)" class="music-queue-requester">{{ displayCurrent.requested_by }}</span>
           </div>
           <div v-else class="music-queue-item music-queue-current music-queue-current-inline music-queue-current-stacked">
             <strong class="music-queue-current-label"><span class="music-queue-heading-mark">♫</span> 当前播放</strong>
-            <span class="music-queue-empty">暂无点播歌曲</span>
+            <span class="music-queue-empty">暂无播放歌曲</span>
           </div>
         </section>
         <section class="music-queue-section music-queue-pending">
-          <strong class="music-queue-heading"><span class="music-queue-heading-mark">Ⅱ</span> 待播队列 <span class="music-queue-count">{{ audienceQueueItems.length }} 首</span></strong>
-          <div v-if="audienceQueueItems.length" class="music-queue-list">
-            <div v-for="(item, index) in audienceQueueDisplayItems(layer)" :key="item.id" class="music-queue-item">
+          <strong class="music-queue-heading"><span class="music-queue-heading-mark">Ⅱ</span> 待播队列 <span class="music-queue-count">{{ displayQueueItems.length }} 首</span></strong>
+          <div v-if="displayQueueItems.length" class="music-queue-list">
+            <div v-for="(item, index) in displayQueueItemsForLayer(layer)" :key="item.id" class="music-queue-item">
               <span class="music-queue-index">{{ String(index + 1).padStart(2, '0') }}</span>
               <span class="music-queue-track"><strong>{{ item.track.title }}</strong><small>{{ item.track.artist || '未知歌手' }}</small></span>
-              <span class="music-queue-requester">{{ item.requested_by }}</span>
+              <span v-if="isAudienceRequest(item.requested_by)" class="music-queue-requester">{{ item.requested_by }}</span>
             </div>
           </div>
           <div v-else class="music-queue-empty">暂无待播歌曲</div>
@@ -622,6 +681,10 @@ onUnmounted(() => {
               <span class="music-time">{{ formatTime(playback.duration_ms || playback.track.duration_ms) }}</span>
             </div>
           </div>
+        </div>
+        <div class="music-lyrics" :class="{ 'is-empty': !activeMusicLyric.text }" :style="{ fontSize: ((layer.font_size || 24) / (scene?.height || 1080) * 100) + 'cqh' }">
+          <div class="music-lyric-original">{{ activeMusicLyric.text }}</div>
+          <div v-if="activeMusicLyric.translation" class="music-lyric-translation">{{ activeMusicLyric.translation }}</div>
         </div>
       </section>
     </div>
@@ -701,7 +764,7 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-queue-current-artist{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#aeb9ca;font-size:.76em}
 .music-queue-current-inline .music-queue-requester{max-width:24%}.music-queue-current-inline .music-queue-empty{padding:0;white-space:nowrap}.music-queue-current-stacked.music-queue-current-inline .music-queue-requester{box-sizing:border-box;flex:0 0 auto;width:auto;max-width:30%;margin-left:auto;padding-left:0;white-space:nowrap;text-align:right}
 .music-queue-list{gap:0}
-.music-queue-list .music-queue-item{padding-top:.08em;padding-bottom:.08em;border-radius:0;border-bottom:1px solid rgba(255,255,255,.045)}
+.music-queue-list .music-queue-item{padding-top:.02em;padding-bottom:.02em;border-radius:0;border-bottom:1px solid rgba(255,255,255,.045);line-height:1.15}
 .music-queue-list{display:flex;flex:none;flex-direction:column;gap:0;min-height:0;overflow:hidden}
 .music-queue-item{display:flex;align-items:center;gap:.58em;min-width:0;padding:.38em .5em;border:1px solid rgba(255,255,255,.055);border-radius:.36em;background:rgba(255,255,255,.055);line-height:1.3}
 .music-queue-current{border-color:rgba(255,214,107,.2);background:rgba(255,214,107,.075)}.music-queue-item.music-queue-current-inline{padding:.34em 0;border:0;border-radius:0;background:transparent;box-shadow:none}
@@ -712,8 +775,13 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-queue-track small{color:#aeb9ca;font-size:.7em}
 .music-queue-requester{flex:none;max-width:30%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#65b8ff;font-size:.72em;font-weight:700}
 .music-queue-empty{padding:.38em .5em;color:#aeb9ca;font-size:.76em;line-height:1.4}
-.music-widget{width:min(405px,100%);display:flex;flex-direction:column;gap:8px;position:relative;overflow:hidden;border-radius:9px;user-select:none;color:#e7c89d}
-.music-main{height:112px;display:flex;gap:8px;min-width:0;position:relative}
+.music-widget{box-sizing:border-box;width:100%;height:100%;max-height:100%;display:flex;flex-direction:column;gap:6px;position:relative;overflow:hidden;border-radius:9px;user-select:none;color:#e7c89d}
+.music-lyrics{display:flex;flex:1 1 auto;flex-direction:column;justify-content:center;gap:2px;width:100%;min-width:0;min-height:0;box-sizing:border-box;padding:0 8px;overflow:hidden;text-align:left;text-shadow:0 1px 4px #000b}
+.music-lyric-original,.music-lyric-translation{min-width:0;overflow:hidden;text-overflow:clip;white-space:normal;overflow-wrap:anywhere;word-break:break-word;line-height:1.35}
+.music-lyric-original{color:var(--random-color);font-size:1em;font-weight:700}
+.music-lyric-translation{color:var(--random-color);font-size:.78em}
+.music-lyrics.is-empty .music-lyric-original{color:var(--random-color);font-size:.8em;font-weight:500}
+.music-main{width:min(405px,100%);height:112px;flex:none;display:flex;gap:8px;min-width:0;position:relative}
 .music-cover-wrap{height:112px;width:112px;flex:0 0 112px;position:relative;overflow:hidden;border-radius:5px;background:rgba(102,76,60,.35)}
 .music-cover-blur{position:absolute;inset:-20px;background-position:center;background-size:cover;filter:blur(20px) brightness(.8);opacity:.55;transform:scale(1.2)}
 .music-cover{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1}

@@ -1,0 +1,47 @@
+//go:build lxquickjs || lxproduction
+
+package lxruntime
+
+import (
+	"strings"
+)
+
+const lxObfuscationProfileEnv = "MYLIVEHUB_LX_PROFILE_OBFUSCATION"
+
+const (
+	lxObfuscationLoopStart = "while(!![]){try{const _0x3d2c58=parseInt("
+	lxObfuscationLoopEnd = "catch(_0x4bc586){_0x5b6cec['push'](_0x5b6cec['shift']());}}}(a0_0x223d,"
+	lxObfuscationDecodeMiss = "return _0x14f9f3===undefined?(a0_0x54c8['OldavH']===undefined"
+)
+
+type lxObfuscationProfile struct {
+	Iterations       int     `json:"iterations"`
+	DecodeCalls      int     `json:"decodeCalls"`
+	LoopDecodeCalls  int     `json:"loopDecodeCalls"`
+	LoopDurationMS   float64 `json:"loopDurationMs"`
+}
+
+// instrumentLXObfuscationProfile instruments only the known obfuscation
+// bootstrap shape. It changes no source file on disk and is opt-in via env.
+func instrumentLXObfuscationProfile(source string) (string, bool) {
+	if strings.Count(source, lxObfuscationLoopStart) != 1 ||
+		strings.Count(source, lxObfuscationLoopEnd) != 1 ||
+		strings.Count(source, lxObfuscationDecodeMiss) != 1 {
+		return source, false
+	}
+
+	start := "globalThis.__myLiveHubLXObfProfile={started:Date.now(),iterations:0,decodeCalls:0,loopDecodeCalls:0,loopDurationMs:0};" +
+		"while(!![]){globalThis.__myLiveHubLXObfProfile.iterations++;try{const _0x3d2c58=parseInt("
+	end := "catch(_0x4bc586){_0x5b6cec['push'](_0x5b6cec['shift']());}}" +
+		"globalThis.__myLiveHubLXObfProfile.loopDecodeCalls=globalThis.__myLiveHubLXObfProfile.decodeCalls;" +
+		"globalThis.__myLiveHubLXObfProfile.loopDurationMs=Date.now()-globalThis.__myLiveHubLXObfProfile.started;" +
+		"}(a0_0x223d,"
+	decode := "return _0x14f9f3===undefined?(globalThis.__myLiveHubLXObfProfile.decodeCalls++," +
+		"a0_0x54c8['OldavH']===undefined"
+
+	source = strings.Replace(source, lxObfuscationLoopStart, start, 1)
+	source = strings.Replace(source, lxObfuscationLoopEnd, end, 1)
+	source = strings.Replace(source, lxObfuscationDecodeMiss, decode, 1)
+	return source, true
+}
+

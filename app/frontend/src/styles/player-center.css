@@ -152,8 +152,24 @@
 .player-page .player-settings-grid .el-input-number {
   width: min(100%, 220px);
 }
-.player-page .time-row {
+.player-page .progress-row {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 48px;
+  align-items: center;
+  column-gap: 12px;
+  min-width: 0;
+}
+.player-page .progress-row .el-slider {
+  min-width: 0;
+}
+.player-page .progress-time {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.player-page .progress-time:last-child {
+  text-align: right;
 }
 .player-page .el-table {
   --el-table-border-color: var(--app-border);

@@ -362,8 +362,6 @@ func normalizeEmoticonURL(raw string) string {
 	if parsed.Scheme == "http" { parsed.Scheme = "https" }
 	return parsed.String()
 }
-// extractDanmakuEmoticons reads Bilibili's emots map from the legacy DANMU_MSG
-// extra payload. The library separately exposes the single-emoticon protobuf form.
 func extractDanmakuEmoticons(d *message.Danmaku) []eventstream.EmoticonToken {
 	if d == nil {
 		return nil

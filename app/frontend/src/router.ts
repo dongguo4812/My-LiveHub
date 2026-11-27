@@ -1,46 +1,27 @@
 import {createRouter,createWebHashHistory} from 'vue-router'
-import DashboardView from './views/DashboardView.vue'
-import MonitorView from './views/MonitorView.vue'
-import PlatformsView from './views/PlatformsView.vue'
-import SettingsView from './views/SettingsView.vue'
-import DanmakuView from './views/DanmakuView.vue'
-import DanmakuOverlayView from './views/DanmakuOverlayView.vue'
-import MusicLyricsOverlayView from './views/MusicLyricsOverlayView.vue'
-import VoiceView from './views/VoiceView.vue'
-import MusicView from './views/MusicView.vue'
-import VideoView from './views/VideoView.vue'
-import Live2DView from './views/Live2DView.vue'
-import SimulatorView from './views/SimulatorView.vue'
-import PlaceholderView from './views/PlaceholderView.vue'
-import EventsView from './views/EventsView.vue'
-import UsersView from './views/UsersView.vue'
-import RulesView from './views/RulesView.vue'
-import ExtensionsView from './views/ExtensionsView.vue'
-import ModulesView from './views/ModulesView.vue'
-import LOLHexManagerView from './views/LOLHexManagerView.vue'
-import LayoutsView from './views/LayoutsView.vue'
-import LogsView from './views/LogsView.vue'
-import SceneRendererView from './views/SceneRendererView.vue'
 const routes=[
-{path:'/',name:'overview',component:DashboardView,meta:{title:'总览',section:'工作台'}},
-{path:'/monitor',component:MonitorView,meta:{title:'实时监控',section:'工作台',description:'只读查看直播连接、互动事件、模块运行状态、系统资源和日志。'}},
-{path:'/platforms',component:PlatformsView,meta:{title:'平台管理',section:'直播接入',description:'管理直播平台适配器、账号授权和直播间连接。'}},
-{path:'/simulator/:platformID',name:'platform-simulator',component:SimulatorView,meta:{title:'平台互动模拟器',standalone:true}},
-{path:'/events',component:EventsView,meta:{title:'事件中心',section:'互动中心',description:'汇总多平台事件，同时保留各平台原生事件信息。'}},
-{path:'/users',component:UsersView,meta:{title:'用户管理',section:'互动中心',description:'查看各平台用户档案和近期互动记录。'}},
-{path:'/rules',component:RulesView,meta:{title:'互动规则',section:'互动中心',description:'配置事件触发条件、动作和自动化流程。'}},
-{path:'/modules',component:ModulesView,meta:{title:'功能模块',section:'功能模块',description:'查看和控制内置模块运行状态。'}},
-{path:'/lol-hex',component:LOLHexManagerView,meta:{title:'LOL Hex 管理',section:'功能模块',description:'管理 LOL Hex 的海克斯识别、截图、OCR、LCU 和战绩条。'}},
-{path:'/layouts',component:LayoutsView,meta:{title:'综合展示',section:'展示管理',description:'编辑多个独立展示布局，并管理对应 OBS 浏览器地址。'}},
-{path:'/scene/:sceneID',component:SceneRendererView,meta:{title:'场景输出',standalone:true}},
-{path:'/extensions',component:ExtensionsView,meta:{title:'扩展管理',section:'扩展中心',description:'管理官方与第三方扩展、权限和独立进程状态。'}},
-{path:'/danmaku',component:DanmakuView,meta:{title:'弹幕显示',section:'功能模块'}},
-{path:'/voice',component:VoiceView,meta:{title:'语音播报',section:'功能模块'}},
-{path:'/music',component:MusicView,meta:{title:'音乐播放',section:'功能模块'}},
-{path:'/video',component:VideoView,meta:{title:'视频点播',section:'功能模块'}},
-{path:'/live2d',component:Live2DView,meta:{title:'Live2D',section:'功能模块'}},
-{path:'/danmaku/overlay',component:DanmakuOverlayView,meta:{title:'弹幕展示',standalone:true}},
-{path:'/music/lyrics-overlay',component:MusicLyricsOverlayView,meta:{title:'桌面歌词',standalone:true}},
-{path:'/settings',component:SettingsView,meta:{title:'系统设置',section:'系统管理'}},
-{path:'/logs',component:LogsView,meta:{title:'日志诊断',section:'系统管理',description:'检索核心、平台适配器和扩展的运行日志。'}}]
+{path:'/',name:'overview',component:() => import('./views/DashboardView.vue'),meta:{title:'总览',section:'工作台'}},
+{path:'/monitor',component:() => import('./views/MonitorView.vue'),meta:{title:'实时监控',section:'工作台',description:'只读查看直播连接、互动事件、模块运行状态、系统资源和日志。'}},
+{path:'/platforms',component:() => import('./views/PlatformsView.vue'),meta:{title:'平台管理',section:'直播接入',description:'管理直播平台适配器、账号授权和直播间连接。'}},
+{path:'/simulator/:platformID',name:'platform-simulator',component:() => import('./views/SimulatorView.vue'),meta:{title:'平台互动模拟器',standalone:true}},
+{path:'/events',component:() => import('./views/EventsView.vue'),meta:{title:'事件中心',section:'互动中心',description:'汇总多平台事件，同时保留各平台原生事件信息。'}},
+{path:'/users',component:() => import('./views/UsersView.vue'),meta:{title:'用户管理',section:'互动中心',description:'查看各平台用户档案和近期互动记录。'}},
+{path:'/rules',component:() => import('./views/RulesView.vue'),meta:{title:'互动规则',section:'互动中心',description:'配置事件触发条件、动作和自动化流程。'}},
+{path:'/modules',component:() => import('./views/ModulesView.vue'),meta:{title:'功能模块',section:'功能模块',description:'查看和控制内置模块运行状态。'}},
+{path:'/lol-hex',component:() => import('./views/LOLHexManagerView.vue'),meta:{title:'LOL Hex',section:'功能模块',description:'管理海克斯识别、截图、OCR、LCU 和战绩条。'}},
+{path:'/layouts',component:() => import('./views/LayoutsView.vue'),meta:{title:'综合展示',section:'展示管理',description:'编辑多个独立展示布局，并管理对应 OBS 浏览器地址。'}},
+{path:'/scene/:sceneID',component:() => import('./views/SceneRendererView.vue'),meta:{title:'场景输出',standalone:true}},
+{path:'/extensions',component:() => import('./views/ExtensionsView.vue'),meta:{title:'扩展管理',section:'扩展中心',description:'管理官方与第三方扩展、权限和独立进程状态。'}},
+{path:'/danmaku',component:() => import('./views/DanmakuView.vue'),meta:{title:'弹幕显示',section:'功能模块'}},
+{path:'/voice',component:() => import('./views/VoiceView.vue'),meta:{title:'语音播报',section:'功能模块'}},
+{path:'/music',component:() => import('./views/MusicView.vue'),meta:{title:'音乐播放',section:'功能模块'}},
+{path:'/music/sources',component:() => import('./views/MusicSourceScriptsView.vue'),meta:{title:'JS 音源脚本管理',section:'功能模块'}},
+{path:'/music/playlists',component:() => import('./views/MusicPlaylistsView.vue'),meta:{title:'我的列表',section:'功能模块'}},
+{path:'/music/replace',component:() => import('./views/MusicReplaceSourceView.vue'),meta:{title:'歌曲换源',section:'功能模块'}},
+{path:'/video',component:() => import('./views/VideoView.vue'),meta:{title:'视频点播',section:'功能模块'}},
+{path:'/live2d',component:() => import('./views/Live2DView.vue'),meta:{title:'Live2D',section:'功能模块'}},
+{path:'/danmaku/overlay',component:() => import('./views/DanmakuOverlayView.vue'),meta:{title:'弹幕展示',standalone:true}},
+{path:'/music/lyrics-overlay',component:() => import('./views/MusicLyricsOverlayView.vue'),meta:{title:'桌面歌词',standalone:true}},
+{path:'/settings',component:() => import('./views/SettingsView.vue'),meta:{title:'系统设置',section:'系统管理'}},
+{path:'/logs',component:() => import('./views/LogsView.vue'),meta:{title:'日志诊断',section:'系统管理',description:'检索核心、平台适配器和扩展的运行日志。'}}]
 export default createRouter({history:createWebHashHistory(),routes})

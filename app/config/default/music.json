@@ -1,5 +1,7 @@
 {
-  "config_version": 14,
+  "config_version": 18,
+  "volume": 1,
+  "loudness_normalization": false,
   "enabled": true,
   "command_enabled": true,
   "skip_command_enabled": true,
@@ -8,11 +10,9 @@
   "queue_capacity": 100,
   "request_cooldown_seconds": 0,
   "queue_display_count": 5,
+  "playlist_playback_mode": "sequential",
   "require_fan_medal": false,
   "fan_medal_level": 1,
-  "lx_api_endpoints": [
-    "http://127.0.0.1:23330"
-  ],
   "enabled_search_sources": [
     "tx",
     "kw",

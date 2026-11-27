@@ -1,0 +1,165 @@
+//go:build lxquickjs || lxproduction
+
+package lxruntime
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
+)
+
+const maxLXScriptSourceBytes = 2 << 20
+
+func prepareLXInitializationSource(source string, cache *LXObfuscationCache, profile bool) (evalSource string, cacheHit, cacheable, profiled bool) {
+	if profile && cache == nil {
+		evalSource, profiled = instrumentLXObfuscationProfile(source)
+		return evalSource, false, false, profiled
+	}
+	evalSource, cacheHit, cacheable = prepareLXObfuscationCacheSource(source, cache)
+	if profile && !cacheable {
+		if instrumentedSource, instrumented := instrumentLXObfuscationProfile(source); instrumented {
+			return instrumentedSource, false, false, true
+		}
+	}
+	return evalSource, cacheHit, cacheable, false
+}
+
+
+func ValidateLXScriptSource(source string) error {
+	if strings.TrimSpace(source) == "" {
+		return errors.New("LX script source is empty")
+	}
+	if len(source) > maxLXScriptSourceBytes {
+		return fmt.Errorf("LX script source exceeds %d-byte limit", maxLXScriptSourceBytes)
+	}
+	return nil
+}
+
+// InitializeLXSource installs the desktop host, evaluates a source, and pumps
+// initialization-time timers and lx.request calls until the source registers
+// its request handler and sends the inited event.
+func (r *Runtime) InitializeLXSource(ctx context.Context, info ScriptInfo, source string, client *http.Client) error {
+	return r.InitializeLXSourceWithCache(ctx, info, source, client, nil)
+}
+
+// InitializeLXSourceWithCache reuses the verified rotation count for the exact
+// script hash. Cache misses execute the original loop and update the cache only
+// after the complete source evaluation succeeds.
+func (r *Runtime) InitializeLXSourceWithCache(ctx context.Context, info ScriptInfo, source string, client *http.Client, cache *LXObfuscationCache) error {
+	if r == nil {
+		return errors.New("LX initialization: runtime is nil")
+	}
+	r.initializeMu.Lock()
+	defer r.initializeMu.Unlock()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ValidateLXScriptSource(source); err != nil {
+		return fmt.Errorf("LX initialization: %w", err)
+	}
+	if len(info.RawScript) > maxLXScriptSourceBytes {
+		return fmt.Errorf("LX initialization: script metadata exceeds %d-byte limit", maxLXScriptSourceBytes)
+	}
+	if client == nil {
+		client = http.DefaultClient
+	}
+	hostErr := r.InstallLXHost(ctx, info)
+	if hostErr != nil {
+		return fmt.Errorf("LX initialization: install host: %w", hostErr)
+	}
+	filename := info.Name
+	if filename == "" {
+		filename = "lx-source.js"
+	}
+	cacheSource := source
+	profileObfuscation := os.Getenv(lxObfuscationProfileEnv) == "1"
+	evalSource, cacheHit, cacheable, _ := prepareLXInitializationSource(source, cache, profileObfuscation)
+	_, sourceEvalErr := r.EvalWithTimeout(ctx, evalSource, filename, maxInitializationEvalTimeout)
+	if sourceEvalErr != nil {
+		return fmt.Errorf("LX initialization: evaluate source: %w", sourceEvalErr)
+	}
+	if cache != nil && cacheable && !cacheHit {
+		rotationText, readErr := r.Eval(ctx, "String(globalThis."+lxObfuscationCacheGlobal+" || 0)", "lx-obfuscation-cache-read.js")
+		if readErr != nil {
+		} else if rotations, parseErr := strconv.Atoi(rotationText); parseErr != nil || rotations < 0 || rotations > 1_000_000 {
+		} else {
+			cache.Version = lxObfuscationCacheVersion
+			cache.SourceSHA256 = lxSourceSHA256(cacheSource)
+			cache.RotationCount = rotations
+		}
+	}
+
+	const maxRequests = 256
+	processed := 0
+	tasks := newLXHTTPTasksWithPolicy(client, r.allowPrivateNetworkForTests)
+	defer tasks.cancelAll()
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		// Separate evals are intentional: each Eval drains QuickJS Promise jobs.
+		_, timerPumpErr := r.Eval(ctx, "globalThis.__lxRunDueTimers(); 'timers-pumped';", "lx-init-timers.js")
+		if timerPumpErr != nil {
+			return fmt.Errorf("LX initialization: pump timers: %w", timerPumpErr)
+		}
+		stateText, err := r.Eval(ctx, `
+JSON.stringify({
+  initialized: !!globalThis.__lxHostState.initialized,
+  requestHandler: typeof globalThis.__lxHostHandlers.request,
+  nextTimerDelay: globalThis.__lxNextTimerDelay(),
+  requests: globalThis.__lxTakeRequests(),
+  aborts: globalThis.__lxTakeAborts()
+})
+`, "lx-init-poll.js")
+		if err != nil {
+			return fmt.Errorf("LX initialization: poll host: %w", err)
+		}
+		var state struct {
+			Initialized    bool                  `json:"initialized"`
+			RequestHandler string                `json:"requestHandler"`
+			NextTimerDelay int64                 `json:"nextTimerDelay"`
+			Requests       []lxRequestDescriptor `json:"requests"`
+			Aborts         []uint64 `json:"aborts"`
+		}
+		if err := json.Unmarshal([]byte(stateText), &state); err != nil {
+			return fmt.Errorf("LX initialization: decode host state: %w", err)
+		}
+		tasks.abort(state.Aborts)
+		if len(state.Requests) > 0 {
+			processed += len(state.Requests)
+			if processed > maxRequests {
+				return fmt.Errorf("LX initialization: request limit (%d) exceeded", maxRequests)
+			}
+			if err := tasks.start(ctx, state.Requests); err != nil {
+				return err
+			}
+		}
+		select {
+		case result := <-tasks.completed:
+			if err := tasks.finish(ctx, r, result); err != nil {
+				return err
+			}
+		default:
+		}
+		if state.Initialized && state.RequestHandler == "function" && len(tasks.active) == 0 {
+			return nil
+		}
+		if !state.Initialized && len(tasks.active) == 0 && state.NextTimerDelay < 0 {
+			return fmt.Errorf("LX initialization: source did not initialize (initialized=%t, requestHandler=%s, requests=%d)", state.Initialized, state.RequestHandler, processed)
+		}
+		result, waitErr := tasks.wait(ctx, state.NextTimerDelay)
+		if waitErr != nil {
+			return waitErr
+		}
+		if result != nil {
+			if err := tasks.finish(ctx, r, *result); err != nil {
+				return err
+			}
+		}
+	}
+}
