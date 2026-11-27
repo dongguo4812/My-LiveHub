@@ -60,10 +60,17 @@ func prepareLXObfuscationCacheSource(source string, cache *LXObfuscationCache) (
 		cache.SourceSHA256 == digest &&
 		cache.RotationCount >= 0 &&
 		cache.RotationCount <= 1_000_000 {
-		replacement := "for(let __myLiveHubObfRotation=0;__myLiveHubObfRotation<" +
-			strconv.Itoa(cache.RotationCount) + ";__myLiveHubObfRotation++){" +
-			arrayName + "['push'](" + arrayName + "['shift']());}}(" + invokedFunction + ","
-		return source[:start] + replacement + source[end[1]:], true, true
+		loopOpen := regexp.MustCompile(`while\(!!\[\]\)\{`).FindStringIndex(source)
+		if loopOpen == nil || loopOpen[0] != start {
+			return source, false, false
+		}
+		preRotate := "for(let __myLiveHubObfPreRotation=0;__myLiveHubObfPreRotation<" +
+			strconv.Itoa(cache.RotationCount) + ";__myLiveHubObfPreRotation++){" +
+			arrayName + "['push'](" + arrayName + "['shift']());}"
+		// Keep one final checksum/decode pass. It verifies the cached array
+		// position and repopulates the decoder's per-runtime string memoization.
+		verifyOnce := "for(let __myLiveHubObfVerify=0;__myLiveHubObfVerify<1;__myLiveHubObfVerify++){"
+		return source[:start] + preRotate + verifyOnce + source[loopOpen[1]:end[1]], true, true
 	}
 
 	// Count actual catch/rotation executions during the first successful eval.
