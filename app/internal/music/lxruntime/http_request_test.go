@@ -248,7 +248,7 @@ func TestLXRequestJSONBodyRejectsOversizeBeforeDecode(t *testing.T) {
 	}
 }
 
-func TestRuntimeSafeHTTPClientReusesKeepAliveConnections(t *testing.T) {
+func TestProductionLXRuntimeSafeHTTPClientReusesKeepAliveConnections(t *testing.T) {
 	var opened atomic.Int32
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "ok")
