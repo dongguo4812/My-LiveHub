@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { parseSyncedLyrics, type SyncedLyricLine } from '../utils/syncedLyrics'
 import { useRoute } from 'vue-router'
 import { Headset, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import '../styles/player-center.css'
@@ -91,6 +92,22 @@ let playbackClockTimer: ReturnType<typeof setInterval> | undefined
 let playbackPositionAnchor = 0
 let playbackPositionAnchorAt = 0
 const displayedPositionMs = ref(0)
+const syncedLyrics = ref<SyncedLyricLine[]>([])
+const lyricsStatus = ref<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle')
+const lyricsError = ref('')
+const lyricsListRef = ref<HTMLElement | null>(null)
+let lyricsTrackKey = ''
+let lyricsRequestID = 0
+let activeLyricsRequestID = ''
+const activeLyricIndex = computed(() => {
+  const position = isSeeking.value ? seekPreviewMs.value : displayedPositionMs.value
+  let active = -1
+  for (let index = 0; index < syncedLyrics.value.length; index++) {
+    if (syncedLyrics.value[index].time > position) break
+    active = index
+  }
+  return active
+})
 const isSeeking = ref(false)
 const seekPreviewMs = ref(0)
 const playbackVolume = ref(100)
@@ -200,6 +217,53 @@ async function clearQueue() {
     error.value = reason instanceof Error ? reason.message : String(reason)
   }
 }
+async function loadPlaybackLyrics(track: NonNullable<PlaybackSnapshot['track']>, key: string) {
+  if (activeLyricsRequestID) {
+    MusicService.CancelLyrics(activeLyricsRequestID)
+    activeLyricsRequestID = ''
+  }
+  const requestID = ++lyricsRequestID
+  const requestToken = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : 'music-lyrics-' + Date.now() + '-' + requestID
+  activeLyricsRequestID = requestToken
+  syncedLyrics.value = []
+  lyricsError.value = ''
+  lyricsStatus.value = 'loading'
+  try {
+    const lrc = await MusicService.GetLyricsForRequest(track, requestToken)
+    if (requestID !== lyricsRequestID || lyricsTrackKey !== key) return
+    activeLyricsRequestID = ''
+    syncedLyrics.value = parseSyncedLyrics(lrc ?? '')
+    lyricsStatus.value = syncedLyrics.value.length > 0 ? 'ready' : 'empty'
+  } catch (reason) {
+    if (requestID !== lyricsRequestID || lyricsTrackKey !== key) return
+    activeLyricsRequestID = ''
+    lyricsError.value = reason instanceof Error ? reason.message : String(reason)
+    lyricsStatus.value = 'error'
+  }
+}
+function retryPlaybackLyrics() {
+  const track = playback.value?.track
+  if (track) void loadPlaybackLyrics(track, lyricsTrackKey)
+}
+watch(activeLyricIndex, async index => {
+  if (index < 0) return
+  await nextTick()
+  const activeLine = lyricsListRef.value?.querySelector<HTMLElement>('.lyrics-detail-line.is-active')
+  activeLine?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+})
+watch(() => playback.value?.track ? playback.value.track.source_id + ':' + playback.value.track.id : '', key => {
+  if (key === lyricsTrackKey) return
+  if (activeLyricsRequestID) {
+    MusicService.CancelLyrics(activeLyricsRequestID)
+    activeLyricsRequestID = ''
+  }
+  lyricsTrackKey = key
+  lyricsRequestID++
+  syncedLyrics.value = []
+  lyricsError.value = ''
+  if (playback.value?.track) void loadPlaybackLyrics(playback.value.track, key)
+  else lyricsStatus.value = 'idle'
+})
 async function refreshPlayback() {
   // Read the local HTMLAudio playback snapshot shared by the music service.
   // The My-LiveHub queue is the sole source of track transitions.
@@ -417,6 +481,8 @@ onMounted(() => {
 onUnmounted(() => {
   if (statusTimer) clearInterval(statusTimer)
   if (playbackClockTimer) clearInterval(playbackClockTimer)
+  lyricsRequestID++
+  if (activeLyricsRequestID) MusicService.CancelLyrics(activeLyricsRequestID)
 })
 </script>
 
@@ -487,6 +553,34 @@ onUnmounted(() => {
         <el-button :disabled="!canNextTrack" @click="nextTrack">下一首</el-button>
       </div>
       <p class="hint">播放由 My-LiveHub 内置 HTMLAudio 负责，无需启动外部播放器。</p>
+    </el-card>
+
+    <el-card v-if="activeTab === 'now-playing'" class="player-card lyrics-detail-card" shadow="never">
+      <template #header>
+        <div class="card-heading">
+          <strong>歌词详情</strong>
+          <el-tag v-if="lyricsStatus === 'ready'" type="success" effect="plain">{{ syncedLyrics.length }} 行</el-tag>
+          <el-tag v-else-if="lyricsStatus === 'loading'" type="info" effect="plain">正在获取歌词</el-tag>
+        </div>
+      </template>
+      <div v-if="!playback?.track" class="lyrics-detail-placeholder">播放歌曲后将在这里显示完整歌词</div>
+      <div v-else-if="lyricsStatus === 'loading'" class="lyrics-detail-placeholder">正在获取歌词…</div>
+      <div v-else-if="lyricsStatus === 'error'" class="lyrics-detail-placeholder">
+        <span>{{ lyricsError || '歌词获取失败' }}</span>
+        <el-button link type="primary" @click="retryPlaybackLyrics">重新获取</el-button>
+      </div>
+      <div v-else-if="lyricsStatus === 'empty'" class="lyrics-detail-placeholder">暂无歌词</div>
+      <div v-else ref="lyricsListRef" class="lyrics-detail-list">
+        <div
+          v-for="(line, index) in syncedLyrics"
+          :key="line.time + '-' + index"
+          class="lyrics-detail-line"
+          :class="{ 'is-active': index === activeLyricIndex }"
+        >
+          <span class="lyrics-detail-original">{{ line.text }}</span>
+          <span v-if="line.translation" class="lyrics-detail-translation">{{ line.translation }}</span>
+        </div>
+      </div>
     </el-card>
 
     <el-card v-if="activeTab === 'search'" class="player-card" shadow="never">
@@ -659,3 +753,15 @@ onUnmounted(() => {
 .music-page{display:flex;flex-direction:column;gap:20px;min-height:calc(100vh - 146px)}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.section-description,.source-copy span,.setting-row p,.hint{color:var(--el-text-color-secondary);font-size:13px}.section-description{margin:0 0 16px}.card-heading{display:flex;align-items:center;justify-content:space-between}.source-list,.setting-list{display:flex;flex-direction:column}.source-row,.setting-row{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:14px 0;border-bottom:1px solid var(--app-border)}.source-row:last-child{border-bottom:0}.source-copy,.track-info{display:flex;flex-direction:column;gap:5px}.source-copy span,.track-info span,.track-info small{font-size:12px;color:var(--el-text-color-secondary)}.setting-row p{margin:6px 0 0}.card-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}.now-playing-list{margin-top:22px;padding-top:18px;border-top:1px solid var(--app-border)}.now-playing-list-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.now-playing-list-header>div{display:flex;flex-direction:column;gap:4px}.now-playing-list-header strong{font-size:15px}.now-playing-list-header span{font-size:12px;color:var(--el-text-color-secondary)}.now-playing-track-list{display:flex;flex-direction:column;gap:6px}.now-playing-track{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid transparent;border-radius:8px;background:var(--el-fill-color-lighter)}.now-playing-track-active{border-color:var(--app-accent);background:var(--app-bg-control)}.now-playing-track-index{width:28px;color:var(--el-text-color-secondary);font-size:12px;font-variant-numeric:tabular-nums;text-align:center}.now-playing-track-info{display:flex;flex:1;flex-direction:column;gap:3px;min-width:0}.now-playing-track-info strong,.now-playing-track-info span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.now-playing-track-info strong{font-size:13px}.now-playing-track-info span{font-size:12px;color:var(--el-text-color-secondary)}.now-playing{display:flex;align-items:center;gap:16px}.track-cover{width:76px;height:76px;border-radius:10px;background:var(--app-bg-control);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--el-text-color-secondary);font-size:30px}.track-cover img{width:100%;height:100%;object-fit:cover}.track-info strong{font-size:17px}.time-row{display:flex;justify-content:space-between;color:var(--el-text-color-secondary);font-size:12px;font-variant-numeric:tabular-nums}.player-controls{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:14px 0}.playback-order-row{display:flex;align-items:center;justify-content:center;gap:12px;margin:8px 0 14px}.playback-order-row span{font-size:13px;color:var(--el-text-color-secondary)}.volume-row{display:grid;grid-template-columns:50px 1fr;align-items:center;gap:12px}.volume-row span{font-size:13px;color:var(--el-text-color-secondary)}.hint{margin:12px 0 0}.search-row{display:flex;gap:10px}.lx-import-row{display:flex;gap:10px;align-items:center;min-width:min(520px,55%)}.lx-import-row :deep(.el-input){flex:1;min-width:180px}.lx-import-mode-row :deep(.el-radio-group){flex-shrink:0}.hidden-file-input{display:none}.lx-source-list{display:flex;flex-direction:column;margin-top:16px}.lx-source-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-top:1px solid var(--app-border)}.lx-source-row .source-copy{min-width:0}.lx-source-row .source-copy span{overflow-wrap:anywhere}.lx-search-source-settings{display:flex;flex-direction:column;gap:6px;margin-top:8px}.lx-search-source-checkboxes{display:flex;flex-wrap:wrap;gap:8px 12px}.lx-search-source-toggle{display:inline-flex;align-items:center;gap:7px;padding:4px 9px;border:1px solid var(--app-border);border-radius:6px;background:var(--el-bg-color);color:var(--el-text-color-regular);font:inherit;font-size:13px;cursor:pointer;transition:border-color .15s,background .15s,color .15s}.lx-search-source-toggle:hover{border-color:var(--app-accent)}.lx-search-source-toggle:has(.lx-search-source-checkbox:checked){border-color:var(--app-accent);background:var(--app-bg-control);color:var(--app-accent)}.lx-search-source-checkbox{width:15px;height:15px;margin:0;flex:0 0 15px;accent-color:var(--app-accent);cursor:pointer}.lx-search-priority-list{display:flex;flex-direction:column;align-items:stretch;gap:5px;margin-top:10px;padding:9px 10px;max-width:360px;border:1px solid var(--app-border);border-radius:7px;background:var(--el-fill-color-lighter)}.lx-search-priority-list>strong{font-size:13px}.lx-search-priority-empty{font-size:12px;color:var(--el-text-color-secondary)}.lx-search-priority-row{display:flex;align-items:center;justify-content:space-between;padding:5px 9px;border:1px solid var(--app-border);border-radius:6px;background:var(--el-bg-color)}.lx-search-priority-row strong{font-size:12px}.lx-search-priority-actions{display:flex;gap:6px}
 .lx-proxy-fields{display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:16px}.lx-proxy-fields label{display:flex;flex-direction:column;gap:8px;color:var(--el-text-color-regular);font-size:13px}.lx-source-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}.lx-source-test-results{display:flex;flex-direction:column;gap:6px;width:100%;padding:8px 0 4px;border-top:1px dashed var(--app-border)}.lx-source-test-result{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:12px}.lx-source-test-result>span{color:var(--el-text-color-secondary)}.lx-source-test-result small{color:var(--el-text-color-secondary)}.search-summary{margin-top:12px;color:var(--el-text-color-secondary);font-size:12px}.search-pagination{display:flex;justify-content:center;margin-top:18px}.playlist-add-track{display:flex;flex-direction:column;gap:5px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--app-bg-control)}.playlist-add-track span{color:var(--el-text-color-secondary);font-size:12px}.queue-current{padding:10px 12px;margin-bottom:12px;border-radius:8px;background:var(--app-bg-control);font-size:13px}.queue-list{display:flex;flex-direction:column;gap:8px}.queue-item{display:flex;align-items:center;gap:12px;padding:11px 12px;border:1px solid var(--app-border);border-radius:9px;background:var(--el-bg-color);transition:border-color .15s,opacity .15s}.queue-item:hover{border-color:var(--app-accent)}.queue-item-dragging{opacity:.45}.queue-drag-handle{display:flex;align-items:center;color:var(--el-text-color-secondary);cursor:grab;touch-action:none}.queue-drag-handle:active{cursor:grabbing}.queue-index{width:24px;color:var(--el-text-color-secondary);font-size:12px;text-align:center}.queue-track{display:flex;flex:1;flex-direction:column;gap:4px;min-width:0}.queue-track strong,.queue-track span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.queue-track span,.queue-requester{color:var(--el-text-color-secondary);font-size:12px}.queue-requester{max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.setting-row p{margin:6px 0 0}@media(max-width:800px){.music-page{min-height:calc(100vh - 126px)}.mini-player{margin-left:-22px;margin-right:-22px;margin-bottom:-22px;padding-left:22px;padding-right:22px}.source-row,.setting-row{align-items:flex-start;flex-direction:column}.search-row,.lx-import-row{flex-direction:column;align-items:stretch}.lx-source-row{align-items:flex-start}.mini-player{align-items:flex-start;flex-direction:column}.mini-player-actions{width:100%;justify-content:space-between}}
 .replace-track-original,.replace-track-comparison{display:flex;flex-direction:column;gap:6px;padding:12px 14px;margin-bottom:14px;border:1px solid var(--app-border);border-radius:9px;background:var(--el-fill-color-lighter)}.replace-track-original small,.replace-track-comparison small{color:var(--el-text-color-secondary);font-size:12px}.replace-candidate-list{display:flex;flex-direction:column;align-items:stretch;width:100%;gap:4px}.replace-candidate{display:flex;align-items:flex-start;width:100%;height:auto;margin:0;padding:9px 10px;border-bottom:1px solid var(--app-border)}.replace-candidate-main{display:flex;flex-direction:column;gap:4px;min-width:0}.replace-candidate-main small{color:var(--el-text-color-secondary);font-size:12px}</style>
+
+<style scoped>
+.lyrics-detail-card { min-height: 260px; }
+.lyrics-detail-list { display:flex; flex-direction:column; gap:13px; max-height:min(58vh,620px); overflow-y:auto; padding:22px 18px; scroll-behavior:smooth; }
+.lyrics-detail-line { display:flex; flex-direction:column; align-items:center; gap:4px; min-height:28px; color:var(--el-text-color-secondary); text-align:center; opacity:.72; transition:color .2s,opacity .2s,transform .2s; }
+.lyrics-detail-original { font-size:15px; line-height:1.6; overflow-wrap:anywhere; }
+.lyrics-detail-translation { font-size:12px; line-height:1.5; opacity:.8; overflow-wrap:anywhere; }
+.lyrics-detail-line.is-active { color:var(--el-color-primary); opacity:1; transform:scale(1.025); }
+.lyrics-detail-line.is-active .lyrics-detail-original { font-size:18px; font-weight:700; }
+.lyrics-detail-line.is-active .lyrics-detail-translation { color:var(--el-text-color-regular); }
+.lyrics-detail-placeholder { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:10px; min-height:170px; color:var(--el-text-color-secondary); }
+</style>
