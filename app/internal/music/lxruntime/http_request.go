@@ -58,7 +58,13 @@ func executeLXHTTPRequest(parent context.Context, descriptor lxRequestDescriptor
 
 // executeLXHTTPRequestWithPolicy is used by tests with httptest loopback servers.
 // Production dispatch always calls executeLXHTTPRequest and keeps the policy closed.
-func executeLXHTTPRequestWithPolicy(parent context.Context, descriptor lxRequestDescriptor, client *http.Client, allowPrivate bool) (response *lxHTTPResponse, requestErr error) {
+func executeLXHTTPRequestWithPolicy(parent context.Context, descriptor lxRequestDescriptor, client *http.Client, allowPrivate bool) (*lxHTTPResponse, error) {
+	return executeLXHTTPRequestWithSafeClient(parent, descriptor, client, allowPrivate, nil)
+}
+
+// executeLXHTTPRequestWithSafeClient reuses a Runtime-owned safe client when
+// available; standalone tests can continue to exercise policy construction.
+func executeLXHTTPRequestWithSafeClient(parent context.Context, descriptor lxRequestDescriptor, client *http.Client, allowPrivate bool, safeClient *http.Client) (response *lxHTTPResponse, requestErr error) {
 	if parent == nil {
 		parent = context.Background()
 	}
@@ -135,9 +141,11 @@ func executeLXHTTPRequestWithPolicy(parent context.Context, descriptor lxRequest
 	if contentType != "" && req.Header.Get("Content-Type") == "" {
 		req.Header.Set("Content-Type", contentType)
 	}
-	safeClient, err := lxSafeHTTPClientWithPolicy(client, allowPrivate)
-	if err != nil {
-		return nil, fmt.Errorf("lx.request: configure network policy: %w", err)
+	if safeClient == nil {
+		safeClient, err = lxSafeHTTPClientWithPolicy(client, allowPrivate)
+		if err != nil {
+			return nil, fmt.Errorf("lx.request: configure network policy: %w", err)
+		}
 	}
 	var traceMu sync.Mutex
 	var wroteRequestAt, tlsStartedAt time.Time
