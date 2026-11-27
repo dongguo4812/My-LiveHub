@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 // LXObfuscationCache stores the result needed to bypass a previously
@@ -73,9 +74,17 @@ func prepareLXObfuscationCacheSource(source string, cache *LXObfuscationCache) (
 		return source[:start] + preRotate + verifyOnce + source[loopOpen[1]:end[1]] + source[end[1]:], true, true
 	}
 
-	// Count actual catch/rotation executions during the first successful eval.
-	instrumented := source[:start] + "globalThis." + lxObfuscationCacheGlobal + "=0;" + source[start:end[0]] +
-		"catch(" + catchName + "){globalThis." + lxObfuscationCacheGlobal + "++;" +
+	// Count both normal checksum-mismatch rotations and exception rotations.
+	// Obfuscators commonly rotate in the try/else branch, not in catch.
+	elseRotation := "else " + arrayName + "['push'](" + arrayName + "['shift']());"
+	loopBody := source[start:end[0]]
+	if strings.Count(loopBody, elseRotation) != 1 {
+		return source, false, false
+	}
+	instrumented := source[:start] + "globalThis." + lxObfuscationCacheGlobal + "=0;" + loopBody
+	instrumented = strings.Replace(instrumented, elseRotation,
+		"else{globalThis."+lxObfuscationCacheGlobal+"++;"+arrayName+"['push']("+arrayName+"['shift']());}", 1)
+	instrumented += "catch(" + catchName + "){globalThis." + lxObfuscationCacheGlobal + "++;" +
 		arrayName + "['push'](" + arrayName + "['shift']());}}}(" + invokedFunction + "," +
 		source[end[1]:]
 	return instrumented, false, true
