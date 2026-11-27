@@ -80,6 +80,19 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 			if len(enabledSources) == 0 {
 				t.Fatalf("script has no supported online music source: %#v", imported)
 			}
+			// Allow CI to isolate a single provider so a successful playback
+			// result cannot be attributed to a different source (for example kg).
+			if requestedProvider := strings.TrimSpace(os.Getenv("MYLIVEHUB_PLAYBACK_PROVIDER")); requestedProvider != "" {
+				filtered := enabledSources[:0]
+				for _, sourceID := range enabledSources {
+					if sourceID == requestedProvider { filtered = append(filtered, sourceID) }
+				}
+				if len(filtered) == 0 {
+					t.Fatalf("requested playback provider %q is not supported by uploaded script; supported=%v", requestedProvider, enabledSources)
+				}
+				enabledSources = filtered
+				t.Logf("isolated real playback verification to provider=%s", requestedProvider)
+			}
 
 			service := NewMusicServiceWithDependencies(testLXConfigManager(t),
 				config.MusicConfig{EnabledSearchSources: enabledSources}, nil, nil)
