@@ -5,17 +5,14 @@ package lxruntime
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
-	"net/http/httptrace"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -80,12 +77,6 @@ func executeLXHTTPRequestWithSafeClient(parent context.Context, descriptor lxReq
 	if method == "" {
 		method = http.MethodGet
 	}
-	ctx = context.WithValue(ctx, lxTimingRequestIDKey{}, descriptor.ID)
-	httpStarted := time.Now()
-	statusCode, responseBytes := 0, 0
-	defer func() {
-		logLXTiming("http_request", httpStarted, fmt.Sprintf("request_id=%d host=%q method=%s status=%d bytes=%d result=%s", descriptor.ID, parsed.Host, method, statusCode, responseBytes, timingResult(requestErr)))
-	}()
 	if !validHTTPToken(method) {
 		return nil, fmt.Errorf("lx.request: invalid HTTP method %q", method)
 	}
@@ -98,21 +89,15 @@ func executeLXHTTPRequestWithSafeClient(parent context.Context, descriptor lxReq
 	// Acquire the global request budget before DNS resolution. Otherwise a
 	// burst of scripts can bypass the concurrency limit by fanning out DNS
 	// lookups before any request reaches the semaphore.
-	semaphoreStarted := time.Now()
 	select {
 	case lxRequestSemaphore <- struct{}{}:
-		logLXTiming("http_semaphore_wait", semaphoreStarted, fmt.Sprintf("request_id=%d host=%q", descriptor.ID, parsed.Host))
 		defer func() { <-lxRequestSemaphore }()
 	case <-ctx.Done():
-		logLXTiming("http_semaphore_wait", semaphoreStarted, fmt.Sprintf("request_id=%d host=%q result=%s", descriptor.ID, parsed.Host, timingResult(ctx.Err())))
 		return nil, ctx.Err()
 	}
-	validationStarted := time.Now()
 	if err := validateLXDestinationWithPolicy(ctx, parsed, allowPrivate); err != nil {
-		logLXTiming("http_destination_validation", validationStarted, fmt.Sprintf("request_id=%d host=%q result=%s", descriptor.ID, parsed.Host, timingResult(err)))
 		return nil, err
 	}
-	logLXTiming("http_destination_validation", validationStarted, fmt.Sprintf("request_id=%d host=%q result=ok", descriptor.ID, parsed.Host))
 
 	body, contentType, err := buildLXRequestBody(descriptor)
 	if err != nil {
@@ -147,51 +132,24 @@ func executeLXHTTPRequestWithSafeClient(parent context.Context, descriptor lxReq
 			return nil, fmt.Errorf("lx.request: configure network policy: %w", err)
 		}
 	}
-	var traceMu sync.Mutex
-	var wroteRequestAt, tlsStartedAt time.Time
-	trace := &httptrace.ClientTrace{
-		TLSHandshakeStart: func() { traceMu.Lock(); tlsStartedAt = time.Now(); traceMu.Unlock() },
-		TLSHandshakeDone: func(_ tls.ConnectionState, err error) {
-			traceMu.Lock(); started := tlsStartedAt; traceMu.Unlock()
-			if !started.IsZero() { logLXTiming("http_tls_handshake", started, fmt.Sprintf("request_id=%d host=%q result=%s", descriptor.ID, parsed.Host, timingResult(err))) }
-		},
-		GotConn: func(info httptrace.GotConnInfo) {
-			logLXTiming("http_connection_acquired", httpStarted, fmt.Sprintf("request_id=%d host=%q reused=%t was_idle=%t", descriptor.ID, parsed.Host, info.Reused, info.WasIdle))
-		},
-		WroteRequest: func(info httptrace.WroteRequestInfo) {
-			traceMu.Lock(); wroteRequestAt = time.Now(); traceMu.Unlock()
-			logLXTiming("http_request_written", httpStarted, fmt.Sprintf("request_id=%d host=%q result=%s", descriptor.ID, parsed.Host, timingResult(info.Err)))
-		},
-		GotFirstResponseByte: func() {
-			traceMu.Lock(); wrote := wroteRequestAt; traceMu.Unlock()
-			if !wrote.IsZero() { logLXTiming("http_ttfb", wrote, fmt.Sprintf("request_id=%d host=%q", descriptor.ID, parsed.Host)) }
-		},
-	}
-	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
 	resp, err := safeClient.Do(req)
 	if err != nil {
 		// Keep endpoint diagnostics useful without exposing signed query values,
 		// cookies, or request bodies in script error messages.
 		return nil, fmt.Errorf("lx.request %s %s: %w", method, parsed.Host+parsed.EscapedPath(), err)
 	}
-	statusCode = resp.StatusCode
 	defer resp.Body.Close()
-	bodyReadStarted := time.Now()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, lxMaxResponseBytes+1))
-	logLXTiming("http_response_read", bodyReadStarted, fmt.Sprintf("request_id=%d host=%q status=%d bytes=%d result=%s", descriptor.ID, parsed.Host, resp.StatusCode, len(raw), timingResult(err)))
 	if err != nil {
 		return nil, fmt.Errorf("lx.request: read response: %w", err)
 	}
 	if len(raw) > lxMaxResponseBytes {
 		return nil, fmt.Errorf("lx.request: response exceeds %d bytes", lxMaxResponseBytes)
 	}
-	responseBytes = len(raw)
-	jsonStarted := time.Now()
 	var parsedBody any
 	if err := json.Unmarshal(raw, &parsedBody); err != nil {
 		parsedBody = string(raw)
 	}
-	logLXTiming("http_response_decode", jsonStarted, fmt.Sprintf("request_id=%d host=%q bytes=%d", descriptor.ID, parsed.Host, len(raw)))
 	headers := make(map[string]any, len(resp.Header))
 	for key, values := range resp.Header {
 		lowerKey := strings.ToLower(key)
