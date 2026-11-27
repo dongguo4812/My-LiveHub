@@ -138,7 +138,6 @@ func (r *productionMusicLXRuntime) testScript(ctx context.Context, id string) (L
 		cacheCopy := *selected.ObfuscationCache
 		selected.ObfuscationCache = &cacheCopy
 	}
-	// Re-run the real QuickJS handshake for every test. Persisted action
 	capabilities, capabilityErr := lxruntime.DetectLXScriptCapabilitiesWithCache(ctx, lxruntime.ScriptInfo{Name:selected.Name, Description:selected.Description, Version:selected.Version, Author:selected.Author, Homepage:selected.Homepage, RawScript:selected.Source}, selected.Source, nil, selected.ObfuscationCache)
 	if capabilityErr != nil {
 		result.Status = "failed"
@@ -164,8 +163,6 @@ func (r *productionMusicLXRuntime) testScript(ctx context.Context, id string) (L
 	service := &MusicService{scriptRuntime:adapter}
 	searcher := scriptAwareSourceSearcher{service:service}
 	unified := music.NewUnifiedSourceService(searcher, adapter)
-	// Include every platform declared by the script, even when it does not
-	// expose musicUrl. Keep the action map as a compatibility fallback for
 	platformSet := make(map[string]struct{}, len(selected.SupportedSources)+len(selected.SourceActions))
 	for _, platform := range selected.SupportedSources {
 		if strings.TrimSpace(platform) != "" { platformSet[platform] = struct{}{} }
