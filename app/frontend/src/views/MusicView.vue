@@ -248,8 +248,17 @@ function retryPlaybackLyrics() {
 watch(activeLyricIndex, async index => {
   if (index < 0) return
   await nextTick()
-  const activeLine = lyricsListRef.value?.querySelector<HTMLElement>('.lyrics-detail-line.is-active')
-  activeLine?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  const container = lyricsListRef.value
+  const activeLine = container?.querySelector<HTMLElement>('.lyrics-detail-line.is-active')
+  if (!container || !activeLine) return
+
+  // Scroll only the lyrics panel. scrollIntoView() also scrolls ancestor
+  // containers (including the page), which can unexpectedly jump the view.
+  const containerRect = container.getBoundingClientRect()
+  const lineRect = activeLine.getBoundingClientRect()
+  const lineTop = lineRect.top - containerRect.top + container.scrollTop
+  const targetTop = lineTop - (container.clientHeight - activeLine.offsetHeight) / 2
+  container.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' })
 })
 watch(() => playback.value?.track ? playback.value.track.source_id + ':' + playback.value.track.id : '', key => {
   if (key === lyricsTrackKey) return
