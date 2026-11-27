@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { prepareHTMLAudioForLoudnessNormalization } from '../services/htmlAudio'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
 
@@ -8,6 +8,10 @@ type Playlist = Awaited<ReturnType<typeof MusicService.ListPlaylists>>[number]
 type PlaylistTrack = Playlist['tracks'][number]
 const router = useRouter()
 const route = useRoute()
+type QueueSnapshot = Awaited<ReturnType<typeof MusicService.GetQueue>>
+const queue = ref<QueueSnapshot | null>(null)
+let queueTimer: ReturnType<typeof setInterval> | undefined
+async function refreshQueue() { try { queue.value = await MusicService.GetQueue() } catch { /* Keep the last known queue count. */ } }
 const playlists = ref<Playlist[]>([])
 const selectedPlaylistID = ref('')
 const selectedPlaylist = computed(() => playlists.value.find(item => item.id === selectedPlaylistID.value) ?? null)
@@ -133,7 +137,8 @@ function openReplace(track: PlaylistTrack) {
   void router.push({ path:'/music/replace', query:{ playlist:selectedPlaylist.value.id, track:track.id, source:track.source_id } })
 }
 function goMusicTab(tab: string) { void router.push({ path:'/music', query:{ tab } }) }
-onMounted(() => { void refreshPlaylists(String(route.query.id ?? '')) })
+onMounted(() => { void refreshPlaylists(String(route.query.id ?? '')); void refreshQueue(); queueTimer = setInterval(() => void refreshQueue(), 1500) })
+onUnmounted(() => { if (queueTimer) clearInterval(queueTimer) })
 </script>
 
 <template>
@@ -143,7 +148,7 @@ onMounted(() => { void refreshPlaylists(String(route.query.id ?? '')) })
       <div class="header-actions"><el-button type="primary" @click="createPlaylist">新建歌单</el-button><el-button plain :loading="importing" @click="chooseImportFile">导入洛雪歌单</el-button><input ref="fileInput" class="hidden-file-input" type="file" accept=".lxmc,.json,application/json" @change="importLXPlaylist" /></div>
     </header>
     <nav class="music-tabs player-tabs" aria-label="音乐页面导航">
-      <button @click="goMusicTab('now-playing')">正在播放</button><button @click="goMusicTab('search')">歌曲搜索</button><button @click="goMusicTab('visitor-requests')">观众点播</button><button class="active" aria-current="page">我的列表</button><button @click="goMusicTab('settings')">音乐设置</button><button @click="router.push('/music/sources')">JS 音源脚本管理</button>
+      <button @click="goMusicTab('now-playing')">正在播放</button><button @click="goMusicTab('search')">歌曲搜索</button><button @click="goMusicTab('visitor-requests')" >观众点播 <span>{{ queue?.items.length ?? 0 }}</span></button><button class="active" aria-current="page">我的列表</button><button @click="goMusicTab('settings')">音乐设置</button><button @click="router.push('/music/sources')">JS 音源脚本管理</button>
     </nav>
     <el-alert v-if="error" :title="error" type="error" :closable="true" show-icon @close="error = ''" />
     <el-alert v-if="success" :title="success" type="success" :closable="true" show-icon @close="success = ''" />
