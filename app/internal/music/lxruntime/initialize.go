@@ -44,15 +44,21 @@ func (r *Runtime) InitializeLXSource(ctx context.Context, info ScriptInfo, sourc
 	if client == nil {
 		client = http.DefaultClient
 	}
-	if err := r.InstallLXHost(ctx, info); err != nil {
-		return fmt.Errorf("LX initialization: install host: %w", err)
+	hostStarted := time.Now()
+	hostErr := r.InstallLXHost(ctx, info)
+	logLXTiming("initialize_host_install", hostStarted, "result="+timingResult(hostErr))
+	if hostErr != nil {
+		return fmt.Errorf("LX initialization: install host: %w", hostErr)
 	}
 	filename := info.Name
 	if filename == "" {
 		filename = "lx-source.js"
 	}
-	if _, err := r.EvalWithTimeout(ctx, source, filename, maxInitializationEvalTimeout); err != nil {
-		return fmt.Errorf("LX initialization: evaluate source: %w", err)
+	sourceEvalStarted := time.Now()
+	_, sourceEvalErr := r.EvalWithTimeout(ctx, source, filename, maxInitializationEvalTimeout)
+	logLXTiming("initialize_source_eval", sourceEvalStarted, "script="+fmt.Sprintf("%q", filename)+" result="+timingResult(sourceEvalErr))
+	if sourceEvalErr != nil {
+		return fmt.Errorf("LX initialization: evaluate source: %w", sourceEvalErr)
 	}
 
 	const maxRequests = 256
@@ -64,9 +70,13 @@ func (r *Runtime) InitializeLXSource(ctx context.Context, info ScriptInfo, sourc
 			return err
 		}
 		// Separate evals are intentional: each Eval drains QuickJS Promise jobs.
-		if _, err := r.Eval(ctx, "globalThis.__lxRunDueTimers(); 'timers-pumped';", "lx-init-timers.js"); err != nil {
-			return fmt.Errorf("LX initialization: pump timers: %w", err)
+		timerPumpStarted := time.Now()
+		_, timerPumpErr := r.Eval(ctx, "globalThis.__lxRunDueTimers(); 'timers-pumped';", "lx-init-timers.js")
+		logLXTiming("initialize_timer_pump", timerPumpStarted, "result="+timingResult(timerPumpErr))
+		if timerPumpErr != nil {
+			return fmt.Errorf("LX initialization: pump timers: %w", timerPumpErr)
 		}
+		pollStarted := time.Now()
 		stateText, err := r.Eval(ctx, `
 JSON.stringify({
   initialized: !!globalThis.__lxHostState.initialized,
@@ -76,6 +86,7 @@ JSON.stringify({
   aborts: globalThis.__lxTakeAborts()
 })
 `, "lx-init-poll.js")
+		logLXTiming("initialize_host_poll", pollStarted, "result="+timingResult(err))
 		if err != nil {
 			return fmt.Errorf("LX initialization: poll host: %w", err)
 		}
@@ -112,7 +123,9 @@ JSON.stringify({
 		if !state.Initialized && len(tasks.active) == 0 && state.NextTimerDelay < 0 {
 			return fmt.Errorf("LX initialization: source did not initialize (initialized=%t, requestHandler=%s, requests=%d)", state.Initialized, state.RequestHandler, processed)
 		}
+		waitStarted := time.Now()
 		result, waitErr := tasks.wait(ctx, state.NextTimerDelay)
+		logLXTiming("initialize_wait_timer_or_http", waitStarted, fmt.Sprintf("next_timer_ms=%d result=%q", state.NextTimerDelay, timingResult(waitErr)))
 		if waitErr != nil {
 			return waitErr
 		}
