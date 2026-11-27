@@ -1060,7 +1060,7 @@ func TestMusicFirstUseReceivesLXRuntimeInitializationFailure(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	if err := service.waitForLXRuntime(ctx); err != nil {
-		t.Fatalf("completed script initialization failure must not block native provider fallback: %v", err)
+		t.Fatalf("completed script initialization failure should remain observable without blocking service shutdown: %v", err)
 	}
 	status := service.GetStatus()
 	if status.LXRuntimeStatus != "failed" || !strings.Contains(status.LXRuntimeError, "墨澜聚合音源") {
