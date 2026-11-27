@@ -134,6 +134,9 @@ func (r *productionMusicLXRuntime) testScript(ctx context.Context, id string) (L
 	result := LXScriptTestResult{Status:"passed", TestedAt:time.Now().UTC(), Platforms:[]LXSourcePlatformTest{}}
 	if selected.ObfuscationCache == nil {
 		selected.ObfuscationCache = &lxruntime.LXObfuscationCache{}
+	} else {
+		cacheCopy := *selected.ObfuscationCache
+		selected.ObfuscationCache = &cacheCopy
 	}
 	// Re-run the real QuickJS handshake for every test. Persisted action
 	// snapshots can be stale after script upgrades; testing against them can
