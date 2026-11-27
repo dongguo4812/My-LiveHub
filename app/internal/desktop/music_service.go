@@ -715,7 +715,6 @@ func songRequestMatchesTrack(requested string, track music.Track) bool {
 	if _, ok := selectSongRequestTrack(tracks, title, artist); ok {
 		return true
 	}
-	// Also accept the legacy artist-first form used by older request tests and clients.
 	if artist != "" {
 		_, ok := selectSongRequestTrack(tracks, artist, title)
 		return ok
