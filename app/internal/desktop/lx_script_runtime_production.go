@@ -151,7 +151,7 @@ func (r *productionMusicLXRuntime) testScript(ctx context.Context, id string) (L
 	// supplies search for providers that expose only musicUrl/playback actions.
 	// Without this adapter, every provider test falsely reports that search is
 	// not ready even though production search is registered independently.
-	definitions := []lxruntime.LXSourceScript{definition, lxruntime.BundledSearchAction()}
+	definitions := []lxruntime.LXSourceScript{definition, lxruntime.BundledSearchAction(), lxruntime.BundledLyricsAction()}
 	manager, err := lxruntime.NewSourceManagerWithScripts(nil, definitions)
 	if err != nil { return LXScriptTestResult{}, fmt.Errorf("create isolated test runtime: %w", err) }
 	defer manager.Close()
@@ -280,9 +280,10 @@ func (r *productionMusicLXRuntime) rebuildLocked(ctx context.Context) error {
 	// declares, while the built-in adapter handles the remaining platforms.
 	// It is not persisted and cannot be disabled by the user.
 	builtinSearch := lxruntime.BundledSearchAction()
-	definitions := make([]lxruntime.LXSourceScript, 0, len(r.scripts)+1)
+	builtinLyrics := lxruntime.BundledLyricsAction()
+	definitions := make([]lxruntime.LXSourceScript, 0, len(r.scripts)+2)
 	enabledIndexes := make([]int, 0, len(r.scripts))
-	total := len(builtinSearch.Source)
+	total := len(builtinSearch.Source) + len(builtinLyrics.Source)
 	for i := range r.scripts {
 		script := &r.scripts[i]
 		if !script.Enabled { continue }
@@ -322,7 +323,7 @@ func (r *productionMusicLXRuntime) rebuildLocked(ctx context.Context) error {
 		script.InitializationAt = time.Time{}
 		script.LastError = ""
 	}
-	definitions = append(definitions, builtinSearch)
+	definitions = append(definitions, builtinSearch, builtinLyrics)
 	next, err := lxruntime.NewSourceManagerWithScripts(nil, definitions)
 	if err != nil { return fmt.Errorf("construct LX source manager: %w", err) }
 	if r.started {
