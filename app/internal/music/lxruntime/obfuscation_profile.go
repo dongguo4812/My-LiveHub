@@ -5,7 +5,6 @@ package lxruntime
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"strings"
 )
@@ -64,4 +63,3 @@ func (r *Runtime) logLXObfuscationProfile(ctx context.Context, filename string) 
 		filename, profile.Iterations, profile.LoopDecodeCalls, profile.DecodeCalls, profile.LoopDurationMS)
 }
 
-var _ = fmt.Sprintf
