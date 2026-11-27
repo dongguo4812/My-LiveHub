@@ -66,17 +66,17 @@ func TestDetectLXScriptCapabilitiesRetainsActionsPerProvider(t *testing.T) {
 lx.on(lx.EVENT_NAMES.request, async () => 'https://example.com/song.mp3');
 lx.send(lx.EVENT_NAMES.inited, {
   sources: {
-    provider_with_playback: { type: 'music', actions: ['search', 'musicUrl'], qualitys: ['128k'] },
-    search_only_provider: { type: 'music', actions: ['search'] }
+    kw: { type: 'music', actions: ['search', 'musicUrl'], qualitys: ['128k'] },
+    kg: { type: 'music', actions: ['search'] }
   }
 });
 `
 	capabilities, err := DetectLXScriptCapabilities(context.Background(), ScriptInfo{Name: "per-provider-actions"}, source, nil)
 	if err != nil { t.Fatalf("detect provider actions: %v", err) }
-	if got := strings.Join(capabilities.SourceActions["provider_with_playback"], ","); got != "musicUrl,search" {
+	if got := strings.Join(capabilities.SourceActions["kw"], ","); got != "musicUrl,search" {
 		t.Fatalf("playback provider actions = %q, want musicUrl,search", got)
 	}
-	if got := strings.Join(capabilities.SourceActions["search_only_provider"], ","); got != "search" {
+	if got := strings.Join(capabilities.SourceActions["kg"], ","); got != "search" {
 		t.Fatalf("search-only provider actions = %q, want search", got)
 	}
 	if len(capabilities.SourceActions) != 2 { t.Fatalf("per-provider action map = %#v", capabilities.SourceActions) }
@@ -200,7 +200,7 @@ func TestProductionSourceManagerCommunityExtensionsAreExplicit(t *testing.T) {
 	source := `
 lx.on(lx.EVENT_NAMES.request, async ({ action, info }) => action + ':' + String(info.value));
 lx.send(lx.EVENT_NAMES.inited, {
-  sources: { kw: { type: 'music', actions: ['musicUrl'], qualitys: ['128k'] } }
+  sources: { kw: { type: 'music', actions: ['musicUrl', 'search', 'detail', 'lyric', 'pic'], qualitys: ['128k'] } }
 });
 `
 	manager := newTestSourceManager(t, []LXSourceScript{{
@@ -325,11 +325,11 @@ func TestProductionSourceManagerRoutesCommunityActionsToMatchingSourceScript(t *
 	}
 	kw := `
 lx.on(lx.EVENT_NAMES.request, async ({ source, action, info }) => action === 'musicUrl' ? 'https://1.1.1.1/' + source + '.mp3' : source + ':' + action + ':' + String(info.value));
-lx.send(lx.EVENT_NAMES.inited, { sources: { kw: { type: 'music', actions: ['musicUrl'], qualitys: ['128k'] } } });
+lx.send(lx.EVENT_NAMES.inited, { sources: { kw: { type: 'music', actions: ['musicUrl', 'search', 'detail', 'lyric', 'pic'], qualitys: ['128k'] } } });
 `
 	kg := `
 lx.on(lx.EVENT_NAMES.request, async ({ source, action, info }) => action === 'musicUrl' ? 'https://1.1.1.1/' + source + '.mp3' : source + ':' + action + ':' + String(info.value));
-lx.send(lx.EVENT_NAMES.inited, { sources: { kg: { type: 'music', actions: ['musicUrl'], qualitys: ['128k'] } } });
+lx.send(lx.EVENT_NAMES.inited, { sources: { kg: { type: 'music', actions: ['musicUrl', 'search', 'detail', 'lyric', 'pic'], qualitys: ['128k'] } } });
 `
 	manager := newTestSourceManager(t, []LXSourceScript{makeScript("kw-only", kw), makeScript("kg-only", kg)})
 	if err := manager.Start(context.Background()); err != nil { t.Fatal(err) }
@@ -362,7 +362,7 @@ lx.send(lx.EVENT_NAMES.inited, { sources: { kg: { type: 'music', actions: ['musi
 func TestProductionSourceManagerRequiresNativeMusicURLAdvertisement(t *testing.T) {
 	source := `
 lx.on(lx.EVENT_NAMES.request, async ({ action }) => action === 'search' ? 'community-search-ok' : 'https://1.1.1.1/should-not-run.mp3');
-lx.send(lx.EVENT_NAMES.inited, { sources: { kw: { type: 'music', actions: [], qualitys: [] } } });
+lx.send(lx.EVENT_NAMES.inited, { sources: { kw: { type: 'music', actions: ['search'], qualitys: [] } } });
 `
 	manager := newTestSourceManager(t, []LXSourceScript{{Info: ScriptInfo{Name: "community-only"}, Source: source, ExtensionActions: []string{"search"}}})
 	if err := manager.Start(context.Background()); err != nil { t.Fatal(err) }
