@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"regexp"
 	"sort"
@@ -262,7 +261,6 @@ func (r *productionMusicLXRuntime) loadStoreLocked() error {
 	}
 	if !exists {
 		r.scripts = nil
-		log.Printf("[LX-Obfuscation] store=not_found file=%q", lxScriptStoreFile)
 		return nil
 	}
 	var scripts []storedLXScript
@@ -298,19 +296,9 @@ func (r *productionMusicLXRuntime) loadStoreLocked() error {
 		}
 	}
 	r.scripts = scripts
-	log.Printf("[LX-Obfuscation] store=loaded file=%q scripts=%d cached_scripts=%d", lxScriptStoreFile, len(r.scripts), countLXObfuscationCaches(r.scripts))
 	return nil
 }
 
-func countLXObfuscationCaches(scripts []storedLXScript) int {
-	count := 0
-	for i := range scripts {
-		if scripts[i].ObfuscationCache != nil && scripts[i].ObfuscationCache.SourceSHA256 != "" {
-			count++
-		}
-	}
-	return count
-}
 
 func (r *productionMusicLXRuntime) persistLocked() error {
 	data, err := json.MarshalIndent(r.scripts, "", "  ")
