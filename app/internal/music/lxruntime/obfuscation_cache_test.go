@@ -34,11 +34,15 @@ func TestPrepareLXObfuscationCacheSourceHitReplaysOnlyArrayRotations(t *testing.
 	if !hit || !cacheable {
 		t.Fatalf("cache hit result hit=%t cacheable=%t", hit, cacheable)
 	}
-	if !strings.Contains(prepared, "for(let __myLiveHubObfRotation=0;__myLiveHubObfRotation<266;__myLiveHubObfRotation++)") {
+	if !strings.Contains(prepared, "for(let __myLiveHubObfPreRotation=0;__myLiveHubObfPreRotation<266;__myLiveHubObfPreRotation++)") {
 		t.Fatalf("cache hit did not replace decoder/check loop with cached rotations: %s", prepared)
 	}
-	if strings.Contains(prepared, "while(!![])") || strings.Contains(prepared, "parseInt(value)") {
-		t.Fatalf("cache hit retained expensive obfuscation validation: %s", prepared)
+	if strings.Contains(prepared, "while(!![])") {
+		t.Fatalf("cache hit retained the repeated obfuscation loop: %s", prepared)
+	}
+	if !strings.Contains(prepared, "for(let __myLiveHubObfVerify=0;__myLiveHubObfVerify<1;__myLiveHubObfVerify++)") ||
+		!strings.Contains(prepared, "parseInt(value)") {
+		t.Fatalf("cache hit must preserve one final checksum/decode pass: %s", prepared)
 	}
 }
 
