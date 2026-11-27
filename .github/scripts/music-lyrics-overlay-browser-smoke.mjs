@@ -75,6 +75,14 @@ try {
   assert.match(await page.locator('.lyrics-track strong').textContent(), /桌面歌词验收曲/)
   assert.equal((await page.locator('.translated-lyric').textContent()).trim(), 'First translation')
 
+  // The fixture starts paused. Repeated playback snapshots must neither cancel
+  // nor duplicate the current track's lyric request while playback is paused.
+  await page.waitForTimeout(350)
+  assert.equal(await page.evaluate(() => globalThis.__lyricsRequests?.length ?? 0), 1,
+    'paused playback duplicated the active track lyric request')
+  assert.equal(await page.evaluate(() => globalThis.__cancelledLyricsRequests?.length ?? 0), 0,
+    'paused playback cancelled the active track lyric request')
+
   await page.evaluate(() => { globalThis.__lyricsPosition = 2600 })
   await page.waitForFunction(() => document.querySelector('.original-lyric')?.textContent?.includes('第二句'), null, { timeout: 5000 })
   assert.equal((await page.locator('.translated-lyric').textContent()).trim(), 'Second translation')
