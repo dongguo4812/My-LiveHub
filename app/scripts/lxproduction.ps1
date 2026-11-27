@@ -57,16 +57,22 @@ function Ensure-LXQuickJSRuntime {
         throw 'QuickJS-NG runtime archive SHA256 verification failed.'
     }
 
-    $extractDirectory = Join-Path $runtimeDirectory 'quickjs-extract'
-    Remove-Item -LiteralPath $extractDirectory -Recurse -Force -ErrorAction SilentlyContinue
-    Expand-Archive -LiteralPath $archivePath -DestinationPath $extractDirectory -Force
-    $dll = Get-ChildItem -LiteralPath $extractDirectory -Filter 'lxqjs.dll' -File -Recurse | Select-Object -First 1
-    if ($null -eq $dll) { throw 'Pinned QuickJS-NG package does not contain lxqjs.dll.' }
-    if (![LXQuickJSNativeExports]::HasExport($dll.FullName, 'lxqjs_eval_timed')) {
-        throw 'Pinned QuickJS-NG DLL is missing the required lxqjs_eval_timed export.'
+    # Never reuse a fixed extraction directory: a previous app/dev process may
+    # still have its DLL loaded, which makes Windows refuse to delete that file.
+    $extractDirectory = Join-Path $runtimeDirectory ("quickjs-extract-" + [guid]::NewGuid().ToString('N'))
+    try {
+        Expand-Archive -LiteralPath $archivePath -DestinationPath $extractDirectory -Force
+        $dll = Get-ChildItem -LiteralPath $extractDirectory -Filter 'lxqjs.dll' -File -Recurse | Select-Object -First 1
+        if ($null -eq $dll) { throw 'Pinned QuickJS-NG package does not contain lxqjs.dll.' }
+        if (![LXQuickJSNativeExports]::HasExport($dll.FullName, 'lxqjs_eval_timed')) {
+            throw 'Pinned QuickJS-NG DLL is missing the required lxqjs_eval_timed export.'
+        }
+        Copy-Item -LiteralPath $dll.FullName -Destination $runtimePath -Force
+    } finally {
+        # Cleanup is best-effort. A locked stale DLL must not block dev startup;
+        # the next invocation uses a fresh extraction directory as well.
+        Remove-Item -LiteralPath $extractDirectory -Recurse -Force -ErrorAction SilentlyContinue
     }
-    Copy-Item -LiteralPath $dll.FullName -Destination $runtimePath -Force
-    Remove-Item -LiteralPath $extractDirectory -Recurse -Force
     Write-Host "QuickJS-NG runtime ready: $runtimePath" -ForegroundColor Green
 }
 
