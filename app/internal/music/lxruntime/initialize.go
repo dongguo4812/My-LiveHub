@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -30,6 +31,13 @@ func ValidateLXScriptSource(source string) error {
 // initialization-time timers and lx.request calls until the source registers
 // its request handler and sends the inited event.
 func (r *Runtime) InitializeLXSource(ctx context.Context, info ScriptInfo, source string, client *http.Client) error {
+	return r.InitializeLXSourceWithCache(ctx, info, source, client, nil)
+}
+
+// InitializeLXSourceWithCache reuses the verified rotation count for the exact
+// script hash. Cache misses execute the original loop and update the cache only
+// after the complete source evaluation succeeds.
+func (r *Runtime) InitializeLXSourceWithCache(ctx context.Context, info ScriptInfo, source string, client *http.Client, cache *LXObfuscationCache) error {
 	if r == nil {
 		return errors.New("LX initialization: runtime is nil")
 	}
@@ -57,10 +65,17 @@ func (r *Runtime) InitializeLXSource(ctx context.Context, info ScriptInfo, sourc
 	if filename == "" {
 		filename = "lx-source.js"
 	}
+	cacheSource := source
+	evalSource, cacheHit, cacheable := prepareLXObfuscationCacheSource(source, cache)
+	if cacheHit {
+		log.Printf("[LX-Obfuscation] script=%q cache=hit sha256=%s rotations=%d", filename, cache.SourceSHA256, cache.RotationCount)
+	} else if cacheable {
+		log.Printf("[LX-Obfuscation] script=%q cache=miss sha256=%s", filename, lxSourceSHA256(source))
+	}
 	profileObfuscation := os.Getenv(lxObfuscationProfileEnv) == "1"
 	if profileObfuscation {
 		var instrumented bool
-		source, instrumented = instrumentLXObfuscationProfile(source)
+		evalSource, instrumented = instrumentLXObfuscationProfile(evalSource)
 		if instrumented {
 			log.Printf("[LX-Obfuscation] script=%q profiling=enabled", filename)
 		} else {
@@ -68,10 +83,24 @@ func (r *Runtime) InitializeLXSource(ctx context.Context, info ScriptInfo, sourc
 		}
 	}
 	sourceEvalStarted := time.Now()
-	_, sourceEvalErr := r.EvalWithTimeout(ctx, source, filename, maxInitializationEvalTimeout)
+	_, sourceEvalErr := r.EvalWithTimeout(ctx, evalSource, filename, maxInitializationEvalTimeout)
 	logLXTiming("initialize_source_eval", sourceEvalStarted, "script="+fmt.Sprintf("%q", filename)+" result="+timingResult(sourceEvalErr))
 	if sourceEvalErr != nil {
 		return fmt.Errorf("LX initialization: evaluate source: %w", sourceEvalErr)
+	}
+	if cache != nil && cacheable && !cacheHit {
+		rotationText, readErr := r.Eval(ctx, "String(globalThis."+lxObfuscationCacheGlobal+" || 0)", "lx-obfuscation-cache-read.js")
+		if readErr != nil {
+			return fmt.Errorf("LX initialization: read obfuscation cache result: %w", readErr)
+		}
+		rotations, parseErr := strconv.Atoi(rotationText)
+		if parseErr != nil || rotations < 0 || rotations > 1_000_000 {
+			return fmt.Errorf("LX initialization: invalid obfuscation rotation count %q", rotationText)
+		}
+		cache.Version = lxObfuscationCacheVersion
+		cache.SourceSHA256 = lxSourceSHA256(cacheSource)
+		cache.RotationCount = rotations
+		log.Printf("[LX-Obfuscation] script=%q cache=stored sha256=%s rotations=%d", filename, cache.SourceSHA256, rotations)
 	}
 	if profileObfuscation {
 		r.logLXObfuscationProfile(ctx, filename)
