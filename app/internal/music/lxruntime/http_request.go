@@ -307,8 +307,9 @@ func validHTTPToken(value string) bool {
 
 
 // traceLXHTTPRequestResponse emits host-only diagnostics for an explicitly
-// opted-in integration test. It never logs URL paths, query strings, headers,
-// cookies, request bodies, or response values.
+// opted-in integration test. It logs only the request path (never query strings),
+// response keys, and decoded URL/IP hosts; it never logs headers, cookies,
+// request bodies, or response values.
 func traceLXHTTPRequestResponse(requestHost, requestPath string, response *http.Response, body any, responseBytes int) {
 	if os.Getenv("MYLIVEHUB_LX_HTTP_TRACE") != "1" {
 		return
@@ -347,7 +348,7 @@ func traceLXHTTPRequestResponse(requestHost, requestPath string, response *http.
 		case map[string]any:
 			for key, child := range item {
 				keys[key] = struct{}{}
-				visit(child)
+				visit(child, depth)
 			}
 		}
 	}
