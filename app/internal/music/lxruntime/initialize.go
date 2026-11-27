@@ -17,6 +17,25 @@ import (
 
 const maxLXScriptSourceBytes = 2 << 20
 
+// prepareLXInitializationSource keeps diagnostic profiling from disabling the
+// persistent cache used by production imported scripts. Profiling remains
+// available to callers that do not supply a cache, and for unsupported cache
+// source shapes where no cache optimization can be applied.
+func prepareLXInitializationSource(source string, cache *LXObfuscationCache, profile bool) (evalSource string, cacheHit, cacheable, profiled bool) {
+	if profile && cache == nil {
+		evalSource, profiled = instrumentLXObfuscationProfile(source)
+		return evalSource, false, false, profiled
+	}
+	evalSource, cacheHit, cacheable = prepareLXObfuscationCacheSource(source, cache)
+	if profile && !cacheable {
+		if instrumentedSource, instrumented := instrumentLXObfuscationProfile(source); instrumented {
+			return instrumentedSource, false, false, true
+		}
+	}
+	return evalSource, cacheHit, cacheable, false
+}
+
+
 func ValidateLXScriptSource(source string) error {
 	if strings.TrimSpace(source) == "" {
 		return errors.New("LX script source is empty")
@@ -67,23 +86,18 @@ func (r *Runtime) InitializeLXSourceWithCache(ctx context.Context, info ScriptIn
 	}
 	cacheSource := source
 	profileObfuscation := os.Getenv(lxObfuscationProfileEnv) == "1"
-	var evalSource string
-	var cacheHit, cacheable bool
-	if profileObfuscation {
-		var instrumented bool
-		evalSource, instrumented = instrumentLXObfuscationProfile(source)
-		if instrumented {
-			log.Printf("[LX-Obfuscation] script=%q profiling=enabled", filename)
-		} else {
-			log.Printf("[LX-Obfuscation] script=%q profiling=unsupported_source_shape", filename)
-		}
-	} else {
-		evalSource, cacheHit, cacheable = prepareLXObfuscationCacheSource(source, cache)
-		if cacheHit {
-			log.Printf("[LX-Obfuscation] script=%q cache=hit sha256=%s rotations=%d", filename, cache.SourceSHA256, cache.RotationCount)
-		} else if cacheable {
-			log.Printf("[LX-Obfuscation] script=%q cache=miss sha256=%s", filename, lxSourceSHA256(source))
-		}
+	evalSource, cacheHit, cacheable, profiled := prepareLXInitializationSource(source, cache, profileObfuscation)
+	if profiled {
+		log.Printf("[LX-Obfuscation] script=%q profiling=enabled", filename)
+	} else if profileObfuscation && cache != nil && cacheable {
+		log.Printf("[LX-Obfuscation] script=%q profiling=skipped reason=cache_managed", filename)
+	}
+	if cacheHit {
+		log.Printf("[LX-Obfuscation] script=%q cache=hit sha256=%s rotations=%d", filename, cache.SourceSHA256, cache.RotationCount)
+	} else if cacheable {
+		log.Printf("[LX-Obfuscation] script=%q cache=miss sha256=%s", filename, lxSourceSHA256(source))
+	} else if profileObfuscation && !profiled {
+		log.Printf("[LX-Obfuscation] script=%q profiling=unsupported_source_shape", filename)
 	}
 	sourceEvalStarted := time.Now()
 	_, sourceEvalErr := r.EvalWithTimeout(ctx, evalSource, filename, maxInitializationEvalTimeout)
