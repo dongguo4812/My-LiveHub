@@ -82,6 +82,12 @@ func TestProductionLXBundledLyricsActionsUseQuickJSForAllFivePlatforms(t *testin
   if err := json.Unmarshal(raw,&result); err != nil { t.Fatalf("%s lyric decode: %v (%s)",source,err,raw) }
   if !strings.Contains(result.Lyric,"[00:01.00]") { t.Errorf("%s lost LRC timeline: %#v",source,result) }
   if (source=="tx" || source=="wy") && result.Translation=="" { t.Errorf("%s lost translation: %#v",source,result) }
+  if source=="kw" {
+   lines := strings.Split(result.Lyric,"\\n")
+   if len(lines)!=2 || lines[0]!="[00:01.00]KW original" || lines[1]!="[00:02.00]KW next" {
+    t.Errorf("Kuwo lyric must be emitted as separate timestamped lines for the shared lyric parser, got %#v",lines)
+   }
+  }
  }
  if kugouDownloads != 1 { t.Fatalf("Kugou lyric download requests=%d, want 1",kugouDownloads) }
 
