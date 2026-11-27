@@ -9,6 +9,14 @@ import (
     "time"
 )
 
+type lxTimingRequestIDKey struct{}
+
+func lxTimingRequestID(ctx context.Context) uint64 {
+    if ctx == nil { return 0 }
+    value, _ := ctx.Value(lxTimingRequestIDKey{}).(uint64)
+    return value
+}
+
 func timingResult(err error) string {
     if err == nil { return "ok" }
     if errors.Is(err, context.Canceled) { return "canceled" }
