@@ -9,9 +9,6 @@ import (
 	"path/filepath"
 )
 
-// MigrateLOLHexRuntimeData copies user-owned data from the legacy extension
-// location into the built-in module location. Existing destination files win,
-// so upgrades never overwrite newer local data with an older copy.
 func MigrateLOLHexRuntimeData(legacyRoot, runtimeRoot string) error {
 	if legacyRoot == "" || runtimeRoot == "" {
 		return errors.New("LOL Hex 旧目录和内置运行目录不能为空")
