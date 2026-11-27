@@ -12,11 +12,34 @@ $assetBase = "https://github.com/dongguo4812/My-LiveHub/releases/download/$relea
 $archivePath = Join-Path $runtimeDirectory 'lxqjs-windows-amd64.zip'
 $checksumPath = "$archivePath.sha256"
 
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class LXQuickJSNativeExports {
+    [DllImport("kernel32", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern IntPtr LoadLibrary(string path);
+    [DllImport("kernel32", SetLastError = true, CharSet = CharSet.Ansi)]
+    private static extern IntPtr GetProcAddress(IntPtr module, string name);
+    [DllImport("kernel32", SetLastError = true)]
+    private static extern bool FreeLibrary(IntPtr module);
+    public static bool HasExport(string path, string name) {
+        IntPtr module = LoadLibrary(path);
+        if (module == IntPtr.Zero) return false;
+        try { return GetProcAddress(module, name) != IntPtr.Zero; }
+        finally { FreeLibrary(module); }
+    }
+}
+'@
+
 function Ensure-LXQuickJSRuntime {
     New-Item -ItemType Directory -Force -Path $runtimeDirectory | Out-Null
-    if (Test-Path -LiteralPath $runtimePath -PathType Leaf) {
-        Write-Host "Using bundled QuickJS-NG runtime: $runtimePath" -ForegroundColor Green
+    if ((Test-Path -LiteralPath $runtimePath -PathType Leaf) -and
+        [LXQuickJSNativeExports]::HasExport($runtimePath, 'lxqjs_eval_timed')) {
+        Write-Host "Using compatible QuickJS-NG runtime: $runtimePath" -ForegroundColor Green
         return
+    }
+    if (Test-Path -LiteralPath $runtimePath -PathType Leaf) {
+        Write-Host 'Existing QuickJS-NG DLL is outdated (missing lxqjs_eval_timed); replacing it with the pinned runtime.' -ForegroundColor Yellow
     }
 
     Write-Host 'Preparing the pinned QuickJS-NG runtime (no local C compiler required)...' -ForegroundColor Cyan
@@ -39,6 +62,9 @@ function Ensure-LXQuickJSRuntime {
     Expand-Archive -LiteralPath $archivePath -DestinationPath $extractDirectory -Force
     $dll = Get-ChildItem -LiteralPath $extractDirectory -Filter 'lxqjs.dll' -File -Recurse | Select-Object -First 1
     if ($null -eq $dll) { throw 'Downloaded QuickJS-NG package does not contain lxqjs.dll.' }
+    if (![LXQuickJSNativeExports]::HasExport($dll.FullName, 'lxqjs_eval_timed')) {
+        throw 'Downloaded QuickJS-NG DLL is outdated: required export lxqjs_eval_timed is missing.'
+    }
     Copy-Item -LiteralPath $dll.FullName -Destination $runtimePath -Force
     Remove-Item -LiteralPath $extractDirectory -Recurse -Force
     Write-Host "QuickJS-NG runtime ready: $runtimePath" -ForegroundColor Green
