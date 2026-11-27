@@ -90,7 +90,7 @@ func TestPrepareLXInitializationSourceProfileDoesNotBypassPersistentCache(t *tes
 }
 
 func TestPrepareLXInitializationSourceAllowsExplicitProfilingWithoutCache(t *testing.T) {
-	source := strings.ReplaceAll(cacheableObfuscatedFixture(), "(function(){", "(function(){")
+	source := lxObfuscationLoopStart + "0);if(1)break;else _0x5b6cec['push'](_0x5b6cec['shift']());" + lxObfuscationLoopEnd + "0);" + lxObfuscationDecodeMiss + "===null?0:1;})();"
 	prepared, hit, cacheable, profiled := prepareLXInitializationSource(source, nil, true)
 	if !profiled || hit || cacheable {
 		t.Fatalf("explicit no-cache profiling result hit=%t cacheable=%t profiled=%t", hit, cacheable, profiled)
