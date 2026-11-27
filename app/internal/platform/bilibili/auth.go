@@ -237,8 +237,6 @@ func (m *AuthManager) exchangeLoginTicket(ctx context.Context, rawURL string) (m
 		}
 	}
 
-	// New QR-login responses contain a one-time ticket; older responses carry
-	// cookie values directly in the URL query. Only the former needs exchange.
 	if ticketURL.Query().Get("ticket") == "" {
 		return values, nil
 	}
