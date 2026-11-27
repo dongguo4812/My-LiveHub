@@ -1,8 +1,8 @@
 package music
 
-// SourceCatalog describes the built-in platform identities independently of
-// the legacy native HTTP search providers. It remains available when search
-// execution is fully delegated to QuickJS source actions.
+// SourceCatalog describes built-in platform identities independently of
+// provider execution. Search and lyric capabilities are dispatched through
+// the active QuickJS source actions.
 func SourceCatalog() []SourceSnapshot {
 	return []SourceSnapshot{
 		{ID: LXSearchTX, Name: "QQ音乐", Capabilities: SourceCapabilities{Search: true}, Enabled: true, Available: true},
