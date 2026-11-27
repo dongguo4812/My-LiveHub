@@ -18,7 +18,7 @@
 > - G 阶段长时间播放验收：用户已确认目标 Windows 设备连续播放已达 N 小时，超过 2 小时门槛；不再重复安排该项。长时间播放期间的卡顿、无声、重音、回声和异常中断检查视为已完成。
 > - G 阶段剩余自动化工作：主进程及其自有 WebView2 子进程的 OS 级内存基线/增量采样、停止/切歌资源释放自动化核查，以及最终 CI 回归。用户无法进行额外手动实测，因此不再将其列为阻塞条件；CI 证据与目标设备实测必须分别标注。
 > - 歌曲搜索页音源选择器按启用状态/优先级排序、可用音源置底并默认选中首项的优化已完成，不再列为待办。
-> - **当前阶段：旧实现清理（尚未验收完成）。** Go 五平台搜索/歌词适配器、原生歌词回退、QRC/KRC 专用解析及旧 JSON/HTTP helper 已删除；本轮进一步删除孤立的 `lxqrc/LICENSE`，将手动专项工作流从 `quickjs-poc.yml` 更名为 `quickjs-runtime-diagnostics.yml` 并替换失效旧 Go 歌词测试，将正式 QuickJS C 源码目录从 `lxruntime/poc/native` 更名为 `lxruntime/native`。当前分支 `be0c754faa0c61a666deb47307453e83e2907d18` 的完整 Desktop validation Run `45921208888` 正在执行；遗留引用/构建配置复核和全部 CI 成功仍是未完成门槛。**
+> - **当前阶段：旧实现清理（尚未验收完成）。** Go 五平台搜索/歌词适配器、原生歌词回退、QRC/KRC 专用解析及旧 JSON/HTTP helper 已删除；本轮进一步删除孤立的 `lxqrc/LICENSE`，将手动专项工作流从 `quickjs-poc.yml` 更名为 `quickjs-runtime-diagnostics.yml` 并替换失效旧 Go 歌词测试，将正式 QuickJS C 源码目录从 `lxruntime/poc/native` 更名为 `lxruntime/native`。最新分支提交对应的完整 Desktop validation CI 已触发、结果待定；遗留引用/构建配置复核和全部 CI 成功仍是未完成门槛。**
 
 ## 1. 项目目标与最终边界
 
