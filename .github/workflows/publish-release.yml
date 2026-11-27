@@ -163,10 +163,12 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$moduleTarget/dist" | Out-Null
           Copy-Item -Recurse -Force "$moduleSource/dist/lol_hex_display" "$moduleTarget/dist/lol_hex_display"
 
-      - name: Export updater executable
+      - name: Export standalone Windows executable and runtime
         shell: pwsh
         run: |
           Copy-Item -Force bin/package/My-LiveHub.exe bin/My-LiveHub-windows-amd64.exe
+          Copy-Item -Force bin/package/lxqjs.dll bin/lxqjs.dll
+          if (!(Test-Path "bin/lxqjs.dll")) { throw "Standalone QuickJS runtime asset is missing" }
 
       - name: Build Windows installer
         shell: pwsh
@@ -194,7 +196,8 @@ jobs:
           $assets = @(
             "bin/My-LiveHub-Portable.zip",
             "bin/My-LiveHub-Setup.exe",
-            "bin/My-LiveHub-windows-amd64.exe"
+            "bin/My-LiveHub-windows-amd64.exe",
+            "bin/lxqjs.dll"
           )
           $lines = foreach ($path in $assets) {
             $file = Get-Item $path
@@ -212,6 +215,7 @@ jobs:
             app/bin/My-LiveHub-Portable.zip
             app/bin/My-LiveHub-Setup.exe
             app/bin/My-LiveHub-windows-amd64.exe
+            app/bin/lxqjs.dll
             app/bin/SHA256SUMS
           if-no-files-found: error
           retention-days: 14
@@ -227,4 +231,5 @@ jobs:
             app/bin/My-LiveHub-Portable.zip
             app/bin/My-LiveHub-Setup.exe
             app/bin/My-LiveHub-windows-amd64.exe
+            app/bin/lxqjs.dll
             app/bin/SHA256SUMS
