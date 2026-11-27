@@ -210,7 +210,20 @@ func (r *productionMusicLXRuntime) testScript(ctx context.Context, id string) (L
 		if readErr != nil { item.Message = "读取音频数据失败：" + readErr.Error() } else if response.StatusCode < 200 || response.StatusCode >= 300 { item.Message = fmt.Sprintf("音频服务器返回 HTTP %d", response.StatusCode) } else if len(body) == 0 { item.Message = "播放地址未返回音频数据" } else { item.Status = "passed"; item.Message = fmt.Sprintf("播放地址可访问，已读取 %d 字节音频数据", len(body)) }
 		result.Platforms = append(result.Platforms, item)
 	}
-	if len(result.Platforms) == 0 { result.Status = "failed"; if result.Message == "" { result.Message = "脚本没有声明 musicUrl 能力的平台" } } else { for _, item := range result.Platforms { if item.Status != "passed" { result.Status = "failed"; break } } }
+	if len(result.Platforms) == 0 {
+		result.Status = "failed"
+		if result.Message == "" { result.Message = "脚本没有声明 musicUrl 能力的平台" }
+	} else {
+		hasTestablePlatform := false
+		for _, item := range result.Platforms {
+			if item.Status != "unsupported" { hasTestablePlatform = true }
+			if item.Status == "failed" { result.Status = "failed"; break }
+		}
+		if !hasTestablePlatform {
+			result.Status = "failed"
+			result.Message = "脚本没有可测试的在线音源"
+		}
+	}
 	r.mu.Lock(); defer r.mu.Unlock()
 	for i := range r.scripts { if r.scripts[i].ID == id { r.scripts[i].SourceActions = cloneLXSourceActions(selected.SourceActions); r.scripts[i].LastTest = cloneLXScriptTestResult(&result); if err := r.persistLocked(); err != nil { return result, fmt.Errorf("persist latest LX test result: %w", err) }; return result, nil } }
 	return result, fmt.Errorf("LX script %q was deleted while its test was running", id)
