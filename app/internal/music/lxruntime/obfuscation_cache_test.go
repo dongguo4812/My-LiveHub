@@ -67,3 +67,35 @@ func TestPrepareLXObfuscationCacheSourceLeavesUnknownShapeUntouched(t *testing.T
 		t.Fatalf("unknown source shape must remain untouched, got hit=%t cacheable=%t source=%q", hit, cacheable, prepared)
 	}
 }
+
+func TestPrepareLXInitializationSourceProfileDoesNotBypassPersistentCache(t *testing.T) {
+	source := cacheableObfuscatedFixture()
+
+	prepared, hit, cacheable, profiled := prepareLXInitializationSource(source, &LXObfuscationCache{}, true)
+	if hit || !cacheable || profiled {
+		t.Fatalf("profiling must not bypass a managed cache: hit=%t cacheable=%t profiled=%t", hit, cacheable, profiled)
+	}
+	if !strings.Contains(prepared, "globalThis."+lxObfuscationCacheGlobal+"=0;") {
+		t.Fatal("managed cache miss did not instrument the rotation counter")
+	}
+
+	cache := &LXObfuscationCache{Version: lxObfuscationCacheVersion, SourceSHA256: lxSourceSHA256(source), RotationCount: 266}
+	prepared, hit, cacheable, profiled = prepareLXInitializationSource(source, cache, true)
+	if !hit || !cacheable || profiled {
+		t.Fatalf("profiling must preserve a valid cache hit: hit=%t cacheable=%t profiled=%t", hit, cacheable, profiled)
+	}
+	if !strings.Contains(prepared, "__myLiveHubObfPreRotation<266") || strings.Contains(prepared, "while(!![])") {
+		t.Fatal("valid cached source did not use the fast path when profiling was requested")
+	}
+}
+
+func TestPrepareLXInitializationSourceAllowsExplicitProfilingWithoutCache(t *testing.T) {
+	source := strings.ReplaceAll(cacheableObfuscatedFixture(), "(function(){", "(function(){")
+	prepared, hit, cacheable, profiled := prepareLXInitializationSource(source, nil, true)
+	if !profiled || hit || cacheable {
+		t.Fatalf("explicit no-cache profiling result hit=%t cacheable=%t profiled=%t", hit, cacheable, profiled)
+	}
+	if !strings.Contains(prepared, "__myLiveHubLXObfProfile") {
+		t.Fatal("explicit profiling did not instrument the source")
+	}
+}
