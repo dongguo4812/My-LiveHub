@@ -94,7 +94,7 @@ func executeLXHTTPRequestWithPolicy(parent context.Context, descriptor lxRequest
 	semaphoreStarted := time.Now()
 	select {
 	case lxRequestSemaphore <- struct{}{}:
-		logLXTiming("http_semaphore_wait", semaphoreStarted, fmt.Sprintf("host=%q", parsed.Host))
+		logLXTiming("http_semaphore_wait", semaphoreStarted, fmt.Sprintf("request_id=%d host=%q", descriptor.ID, parsed.Host))
 		defer func() { <-lxRequestSemaphore }()
 	case <-ctx.Done():
 		return nil, ctx.Err()
