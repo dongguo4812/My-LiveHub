@@ -7,8 +7,10 @@ param(
 $ErrorActionPreference = 'Stop'
 $runtimeDirectory = Join-Path $PSScriptRoot '..\bin'
 $runtimePath = Join-Path $runtimeDirectory 'lxqjs.dll'
-$quickjsSourceDirectory = Join-Path $runtimeDirectory 'quickjs-ng-v0.18.0'
-$quickjsBuildDirectory = Join-Path $runtimeDirectory 'quickjs-ng-build'
+$releaseTag = 'quickjs-ng-v0.18.0-lxabi2'
+$assetBase = "https://github.com/dongguo4812/My-LiveHub/releases/download/$releaseTag"
+$archivePath = Join-Path $runtimeDirectory 'lxqjs-windows-amd64.zip'
+$checksumPath = "$archivePath.sha256"
 
 Add-Type -TypeDefinition @'
 using System;
@@ -29,15 +31,6 @@ public static class LXQuickJSNativeExports {
 }
 '@
 
-function Find-QuickJSBuildTool([string]$Name, [string[]]$FallbackPaths) {
-    $command = Get-Command $Name -ErrorAction SilentlyContinue
-    if ($null -ne $command) { return $command.Source }
-    foreach ($candidate in $FallbackPaths) {
-        if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
-    }
-    return $null
-}
-
 function Ensure-LXQuickJSRuntime {
     New-Item -ItemType Directory -Force -Path $runtimeDirectory | Out-Null
     if ((Test-Path -LiteralPath $runtimePath -PathType Leaf) -and
@@ -45,46 +38,35 @@ function Ensure-LXQuickJSRuntime {
         Write-Host "Using compatible QuickJS-NG runtime: $runtimePath" -ForegroundColor Green
         return
     }
-
-    $ucrtBin = 'C:\msys64\ucrt64\bin'
-    $cmake = Find-QuickJSBuildTool 'cmake' @("$ucrtBin\cmake.exe")
-    $ninja = Find-QuickJSBuildTool 'ninja' @("$ucrtBin\ninja.exe")
-    $gcc = Find-QuickJSBuildTool 'gcc' @("$ucrtBin\gcc.exe")
-    if (!$cmake -or !$ninja -or !$gcc) {
-        throw 'A compatible QuickJS-NG DLL is missing and the local build toolchain was not found. Install MSYS2 UCRT64 packages mingw-w64-ucrt-x86_64-gcc, mingw-w64-ucrt-x86_64-cmake and mingw-w64-ucrt-x86_64-ninja, then rerun task dev.'
+    if (Test-Path -LiteralPath $runtimePath -PathType Leaf) {
+        Write-Host 'Existing QuickJS-NG DLL is outdated (missing lxqjs_eval_timed); replacing it with the pinned runtime.' -ForegroundColor Yellow
     }
 
-    $env:PATH = "$ucrtBin;$([System.IO.Path]::GetDirectoryName($gcc));$env:PATH"
-    $git = Get-Command git -ErrorAction SilentlyContinue
-    $gitPath = if ($null -ne $git) { $git.Source } elseif (Test-Path 'C:\msys64\usr\bin\git.exe') { 'C:\msys64\usr\bin\git.exe' } else { $null }
-    if (!$gitPath) {
-        throw 'Git is required to fetch the pinned QuickJS-NG v0.18.0 source.'
+    Write-Host "Preparing pinned QuickJS-NG runtime $releaseTag..." -ForegroundColor Cyan
+    try {
+        Invoke-WebRequest -Uri "$assetBase/lxqjs-windows-amd64.zip" -OutFile $archivePath -UseBasicParsing
+        Invoke-WebRequest -Uri "$assetBase/lxqjs-windows-amd64.zip.sha256" -OutFile $checksumPath -UseBasicParsing
+    } catch {
+        throw "Unable to download the pinned QuickJS-NG runtime release asset $releaseTag. Details: $($_.Exception.Message)"
     }
 
-    if (!(Test-Path -LiteralPath (Join-Path $quickjsSourceDirectory 'CMakeLists.txt') -PathType Leaf)) {
-        Remove-Item -LiteralPath $quickjsSourceDirectory -Recurse -Force -ErrorAction SilentlyContinue
-        Write-Host 'Fetching pinned QuickJS-NG v0.18.0 source...' -ForegroundColor Cyan
-        & $gitPath clone --depth 1 --branch v0.18.0 https://github.com/quickjs-ng/quickjs.git $quickjsSourceDirectory
-        if ($LASTEXITCODE -ne 0) { throw 'Unable to fetch pinned QuickJS-NG v0.18.0 source.' }
+    $expected = ((Get-Content -LiteralPath $checksumPath -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+    $actual = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($expected -notmatch '^[0-9a-f]{64}$' -or $actual -ne $expected) {
+        Remove-Item -LiteralPath $archivePath, $checksumPath -Force -ErrorAction SilentlyContinue
+        throw 'QuickJS-NG runtime archive SHA256 verification failed.'
     }
 
-    Write-Host 'Building the pinned QuickJS-NG runtime locally...' -ForegroundColor Cyan
-    & $cmake -S (Join-Path $PSScriptRoot '..\internal\music\lxruntime\native') -B $quickjsBuildDirectory -G Ninja "-DCMAKE_MAKE_PROGRAM=$ninja" "-DCMAKE_C_COMPILER=$gcc" -DCMAKE_BUILD_TYPE=Release "-DQUICKJS_NG_SOURCE_DIR=$quickjsSourceDirectory"
-    if ($LASTEXITCODE -ne 0) { throw 'QuickJS-NG CMake configuration failed.' }
-    & $cmake --build $quickjsBuildDirectory --config Release
-    if ($LASTEXITCODE -ne 0) { throw 'QuickJS-NG runtime compilation failed.' }
-
-    $builtDll = Join-Path $quickjsBuildDirectory 'runtime\lxqjs.dll'
-    if (!(Test-Path -LiteralPath $builtDll -PathType Leaf)) {
-        $builtDll = Get-ChildItem -LiteralPath $quickjsBuildDirectory -Filter 'lxqjs.dll' -File -Recurse |
-            Select-Object -First 1 -ExpandProperty FullName
+    $extractDirectory = Join-Path $runtimeDirectory 'quickjs-extract'
+    Remove-Item -LiteralPath $extractDirectory -Recurse -Force -ErrorAction SilentlyContinue
+    Expand-Archive -LiteralPath $archivePath -DestinationPath $extractDirectory -Force
+    $dll = Get-ChildItem -LiteralPath $extractDirectory -Filter 'lxqjs.dll' -File -Recurse | Select-Object -First 1
+    if ($null -eq $dll) { throw 'Pinned QuickJS-NG package does not contain lxqjs.dll.' }
+    if (![LXQuickJSNativeExports]::HasExport($dll.FullName, 'lxqjs_eval_timed')) {
+        throw 'Pinned QuickJS-NG DLL is missing the required lxqjs_eval_timed export.'
     }
-    if (!$builtDll) { throw 'QuickJS-NG build completed without producing lxqjs.dll.' }
-    if (![LXQuickJSNativeExports]::HasExport($builtDll, 'lxqjs_eval_timed')) {
-        throw 'Locally built QuickJS-NG DLL is missing the required lxqjs_eval_timed export.'
-    }
-
-    Copy-Item -LiteralPath $builtDll -Destination $runtimePath -Force
+    Copy-Item -LiteralPath $dll.FullName -Destination $runtimePath -Force
+    Remove-Item -LiteralPath $extractDirectory -Recurse -Force
     Write-Host "QuickJS-NG runtime ready: $runtimePath" -ForegroundColor Green
 }
 
