@@ -18,7 +18,7 @@
 > - G 阶段长时间播放验收：用户已确认目标 Windows 设备连续播放已达 N 小时，超过 2 小时门槛；不再重复安排该项。长时间播放期间的卡顿、无声、重音、回声和异常中断检查视为已完成。
 > - G 阶段剩余自动化工作：主进程及其自有 WebView2 子进程的 OS 级内存基线/增量采样、停止/切歌资源释放自动化核查，以及最终 CI 回归。用户无法进行额外手动实测，因此不再将其列为阻塞条件；CI 证据与目标设备实测必须分别标注。
 > - 歌曲搜索页音源选择器按启用状态/优先级排序、可用音源置底并默认选中首项的优化已完成，不再列为待办。
-> - **当前阶段：旧实现清理（尚未验收完成）。** Go 五平台搜索/歌词适配器、原生歌词回退、QRC/KRC 专用解析及旧 JSON/HTTP helper 已删除；本轮进一步删除孤立的 `lxqrc/LICENSE`，将手动专项工作流从 `quickjs-poc.yml` 更名为 `quickjs-runtime-diagnostics.yml` 并替换失效旧 Go 歌词测试，将正式 QuickJS C 源码目录从 `lxruntime/poc/native` 更名为 `lxruntime/native`。最新分支提交对应的完整 Desktop validation CI 已触发、结果待定；遗留引用/构建配置复核和全部 CI 成功仍是未完成门槛。**
+> - **当前阶段：旧实现清理与遗留配置审计已完成，最终验收正在收尾。** Go 五平台搜索/歌词适配器、原生歌词回退、QRC/KRC 专用解析及旧 JSON/HTTP helper 已删除；本轮进一步删除孤立的 `lxqrc/LICENSE`，将手动专项工作流从 `quickjs-poc.yml` 更名为 `quickjs-runtime-diagnostics.yml` 并替换失效旧 Go 歌词测试，将正式 QuickJS C 源码目录从 `lxruntime/poc/native` 更名为 `lxruntime/native`。目标分支树审计确认旧 QRC/PoC 目录、旧工作流文件和旧 Go 实现文件均已消失；Desktop validation Run `45921430162`（提交 `db7ff372c03226fe7bfa02a014336e9641ce553c`）的 Formal client 与 Real provider 两个 Job 均成功。当前计划文档更新提交仍须重新触发并通过完整 CI，之后才满足阶段唯一结束条件。**
 
 ## 1. 项目目标与最终边界
 
@@ -549,3 +549,11 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 - 旧实现清理代码提交 `ad10f9c6ff6c2f52cd3a7f341bd4c0d5ce4daf5a` 的 Desktop validation Push Run #3427 和 PR Run #3428 均成功，覆盖正式 Go 全量测试、生产 QuickJS Runtime 专项测试、五平台真实搜索、墨澜聚合音源真实播放、歌词同步、Chromium HTMLAudio 播放/歌词测试、前端构建和 Windows 可执行文件构建。
 
 **阶段唯一结束条件：旧实现清理完成、遗留引用及构建配置审计通过、全部 CI 成功。当前轮的孤立 QRC 许可证、PoC 工作流命名/失效测试和正式 Runtime 的 PoC 目录命名已处理；只有当前最终提交及后续任何修复提交的完整 CI 全部成功，且全仓遗留引用审计无未处理项，才能将本阶段标记为完成。提交、启动 CI、单次 CI 通过或历史 CI 成功均不构成结束条件。**
+
+#### 2026-11-27 遗留文件与构建配置审计补充
+
+- 删除仅剩 MIT 许可证、已无 QRC 源码和生产消费者的 `app/internal/music/lxqrc/LICENSE`。
+- 将手动 QuickJS 专项工作流更名为 `.github/workflows/quickjs-runtime-diagnostics.yml`；保留真实 `fish/latest.js` 导入/启用、晴天播放 URL 和本地运行库引导诊断，删除已失效的 Go 原生歌词适配器测试步骤，替换为有效的 QuickJS lyric Action/取消/缓存/禁止 Go 回退测试。
+- 将正式原生 QuickJS 构建源目录从 `app/internal/music/lxruntime/poc/native` 移至 `app/internal/music/lxruntime/native`，并同步更新 Desktop validation 与手动诊断工作流的 CMake 路径和缓存键；`lxqjs.c`、头文件及正式动态库构建流程完整保留。
+- 兼容性复核保留旧存储快照恢复、社区音源脚本参数别名和仍被场景使用的同步歌词入口；这些不是旧 Go provider。QQ/咪咕备用 HTTP 接口和播放自动换源也属于现有 QuickJS/播放可靠性逻辑，不作为旧实现删除。
+- 清理代码提交 `db7ff372c03226fe7bfa02a014336e9641ce553c` 的 Desktop validation Run `45921430162` 成功：正式 Go 全量测试、生产 QuickJS 测试、五平台真实搜索、墨澜聚合音源真实播放、歌词同步、Chromium HTMLAudio 播放/歌词、前端构建和 Windows 可执行文件构建均通过。计划文档本次更新触发的最新 CI 仍需全部成功，才正式关闭本阶段。
