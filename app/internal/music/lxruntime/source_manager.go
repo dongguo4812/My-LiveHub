@@ -18,6 +18,7 @@ import (
 type managedLXScript struct {
 	info             ScriptInfo
 	source            string
+	obfuscationCache  *LXObfuscationCache
 	extensionActions  map[string]struct{}
 	runtime           *Runtime
 	initialized       bool
@@ -55,6 +56,7 @@ type LXSourceScript struct {
 	Info             ScriptInfo
 	Source            string
 	ExtensionActions  []string
+	ObfuscationCache  *LXObfuscationCache
 }
 
 type ScriptInitializationResult struct {
@@ -240,7 +242,7 @@ func NewSourceManagerWithScripts(client *http.Client, scripts []LXSourceScript) 
 			}
 			extensions[action] = struct{}{}
 		}
-		manager.scripts = append(manager.scripts, &managedLXScript{info: info, source: definition.Source, extensionActions: extensions})
+		manager.scripts = append(manager.scripts, &managedLXScript{info: info, source: definition.Source, obfuscationCache: definition.ObfuscationCache, extensionActions: extensions})
 	}
 	return manager, nil
 }
@@ -278,7 +280,7 @@ func (m *SourceManager) Start(ctx context.Context) error {
 		script.initStage = "initialize_script"
 		initStarted := time.Now()
 		initCtx, cancel := context.WithTimeout(ctx, lxMaxRequestTimeout)
-		err = runtime.InitializeLXSource(initCtx, script.info, script.source, m.client)
+		err = runtime.InitializeLXSourceWithCache(initCtx, script.info, script.source, m.client, script.obfuscationCache)
 		logLXTiming("script_initialize", initStarted, fmt.Sprintf("script=%q result=%q", script.info.Name, timingResult(err)))
 		timedOut := errors.Is(initCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
 		cancel()
