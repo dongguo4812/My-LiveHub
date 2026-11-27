@@ -26,9 +26,9 @@ type VoiceEventConfig struct {
 }
 
 type VoiceConfig struct {
-	ConfigVersion int              `json:"config_version"`
-	Enabled       bool             `json:"enabled"`
-	AudioOutputEnabled bool       `json:"audio_output_enabled"`
+	ConfigVersion      int              `json:"config_version"`
+	Enabled            bool             `json:"enabled"`
+	AudioOutputEnabled bool             `json:"audio_output_enabled"`
 	Engine        string           `json:"engine"`
 	Voice         string           `json:"voice"`
 	Rate          string           `json:"rate"`
@@ -40,7 +40,8 @@ type VoiceConfig struct {
 func DefaultVoiceConfig() VoiceConfig {
 	return VoiceConfig{
 		ConfigVersion: CurrentVoiceConfigVersion,
-		Enabled:       false,
+		Enabled:            false,
+		AudioOutputEnabled: false,
 		Engine:        "edge",
 		Voice:         "zh-CN-XiaoxiaoNeural",
 		Rate:          "+0%",
