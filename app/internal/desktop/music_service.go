@@ -92,6 +92,8 @@ type MusicService struct {
 	musicStartedAt time.Time
 	firstSearchReady sync.Once
 	firstPlaybackReady sync.Once
+	firstPlaybackStarted sync.Once
+	playbackAttemptStartedAt time.Time
 	lxRuntimeStatus string
 	lxRuntimeError string
 	lxRuntimeDone chan struct{}
@@ -168,7 +170,18 @@ func (s *MusicService) ReportHTMLAudioEvent(sessionID uint64, event string, posi
 	s.mu.RUnlock()
 	bridge, ok := engine.(*htmlAudioPlaybackEngine)
 	if !ok { return errors.New("HTMLAudio playback is not active") }
-	return bridge.Report(sessionID, event, positionMS, durationMS, message)
+	err := bridge.Report(sessionID, event, positionMS, durationMS, message)
+	if event == "playing" && err == nil {
+		s.firstPlaybackStarted.Do(func() {
+			s.mu.RLock()
+			startedAt, attemptAt := s.musicStartedAt, s.playbackAttemptStartedAt
+			s.mu.RUnlock()
+			if !attemptAt.IsZero() {
+				log.Printf("[Music-Timing] stage=first_playback_started since_module_start_ms=%.3f playback_request_ms=%.3f", float64(time.Since(startedAt))/float64(time.Millisecond), float64(time.Since(attemptAt))/float64(time.Millisecond))
+			}
+		})
+	}
+	return err
 }
 
 func (s *MusicService) Seek(positionMS int64) error {
@@ -887,6 +900,8 @@ func (s *MusicService) SearchPage(keyword string, page int) (MusicSearchResponse
 }
 
 func (s *MusicService) SearchSourcePage(keyword, source string, page int) (MusicSearchResponse, error) {
+	searchStartedAt := time.Now()
+	defer func() { log.Printf("[Music-Timing] stage=search_source_request duration_ms=%.3f source=%q page=%d", float64(time.Since(searchStartedAt))/float64(time.Millisecond), source, page) }()
 	if s == nil {
 		return MusicSearchResponse{}, errors.New("洛雪搜索 SDK 未初始化")
 	}
@@ -946,6 +961,8 @@ func (s *MusicService) search(parent context.Context, keyword string) (MusicSear
 }
 
 func (s *MusicService) searchPage(parent context.Context, keyword string, page int) (MusicSearchResponse, error) {
+	searchStartedAt := time.Now()
+	defer func() { log.Printf("[Music-Timing] stage=search_all_sources_request duration_ms=%.3f page=%d", float64(time.Since(searchStartedAt))/float64(time.Millisecond), page) }()
 	if s == nil { return MusicSearchResponse{}, errors.New("洛雪搜索 SDK 未初始化") }
 	if parent == nil { parent = context.Background() }
 	waitStartedAt := time.Now()
@@ -1086,8 +1103,15 @@ func (s *MusicService) playNext(parent context.Context) error {
 	s.playbackStartMu.Lock()
 	defer s.playbackStartMu.Unlock()
 	if parent == nil { parent = context.Background() }
+	playbackRequestStartedAt := time.Now()
+	s.mu.Lock()
+	s.playbackAttemptStartedAt = playbackRequestStartedAt
+	s.mu.Unlock()
 	waitStartedAt := time.Now()
-	if err := s.waitForLXRuntime(parent); err != nil { return err }
+	if err := s.waitForLXRuntime(parent); err != nil {
+		log.Printf("[Music-Timing] stage=playback_request result=runtime_wait_failed duration_ms=%.3f", float64(time.Since(playbackRequestStartedAt))/float64(time.Millisecond))
+		return err
+	}
 	s.logFirstLXReady("first_playback_runtime_ready", &s.firstPlaybackReady, waitStartedAt)
 	s.mu.RLock()
 	enabled := s.value.Enabled
