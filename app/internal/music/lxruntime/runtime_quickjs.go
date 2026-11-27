@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"net/http"
 	"path/filepath"
@@ -101,12 +100,7 @@ func openQuickJSAPI() (*quickJSAPI, error) {
 		// the timing extension. Keep them usable; timing fields remain zero.
 		if legacyErr := bind(&api.evalLegacy, "lxqjs_eval"); legacyErr != nil {
 			return nil, fmt.Errorf("resolve QuickJS eval symbols: timed API unavailable (%v), legacy API unavailable (%w)", err, legacyErr)
-		}
-		log.Printf("[LX-Timing] compatibility=legacy_eval library=%q reason=%q; compile/execute phase timings unavailable; run app/scripts/lxproduction.ps1 to replace the outdated native DLL", path, err.Error())
-	}
-	setNativeAllocator(api.alloc)
-	api.setCallbacks(
-		purego.NewCallback(lxqjsGoMD5),
+		},
 		purego.NewCallback(lxqjsGoRandomBytes),
 		purego.NewCallback(lxqjsGoBufferFrom),
 		purego.NewCallback(lxqjsGoBufferToString),
@@ -147,17 +141,13 @@ func New(opts Options) (*Runtime, error) {
 	if opts.MemoryLimitBytes <= 0 { opts.MemoryLimitBytes = defaultMemoryLimit }
 	if opts.StackLimitBytes <= 0 { opts.StackLimitBytes = defaultStackLimit }
 	if opts.EvalTimeout <= 0 { opts.EvalTimeout = defaultEvalTimeout }
-	loadStarted := time.Now()
 	api, err := loadQuickJSAPI()
-	logLXTiming("quickjs_library_load", loadStarted, "result="+timingResult(err))
 	if err != nil { return nil, err }
-	createStarted := time.Now()
 	lifecycle, shutdown := context.WithCancel(context.Background())
 	r := &Runtime{commands: make(chan command), done: make(chan struct{}), lifecycle: lifecycle, shutdown: shutdown, api: api}
 	ready := make(chan error, 1)
 	go r.loop(opts, ready)
 	if err := <-ready; err != nil { return nil, err }
-	logLXTiming("runtime_create", createStarted, "result=ready")
 	return r, nil
 }
 
@@ -196,10 +186,9 @@ func (r *Runtime) loop(opts Options, ready chan<- error) {
 		sourcePtr := r.allocCString(cmd.source)
 		filenamePtr := r.allocCString(cmd.filename)
 		var evalError unsafe.Pointer
-		var compileMS, executeMS, jobsMS float64
 		var value unsafe.Pointer
 		if r.api.evalTimed != nil {
-			value = r.api.evalTimed(state, sourcePtr, filenamePtr, &evalError, &compileMS, &executeMS, &jobsMS)
+			value = r.api.evalTimed(state, sourcePtr, filenamePtr, &evalError, nil, nil, nil)
 		} else {
 			value = r.api.evalLegacy(state, sourcePtr, filenamePtr, &evalError)
 		}
@@ -261,19 +250,15 @@ func (r *Runtime) EvalWithTimeout(ctx context.Context, source, filename string, 
 	defer func(){ stopShutdown(); cancelEval() }()
 	result := make(chan evalResult, 1)
 	cmd := command{ctx:evalCtx, evalTimeout:timeout, source:source, filename:filename, result:result}
-	queueStarted := time.Now()
 	select {
 	case <-r.done: return "", errors.New("QuickJS runtime is closed")
 	case <-ctx.Done(): return "", ctx.Err()
 	case r.commands <- cmd:
-		logLXTiming("quickjs_queue_wait", queueStarted, fmt.Sprintf("filename=%q", filename))
 	}
-	evalStarted := time.Now()
 	select {
 	case <-ctx.Done(): return "", ctx.Err()
 	case <-r.done: return "", errors.New("QuickJS runtime is closed")
 	case value := <-result:
-		logLXTiming("quickjs_eval", evalStarted, fmt.Sprintf("filename=%q result=%q", filename, timingResult(value.err)))
 		return value.value, value.err
 	}
 }
