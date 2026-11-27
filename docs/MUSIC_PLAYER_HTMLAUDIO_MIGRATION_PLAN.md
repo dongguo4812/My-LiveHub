@@ -134,7 +134,7 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 **工作内容**
 - [x] 明确区分洛雪原生协议/action（如在线音源 musicUrl）与 My-LiveHub 社区扩展 action（search/detail/lyric/pic），不得将扩展 action 冒充洛雪官方原生协议。
 - [x] 统一脚本 action dispatcher 已接入 MusicService 的单音源/全局/弹幕搜索、详情、歌词和封面入口；原生 musicUrl 仍走 SourceManager.ResolvePlaybackURL。
-- [x] SourceManager 从每个脚本的 inited.sources 读取音源范围与原生 action 声明：扩展 action 仅在脚本声明该音源后执行；原生 musicUrl 还必须由该音源原生 actions 明确声明。多脚本按音源路由，不支持的脚本跳过；没有适用扩展时回退既有 Go provider。
+- [x] SourceManager 从每个脚本的 inited.sources 读取音源范围与原生 action 声明：扩展 action 仅在脚本声明该音源后执行；原生 musicUrl 还必须由该音源原生 actions 明确声明。多脚本按音源路由，不支持的脚本跳过；当前五平台搜索缺失 QuickJS Action 时 fail-closed，不再回退 Go 原生搜索。
 - [x] 搜索结果映射为统一 music.Track/SearchPage，保留 source id、LX source key、SourceData、时长、封面等字段；详情结果合并回原 Track；歌词/封面按字符串契约返回。18 秒 action deadline、timeout/cancel 错误分类、错误链、多脚本隔离和调用取消均有测试。
 - [x] 自建最小 production fixture 验证 search/detail/musicUrl/lyric/pic 经 QuickJS → SourceManager → MusicService 的调用；未复制第三方脚本。
 
@@ -154,7 +154,7 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 - [x] 增加有上限的进程内 TTL 缓存、源过期时间上限、命中、过期淘汰、显式失效和单次刷新解析；缓存键按 source/track/quality 隔离。
 - [x] 定义结构化 PlaybackResource，表达 URL、source/track/quality、媒体 headers、MIME/编码提示、过期/刷新信息和代理需求；资源字段不进入 Track 普通 JSON，避免签名 URL 意外出现在队列事件/状态中。
 - [x] Go 队列路径优先向实现 `LoadResource` 的资源感知引擎传递结构化资源；旧引擎 `Load` 仅为迁移期兼容，不计入 C 完成。Go 侧 `HandlePlaybackResourceFailure` 按失效资源身份幂等刷新，同一失效 URL 的重复媒体错误只执行一次重新解析。
-- 原生洛雪 `musicUrl` action 的协议返回值仍是 URL 字符串；不得擅自把原生 action 改成 object，也不得把 `lx.request` 的 API headers 复制成媒体 GET headers。当前无显式媒体上下文来源时，`PlaybackResource.Headers` 保持为空，MIME/codec/ExpiresAt/proxy 等未知字段不伪造。
+- [x] 原生洛雪 `musicUrl` action 的协议返回值仍是 URL 字符串；不得擅自把原生 action 改成 object，也不得把 `lx.request` 的 API headers 复制成媒体 GET headers。当前无显式媒体上下文来源时，`PlaybackResource.Headers` 保持为空，MIME/codec/ExpiresAt/proxy 等未知字段不伪造。
 - [x] D 已实现 HTMLAudio 消费 C 的 `PlaybackResource`，并将浏览器 `error` 事件携带当前 track/resource 交给 `HandlePlaybackResourceFailure`；目标 WebView 的真实播放与设备控制验证已通过。
 - [x] 生产 URL 和请求继续受安全策略约束；媒体最终连接的 DNS pinning/redirect 由后续受控媒体传输保证。
 
@@ -183,7 +183,7 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 
 ### E. 媒体传输适配与旧引擎替换（已完成）
 
-**当前代码状态：E 阶段已完成。** Desktop validation Run #2928 全部作业通过，覆盖 Go 全量测试、生产 LX Runtime 测试、前端构建、Windows 主程序构建，以及真实音源与 Chromium HTMLAudio/歌词集成。生产主窗口使用 HTMLAudio；媒体代理及 Range、取消、重定向校验、连接 pinning 和流式转发已有实现。按用户决定，逐项媒体传输真实音源验收不再作为 E 阶段阻塞任务，后续仅在发现具体音源兼容问题时针对性处理。旧配置迁移与设置页收尾已完成：配置版本升级至 v18，旧 `lx_api_endpoints` 字段会在加载时移除且不丢失其他音乐设置；设置页不再展示旧 API 地址。旧播放引擎、平台启动器、外部播放状态轮询和外部队列控制已从生产播放链路清理。**注意：这只表示旧播放器播放依赖已替换，不表示旧洛雪 JS/运行时兼容实现已全面清理；后者按用户要求留到所有迁移与验收工作最后执行。**
+**当前代码状态：E 阶段已完成。** Desktop validation Run #2928 全部作业通过，覆盖 Go 全量测试、生产 LX Runtime 测试、前端构建、Windows 主程序构建，以及真实音源与 Chromium HTMLAudio/歌词集成。生产主窗口使用 HTMLAudio；媒体代理及 Range、取消、重定向校验、连接 pinning 和流式转发已有实现。按用户决定，逐项媒体传输真实音源验收不再作为 E 阶段阻塞任务，后续仅在发现具体音源兼容问题时针对性处理。旧配置迁移与设置页收尾已完成：配置版本升级至 v18，旧 `lx_api_endpoints` 字段会在加载时移除且不丢失其他音乐设置；设置页不再展示旧 API 地址。旧播放引擎、平台启动器、外部播放状态轮询和外部队列控制已从生产播放链路清理。**补充：旧洛雪 Go 搜索/歌词适配器、QRC/KRC 专用解析及 PoC 遗留构建路径已在 A～G 之后的旧实现清理阶段完成删除和审计；本阶段清理已完成。**
 
 **工作内容**
 - [x] 保留现有受控媒体代理实现；不再要求逐音源开展独立的真实传输验收，出现具体兼容故障时再针对性补齐。
@@ -199,7 +199,7 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 
 ### F. 歌词、封面、队列与多视图整合（已完成）
 
-**当前代码状态：已完成（按本项目当前 F 阶段验收清单）。** QuickJS lyric/pic action、五个平台歌词适配器、统一同步 LRC 解析、桌面歌词链路及切歌时取消旧歌词请求已完成核查；播放队列与稳定性清单中的 1～7 项也已完成核查和验证。队列侧歌单播放模式持久化、观众点播优先抢占、点播结束后恢复歌单及中断状态清理均已有代码和 CI 覆盖。真实第三方音源的在线可用性仍受平台/API 状态影响，不作永久可用承诺。
+**当前代码状态：已完成（按本项目当前 F 阶段验收清单）。** QuickJS lyric/pic action、统一同步 LRC 解析、桌面歌词链路及切歌时取消旧歌词请求已完成核查；旧 Go 平台歌词适配器已在最终清理阶段删除；播放队列与稳定性清单中的 1～7 项也已完成核查和验证。队列侧歌单播放模式持久化、观众点播优先抢占、点播结束后恢复歌单及中断状态清理均已有代码和 CI 覆盖。真实第三方音源的在线可用性仍受平台/API 状态影响，不作永久可用承诺。
 
 **工作内容**
 - [x] 接通脚本 lyric/pic action 与现有歌词、封面服务和缓存。
