@@ -937,7 +937,10 @@ func (s *MusicService) SearchSourcePage(keyword, source string, page int) (Music
 		return MusicSearchResponse{}, errors.New("搜索页码必须大于 0")
 	}
 	waitStartedAt := time.Now()
-	if err := s.waitForLXRuntime(context.Background()); err != nil { return MusicSearchResponse{}, err }
+	if err := s.waitForLXRuntime(context.Background()); err != nil {
+		s.logFirstSearchResult(searchStartedAt, source, 0, err)
+		return MusicSearchResponse{}, err
+	}
 	s.logFirstLXReady("first_search_runtime_ready", &s.firstSearchReady, waitStartedAt)
 	declaredSource := false
 	for _, id := range s.enabledSearchSourceIDs() {
@@ -953,6 +956,7 @@ func (s *MusicService) SearchSourcePage(keyword, source string, page int) (Music
 	s.mu.RUnlock()
 	result, err := music.NewUnifiedSourceService(scriptAwareSourceSearcher{service: s}, resolver).SearchSource(ctx, source, keyword, page)
 	if err != nil {
+		s.logFirstSearchResult(searchStartedAt, source, 0, err)
 		return MusicSearchResponse{}, err
 	}
 	response := MusicSearchResponse{
@@ -993,7 +997,10 @@ func (s *MusicService) searchPage(parent context.Context, keyword string, page i
 	if s == nil { return MusicSearchResponse{}, errors.New("洛雪搜索 SDK 未初始化") }
 	if parent == nil { parent = context.Background() }
 	waitStartedAt := time.Now()
-	if err := s.waitForLXRuntime(parent); err != nil { return MusicSearchResponse{}, err }
+	if err := s.waitForLXRuntime(parent); err != nil {
+		s.logFirstSearchResult(searchStartedAt, "", 0, err)
+		return MusicSearchResponse{}, err
+	}
 	s.logFirstLXReady("first_search_runtime_ready", &s.firstSearchReady, waitStartedAt)
 	sourceIDs := s.enabledSearchSourceIDs()
 	if len(sourceIDs) == 0 {
