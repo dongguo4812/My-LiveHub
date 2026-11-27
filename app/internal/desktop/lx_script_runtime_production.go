@@ -288,16 +288,20 @@ func (r *productionMusicLXRuntime) rebuildLocked(ctx context.Context) error {
 			Name: script.Name, Description: script.Description, Version: script.Version,
 			Author: script.Author, Homepage: script.Homepage, RawScript: script.Source,
 		}
-		probe, validationErr := lxruntime.NewSourceManagerWithScripts(nil, []lxruntime.LXSourceScript{{
-			Info: info, Source: script.Source,
-			ExtensionActions: append([]string(nil), script.ExtensionActions...),
-		}})
+		// Re-discover the executable script's real inited.sources declaration
+		// on every rebuild. Persisted capability snapshots may predate newer
+		// actions (notably lyric) or be incomplete after an earlier migration;
+		// trusting them would silently unregister valid provider actions.
+		capabilities, validationErr := lxruntime.DetectLXScriptCapabilities(ctx, info, script.Source, nil)
 		if validationErr != nil {
 			script.LastError = validationErr.Error()
 			script.Enabled = false
 			continue
 		}
-		_ = probe.Close()
+		script.ExtensionActions = append([]string(nil), capabilities.ExtensionActions...)
+		script.NativeActions = append([]string(nil), capabilities.NativeActions...)
+		script.SupportedSources = append([]string(nil), capabilities.SupportedSources...)
+		script.SourceActions = cloneLXSourceActions(capabilities.SourceActions)
 		total += len(script.Source)
 		if total > 16<<20 {
 			script.LastError = "enabled LX scripts exceed the aggregate 16 MiB source limit"
