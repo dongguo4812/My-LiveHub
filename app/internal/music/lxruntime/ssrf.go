@@ -66,15 +66,19 @@ func lxSafeHTTPClientWithResolver(client *http.Client, allowPrivate bool, resolv
 			if err != nil {
 				return nil, err
 			}
+			connectStarted := time.Now()
 			var failures []string
 			for _, ip := range ips {
 				conn, dialErr := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
 				if dialErr == nil {
+					logLXTiming("http_connect", connectStarted, fmt.Sprintf("request_id=%d host=%q result=ok", lxTimingRequestID(ctx), host))
 					return conn, nil
 				}
 				failures = append(failures, dialErr.Error())
 			}
-			return nil, fmt.Errorf("lx.request: connect failed: %s", strings.Join(failures, "; "))
+			connectErr := fmt.Errorf("lx.request: connect failed: %s", strings.Join(failures, "; "))
+			logLXTiming("http_connect", connectStarted, fmt.Sprintf("request_id=%d host=%q result=%s", lxTimingRequestID(ctx), host, timingResult(connectErr)))
+			return nil, connectErr
 		}
 		clone.Transport = safeTransport
 	} else {
@@ -223,10 +227,14 @@ func resolveLXHostWithResolver(ctx context.Context, host string, allowPrivate bo
 	if isNonCanonicalIPv4Host(host) {
 		return nil, fmt.Errorf("lx.request: non-canonical numeric IPv4 host is not allowed: %s", host)
 	}
+	dnsStarted := time.Now()
 	ips, err := resolver.LookupNetIP(ctx, "ip", host)
 	if err != nil {
-		return nil, fmt.Errorf("lx.request: resolve destination: %w", err)
+		wrapped := fmt.Errorf("lx.request: resolve destination: %w", err)
+		logLXTiming("http_dns_lookup", dnsStarted, fmt.Sprintf("request_id=%d host=%q result=%s", lxTimingRequestID(ctx), host, timingResult(wrapped)))
+		return nil, wrapped
 	}
+	logLXTiming("http_dns_lookup", dnsStarted, fmt.Sprintf("request_id=%d host=%q addresses=%d result=ok", lxTimingRequestID(ctx), host, len(ips)))
 	if len(ips) == 0 {
 		return nil, errors.New("lx.request: destination has no IP addresses")
 	}
