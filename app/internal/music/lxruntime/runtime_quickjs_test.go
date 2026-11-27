@@ -3044,3 +3044,74 @@ func TestXinglanInvalidPlaybackURLIsNotCached(t *testing.T) {
 		t.Fatalf("Xinglan made %d provider requests across two failed attempts; invalid URL must not be cached",requests)
 	}
 }
+
+
+// Test墨澜混淆启动循环的实际 QuickJS 迭代次数。计数器仅插入测试副本，
+// 不修改仓库内的上游音源文件；基线执行用于量化插桩前后的整体耗时差异。
+func TestMolanObfuscationBootstrapLoopDiagnostics(t *testing.T) {
+	const scriptPath = "../../../../lx-js/墨澜音乐源v2.3.8.js"
+	source, err := os.ReadFile(filepath.Clean(scriptPath))
+	if err != nil {
+		t.Fatalf("read pinned 墨澜 source: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	info := ScriptInfo{Name: "墨澜聚合音源", Version: "v2.3.8", RawScript: string(source)}
+
+	// First execute the exact, unmodified upstream bytes as the timing baseline.
+	baseline := newTestRuntime(t, 60*time.Second)
+	if err := baseline.InstallLXHost(ctx, info); err != nil {
+		t.Fatalf("install baseline LX host: %v", err)
+	}
+	_, baselineErr := baseline.EvalWithTimeout(ctx, string(source), "墨澜聚合音源-baseline.js", 60*time.Second)
+	if baselineErr != nil {
+		t.Logf("baseline source reached a post-bootstrap error (timing is still useful): %v", baselineErr)
+	}
+	_ = baseline.Close()
+
+	// Instrument only the obfuscator's initial array-rotation loop in a test copy.
+	const loopToken = "while(!![]){"
+	if strings.Count(string(source), loopToken) != 1 {
+		t.Fatalf("expected exactly one obfuscation rotation loop %q; found %d", loopToken, strings.Count(string(source), loopToken))
+	}
+	instrumented := "let __lxObfLoopCount = 0; const __lxObfLoopStarted = Date.now();\n" + string(source)
+	instrumented = strings.Replace(instrumented, loopToken, "while((++__lxObfLoopCount,!![])){", 1)
+	callStart := strings.Index(instrumented, "}(a0_0x223d,")
+	if callStart < 0 {
+		t.Fatal("could not locate obfuscator bootstrap invocation")
+	}
+	callEndOffset := strings.Index(instrumented[callStart:], "));")
+	if callEndOffset < 0 {
+		t.Fatal("could not locate end of obfuscator bootstrap invocation")
+	}
+	callEnd := callStart + callEndOffset + 3
+	instrumented = instrumented[:callEnd] +
+		"\nglobalThis.__lxObfLoopCount = __lxObfLoopCount; globalThis.__lxObfLoopElapsedMs = Date.now() - __lxObfLoopStarted;\n" +
+		instrumented[callEnd:]
+
+	measured := newTestRuntime(t, 60*time.Second)
+	if err := measured.InstallLXHost(ctx, info); err != nil {
+		t.Fatalf("install instrumented LX host: %v", err)
+	}
+	_, evalErr := measured.EvalWithTimeout(ctx, instrumented, "墨澜聚合音源-instrumented.js", 60*time.Second)
+	if evalErr != nil {
+		t.Logf("instrumented source reached a post-bootstrap error (loop metrics are still checked): %v", evalErr)
+	}
+	metricsJSON, err := measured.Eval(ctx,
+		"JSON.stringify({count:globalThis.__lxObfLoopCount,elapsedMs:globalThis.__lxObfLoopElapsedMs})",
+		"墨澜混淆循环计数.js")
+	if err != nil {
+		t.Fatalf("read obfuscation loop metrics: %v", err)
+	}
+	var metrics struct {
+		Count int64 `json:"count"`
+		ElapsedMS int64 `json:"elapsedMs"`
+	}
+	if err := json.Unmarshal([]byte(metricsJSON), &metrics); err != nil {
+		t.Fatalf("decode obfuscation loop metrics %q: %v", metricsJSON, err)
+	}
+	if metrics.Count <= 0 {
+		t.Fatalf("obfuscation loop did not execute: %+v", metrics)
+	}
+	t.Logf("[LX-Obfuscation] script=墨澜聚合音源 loop_iterations=%d loop_elapsed_ms=%d timer_resolution_ms=1 instrumentation=local-counter", metrics.Count, metrics.ElapsedMS)
+}
