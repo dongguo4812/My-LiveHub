@@ -95,6 +95,10 @@ type LXScriptCapabilities struct {
 // DetectLXScriptCapabilities executes the real LX initialization handshake and
 // separates My-LiveHub community actions from native LX actions.
 func DetectLXScriptCapabilities(ctx context.Context, info ScriptInfo, source string, client *http.Client) (LXScriptCapabilities, error) {
+	return DetectLXScriptCapabilitiesWithCache(ctx, info, source, client, nil)
+}
+
+func DetectLXScriptCapabilitiesWithCache(ctx context.Context, info ScriptInfo, source string, client *http.Client, cache *LXObfuscationCache) (LXScriptCapabilities, error) {
 	if ctx == nil { ctx = context.Background() }
 	probeCtx, cancel := context.WithTimeout(ctx, lxMaxRequestTimeout)
 	defer cancel()
@@ -103,7 +107,7 @@ func DetectLXScriptCapabilities(ctx context.Context, info ScriptInfo, source str
 	runtime, err := New(Options{EvalTimeout: lxCapabilityProbeEvalTimeout})
 	if err != nil { return LXScriptCapabilities{}, fmt.Errorf("create QuickJS capability probe: %w", err) }
 	defer runtime.Close()
-	if err := runtime.InitializeLXSource(probeCtx, info, source, client); err != nil {
+	if err := runtime.InitializeLXSourceWithCache(probeCtx, info, source, client, cache); err != nil {
 		return LXScriptCapabilities{}, fmt.Errorf("initialize script to detect capabilities: %w", err)
 	}
 	text, err := runtime.Eval(probeCtx, `JSON.stringify((globalThis.__lxHostState && globalThis.__lxHostState.initInfo && globalThis.__lxHostState.initInfo.sources) || {})`, "lx-capability-detection.js")
