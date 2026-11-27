@@ -9,7 +9,6 @@ import (
  "encoding/base64"
  "encoding/binary"
  "encoding/hex"
- "encoding/json"
  "errors"
  "fmt"
  "io"
@@ -18,34 +17,16 @@ import (
  "regexp"
  "strconv"
  "strings"
- "time"
  "unicode/utf16"
 )
 
-func doLyricRaw(ctx context.Context, client *http.Client, method, rawURL string, headers map[string]string, body io.Reader) ([]byte,error) {
- if ctx==nil { ctx=context.Background() }; if client==nil { client=&http.Client{Timeout:18*time.Second} }
- req,err:=http.NewRequestWithContext(ctx,method,rawURL,body); if err!=nil{return nil,err}
- req.Header.Set("User-Agent","lx-music request")
- for k,v:=range headers { req.Header.Set(k,v) }
- resp,err:=client.Do(req); if err!=nil{return nil,err}; defer resp.Body.Close()
- data,err:=io.ReadAll(io.LimitReader(resp.Body,8<<20)); if err!=nil{return nil,err}
- if resp.StatusCode<200||resp.StatusCode>=300{return nil,fmt.Errorf("音乐平台返回 HTTP %d",resp.StatusCode)}
- return data,nil
-}
-func lyricJSON(ctx context.Context,client *http.Client,method,endpoint string,headers map[string]string,body io.Reader)(map[string]any,error){
- raw,err:=doLyricRaw(ctx,client,method,endpoint,headers,body);if err!=nil{return nil,err}
- var v map[string]any;if err=json.Unmarshal(raw,&v);err!=nil{return nil,err};return v,nil
-}
-func lyricStr(v any)string{if s,ok:=v.(string);ok{return s};return ""}
-func lyricMap(v any)map[string]any{m,_:=v.(map[string]any);return m}
-func lyricInt(v any)int64{switch n:=v.(type){case float64:return int64(n);case json.Number:i,_:=n.Int64();return i;case string:i,_:=strconv.ParseInt(n,10,64);return i};return 0}
 
 // Kuwo: LX's mobi.s endpoint returns TP=content, deflate-compressed data;
 // the payload is Base64 text XORed with the repeating "yeelion" key.
 func GetKuwoMusicLyrics(ctx context.Context,client *http.Client,track Track)(string,error){
  id:=strings.TrimSpace(track.SourceData["songmid"]);if id==""{return "",errors.New("酷我歌词请求缺少 songmid")}
  endpoint:="https://mlyric.kuwo.cn/mobi.s?f=web&type=lyric&lrcx=1&rid="+url.QueryEscape(id)+"&encode=utf8"
- raw,err:=doLyricRaw(ctx,client,http.MethodGet,endpoint,nil,nil);if err!=nil{return "",err}
+ raw,err:=doLXRaw(ctx,client,http.MethodGet,endpoint,nil,nil);if err!=nil{return "",err}
  if len(raw)<10||!strings.EqualFold(string(raw[:10]),"tp=content"){return "",errors.New("酷我歌词响应格式无效")}
  sep:=bytes.Index(raw,[]byte("\r\n\r\n"));if sep<0{return "",errors.New("酷我歌词响应缺少内容分隔符")}
  zr,err:=zlib.NewReader(bytes.NewReader(raw[sep+4:]));if err!=nil{return "",err}
@@ -94,12 +75,12 @@ func GetNeteaseMusicLyrics(ctx context.Context,client *http.Client,track Track)(
  pad:=aes.BlockSize-len(text)%aes.BlockSize;input:=append([]byte(text),bytes.Repeat([]byte{byte(pad)},pad)...)
  encrypted:=make([]byte,len(input));for i:=0;i<len(input);i+=aes.BlockSize{block.Encrypt(encrypted[i:i+aes.BlockSize],input[i:i+aes.BlockSize])}
  form:=url.Values{"params":{strings.ToUpper(hex.EncodeToString(encrypted))}}
- result,err:=lyricJSON(ctx,client,http.MethodPost,"https://interface3.music.163.com/eapi/song/lyric/v1",map[string]string{"Origin":"https://music.163.com","Content-Type":"application/x-www-form-urlencoded"},strings.NewReader(form.Encode()))
- if err!=nil{return "",err};if lyricInt(result["code"])!=200{return "",fmt.Errorf("网易云歌词接口状态异常：%v",result["code"])}
- lrc:=lyricStr(lyricMap(result["lrc"])["lyric"]);if strings.TrimSpace(lrc)==""{return "",nil}
+ result,err:=doLXJSON(ctx,client,http.MethodPost,"https://interface3.music.163.com/eapi/song/lyric/v1",map[string]string{"Origin":"https://music.163.com","Content-Type":"application/x-www-form-urlencoded"},strings.NewReader(form.Encode()))
+ if err!=nil{return "",err};if intValue(result["code"])!=200{return "",fmt.Errorf("网易云歌词接口状态异常：%v",result["code"])}
+ lrc:=stringValue(mapValue(result["lrc"])["lyric"]);if strings.TrimSpace(lrc)==""{return "",nil}
  // Preserve the independent synchronized streams returned by LX's EAPI.
  var out strings.Builder;out.WriteString(lrc)
- for _,key:=range []string{"tlyric"}{v:=lyricStr(lyricMap(result[key])["lyric"]);if v!=""{out.WriteString("\n");out.WriteString(v)}}
+ for _,key:=range []string{"tlyric"}{v:=stringValue(mapValue(result[key])["lyric"]);if v!=""{out.WriteString("\n");out.WriteString(v)}}
  return strings.TrimSpace(out.String()),nil
 }
 
@@ -128,13 +109,13 @@ func GetMiguMusicLyrics(ctx context.Context,client *http.Client,track Track)(str
  if mrc==""&&lrc==""{
   id:=strings.TrimSpace(track.SourceData["copyright_id"]);if id==""{id=track.SourceData["songmid"]};if id==""{return "",errors.New("咪咕歌词缺少歌曲 ID")}
   form:=url.Values{"resourceId":{id}}
-  info,err:=lyricJSON(ctx,client,http.MethodPost,"https://c.musicapp.migu.cn/MIGUM2.0/v1.0/content/resourceinfo.do?resourceType=2",map[string]string{"Content-Type":"application/x-www-form-urlencoded","Referer":"https://app.c.nf.migu.cn/","channel":"0146921"},strings.NewReader(form.Encode()))
-  if err!=nil{return "",err};items,_:=info["resource"].([]any);if len(items)>0{item:=lyricMap(items[0]);mrc=lyricStr(item["mrcUrl"]);lrc=lyricStr(item["lrcUrl"]);trc=lyricStr(item["trcUrl"])}
+  info,err:=doLXJSON(ctx,client,http.MethodPost,"https://c.musicapp.migu.cn/MIGUM2.0/v1.0/content/resourceinfo.do?resourceType=2",map[string]string{"Content-Type":"application/x-www-form-urlencoded","Referer":"https://app.c.nf.migu.cn/","channel":"0146921"},strings.NewReader(form.Encode()))
+  if err!=nil{return "",err};items,_:=info["resource"].([]any);if len(items)>0{item:=mapValue(items[0]);mrc=stringValue(item["mrcUrl"]);lrc=stringValue(item["lrcUrl"]);trc=stringValue(item["trcUrl"])}
  }
  headers:=map[string]string{"Referer":"https://app.c.nf.migu.cn/","channel":"0146921","User-Agent":"Mozilla/5.0 (Linux; Android 5.1.1; Nexus 6) AppleWebKit/537.36 Chrome/59.0.3071.115 Mobile Safari/537.36"}
  var primary string
- if mrc!=""{raw,e:=doLyricRaw(ctx,client,http.MethodGet,mrc,headers,nil);if e!=nil{return "",e};plain,e:=decryptMiguLyric(strings.TrimSpace(string(raw)));if e!=nil{return "",e};primary=parseMiguLyric(plain)
- }else if lrc!=""{raw,e:=doLyricRaw(ctx,client,http.MethodGet,lrc,headers,nil);if e!=nil{return "",e};primary=strings.TrimSpace(string(raw))}
- if trc!=""{raw,e:=doLyricRaw(ctx,client,http.MethodGet,trc,headers,nil);if e==nil&&len(raw)>0{primary+="\n"+strings.TrimSpace(string(raw))}}
+ if mrc!=""{raw,e:=doLXRaw(ctx,client,http.MethodGet,mrc,headers,nil);if e!=nil{return "",e};plain,e:=decryptMiguLyric(strings.TrimSpace(string(raw)));if e!=nil{return "",e};primary=parseMiguLyric(plain)
+ }else if lrc!=""{raw,e:=doLXRaw(ctx,client,http.MethodGet,lrc,headers,nil);if e!=nil{return "",e};primary=strings.TrimSpace(string(raw))}
+ if trc!=""{raw,e:=doLXRaw(ctx,client,http.MethodGet,trc,headers,nil);if e==nil&&len(raw)>0{primary+="\n"+strings.TrimSpace(string(raw))}}
  return strings.TrimSpace(primary),nil
 }
