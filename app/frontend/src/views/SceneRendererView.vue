@@ -775,13 +775,13 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-queue-track small{color:#aeb9ca;font-size:.7em}
 .music-queue-requester{flex:none;max-width:30%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#65b8ff;font-size:.72em;font-weight:700}
 .music-queue-empty{padding:.38em .5em;color:#aeb9ca;font-size:.76em;line-height:1.4}
-.music-widget{box-sizing:border-box;width:min(405px,100%);height:100%;max-height:100%;display:flex;flex-direction:column;gap:6px;position:relative;overflow:hidden;border-radius:9px;user-select:none;color:#e7c89d}
-.music-lyrics{display:flex;flex:1 1 auto;flex-direction:column;justify-content:center;gap:2px;min-height:0;padding:0 8px;overflow:hidden;text-align:left;text-shadow:0 1px 4px #000b}
-.music-lyric-original,.music-lyric-translation{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.35}
+.music-widget{box-sizing:border-box;width:100%;height:100%;max-height:100%;display:flex;flex-direction:column;gap:6px;position:relative;overflow:hidden;border-radius:9px;user-select:none;color:#e7c89d}
+.music-lyrics{display:flex;flex:1 1 auto;flex-direction:column;justify-content:center;gap:2px;width:100%;min-width:0;min-height:0;box-sizing:border-box;padding:0 8px;overflow:hidden;text-align:left;text-shadow:0 1px 4px #000b}
+.music-lyric-original,.music-lyric-translation{min-width:0;overflow:hidden;text-overflow:clip;white-space:normal;overflow-wrap:anywhere;word-break:break-word;line-height:1.35}
 .music-lyric-original{color:var(--random-color);font-size:1em;font-weight:700}
 .music-lyric-translation{color:var(--random-color);font-size:.78em}
 .music-lyrics.is-empty .music-lyric-original{color:var(--random-color);font-size:.8em;font-weight:500}
-.music-main{height:112px;display:flex;gap:8px;min-width:0;position:relative}
+.music-main{width:min(405px,100%);height:112px;flex:none;display:flex;gap:8px;min-width:0;position:relative}
 .music-cover-wrap{height:112px;width:112px;flex:0 0 112px;position:relative;overflow:hidden;border-radius:5px;background:rgba(102,76,60,.35)}
 .music-cover-blur{position:absolute;inset:-20px;background-position:center;background-size:cover;filter:blur(20px) brightness(.8);opacity:.55;transform:scale(1.2)}
 .music-cover{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1}
