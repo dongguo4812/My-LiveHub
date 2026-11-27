@@ -77,7 +77,7 @@
       const lyric = str(pick(item, 'lineLyric', 'lyric'));
       if (!time || !lyric) return '';
       return '[' + time + ']' + lyric;
-    }).filter(Boolean).join('\\n');
+    }).filter(Boolean).join('\n');
   }
   function decodeBase64(value) {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
