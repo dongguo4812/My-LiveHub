@@ -2,14 +2,16 @@ package config
 
 import (
 	"fmt"
-	"net/url"
+	"math"
 	"strings"
 )
 
-const CurrentMusicConfigVersion = 14
+const CurrentMusicConfigVersion = 18
 
 type MusicConfig struct {
 	ConfigVersion  int    `json:"config_version"`
+	Volume float64 `json:"volume"`
+	LoudnessNormalization bool `json:"loudness_normalization"`
 	Enabled        bool   `json:"enabled"`
 	CommandEnabled bool   `json:"command_enabled"`
 	CommandPrefix  string `json:"command_prefix"`
@@ -18,7 +20,7 @@ type MusicConfig struct {
 	QueueCapacity  int    `json:"queue_capacity"`
 	RequestCooldownSeconds int `json:"request_cooldown_seconds"`
 	QueueDisplayCount int `json:"queue_display_count"`
-	LXAPIEndpoints []string `json:"lx_api_endpoints"`
+	PlaylistPlaybackMode string `json:"playlist_playback_mode"`
 	EnabledSearchSources []string `json:"enabled_search_sources"`
 	RequireFanMedal bool `json:"require_fan_medal"`
 	FanMedalLevel int `json:"fan_medal_level"`
@@ -27,6 +29,8 @@ type MusicConfig struct {
 func DefaultMusicConfig() MusicConfig {
 	return MusicConfig{
 		ConfigVersion: CurrentMusicConfigVersion,
+		Volume: 1,
+		LoudnessNormalization: false,
 		Enabled: true,
 		CommandEnabled: true,
 		CommandPrefix: "点歌",
@@ -35,8 +39,8 @@ func DefaultMusicConfig() MusicConfig {
 		QueueCapacity: 100,
 		RequestCooldownSeconds: 0,
 		QueueDisplayCount: 5,
+		PlaylistPlaybackMode: "sequential",
 		FanMedalLevel: 1,
-		LXAPIEndpoints: []string{"http://127.0.0.1:23330"},
 		EnabledSearchSources: []string{"tx", "kw", "kg", "wy", "mg"},
 	}
 }
@@ -46,6 +50,9 @@ func MigrateMusicConfig(c MusicConfig) (MusicConfig, bool) {
 		return c, false
 	}
 	n := DefaultMusicConfig()
+	n.Volume = 1
+	if c.ConfigVersion >= 15 { n.Volume = c.Volume }
+	n.LoudnessNormalization = c.LoudnessNormalization
 	n.Enabled = c.Enabled
 	n.CommandEnabled = c.CommandEnabled
 	if c.ConfigVersion >= 7 {
@@ -62,13 +69,8 @@ func MigrateMusicConfig(c MusicConfig) (MusicConfig, bool) {
 	if c.QueueDisplayCount >= 1 && c.QueueDisplayCount <= 1000 {
 		n.QueueDisplayCount = c.QueueDisplayCount
 	}
-	if c.LXAPIEndpoints != nil {
-		n.LXAPIEndpoints = append([]string{}, c.LXAPIEndpoints...)
-		if c.ConfigVersion < 13 && len(n.LXAPIEndpoints) > 1 {
-			n.LXAPIEndpoints = n.LXAPIEndpoints[:1]
-		}
-	}
 	if c.EnabledSearchSources != nil { n.EnabledSearchSources = append([]string{}, c.EnabledSearchSources...) }
+	if c.PlaylistPlaybackMode == "sequential" || c.PlaylistPlaybackMode == "loop" || c.PlaylistPlaybackMode == "random" { n.PlaylistPlaybackMode = c.PlaylistPlaybackMode }
 	n.RequireFanMedal = c.RequireFanMedal
 	if c.FanMedalLevel >= 1 && c.FanMedalLevel <= 120 { n.FanMedalLevel = c.FanMedalLevel }
 	return n, true
@@ -78,6 +80,7 @@ func (c MusicConfig) Validate() error {
 	if c.ConfigVersion != CurrentMusicConfigVersion {
 		return fmt.Errorf("unsupported music configuration version %d", c.ConfigVersion)
 	}
+	if math.IsNaN(c.Volume) || math.IsInf(c.Volume, 0) || c.Volume < 0 || c.Volume > 1 { return fmt.Errorf("music volume must be between 0 and 1") }
 	if strings.TrimSpace(c.CommandPrefix) == "" {
 		return fmt.Errorf("music command prefix is required")
 	}
@@ -86,6 +89,7 @@ func (c MusicConfig) Validate() error {
 	}
 	if c.SkipCommandEnabled && strings.TrimSpace(c.SkipCommand) == "" { return fmt.Errorf("music skip command is required") }
 	if len([]rune(c.SkipCommand)) > 16 { return fmt.Errorf("music skip command is too long") }
+	if c.PlaylistPlaybackMode != "sequential" && c.PlaylistPlaybackMode != "loop" && c.PlaylistPlaybackMode != "random" { return fmt.Errorf("不支持的歌单播放模式：%s", c.PlaylistPlaybackMode) }
 	if c.RequireFanMedal && (c.FanMedalLevel < 1 || c.FanMedalLevel > 120) { return fmt.Errorf("音乐点播粉丝勋章等级必须在 1 到 120 之间") }
 	if c.RequestCooldownSeconds < 0 || c.RequestCooldownSeconds > 86400 { return fmt.Errorf("普通观众点播冷却时间必须在 0 到 86400 秒之间") }
 	if c.QueueCapacity < 1 || c.QueueCapacity > 1000 {
@@ -93,17 +97,6 @@ func (c MusicConfig) Validate() error {
 	}
 	if c.QueueDisplayCount < 1 || c.QueueDisplayCount > 1000 {
 		return fmt.Errorf("music queue display count must be between 1 and 1000")
-	}
-	if len(c.LXAPIEndpoints) > 10 { return fmt.Errorf("洛雪 API 地址最多允许配置 10 个") }
-	seenEndpoints := make(map[string]bool, len(c.LXAPIEndpoints))
-	for _, endpoint := range c.LXAPIEndpoints {
-		parsed, err := url.Parse(strings.TrimSpace(endpoint))
-		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-			return fmt.Errorf("无效的洛雪 API 地址：%s", endpoint)
-		}
-		key := strings.TrimRight(parsed.String(), "/")
-		if seenEndpoints[key] { return fmt.Errorf("洛雪 API 地址不能重复：%s", endpoint) }
-		seenEndpoints[key] = true
 	}
 	seenSources := make(map[string]bool, len(c.EnabledSearchSources))
 	for _, source := range c.EnabledSearchSources {
@@ -114,9 +107,6 @@ func (c MusicConfig) Validate() error {
 	return nil
 }
 
-// LoadMusicConfig drops fields from retired built-in platform configuration
-// before strict typed decoding. This lets installations upgrade without
-// requiring users to manually edit their existing music.json.
 func LoadMusicConfig(m *Manager) (MusicConfig, error) {
 	if m == nil {
 		return MusicConfig{}, fmt.Errorf("configuration manager is required")
@@ -128,6 +118,8 @@ func LoadMusicConfig(m *Manager) (MusicConfig, error) {
 	if localExists {
 		allowed := map[string]bool{
 			"config_version": true,
+			"volume": true,
+			"loudness_normalization": true,
 			"enabled": true,
 			"command_enabled": true,
 			"command_prefix": true,
@@ -136,7 +128,7 @@ func LoadMusicConfig(m *Manager) (MusicConfig, error) {
 			"queue_capacity": true,
 			"request_cooldown_seconds": true,
 			"queue_display_count": true,
-			"lx_api_endpoints": true,
+			"playlist_playback_mode": true,
 			"enabled_search_sources": true,
 			"require_fan_medal": true,
 			"fan_medal_level": true,

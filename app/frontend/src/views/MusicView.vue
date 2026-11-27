@@ -1,18 +1,30 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { parseSyncedLyrics, type SyncedLyricLine } from '../utils/syncedLyrics'
+import { useRoute } from 'vue-router'
 import { Headset, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import '../styles/player-center.css'
+import MusicNavigation from '../components/MusicNavigation.vue'
+import { getHTMLAudioVolume } from '../services/htmlAudio'
 import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
+import * as MusicLyricsWindowService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musiclyricswindowservice.js'
 
 type MusicConfig = Awaited<ReturnType<typeof MusicService.GetConfig>>
+type MusicStatus = Awaited<ReturnType<typeof MusicService.GetStatus>>
 type Track = Awaited<ReturnType<typeof MusicService.Search>>['tracks'][number]
+type Playlist = Awaited<ReturnType<typeof MusicService.ListPlaylists>>[number]
 type QueueSnapshot = Awaited<ReturnType<typeof MusicService.GetQueue>>
 type PlaybackSnapshot = Awaited<ReturnType<typeof MusicService.GetPlaybackStatus>>
 
 type MusicTab = 'now-playing' | 'search' | 'visitor-requests' | 'settings'
 const activeTab = ref<MusicTab>('now-playing')
+const route = useRoute()
+watch(() => route.query.tab, value => {
+  if (value === 'search' || value === 'visitor-requests' || value === 'settings' || value === 'now-playing') activeTab.value = value
+}, { immediate: true })
 
 const config = ref<MusicConfig | null>(null)
+const musicStatus = ref<MusicStatus | null>(null)
 type MusicSourceOption = { id: string; name: string }
 const musicSourceOptions: MusicSourceOption[] = [
   { id: 'tx', name: 'QQ 音乐' },
@@ -23,24 +35,15 @@ const musicSourceOptions: MusicSourceOption[] = [
 ]
 const searchableSources = computed(() => {
   const enabled = config.value?.enabled_search_sources ?? []
-  return musicSourceOptions.filter(item => enabled.includes(item.id))
+  // The settings array is the source of truth for search priority.
+  return enabled
+    .map(id => musicSourceOptions.find(item => item.id === id))
+    .filter((item): item is MusicSourceOption => item !== undefined)
 })
 const availableSearchSources = computed(() => {
   const enabled = config.value?.enabled_search_sources ?? []
   return musicSourceOptions.filter(item => !enabled.includes(item.id))
 })
-function getLXEndpoint(index: number) {
-  return config.value?.lx_api_endpoints[index] ?? ''
-}
-function setLXEndpoint(index: number, value: string) {
-  if (!config.value) return
-  while (config.value.lx_api_endpoints.length <= index) config.value.lx_api_endpoints.push('')
-  config.value.lx_api_endpoints[index] = value
-}
-function swapLXEndpoints() {
-  if (!config.value || config.value.lx_api_endpoints.length < 2) return
-  ;[config.value.lx_api_endpoints[0], config.value.lx_api_endpoints[1]] = [config.value.lx_api_endpoints[1], config.value.lx_api_endpoints[0]]
-}
 function getSourceName(id: string): string {
   return musicSourceOptions.find((item: MusicSourceOption) => item.id === id)?.name ?? id
 }
@@ -59,26 +62,16 @@ function moveSearchSource(index: number, direction: -1 | 1) {
   ;[sources[index], sources[target]] = [sources[target], sources[index]]
   config.value.enabled_search_sources = sources
 }
-async function testLXAPIConnection() {
-  if (!config.value) return
-  saving.value = true
-  error.value = ''
-  success.value = ''
-  try {
-    config.value.lx_api_endpoints = config.value.lx_api_endpoints.map(item => item.trim()).filter(Boolean)
-    await MusicService.SaveConfig(config.value)
-    await MusicService.GetPlaybackStatus()
-    success.value = '已成功连接洛雪客户端 API'
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
-  } finally {
-    saving.value = false
-  }
-}
 const queue = ref<QueueSnapshot | null>(null)
 const draggedQueueItemID = ref('')
 const playback = ref<PlaybackSnapshot | null>(null)
 const results = ref<Track[]>([])
+const playlists = ref<Playlist[]>([])
+const playlistDialogVisible = ref(false)
+const playlistLoading = ref(false)
+const playlistAdding = ref(false)
+const selectedPlaylistID = ref('')
+const trackToAdd = ref<Track | null>(null)
 const searchErrors = ref<Record<string, string>>({})
 const qualitySelections = ref<Record<string, string>>({})
 const query = ref('')
@@ -93,11 +86,47 @@ let searchRequestID = 0
 const saving = ref(false)
 const error = ref('')
 const success = ref('')
+
 let statusTimer: ReturnType<typeof setInterval> | undefined
+let playbackClockTimer: ReturnType<typeof setInterval> | undefined
+let playbackPositionAnchor = 0
+let playbackPositionAnchorAt = 0
+const displayedPositionMs = ref(0)
+const syncedLyrics = ref<SyncedLyricLine[]>([])
+const lyricsStatus = ref<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle')
+const lyricsError = ref('')
+const lyricsListRef = ref<HTMLElement | null>(null)
+let lyricsTrackKey = ''
+let lyricsRequestID = 0
+let activeLyricsRequestID = ''
+const activeLyricIndex = computed(() => {
+  const position = isSeeking.value ? seekPreviewMs.value : displayedPositionMs.value
+  let active = -1
+  for (let index = 0; index < syncedLyrics.value.length; index++) {
+    if (syncedLyrics.value[index].time > position) break
+    active = index
+  }
+  return active
+})
+const activeLyricTime = computed(() => activeLyricIndex.value >= 0 ? syncedLyrics.value[activeLyricIndex.value]?.time ?? null : null)
+const displayedSyncedLyrics = computed(() => {
+  const index = activeLyricIndex.value
+  if (index < 0) return syncedLyrics.value
+  return [syncedLyrics.value[index], ...syncedLyrics.value.slice(index + 1), ...syncedLyrics.value.slice(0, index)]
+})
+const isSeeking = ref(false)
+const seekPreviewMs = ref(0)
+const playbackVolume = ref(100)
+const lastAudibleVolume = ref(100)
+const canPrevious = ref(false)
+const playlistPlaybackMode = ref('sequential')
+const playlistPlaybackActive = ref(false)
+const canNextTrack = computed(() => (queue.value?.items.length ?? 0) > 0 || playlistPlaybackActive.value)
 
 const progress = computed(() => {
   if (!playback.value || playback.value.duration_ms <= 0) return 0
-  return Math.min(100, Math.max(0, playback.value.position_ms / playback.value.duration_ms * 100))
+  const position = isSeeking.value ? seekPreviewMs.value : displayedPositionMs.value
+  return Math.min(100, Math.max(0, position / playback.value.duration_ms * 100))
 })
 const searchErrorText = computed(() => Object.values(searchErrors.value).join('；'))
 function formatDuration(value?: number) {
@@ -107,9 +136,14 @@ function formatDuration(value?: number) {
   const seconds = Math.floor(numeric / 1000)
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 }
-function formatSeekTooltip(percent: number) {
-  const duration = playback.value?.duration_ms ?? 0
-  return formatDuration(Math.round(duration * Math.min(100, Math.max(0, percent)) / 100))
+function updatePlaybackClock() {
+  if (isSeeking.value) return
+  if (!playback.value) { displayedPositionMs.value = 0; return }
+  const position = playback.value.state === 'playing'
+    ? playbackPositionAnchor + Date.now() - playbackPositionAnchorAt
+    : playbackPositionAnchor
+  const duration = playback.value.duration_ms ?? 0
+  displayedPositionMs.value = duration > 0 ? Math.min(duration, position) : Math.max(0, position)
 }
 function sourceName(id?: string) {
   const names: Record<string, string> = { kw: '酷我音乐', kg: '酷狗音乐', tx: 'QQ 音乐', wy: '网易云音乐', mg: '咪咕音乐' }
@@ -126,13 +160,21 @@ async function loadConfig() {
   error.value = ''
   try {
     config.value = await MusicService.GetConfig()
-    config.value.lx_api_endpoints ??= []
     config.value.enabled_search_sources ??= []
+    selectedSource.value = config.value.enabled_search_sources.find(id => musicSourceOptions.some(item => item.id === id)) ?? 'all'
+    const savedVolume = Math.min(100, Math.max(0, Number(config.value.volume ?? 1) * 100))
+    playbackVolume.value = savedVolume
+    if (savedVolume > 0) lastAudibleVolume.value = savedVolume
+    // Re-apply after the frontend Audio singleton has subscribed to commands.
+    await MusicService.SetVolume(savedVolume / 100)
     await refreshQueue()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
   } finally {
   }
+}
+async function refreshMusicStatus() {
+  try { musicStatus.value = await MusicService.GetStatus() } catch { /* Keep the last known runtime state. */ }
 }
 async function refreshQueue() {
   try { queue.value = await MusicService.GetQueue() } catch { /* Keep the last known queue. */ }
@@ -181,13 +223,64 @@ async function clearQueue() {
     error.value = reason instanceof Error ? reason.message : String(reason)
   }
 }
+async function loadPlaybackLyrics(track: NonNullable<PlaybackSnapshot['track']>, key: string) {
+  if (activeLyricsRequestID) {
+    MusicService.CancelLyrics(activeLyricsRequestID)
+    activeLyricsRequestID = ''
+  }
+  const requestID = ++lyricsRequestID
+  const requestToken = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : 'music-lyrics-' + Date.now() + '-' + requestID
+  activeLyricsRequestID = requestToken
+  syncedLyrics.value = []
+  lyricsError.value = ''
+  lyricsStatus.value = 'loading'
+  try {
+    const lrc = await MusicService.GetLyricsForRequest(track, requestToken)
+    if (requestID !== lyricsRequestID || lyricsTrackKey !== key) return
+    activeLyricsRequestID = ''
+    syncedLyrics.value = parseSyncedLyrics(lrc ?? '')
+    lyricsStatus.value = syncedLyrics.value.length > 0 ? 'ready' : 'empty'
+  } catch (reason) {
+    if (requestID !== lyricsRequestID || lyricsTrackKey !== key) return
+    activeLyricsRequestID = ''
+    lyricsError.value = reason instanceof Error ? reason.message : String(reason)
+    lyricsStatus.value = 'error'
+  }
+}
+function retryPlaybackLyrics() {
+  const track = playback.value?.track
+  if (track) void loadPlaybackLyrics(track, lyricsTrackKey)
+}
+watch(activeLyricIndex, async () => {
+  await nextTick()
+  const container = lyricsListRef.value
+  if (container) container.scrollTo({ top: 0, behavior: 'smooth' })
+})
+watch(() => playback.value?.track ? playback.value.track.source_id + ':' + playback.value.track.id : '', key => {
+  if (key === lyricsTrackKey) return
+  if (activeLyricsRequestID) {
+    MusicService.CancelLyrics(activeLyricsRequestID)
+    activeLyricsRequestID = ''
+  }
+  lyricsTrackKey = key
+  lyricsRequestID++
+  syncedLyrics.value = []
+  lyricsError.value = ''
+  if (playback.value?.track) void loadPlaybackLyrics(playback.value.track, key)
+  else lyricsStatus.value = 'idle'
+})
 async function refreshPlayback() {
-  // 洛雪 can be playing a song started outside My-LiveHub's request queue.
-  // Read the backend's shared playback snapshot so both external and queued
-  // playback are reflected without issuing another direct 洛雪 API request.
-  await refreshQueue()
+  // Read the local HTMLAudio playback snapshot shared by the music service.
+  // The My-LiveHub queue is the sole source of track transitions.
+  await Promise.all([refreshQueue(), refreshMusicStatus()])
   try {
     playback.value = await MusicService.GetCachedPlaybackStatus()
+    canPrevious.value = await MusicService.CanPrevious()
+    playlistPlaybackMode.value = await MusicService.GetPlaylistPlaybackMode()
+    playlistPlaybackActive.value = await MusicService.GetPlaylistPlaybackActive()
+    playbackPositionAnchor = playback.value.position_ms ?? 0
+    playbackPositionAnchorAt = Date.now()
+    updatePlaybackClock()
   } catch { /* Keep the last known playback snapshot if the cache is unavailable. */ }
 }
 async function saveConfig() {
@@ -196,11 +289,11 @@ async function saveConfig() {
   error.value = ''
   success.value = ''
   try {
-    config.value.lx_api_endpoints = config.value.lx_api_endpoints.map(item => item.trim()).filter(Boolean)
     await MusicService.SaveConfig(config.value)
     success.value = '音乐设置已保存'
     config.value = await MusicService.GetConfig()
-    selectedSource.value = 'all'
+    config.value.enabled_search_sources ??= []
+    selectedSource.value = config.value.enabled_search_sources.find(id => musicSourceOptions.some(item => item.id === id)) ?? 'all'
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
   } finally {
@@ -240,6 +333,38 @@ function search() {
   total.value = 0
   void loadSearchPage(1)
 }
+async function openAddToPlaylist(track: Track) {
+  trackToAdd.value = track
+  selectedPlaylistID.value = ''
+  playlistDialogVisible.value = true
+  playlistLoading.value = true
+  error.value = ''
+  try {
+    playlists.value = await MusicService.ListPlaylists()
+    selectedPlaylistID.value = playlists.value[0]?.id ?? ''
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  } finally {
+    playlistLoading.value = false
+  }
+}
+async function confirmAddToPlaylist() {
+  if (!trackToAdd.value || !selectedPlaylistID.value) return
+  const playlist = playlists.value.find(item => item.id === selectedPlaylistID.value)
+  if (!playlist) return
+  playlistAdding.value = true
+  error.value = ''
+  try {
+    await MusicService.AddPlaylistTrack(playlist.id, trackToAdd.value)
+    success.value = `已添加到歌单「${playlist.name}」：${trackToAdd.value.title} - ${trackToAdd.value.artist || '未知歌手'}`
+    playlistDialogVisible.value = false
+    trackToAdd.value = null
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  } finally {
+    playlistAdding.value = false
+  }
+}
 async function addToQueue(track: Track) {
   error.value = ''
   try {
@@ -264,6 +389,11 @@ async function playSearchTrackNow(track: Track) {
     error.value = reason instanceof Error ? reason.message : String(reason)
   }
 }
+async function setPlaylistPlaybackMode(mode: string) {
+  error.value = ''
+  try { await MusicService.SetPlaylistPlaybackMode(mode); playlistPlaybackMode.value = mode }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+}
 async function nextTrack() {
   error.value = ''
   try {
@@ -283,14 +413,81 @@ async function previousTrack() {
   }
 }
 async function pause() { try { await MusicService.Pause(); await refreshPlayback() } catch (reason) { error.value = String(reason) } }
+async function openLyricsWindow() {
+  error.value = ''
+  try { await MusicLyricsWindowService.OpenWindow() }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
+}
 async function resume() { try { await MusicService.Resume(); await refreshPlayback() } catch (reason) { error.value = String(reason) } }
+async function stopPlayback() {
+  error.value = ''
+  try {
+    await MusicService.Stop()
+    isSeeking.value = false
+    seekPreviewMs.value = 0
+    playbackPositionAnchor = 0
+    playbackPositionAnchorAt = Date.now()
+    displayedPositionMs.value = 0
+    await refreshPlayback()
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  }
+}
+async function seekPlayback(value: number | number[]) {
+  const duration = playback.value?.duration_ms ?? 0
+  const percentage = Math.min(100, Math.max(0, Number(Array.isArray(value) ? value[0] : value)))
+  const target = Math.round(percentage * duration / 100)
+  try {
+    await MusicService.Seek(target)
+    playbackPositionAnchor = target
+    playbackPositionAnchorAt = Date.now()
+    displayedPositionMs.value = target
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
+    updatePlaybackClock()
+  } finally {
+    isSeeking.value = false
+  }
+}
+async function setPlaybackVolume(value: number | number[]) { try { await MusicService.SetVolume(Number(Array.isArray(value) ? value[0] : value) / 100); } catch (reason) { error.value = String(reason) } }
+function handleSeekInput(value: number | number[]) {
+  const percentage = Math.min(100, Math.max(0, Number(Array.isArray(value) ? value[0] : value)))
+  const duration = playback.value?.duration_ms ?? 0
+  if (duration <= 0) return
+  isSeeking.value = true
+  seekPreviewMs.value = Math.round(percentage * duration / 100)
+}
+function handleSeekChange(value: number | number[]) {
+  void seekPlayback(value)
+}
+function handleVolumeChange(value: number | number[]) {
+  const numeric = Math.min(100, Math.max(0, Number(Array.isArray(value) ? value[0] : value)))
+  playbackVolume.value = numeric
+  if (numeric > 0) lastAudibleVolume.value = numeric
+  void setPlaybackVolume(numeric)
+}
+function toggleMute() {
+  if (playbackVolume.value > 0) {
+    lastAudibleVolume.value = playbackVolume.value
+    handleVolumeChange(0)
+  } else {
+    handleVolumeChange(lastAudibleVolume.value > 0 ? lastAudibleVolume.value : 100)
+  }
+}
 onMounted(() => {
+  playbackVolume.value = getHTMLAudioVolume()
+  if (playbackVolume.value > 0) lastAudibleVolume.value = playbackVolume.value
   void loadConfig()
   void refreshPlayback()
+  void refreshMusicStatus()
   statusTimer = setInterval(() => void refreshPlayback(), 1500)
+  playbackClockTimer = setInterval(updatePlaybackClock, 100)
 })
 onUnmounted(() => {
   if (statusTimer) clearInterval(statusTimer)
+  if (playbackClockTimer) clearInterval(playbackClockTimer)
+  lyricsRequestID++
+  if (activeLyricsRequestID) MusicService.CancelLyrics(activeLyricsRequestID)
 })
 </script>
 
@@ -300,25 +497,25 @@ onUnmounted(() => {
       <div>
         <p class="eyebrow">MUSIC PLAYER</p>
         <h2>音乐中心</h2>
-        <p class="description">管理洛雪音乐播放、歌曲搜索与观众点播队列。</p>
+        <p class="description">管理独立 HTMLAudio 音乐播放、歌曲搜索与观众点播队列，无需启动外部播放器。</p>
         <el-alert v-if="config && !config.enabled" title="音乐模块当前已关闭：无法加入歌曲队列或播放。请在下方「点歌设置」中启用音乐模块并保存全部设置。" type="warning" :closable="false" show-icon style="margin-top:12px" />
       </div>
-      <el-tag type="success" effect="plain">直播音乐控制台</el-tag>
+      <el-tag v-if="musicStatus?.lx_runtime_status === 'initializing'" type="warning" effect="plain">JS 音源初始化中</el-tag>
+      <el-tag v-else-if="musicStatus?.lx_runtime_status === 'failed'" type="danger" effect="plain">JS 音源初始化失败</el-tag>
+      <el-tag v-else-if="musicStatus?.lx_runtime_status === 'ready'" type="success" effect="plain">JS 音源已就绪</el-tag>
+      <el-tag v-else type="success" effect="plain">直播音乐控制台</el-tag>
     </header>
 
+    <el-alert v-if="musicStatus?.lx_runtime_status === 'initializing'" title="正在初始化已启用的 JS 音源；主界面已就绪，首次搜索或播放会等待初始化完成。" type="info" :closable="false" show-icon />
+    <el-alert v-if="musicStatus?.lx_runtime_status === 'failed'" :title="`JS 音源初始化失败：${musicStatus.lx_runtime_error || '未提供详细原因'}`" type="error" :closable="false" show-icon />
     <el-alert v-if="error" :title="error" type="error" :closable="true" show-icon @close="error = ''" />
     <el-alert v-if="playback?.error" :title="playback.error" type="error" :closable="false" show-icon />
     <el-alert v-if="success" :title="success" type="success" :closable="true" show-icon @close="success = ''" />
 
-    <nav class="music-tabs player-tabs" aria-label="音乐页面导航">
-      <button :class="{ active: activeTab === 'now-playing' }" @click="activeTab = 'now-playing'">正在播放</button>
-      <button :class="{ active: activeTab === 'search' }" @click="activeTab = 'search'">歌曲搜索</button>
-      <button :class="{ active: activeTab === 'visitor-requests' }" @click="activeTab = 'visitor-requests'">观众点播 <span>{{ queue?.items.length ?? 0 }}</span></button>
-      <button :class="{ active: activeTab === 'settings' }" @click="activeTab = 'settings'">音乐设置</button>
-    </nav>
+    <MusicNavigation :queue-count="queue?.items.length ?? 0" />
 
     <el-card v-if="activeTab === 'now-playing'" class="player-card" shadow="never">
-      <template #header><div class="card-heading"><strong>正在播放</strong><el-tag :type="playback?.state === 'playing' ? 'success' : playback?.state === 'error' ? 'danger' : 'info'">{{ playback?.state === 'error' ? '播放失败' : playback?.state ?? '播放器未启动' }}</el-tag></div></template>
+      <template #header><div class="card-heading"><strong>正在播放</strong><div style="display:flex;align-items:center;gap:10px"><el-tag :type="playback?.resolution_status === 'resolving' ? 'warning' : playback?.state === 'playing' ? 'success' : playback?.state === 'error' ? 'danger' : 'info'">{{ playback?.resolution_status === 'resolving' ? '正在解析' : playback?.state === 'error' ? '播放失败' : playback?.state ?? '播放器未启动' }}</el-tag><el-button size="small" :disabled="!playback?.track" @click="openLyricsWindow">桌面歌词</el-button></div></div></template>
       <div class="now-playing">
         <div class="track-cover">
           <img v-if="playback?.track?.cover_url" :src="playback.track.cover_url" alt="歌曲封面" />
@@ -327,19 +524,67 @@ onUnmounted(() => {
         <div class="track-info">
           <strong>{{ playback?.track ? `${playback.track.title} - ${playback.track.artist || '未知歌手'}` : '尚未播放歌曲' }}</strong>
           <small v-if="playback?.track">{{ playbackSourceName(playback.track) }}</small>
-          <el-tag v-else-if="queue?.current && queue.current.requested_by !== '__my_livehub_search_play__'" type="warning" size="small">观众点播</el-tag>
+          <small v-if="playback?.track?.resolved_quality">
+            取链成功档位：{{ playback.track.resolved_quality }}
+            <span v-if="playback.track.selected_quality && playback.track.resolved_quality !== playback.track.selected_quality">（请求{{ playback.track.selected_quality }}，音源已降级）</span>
+          </small>
+          <small v-if="playback?.resolution_status === 'resolving'" class="resolution-status">正在解析播放地址，请稍候…</small>
+          
+          <el-tag v-if="queue?.current && queue.current.requested_by !== '__my_livehub_search_play__' && queue.current.requested_by !== '__my_livehub_playlist_play__'" type="warning" size="small">观众点播</el-tag>
+          <el-tag v-else-if="queue?.current?.requested_by === '__my_livehub_playlist_play__'" type="success" size="small">歌单播放</el-tag>
         </div>
       </div>
-      <el-slider :model-value="progress" :min="0" :max="100" :step="0.1" :format-tooltip="formatSeekTooltip" :disabled="true" />
-      <div class="time-row"><span>{{ formatDuration(playback?.position_ms) }}</span><span>{{ formatDuration(playback?.duration_ms) }}</span></div>
-      <p class="hint">音量调节和播放进度定位暂不受洛雪开放 API 支持，请在洛雪客户端中操作。</p>
+      <div class="progress-row">
+        <span class="progress-time">{{ formatDuration(isSeeking ? seekPreviewMs : displayedPositionMs) }}</span>
+        <el-slider :model-value="progress" :min="0" :max="100" :step="0.1" :disabled="!playback?.track || (playback?.duration_ms ?? 0) <= 0" @input="handleSeekInput" @change="handleSeekChange" />
+        <span class="progress-time">{{ formatDuration(playback?.duration_ms) }}</span>
+      </div>
+      <div class="volume-row"><span>音量</span><el-slider :model-value="playbackVolume" :min="0" :max="100" :step="1" style="max-width:220px" @input="handleVolumeChange" /><el-button size="small" @click="toggleMute">{{ playbackVolume === 0 ? "恢复声音" : "静音" }}</el-button></div>
+      <div class="playback-order-row">
+        <span>歌单播放模式</span>
+        <el-radio-group :model-value="playlistPlaybackMode" size="small" @change="setPlaylistPlaybackMode">
+          <el-radio-button value="sequential">顺序播放</el-radio-button>
+          <el-radio-button value="loop">列表循环</el-radio-button>
+          <el-radio-button value="random">随机播放</el-radio-button>
+        </el-radio-group>
+      </div>
+      <p class="hint">播放模式仅作用于当前歌单；观众点播队列始终优先，且不受随机或循环模式影响。</p>
       <div class="player-controls">
         <el-button :disabled="playback?.state !== 'playing'" @click="pause">暂停</el-button>
         <el-button :disabled="playback?.state !== 'paused'" @click="resume">继续</el-button>
-        <el-button @click="previousTrack">上一首</el-button>
-        <el-button @click="nextTrack">下一首</el-button>
+        <el-button :disabled="!playback?.track" @click="stopPlayback">停止</el-button>
+        <el-button :disabled="!canPrevious" @click="previousTrack">上一首</el-button>
+        <el-button :disabled="!canNextTrack" @click="nextTrack">下一首</el-button>
       </div>
-      <p class="hint">播放由本机洛雪客户端负责。请先启动洛雪，并在配置页填写其本地 API 地址。</p>
+      
+    </el-card>
+
+    <el-card v-if="activeTab === 'now-playing'" class="player-card lyrics-detail-card" shadow="never">
+      <template #header>
+        <div class="card-heading">
+          <strong>歌词详情</strong>
+          <el-tag v-if="lyricsStatus === 'ready'" type="success" effect="plain">{{ syncedLyrics.length }} 行</el-tag>
+          <el-tag v-else-if="lyricsStatus === 'loading'" type="info" effect="plain">正在获取歌词</el-tag>
+        </div>
+      </template>
+      <div v-if="!playback?.track" class="lyrics-detail-placeholder">播放歌曲后将在这里显示完整歌词</div>
+      <div v-else-if="lyricsStatus === 'loading'" class="lyrics-detail-placeholder">正在获取歌词…</div>
+      <div v-else-if="lyricsStatus === 'error'" class="lyrics-detail-placeholder">
+        <span>{{ lyricsError || '歌词获取失败' }}</span>
+        <el-button link type="primary" @click="retryPlaybackLyrics">重新获取</el-button>
+      </div>
+      <div v-else-if="lyricsStatus === 'empty'" class="lyrics-detail-placeholder">暂无歌词</div>
+      <div v-else ref="lyricsListRef" class="lyrics-detail-list">
+        <div
+          v-for="line in displayedSyncedLyrics"
+          :key="line.time"
+          class="lyrics-detail-line"
+          :class="{ 'is-active': line.time === activeLyricTime }"
+        >
+          <span class="lyrics-detail-original">{{ line.text }}</span>
+          <span v-if="line.translation" class="lyrics-detail-translation">{{ line.translation }}</span>
+        </div>
+      </div>
     </el-card>
 
     <el-card v-if="activeTab === 'search'" class="player-card" shadow="never">
@@ -347,8 +592,8 @@ onUnmounted(() => {
       <p class="section-description">搜索平台及优先级在音乐设置中统一管理。</p>
       <div class="search-row">
         <el-select v-model="selectedSource" style="width:160px" @change="search">
-          <el-option label="全部可用音源" value="all" :disabled="searchableSources.length === 0" />
           <el-option v-for="source in searchableSources" :key="source.id" :label="source.name" :value="source.id" />
+          <el-option label="全部可用音源" value="all" :disabled="searchableSources.length === 0" />
         </el-select>
         <el-input v-model="query" placeholder="输入歌曲名或歌手，例如：稻香 周杰伦" clearable @keyup.enter="search" />
         <el-button type="primary" :loading="searching" @click="search">搜索</el-button>
@@ -363,7 +608,7 @@ onUnmounted(() => {
         <el-table-column label="可用音质" min-width="150"><template #default="scope">{{ qualityNames(scope.row) }}</template></el-table-column>
         <el-table-column label="播放音质" min-width="135"><template #default="scope"><el-select v-model="qualitySelections[trackRowKey(scope.row)]" size="small" clearable placeholder="自动"><el-option v-for="quality in (scope.row.qualities ?? [])" :key="quality.type" :label="quality.type" :value="quality.type" /></el-select></template></el-table-column>
         <el-table-column label="时长" width="90"><template #default="scope">{{ formatDuration(scope.row.duration_ms) }}</template></el-table-column>
-        <el-table-column label="操作" width="170" fixed="right"><template #default="scope"><el-button link type="success" @click="playSearchTrackNow(scope.row)">立即播放</el-button><el-button link type="primary" @click="addToQueue(scope.row)">加入队列</el-button></template></el-table-column>
+        <el-table-column label="操作" width="250" fixed="right"><template #default="scope"><el-button link type="success" @click="playSearchTrackNow(scope.row)">立即播放</el-button><el-button link type="primary" @click="addToQueue(scope.row)">加入队列</el-button><el-button link type="warning" @click="openAddToPlaylist(scope.row)">添加歌单</el-button></template></el-table-column>
       </el-table>
       <div v-if="maxPage > 1" class="search-pagination">
         <el-pagination
@@ -378,6 +623,26 @@ onUnmounted(() => {
       <el-empty v-else-if="!searching && results.length === 0" description="搜索结果将在这里显示" :image-size="76" />
     </el-card>
 
+    <el-dialog v-model="playlistDialogVisible" title="添加到歌单" width="420px">
+      <div v-if="trackToAdd" class="playlist-add-track">
+        <strong>{{ trackToAdd.title }}</strong>
+        <span>{{ trackToAdd.artist || '未知歌手' }} · {{ sourceName(trackToAdd.source_id) }}</span>
+      </div>
+      <el-skeleton v-if="playlistLoading" :rows="2" animated />
+      <template v-else>
+        <el-select v-if="playlists.length" v-model="selectedPlaylistID" style="width:100%" placeholder="选择目标歌单">
+          <el-option v-for="playlist in playlists" :key="playlist.id" :label="`${playlist.name}（${playlist.tracks.length} 首）`" :value="playlist.id" />
+        </el-select>
+        <el-empty v-else description="还没有歌单，请先创建一个歌单" :image-size="72">
+          <el-button type="primary" @click="playlistDialogVisible = false; $router.push('/music/playlists')">前往我的列表创建</el-button>
+        </el-empty>
+      </template>
+      <template #footer>
+        <el-button @click="playlistDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="playlistAdding" :disabled="playlistLoading || !playlists.length || !selectedPlaylistID" @click="confirmAddToPlaylist">确认添加</el-button>
+      </template>
+    </el-dialog>
+
     <el-card v-if="activeTab === 'visitor-requests'" class="player-card" shadow="never">
       <template #header>
         <div class="card-heading">
@@ -385,7 +650,7 @@ onUnmounted(() => {
           <el-button type="danger" plain size="small" :disabled="!queue?.items.length" @click="clearQueue">清空待播</el-button>
         </div>
       </template>
-      <div v-if="queue?.current" class="queue-current">当前播放：{{ queue.current.track.title }} - {{ queue.current.track.artist || '未知歌手' }}（{{ queue.current.requested_by || '观众点播' }}）</div>
+      <div v-if="queue?.current" class="queue-current">当前播放：{{ queue.current.track.title }} - {{ queue.current.track.artist || '未知歌手' }}（{{ queue.current.requested_by === '__my_livehub_playlist_play__' ? '歌单播放' : queue.current.requested_by || '观众点播' }}）</div>
       <div v-if="queue?.items.length" class="queue-list">
         <div
           v-for="(item, index) in queue.items"
@@ -417,6 +682,8 @@ onUnmounted(() => {
       <div v-if="config" class="setting-list">
         <div class="setting-row"><div><strong>启用音乐模块</strong><p>关闭后无法加入歌曲队列或播放歌曲，也不会处理弹幕点歌；MV 视频播放不受影响。</p></div><el-switch v-model="config.enabled" /></div>
         <el-divider />
+        <div class="setting-row"><div><strong>响度标准化</strong><p>实时测量播放响度并平滑调整增益，使用本地媒体代理解决跨域音频接入，并通过峰值限制减少突然过响；关闭后恢复原生 HTMLAudio 播放。</p></div><el-switch v-model="config.loudness_normalization" /></div>
+        <el-divider />
         <div class="setting-row"><div><strong>允许弹幕点歌</strong><p>收到点歌指令后搜索已启用的音源并加入统一队列。</p></div><el-switch v-model="config.command_enabled" /></div>
         <el-divider />
         <div class="setting-row"><div><strong>粉丝勋章等级限制</strong><p>只检查用户是否拥有当前主播的粉丝勋章，不要求佩戴；主播和房管免检。</p></div><el-switch v-model="config.require_fan_medal" /></div>
@@ -437,24 +704,7 @@ onUnmounted(() => {
       <div class="card-actions"><el-button type="primary" :loading="saving" :disabled="!config" @click="saveConfig">保存全部设置</el-button></div>
     </el-card>
     <el-card v-if="activeTab === 'settings'" class="player-card player-settings-card" shadow="never">
-      <template #header><strong>洛雪客户端连接与搜索音源</strong></template>
-      <p class="section-description">洛雪客户端需运行在本机。地址按从上到下的顺序尝试，前一个不可用时自动切换到下一个；播放通过 lxmusic:// 协议发起。</p>
-      <div v-if="config" class="setting-list">
-        <div class="setting-row">
-          <strong>主 API 地址</strong>
-          <el-input :model-value="getLXEndpoint(0)" placeholder="http://127.0.0.1:23330" @update:model-value="setLXEndpoint(0, $event)" />
-        </div>
-        <div class="setting-row">
-          <strong>备用 API 地址</strong>
-          <el-input :model-value="getLXEndpoint(1)" placeholder="备用地址（可留空）" @update:model-value="setLXEndpoint(1, $event)" />
-        </div>
-      </div>
-      <div class="card-actions">
-        <el-button plain :disabled="!config || config.lx_api_endpoints.length < 2" @click="swapLXEndpoints">交换主备地址</el-button>
-        <el-button type="primary" :loading="saving" :disabled="!config" @click="testLXAPIConnection">保存并测试连接</el-button>
-      </div>
-      <el-divider />
-      <strong>搜索平台启用及优先级</strong>
+      <template #header><strong>搜索平台启用及优先级</strong></template>
       <p class="section-description">勾选参与搜索和自动换源的平台；上方平台优先尝试。QQ 音乐默认排在第一位。</p>
       <div v-if="config" class="setting-list">
         <div v-for="(source, index) in config.enabled_search_sources" :key="source" class="setting-row">
@@ -485,7 +735,7 @@ onUnmounted(() => {
         <span>{{ playback?.state === 'playing' ? '正在播放' : playback?.state === 'paused' ? '已暂停' : playback?.state === 'error' ? '播放失败' : '待机中' }}</span>
         <el-button circle text :disabled="playback?.state !== 'playing'" aria-label="暂停" @click="pause"><el-icon><VideoPause /></el-icon></el-button>
         <el-button circle text :disabled="playback?.state !== 'paused'" aria-label="继续播放" @click="resume"><el-icon><VideoPlay /></el-icon></el-button>
-        <el-button circle text :disabled="!playback?.track" @click="nextTrack">下一首</el-button>
+        <el-button circle text :disabled="!queue?.items?.length" @click="nextTrack">下一首</el-button>
       </div>
     </div>
   </section>
@@ -504,6 +754,18 @@ onUnmounted(() => {
 .mini-player-track>div{display:flex;flex-direction:column;gap:3px;min-width:0}
 .mini-player-track strong,.mini-player-track span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:280px}
 .mini-player-track span,.mini-player-actions>span{font-size:12px;color:var(--el-text-color-secondary)}
-.music-page{display:flex;flex-direction:column;gap:20px;min-height:calc(100vh - 146px)}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.section-description,.source-copy span,.setting-row p,.hint{color:var(--el-text-color-secondary);font-size:13px}.section-description{margin:0 0 16px}.card-heading{display:flex;align-items:center;justify-content:space-between}.source-list,.setting-list{display:flex;flex-direction:column}.source-row,.setting-row{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:14px 0;border-bottom:1px solid var(--app-border)}.source-row:last-child{border-bottom:0}.source-copy,.track-info{display:flex;flex-direction:column;gap:5px}.source-copy span,.track-info span,.track-info small{font-size:12px;color:var(--el-text-color-secondary)}.setting-row p{margin:6px 0 0}.card-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}.now-playing-list{margin-top:22px;padding-top:18px;border-top:1px solid var(--app-border)}.now-playing-list-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.now-playing-list-header>div{display:flex;flex-direction:column;gap:4px}.now-playing-list-header strong{font-size:15px}.now-playing-list-header span{font-size:12px;color:var(--el-text-color-secondary)}.now-playing-track-list{display:flex;flex-direction:column;gap:6px}.now-playing-track{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid transparent;border-radius:8px;background:var(--el-fill-color-lighter)}.now-playing-track-active{border-color:var(--app-accent);background:var(--app-bg-control)}.now-playing-track-index{width:28px;color:var(--el-text-color-secondary);font-size:12px;font-variant-numeric:tabular-nums;text-align:center}.now-playing-track-info{display:flex;flex:1;flex-direction:column;gap:3px;min-width:0}.now-playing-track-info strong,.now-playing-track-info span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.now-playing-track-info strong{font-size:13px}.now-playing-track-info span{font-size:12px;color:var(--el-text-color-secondary)}.now-playing{display:flex;align-items:center;gap:16px}.track-cover{width:76px;height:76px;border-radius:10px;background:var(--app-bg-control);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--el-text-color-secondary);font-size:30px}.track-cover img{width:100%;height:100%;object-fit:cover}.track-info strong{font-size:17px}.time-row{display:flex;justify-content:space-between;color:var(--el-text-color-secondary);font-size:12px;font-variant-numeric:tabular-nums}.player-controls{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:14px 0}.playback-order-row{display:flex;align-items:center;justify-content:center;gap:12px;margin:8px 0 14px}.playback-order-row span{font-size:13px;color:var(--el-text-color-secondary)}.volume-row{display:grid;grid-template-columns:50px 1fr;align-items:center;gap:12px}.volume-row span{font-size:13px;color:var(--el-text-color-secondary)}.hint{margin:12px 0 0}.search-row{display:flex;gap:10px}.lx-import-row{display:flex;gap:10px;align-items:center}.hidden-file-input{display:none}.lx-source-list{display:flex;flex-direction:column;margin-top:16px}.lx-source-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-top:1px solid var(--app-border)}.lx-source-row .source-copy{min-width:0}.lx-source-row .source-copy span{overflow-wrap:anywhere}.lx-search-source-settings{display:flex;flex-direction:column;gap:6px;margin-top:8px}.lx-search-source-checkboxes{display:flex;flex-wrap:wrap;gap:8px 12px}.lx-search-source-toggle{display:inline-flex;align-items:center;gap:7px;padding:4px 9px;border:1px solid var(--app-border);border-radius:6px;background:var(--el-bg-color);color:var(--el-text-color-regular);font:inherit;font-size:13px;cursor:pointer;transition:border-color .15s,background .15s,color .15s}.lx-search-source-toggle:hover{border-color:var(--app-accent)}.lx-search-source-toggle:has(.lx-search-source-checkbox:checked){border-color:var(--app-accent);background:var(--app-bg-control);color:var(--app-accent)}.lx-search-source-checkbox{width:15px;height:15px;margin:0;flex:0 0 15px;accent-color:var(--app-accent);cursor:pointer}.lx-search-priority-list{display:flex;flex-direction:column;align-items:stretch;gap:5px;margin-top:10px;padding:9px 10px;max-width:360px;border:1px solid var(--app-border);border-radius:7px;background:var(--el-fill-color-lighter)}.lx-search-priority-list>strong{font-size:13px}.lx-search-priority-empty{font-size:12px;color:var(--el-text-color-secondary)}.lx-search-priority-row{display:flex;align-items:center;justify-content:space-between;padding:5px 9px;border:1px solid var(--app-border);border-radius:6px;background:var(--el-bg-color)}.lx-search-priority-row strong{font-size:12px}.lx-search-priority-actions{display:flex;gap:6px}
-.lx-proxy-fields{display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:16px}.lx-proxy-fields label{display:flex;flex-direction:column;gap:8px;color:var(--el-text-color-regular);font-size:13px}.lx-source-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}.lx-source-test-results{display:flex;flex-direction:column;gap:6px;width:100%;padding:8px 0 4px;border-top:1px dashed var(--app-border)}.lx-source-test-result{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:12px}.lx-source-test-result>span{color:var(--el-text-color-secondary)}.lx-source-test-result small{color:var(--el-text-color-secondary)}.search-summary{margin-top:12px;color:var(--el-text-color-secondary);font-size:12px}.search-pagination{display:flex;justify-content:center;margin-top:18px}.queue-current{padding:10px 12px;margin-bottom:12px;border-radius:8px;background:var(--app-bg-control);font-size:13px}.queue-list{display:flex;flex-direction:column;gap:8px}.queue-item{display:flex;align-items:center;gap:12px;padding:11px 12px;border:1px solid var(--app-border);border-radius:9px;background:var(--el-bg-color);transition:border-color .15s,opacity .15s}.queue-item:hover{border-color:var(--app-accent)}.queue-item-dragging{opacity:.45}.queue-drag-handle{display:flex;align-items:center;color:var(--el-text-color-secondary);cursor:grab;touch-action:none}.queue-drag-handle:active{cursor:grabbing}.queue-index{width:24px;color:var(--el-text-color-secondary);font-size:12px;text-align:center}.queue-track{display:flex;flex:1;flex-direction:column;gap:4px;min-width:0}.queue-track strong,.queue-track span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.queue-track span,.queue-requester{color:var(--el-text-color-secondary);font-size:12px}.queue-requester{max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.setting-row p{margin:6px 0 0}@media(max-width:800px){.music-page{min-height:calc(100vh - 126px)}.mini-player{margin-left:-22px;margin-right:-22px;margin-bottom:-22px;padding-left:22px;padding-right:22px}.source-row,.setting-row{align-items:flex-start;flex-direction:column}.search-row,.lx-import-row{flex-direction:column;align-items:stretch}.lx-source-row{align-items:flex-start}.mini-player{align-items:flex-start;flex-direction:column}.mini-player-actions{width:100%;justify-content:space-between}}
+.music-page{display:flex;flex-direction:column;gap:20px;min-height:calc(100vh - 146px)}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.section-description,.source-copy span,.setting-row p,.hint{color:var(--el-text-color-secondary);font-size:13px}.section-description{margin:0 0 16px}.card-heading{display:flex;align-items:center;justify-content:space-between}.source-list,.setting-list{display:flex;flex-direction:column}.source-row,.setting-row{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:14px 0;border-bottom:1px solid var(--app-border)}.source-row:last-child{border-bottom:0}.source-copy,.track-info{display:flex;flex-direction:column;gap:5px}.source-copy span,.track-info span,.track-info small{font-size:12px;color:var(--el-text-color-secondary)}.setting-row p{margin:6px 0 0}.card-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}.now-playing-list{margin-top:22px;padding-top:18px;border-top:1px solid var(--app-border)}.now-playing-list-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.now-playing-list-header>div{display:flex;flex-direction:column;gap:4px}.now-playing-list-header strong{font-size:15px}.now-playing-list-header span{font-size:12px;color:var(--el-text-color-secondary)}.now-playing-track-list{display:flex;flex-direction:column;gap:6px}.now-playing-track{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid transparent;border-radius:8px;background:var(--el-fill-color-lighter)}.now-playing-track-active{border-color:var(--app-accent);background:var(--app-bg-control)}.now-playing-track-index{width:28px;color:var(--el-text-color-secondary);font-size:12px;font-variant-numeric:tabular-nums;text-align:center}.now-playing-track-info{display:flex;flex:1;flex-direction:column;gap:3px;min-width:0}.now-playing-track-info strong,.now-playing-track-info span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.now-playing-track-info strong{font-size:13px}.now-playing-track-info span{font-size:12px;color:var(--el-text-color-secondary)}.now-playing{display:flex;align-items:center;gap:16px}.track-cover{width:76px;height:76px;border-radius:10px;background:var(--app-bg-control);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--el-text-color-secondary);font-size:30px}.track-cover img{width:100%;height:100%;object-fit:cover}.track-info strong{font-size:17px}.time-row{display:flex;justify-content:space-between;color:var(--el-text-color-secondary);font-size:12px;font-variant-numeric:tabular-nums}.player-controls{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:14px 0}.playback-order-row{display:flex;align-items:center;justify-content:center;gap:12px;margin:8px 0 14px}.playback-order-row span{font-size:13px;color:var(--el-text-color-secondary)}.volume-row{display:grid;grid-template-columns:50px minmax(0,1fr) auto;align-items:center;gap:12px}.volume-row span{font-size:13px;color:var(--el-text-color-secondary)}.hint{margin:12px 0 0}.search-row{display:flex;gap:10px}.lx-import-row{display:flex;gap:10px;align-items:center;min-width:min(520px,55%)}.lx-import-row :deep(.el-input){flex:1;min-width:180px}.lx-import-mode-row :deep(.el-radio-group){flex-shrink:0}.hidden-file-input{display:none}.lx-source-list{display:flex;flex-direction:column;margin-top:16px}.lx-source-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-top:1px solid var(--app-border)}.lx-source-row .source-copy{min-width:0}.lx-source-row .source-copy span{overflow-wrap:anywhere}.lx-search-source-settings{display:flex;flex-direction:column;gap:6px;margin-top:8px}.lx-search-source-checkboxes{display:flex;flex-wrap:wrap;gap:8px 12px}.lx-search-source-toggle{display:inline-flex;align-items:center;gap:7px;padding:4px 9px;border:1px solid var(--app-border);border-radius:6px;background:var(--el-bg-color);color:var(--el-text-color-regular);font:inherit;font-size:13px;cursor:pointer;transition:border-color .15s,background .15s,color .15s}.lx-search-source-toggle:hover{border-color:var(--app-accent)}.lx-search-source-toggle:has(.lx-search-source-checkbox:checked){border-color:var(--app-accent);background:var(--app-bg-control);color:var(--app-accent)}.lx-search-source-checkbox{width:15px;height:15px;margin:0;flex:0 0 15px;accent-color:var(--app-accent);cursor:pointer}.lx-search-priority-list{display:flex;flex-direction:column;align-items:stretch;gap:5px;margin-top:10px;padding:9px 10px;max-width:360px;border:1px solid var(--app-border);border-radius:7px;background:var(--el-fill-color-lighter)}.lx-search-priority-list>strong{font-size:13px}.lx-search-priority-empty{font-size:12px;color:var(--el-text-color-secondary)}.lx-search-priority-row{display:flex;align-items:center;justify-content:space-between;padding:5px 9px;border:1px solid var(--app-border);border-radius:6px;background:var(--el-bg-color)}.lx-search-priority-row strong{font-size:12px}.lx-search-priority-actions{display:flex;gap:6px}
+.lx-proxy-fields{display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:16px}.lx-proxy-fields label{display:flex;flex-direction:column;gap:8px;color:var(--el-text-color-regular);font-size:13px}.lx-source-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}.lx-source-test-results{display:flex;flex-direction:column;gap:6px;width:100%;padding:8px 0 4px;border-top:1px dashed var(--app-border)}.lx-source-test-result{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:12px}.lx-source-test-result>span{color:var(--el-text-color-secondary)}.lx-source-test-result small{color:var(--el-text-color-secondary)}.search-summary{margin-top:12px;color:var(--el-text-color-secondary);font-size:12px}.search-pagination{display:flex;justify-content:center;margin-top:18px}.playlist-add-track{display:flex;flex-direction:column;gap:5px;margin-bottom:14px;padding:10px 12px;border-radius:8px;background:var(--app-bg-control)}.playlist-add-track span{color:var(--el-text-color-secondary);font-size:12px}.queue-current{padding:10px 12px;margin-bottom:12px;border-radius:8px;background:var(--app-bg-control);font-size:13px}.queue-list{display:flex;flex-direction:column;gap:8px}.queue-item{display:flex;align-items:center;gap:12px;padding:11px 12px;border:1px solid var(--app-border);border-radius:9px;background:var(--el-bg-color);transition:border-color .15s,opacity .15s}.queue-item:hover{border-color:var(--app-accent)}.queue-item-dragging{opacity:.45}.queue-drag-handle{display:flex;align-items:center;color:var(--el-text-color-secondary);cursor:grab;touch-action:none}.queue-drag-handle:active{cursor:grabbing}.queue-index{width:24px;color:var(--el-text-color-secondary);font-size:12px;text-align:center}.queue-track{display:flex;flex:1;flex-direction:column;gap:4px;min-width:0}.queue-track strong,.queue-track span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.queue-track span,.queue-requester{color:var(--el-text-color-secondary);font-size:12px}.queue-requester{max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.setting-row p{margin:6px 0 0}@media(max-width:800px){.music-page{min-height:calc(100vh - 126px)}.mini-player{margin-left:-22px;margin-right:-22px;margin-bottom:-22px;padding-left:22px;padding-right:22px}.source-row,.setting-row{align-items:flex-start;flex-direction:column}.search-row,.lx-import-row{flex-direction:column;align-items:stretch}.lx-source-row{align-items:flex-start}.mini-player{align-items:flex-start;flex-direction:column}.mini-player-actions{width:100%;justify-content:space-between}}
 .replace-track-original,.replace-track-comparison{display:flex;flex-direction:column;gap:6px;padding:12px 14px;margin-bottom:14px;border:1px solid var(--app-border);border-radius:9px;background:var(--el-fill-color-lighter)}.replace-track-original small,.replace-track-comparison small{color:var(--el-text-color-secondary);font-size:12px}.replace-candidate-list{display:flex;flex-direction:column;align-items:stretch;width:100%;gap:4px}.replace-candidate{display:flex;align-items:flex-start;width:100%;height:auto;margin:0;padding:9px 10px;border-bottom:1px solid var(--app-border)}.replace-candidate-main{display:flex;flex-direction:column;gap:4px;min-width:0}.replace-candidate-main small{color:var(--el-text-color-secondary);font-size:12px}</style>
+
+<style scoped>
+.lyrics-detail-card { min-height: 260px; }
+.lyrics-detail-list { display:flex; flex-direction:column; gap:13px; max-height:min(58vh,620px); overflow-y:auto; padding:22px 18px; scroll-behavior:smooth; }
+.lyrics-detail-line { display:flex; flex-direction:column; align-items:center; gap:4px; min-height:28px; color:var(--el-text-color-secondary); text-align:center; opacity:.72; transition:color .2s,opacity .2s,transform .2s; }
+.lyrics-detail-original { font-size:15px; line-height:1.6; overflow-wrap:anywhere; }
+.lyrics-detail-translation { font-size:12px; line-height:1.5; opacity:.8; overflow-wrap:anywhere; }
+.lyrics-detail-line.is-active { color:var(--el-color-primary); opacity:1; transform:scale(1.025); }
+.lyrics-detail-line.is-active .lyrics-detail-original { font-size:18px; font-weight:700; }
+.lyrics-detail-line.is-active .lyrics-detail-translation { color:var(--el-text-color-regular); }
+.lyrics-detail-placeholder { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:10px; min-height:170px; color:var(--el-text-color-secondary); }
+</style>

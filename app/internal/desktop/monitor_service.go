@@ -13,9 +13,51 @@ import (
 	"time"
 
 	"regexp"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/dongguo4812/My-LiveHub/app/internal/platform"
 )
 
+type ProcessMemorySnapshot struct {
+	ProcessID uint32
+	ProcessWorkingSetBytes uint64
+	ProcessPrivateBytes uint64
+	WebView2ProcessCount int
+	WebView2WorkingSetBytes uint64
+	WebView2PrivateBytes uint64
+	WebView2RendererCount int
+	WebView2RendererWorkingSetBytes uint64
+	WebView2RendererPrivateBytes uint64
+	WebView2UnclassifiedProcessCount int
+}
+
 type SystemMetricsSnapshot struct {
+	ProcessID uint32 `json:"process_id"`
+	ProcessWorkingSetBytes uint64 `json:"process_working_set_bytes"`
+	ProcessWorkingSetPeakBytes uint64 `json:"process_working_set_peak_bytes"`
+	ProcessPrivateBytes uint64 `json:"process_private_bytes"`
+	ProcessPrivatePeakBytes uint64 `json:"process_private_peak_bytes"`
+	WebView2ProcessCount int `json:"webview2_process_count"`
+	WebView2WorkingSetBytes uint64 `json:"webview2_working_set_bytes"`
+	WebView2WorkingSetPeakBytes uint64 `json:"webview2_working_set_peak_bytes"`
+	WebView2PrivateBytes uint64 `json:"webview2_private_bytes"`
+	WebView2PrivatePeakBytes uint64 `json:"webview2_private_peak_bytes"`
+	WebView2RendererCount int `json:"webview2_renderer_count"`
+	WebView2RendererWorkingSetBytes uint64 `json:"webview2_renderer_working_set_bytes"`
+	WebView2RendererWorkingSetPeakBytes uint64 `json:"webview2_renderer_working_set_peak_bytes"`
+	WebView2RendererPrivateBytes uint64 `json:"webview2_renderer_private_bytes"`
+	WebView2RendererPrivatePeakBytes uint64 `json:"webview2_renderer_private_peak_bytes"`
+	WebView2UnclassifiedProcessCount int `json:"webview2_unclassified_process_count"`
+	MemoryBaselineReady bool `json:"memory_baseline_ready"`
+	ProcessWorkingSetDeltaBytes int64 `json:"process_working_set_delta_bytes"`
+	ProcessPrivateDeltaBytes int64 `json:"process_private_delta_bytes"`
+	WebView2WorkingSetDeltaBytes int64 `json:"webview2_working_set_delta_bytes"`
+	WebView2PrivateDeltaBytes int64 `json:"webview2_private_delta_bytes"`
+	WebView2RendererWorkingSetDeltaBytes int64 `json:"webview2_renderer_working_set_delta_bytes"`
+	WebView2RendererPrivateDeltaBytes int64 `json:"webview2_renderer_private_delta_bytes"`
+	MemorySampleCount uint64 `json:"memory_sample_count"`
+	LastMemorySampleAt time.Time `json:"last_memory_sample_at"`
+	ProcessMemoryError string `json:"process_memory_error,omitempty"`
 	UptimeSeconds int64 `json:"uptime_seconds"`
 	GoHeapAllocBytes uint64 `json:"go_heap_alloc_bytes"`
 	GoHeapSysBytes uint64 `json:"go_heap_sys_bytes"`
@@ -33,17 +75,57 @@ type MonitorLogEntry struct {
 	Message string `json:"message"`
 }
 
+// WebView2InstanceSnapshot describes a Wails window that hosts a WebView2 instance.
+type WebView2InstanceSnapshot struct {
+	Name string `json:"name"`
+	Purpose string `json:"purpose"`
+	Kind string `json:"kind"`
+	Status string `json:"status"`
+	Visible bool `json:"visible"`
+}
+
+type FrontendHeartbeatSnapshot struct {
+	LastSeenAt time.Time `json:"last_seen_at"`
+	Stale bool `json:"stale"`
+}
+
 type MonitorService struct {
 	startedAt time.Time
 	logDirs []string
 	mu sync.Mutex
+	webViewApp *application.App
+	platformManager *platform.Manager
 	lastCPUAt time.Time
 	lastSystemTotal uint64
 	lastSystemIdle uint64
 	lastProcessTotal uint64
+	lastFrontendHeartbeat time.Time
+	frontendHeartbeatStale bool
+	frontendHeartbeatStarted bool
+	frontendMonitoringSuspended bool
+	memoryBaselineReady bool
+	processWorkingSetBaseline uint64
+	processPrivateBaseline uint64
+	webView2WorkingSetBaseline uint64
+	webView2PrivateBaseline uint64
+	webView2RendererWorkingSetBaseline uint64
+	webView2RendererPrivateBaseline uint64
+	processWorkingSetPeak uint64
+	processPrivatePeak uint64
+	webView2WorkingSetPeak uint64
+	webView2PrivatePeak uint64
+	webView2RendererWorkingSetPeak uint64
+	webView2RendererPrivatePeak uint64
+	memorySampleCount uint64
+	lastMemorySampleAt time.Time
+	memorySamplerStarted bool
 }
 
 func NewMonitorService(logDir string, additionalLogDirs ...string) *MonitorService {
+	return NewMonitorServiceWithPlatformManager(logDir, nil, additionalLogDirs...)
+}
+
+func NewMonitorServiceWithPlatformManager(logDir string, manager *platform.Manager, additionalLogDirs ...string) *MonitorService {
 	logDirs := make([]string, 0, 1+len(additionalLogDirs))
 	if strings.TrimSpace(logDir) != "" { logDirs = append(logDirs, logDir) }
 	for _, dir := range additionalLogDirs {
@@ -52,7 +134,143 @@ func NewMonitorService(logDir string, additionalLogDirs ...string) *MonitorServi
 		for _, existing := range logDirs { if filepath.Clean(existing) == filepath.Clean(dir) { duplicate = true; break } }
 		if !duplicate { logDirs = append(logDirs, dir) }
 	}
-	return &MonitorService{startedAt: time.Now(), logDirs: logDirs}
+	return &MonitorService{startedAt: time.Now(), logDirs: logDirs, platformManager: manager}
+}
+
+
+// AttachWebView2Monitoring supplies the live Wails window registry context.
+func (s *MonitorService) AttachWebView2Monitoring(app *application.App) {
+	if s == nil { return }
+	s.mu.Lock()
+	s.webViewApp = app
+	s.mu.Unlock()
+}
+
+// GetWebView2Instances returns the complete inventory of known application
+// WebView2 windows, including known windows that have not been created yet.
+func (s *MonitorService) GetWebView2Instances() []WebView2InstanceSnapshot {
+	if s == nil { return []WebView2InstanceSnapshot{} }
+	s.mu.Lock()
+	app, manager := s.webViewApp, s.platformManager
+	s.mu.Unlock()
+	definitions := []WebView2InstanceSnapshot{
+		{Name: "main-window", Purpose: "主程序界面；音乐播放、HTMLAudio 与 Web Audio 音频链路运行在此 WebView2 中", Kind: "主窗口"},
+		{Name: "danmaku-overlay", Purpose: "弹幕透明展示与置顶窗口", Kind: "辅助窗口"},
+		{Name: "music-lyrics-overlay", Purpose: "桌面歌词展示；不负责播放歌曲", Kind: "辅助窗口"},
+		{Name: "bilibili-webview-player", Purpose: "Bilibili 网页视频播放器", Kind: "辅助窗口"},
+	}
+	if manager != nil {
+		for _, platform := range manager.Snapshot() {
+			name := "simulator-" + platform.PlatformID
+			definitions = append(definitions, WebView2InstanceSnapshot{
+				Name: name, Purpose: platform.PlatformID + " 互动事件模拟器", Kind: "辅助窗口",
+			})
+		}
+	}
+	sort.Slice(definitions, func(i, j int) bool {
+		if definitions[i].Kind != definitions[j].Kind { return definitions[i].Kind == "主窗口" }
+		return definitions[i].Name < definitions[j].Name
+	})
+	for i := range definitions {
+		definitions[i].Status = "not_created"
+		if app == nil { continue }
+		window, ok := app.Window.GetByName(definitions[i].Name)
+		if !ok || window == nil { continue }
+		definitions[i].Visible = window.IsVisible()
+		if definitions[i].Visible { definitions[i].Status = "visible" } else { definitions[i].Status = "hidden" }
+	}
+	return definitions
+}
+
+// RecordFrontendHeartbeat records that the main frontend JavaScript event loop
+// completed a scheduled callback. A missing heartbeat is diagnostic evidence,
+// not proof that the native UI thread or WebView2 renderer is dead.
+func (s *MonitorService) RecordFrontendHeartbeat() {
+	if s == nil { return }
+	now := time.Now()
+	s.mu.Lock()
+	wasStale := s.frontendHeartbeatStale
+	first := !s.frontendHeartbeatStarted
+	s.lastFrontendHeartbeat = now
+	s.frontendHeartbeatStale = false
+	s.frontendHeartbeatStarted = true
+	s.mu.Unlock()
+	if first {
+		log.Printf("frontend heartbeat: monitoring started")
+	} else if wasStale {
+		log.Printf("frontend heartbeat: recovered after interruption")
+	}
+}
+
+// GetFrontendHeartbeatSnapshot returns the last frontend heartbeat without
+// treating a missing timestamp as a measured failure.
+func (s *MonitorService) GetFrontendHeartbeatSnapshot() FrontendHeartbeatSnapshot {
+	if s == nil { return FrontendHeartbeatSnapshot{} }
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return FrontendHeartbeatSnapshot{LastSeenAt: s.lastFrontendHeartbeat, Stale: s.frontendHeartbeatStale}
+}
+
+// SetFrontendMonitoringSuspended pauses stale-heartbeat detection while the
+// native main window is hidden or minimised, when WebView timers may be throttled.
+// Resuming grants the frontend a fresh response window before it is marked stale.
+func (s *MonitorService) SetFrontendMonitoringSuspended(suspended bool) {
+	if s == nil { return }
+	s.mu.Lock()
+	changed := s.frontendMonitoringSuspended != suspended
+	s.frontendMonitoringSuspended = suspended
+	if changed && !suspended {
+		if s.frontendHeartbeatStarted {
+			s.lastFrontendHeartbeat = time.Now()
+		} else {
+			s.startedAt = time.Now()
+		}
+	}
+	s.mu.Unlock()
+	if changed {
+		if suspended {
+			log.Printf("frontend heartbeat: stale detection suspended because main window is hidden or minimised")
+		} else {
+			log.Printf("frontend heartbeat: stale detection resumed after main window became visible")
+		}
+	}
+}
+
+// StartFrontendHeartbeatWatchdog logs one warning when the main frontend stops
+// reporting heartbeats and one recovery message when it resumes.
+func (s *MonitorService) StartFrontendHeartbeatWatchdog(checkEvery, staleAfter time.Duration) {
+	if s == nil { return }
+	if checkEvery <= 0 { checkEvery = 15 * time.Second }
+	if staleAfter <= checkEvery { staleAfter = 45 * time.Second }
+	go func() {
+		ticker := time.NewTicker(checkEvery)
+		defer ticker.Stop()
+		for range ticker.C {
+			now := time.Now()
+			s.mu.Lock()
+			lastSeen := s.lastFrontendHeartbeat
+			lastActivity := s.startedAt
+			if s.frontendHeartbeatStarted {
+				lastActivity = lastSeen
+			}
+			alreadyStale := s.frontendHeartbeatStale
+			suspended := s.frontendMonitoringSuspended
+			if !suspended && !alreadyStale && !lastActivity.IsZero() && now.Sub(lastActivity) >= staleAfter {
+				s.frontendHeartbeatStale = true
+			}
+			becameStale := !suspended && !alreadyStale && s.frontendHeartbeatStale
+			s.mu.Unlock()
+			if becameStale {
+				if lastSeen.IsZero() {
+					log.Printf("frontend heartbeat: STALE; no heartbeat received since application startup; threshold=%s; frontend may have failed to mount or renderer/event-loop may be unresponsive",
+						staleAfter)
+				} else {
+					log.Printf("frontend heartbeat: STALE; last_seen=%s; threshold=%s; renderer/event-loop unresponsive or page suspended",
+						lastSeen.Format(time.RFC3339Nano), staleAfter)
+				}
+			}
+		}
+	}()
 }
 
 // WriteFrontendLog persists frontend console output and uncaught runtime errors
@@ -79,6 +297,34 @@ func (s *MonitorService) WriteFrontendLog(level, message string) {
 	log.Printf("frontend [%s] %s", level, message)
 }
 
+// StartSystemMetricsSampler keeps process-memory baselines and deltas current
+// even when the real-time monitoring page is not open. The monitor service has
+// the same lifetime as the desktop application.
+func (s *MonitorService) StartSystemMetricsSampler(interval time.Duration) {
+	if s == nil {
+		return
+	}
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+	s.mu.Lock()
+	if s.memorySamplerStarted {
+		s.mu.Unlock()
+		return
+	}
+	s.memorySamplerStarted = true
+	s.mu.Unlock()
+
+	go func() {
+		_ = s.GetSystemMetrics()
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for range ticker.C {
+			_ = s.GetSystemMetrics()
+		}
+	}()
+}
+
 // GetSystemMetrics returns read-only Go runtime and process-lifetime metrics.
 // It deliberately does not label Go heap allocation as total OS process memory.
 func (s *MonitorService) GetSystemMetrics() SystemMetricsSnapshot {
@@ -86,6 +332,7 @@ func (s *MonitorService) GetSystemMetrics() SystemMetricsSnapshot {
 	runtime.ReadMemStats(&memory)
 	collectedAt := time.Now()
 	systemTotal, systemIdle, processTotal, cpuErr := readCPUSnapshot()
+	processMemory, memoryErr := readProcessMemorySnapshot()
 	systemCPUPercent, processCPUPercent := 0.0, 0.0
 	if s != nil {
 		s.mu.Lock()
@@ -107,11 +354,30 @@ func (s *MonitorService) GetSystemMetrics() SystemMetricsSnapshot {
 			s.lastCPUAt = collectedAt
 			s.lastSystemTotal, s.lastSystemIdle, s.lastProcessTotal = systemTotal, systemIdle, processTotal
 		}
+		if memoryErr == nil {
+			if !s.memoryBaselineReady {
+				s.memoryBaselineReady = true
+				s.processWorkingSetBaseline = processMemory.ProcessWorkingSetBytes
+				s.processPrivateBaseline = processMemory.ProcessPrivateBytes
+				s.webView2WorkingSetBaseline = processMemory.WebView2WorkingSetBytes
+				s.webView2PrivateBaseline = processMemory.WebView2PrivateBytes
+				s.webView2RendererWorkingSetBaseline = processMemory.WebView2RendererWorkingSetBytes
+				s.webView2RendererPrivateBaseline = processMemory.WebView2RendererPrivateBytes
+			}
+			if processMemory.ProcessWorkingSetBytes > s.processWorkingSetPeak { s.processWorkingSetPeak = processMemory.ProcessWorkingSetBytes }
+			if processMemory.ProcessPrivateBytes > s.processPrivatePeak { s.processPrivatePeak = processMemory.ProcessPrivateBytes }
+			if processMemory.WebView2WorkingSetBytes > s.webView2WorkingSetPeak { s.webView2WorkingSetPeak = processMemory.WebView2WorkingSetBytes }
+			if processMemory.WebView2PrivateBytes > s.webView2PrivatePeak { s.webView2PrivatePeak = processMemory.WebView2PrivateBytes }
+			if processMemory.WebView2RendererWorkingSetBytes > s.webView2RendererWorkingSetPeak { s.webView2RendererWorkingSetPeak = processMemory.WebView2RendererWorkingSetBytes }
+			if processMemory.WebView2RendererPrivateBytes > s.webView2RendererPrivatePeak { s.webView2RendererPrivatePeak = processMemory.WebView2RendererPrivateBytes }
+			s.memorySampleCount++
+			if collectedAt.After(s.lastMemorySampleAt) { s.lastMemorySampleAt = collectedAt }
+		}
 		s.mu.Unlock()
 	}
 	startedAt := collectedAt
 	if s != nil && !s.startedAt.IsZero() { startedAt = s.startedAt }
-	return SystemMetricsSnapshot{
+	metrics := SystemMetricsSnapshot{
 		UptimeSeconds: int64(time.Since(startedAt).Seconds()),
 		GoHeapAllocBytes: memory.HeapAlloc,
 		GoHeapSysBytes: memory.HeapSys,
@@ -122,6 +388,40 @@ func (s *MonitorService) GetSystemMetrics() SystemMetricsSnapshot {
 		ProcessCPUPercent: processCPUPercent,
 		CollectedAt: collectedAt,
 	}
+	if memoryErr == nil {
+		metrics.ProcessID = processMemory.ProcessID
+		metrics.ProcessWorkingSetBytes = processMemory.ProcessWorkingSetBytes
+		metrics.ProcessPrivateBytes = processMemory.ProcessPrivateBytes
+		metrics.WebView2ProcessCount = processMemory.WebView2ProcessCount
+		metrics.WebView2WorkingSetBytes = processMemory.WebView2WorkingSetBytes
+		metrics.WebView2PrivateBytes = processMemory.WebView2PrivateBytes
+		metrics.WebView2RendererCount = processMemory.WebView2RendererCount
+		metrics.WebView2RendererWorkingSetBytes = processMemory.WebView2RendererWorkingSetBytes
+		metrics.WebView2RendererPrivateBytes = processMemory.WebView2RendererPrivateBytes
+		metrics.WebView2UnclassifiedProcessCount = processMemory.WebView2UnclassifiedProcessCount
+		if s != nil {
+			s.mu.Lock()
+			metrics.MemoryBaselineReady = s.memoryBaselineReady
+			metrics.ProcessWorkingSetDeltaBytes = int64(processMemory.ProcessWorkingSetBytes) - int64(s.processWorkingSetBaseline)
+			metrics.ProcessPrivateDeltaBytes = int64(processMemory.ProcessPrivateBytes) - int64(s.processPrivateBaseline)
+			metrics.WebView2WorkingSetDeltaBytes = int64(processMemory.WebView2WorkingSetBytes) - int64(s.webView2WorkingSetBaseline)
+			metrics.WebView2PrivateDeltaBytes = int64(processMemory.WebView2PrivateBytes) - int64(s.webView2PrivateBaseline)
+			metrics.WebView2RendererWorkingSetDeltaBytes = int64(processMemory.WebView2RendererWorkingSetBytes) - int64(s.webView2RendererWorkingSetBaseline)
+			metrics.WebView2RendererPrivateDeltaBytes = int64(processMemory.WebView2RendererPrivateBytes) - int64(s.webView2RendererPrivateBaseline)
+			metrics.ProcessWorkingSetPeakBytes = s.processWorkingSetPeak
+			metrics.ProcessPrivatePeakBytes = s.processPrivatePeak
+			metrics.WebView2WorkingSetPeakBytes = s.webView2WorkingSetPeak
+			metrics.WebView2PrivatePeakBytes = s.webView2PrivatePeak
+			metrics.WebView2RendererWorkingSetPeakBytes = s.webView2RendererWorkingSetPeak
+			metrics.WebView2RendererPrivatePeakBytes = s.webView2RendererPrivatePeak
+			metrics.MemorySampleCount = s.memorySampleCount
+			metrics.LastMemorySampleAt = s.lastMemorySampleAt
+			s.mu.Unlock()
+		}
+	} else {
+		metrics.ProcessMemoryError = memoryErr.Error()
+	}
+	return metrics
 }
 
 // GetRecentLogs returns the newest entries across every configured log source.
@@ -208,7 +508,6 @@ func filterAndSortDatedLogFiles(files []string, date string) []string {
 		leftRotation, rightRotation := 0, 0
 		if left[2] != "" { leftRotation, _ = strconv.Atoi(left[2]) }
 		if right[2] != "" { rightRotation, _ = strconv.Atoi(right[2]) }
-		// Older rotations are numbered higher and must be read first.
 		return leftRotation > rightRotation
 	})
 	return valid

@@ -4,6 +4,9 @@ on:
   workflow_run:
     workflows:
       - Desktop validation
+    branches:
+      - master
+      - 'v*'
     types:
       - completed
 
@@ -33,6 +36,31 @@ jobs:
           go-version: '1.27.x'
           cache: true
           cache-dependency-path: app/go.sum
+
+      - name: Set up MSYS2 UCRT64 toolchain for production QuickJS
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          path-type: inherit
+          install: >-
+            git
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+
+      - name: Build pinned QuickJS-NG production library
+        shell: msys2 {0}
+        run: |
+          WORKSPACE="$(cygpath -u "$GITHUB_WORKSPACE")"
+          TEMP_DIR="$(cygpath -u "$RUNNER_TEMP")"
+          git clone --depth 1 --branch v0.18.0 https://github.com/quickjs-ng/quickjs.git "$TEMP_DIR/quickjs-ng"
+          cmake -S "$WORKSPACE/app/internal/music/lxruntime/native" -B "$TEMP_DIR/lx-quickjs-production-build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DQUICKJS_NG_SOURCE_DIR="$TEMP_DIR/quickjs-ng"
+          cmake --build "$TEMP_DIR/lx-quickjs-production-build" --config Release
+          mkdir -p "$WORKSPACE/app/internal/music/lxruntime/native/lib"
+          cp "$TEMP_DIR/lx-quickjs-production-build/lib/libqjs.a" "$WORKSPACE/app/internal/music/lxruntime/native/lib/libqjs.a"
+          GITHUB_ENV_PATH="$(cygpath -u "$GITHUB_ENV")"
+          printf 'CGO_ENABLED=1\nCC=gcc\n' >> "$GITHUB_ENV_PATH"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -79,28 +107,14 @@ jobs:
         working-directory: app/frontend
         run: npm run build
 
-      - name: Test Go
-        run: go test ./...
+      - name: Test Go with production QuickJS runtime
+        run: go test -tags lxproduction ./...
 
-      - name: Embed Windows application icon
+      - name: Embed Windows application manifest and icon
         shell: pwsh
         run: |
-          @'
-          <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-          <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-            <assemblyIdentity version="1.0.0.0" name="My-LiveHub"/>
-            <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
-              <security><requestedPrivileges><requestedExecutionLevel level="asInvoker" uiAccess="false"/></requestedPrivileges></security>
-            </trustInfo>
-            <application xmlns="urn:schemas-microsoft-com:asm.v3">
-              <windowsSettings>
-                <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
-                <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2,PerMonitor</dpiAwareness>
-              </windowsSettings>
-            </application>
-          </assembly>
-          '@ | Set-Content -Path build/manifest.xml -Encoding utf8
-          go run github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0 generate syso -manifest build/manifest.xml -icon build/icon.ico -arch amd64 -out rsrc_windows_amd64.syso
+          wails3 generate syso -manifest build/windows/My-LiveHub.manifest -icon build/icon.ico -arch amd64 -out rsrc_windows_amd64.syso
+          if ($LASTEXITCODE -ne 0) { throw "Embedding Windows application manifest failed" }
 
       - name: Build LOL Hex standalone extension
         shell: pwsh
@@ -128,7 +142,7 @@ jobs:
           $version = $env:APP_VERSION
           $package = "bin/package"
           New-Item -ItemType Directory -Force -Path $package | Out-Null
-          go build -ldflags "-H=windowsgui -X main.currentVersion=$version" -o "$package/My-LiveHub.exe" .
+          go build -tags lxproduction -ldflags "-H=windowsgui -X main.currentVersion=$version" -o "$package/My-LiveHub.exe" .
           if ($LASTEXITCODE -ne 0) { throw "My-LiveHub build failed" }
 
           $moduleSource = "internal/desktop/lolhex/runtime"

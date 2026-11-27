@@ -17,9 +17,6 @@ type danmakuXML struct {
 	} `xml:"d"`
 }
 
-// DanmakuXMLToASS converts Bilibili's legacy XML comments into ordinary
-// right-to-left scrolling ASS events. Advanced comments and special effects
-// are intentionally ignored in this first implementation.
 func DanmakuXMLToASS(raw []byte) (string, error) {
 	decoder := xml.NewDecoder(strings.NewReader(string(raw)))
 	decoder.CharsetReader = func(_ string, input io.Reader) (io.Reader, error) { return input, nil }

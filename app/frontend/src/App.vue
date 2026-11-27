@@ -8,7 +8,7 @@ import {
   Grid, Monitor, Setting, Document, Fold, Expand, Microphone, Headset, VideoPlay,
 } from '@element-plus/icons-vue'
 import { coreStatus, refreshCoreStatus } from './services/coreStatus'
-import { initializeVoiceAudio, disposeVoiceAudio } from './services/voiceAudio'
+import { RecordFrontendHeartbeat } from '../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/monitorservice.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -31,13 +31,14 @@ const groups = [
   { title: '工作台', items: [{ path: '/', title: '总览', icon: HomeFilled }, { path: '/monitor', title: '实时监控', icon: DataLine }] },
   { title: '直播接入', items: [{ path: '/platforms', title: '平台管理', icon: Connection }] },
   { title: '互动中心', items: [{ path: '/events', title: '事件中心', icon: ChatDotRound }, { path: '/users', title: '用户管理', icon: User }, { path: '/rules', title: '互动规则', icon: SetUp }] },
-  { title: '功能模块', items: [{ path: '/modules', title: '功能模块', icon: Grid }, { path: '/danmaku', title: '弹幕显示', icon: ChatDotRound }, { path: '/voice', title: '语音播报', icon: Microphone }, { path: '/music', title: '音乐播放', icon: Headset }, { path: '/video', title: '视频点播', icon: VideoPlay }, { path: '/live2d', title: 'Live2D', icon: Monitor }, { path: '/lol-hex', title: 'LOL Hex 管理', icon: Grid } ] },
+  { title: '功能模块', items: [{ path: '/modules', title: '功能模块', icon: Grid }, { path: '/danmaku', title: '弹幕显示', icon: ChatDotRound }, { path: '/voice', title: '语音播报', icon: Microphone }, { path: '/music', title: '音乐播放', icon: Headset }, { path: '/video', title: '视频点播', icon: VideoPlay }, { path: '/live2d', title: 'Live2D', icon: Monitor }, { path: '/lol-hex', title: 'LOL Hex', icon: Grid } ] },
   { title: '展示管理', items: [{ path: '/layouts', title: '综合展示', icon: Monitor }] },
   { title: '扩展中心', items: [{ path: '/extensions', title: '扩展管理', icon: Grid }] },
   { title: '系统管理', items: [{ path: '/settings', title: '系统设置', icon: Setting }, { path: '/logs', title: '日志诊断', icon: Document }] },
 ]
 
 let refreshTimer: ReturnType<typeof setInterval> | undefined
+let frontendHeartbeatTimer: ReturnType<typeof setInterval> | undefined
 let voiceAudioInitialized = false
 let unsubscribeTrayUpdate: (() => void) | undefined
 function navigate(path: string) { router.push(path) }
@@ -51,16 +52,27 @@ onMounted(async () => {
     if (route.meta.standalone) return
     void router.push({ path: '/settings', query: { ...route.query, checkUpdate: String(Date.now()) } })
   })
-  if (route.path.startsWith('/scene/')) return
-  initializeVoiceAudio()
+  // Standalone windows must not initialize main-window audio listeners or services.
+  if (route.meta.standalone || route.path.startsWith('/scene/')) return
+  console.info('main frontend mounted; heartbeat monitoring enabled')
+  void RecordFrontendHeartbeat().catch(error => console.warn('initial frontend heartbeat failed:', error))
+  frontendHeartbeatTimer = setInterval(() => {
+    void RecordFrontendHeartbeat().catch(error => console.warn('frontend heartbeat failed:', error))
+  }, 10_000)
+  const voiceAudio = await import('./services/voiceAudio')
+  voiceAudio.initializeVoiceAudio()
   voiceAudioInitialized = true
+  // Restore only when the user previously enabled audio output. The browser
+  // may reject this without a fresh gesture; the UI reflects the real state.
+  void voiceAudio.restoreVoiceAudioPreference()
   void refreshCoreStatus()
   refreshTimer = setInterval(() => void refreshCoreStatus(), 3000)
 })
 onUnmounted(() => {
   unsubscribeTrayUpdate?.()
-  if (voiceAudioInitialized) disposeVoiceAudio()
+  if (voiceAudioInitialized) void import('./services/voiceAudio').then(module => module.disposeVoiceAudio())
   if (refreshTimer) clearInterval(refreshTimer)
+  if (frontendHeartbeatTimer) clearInterval(frontendHeartbeatTimer)
 })
 </script>
 

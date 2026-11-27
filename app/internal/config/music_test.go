@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -32,6 +33,113 @@ func TestMusicConfigMigrationDropsPlatformConfig(t *testing.T) {
 	if c.ConfigVersion != CurrentMusicConfigVersion || c.QueueCapacity != 80 {
 		t.Fatalf("migrated: %+v", c)
 	}
+}
+
+func TestLoadMusicConfigMigratesLegacySettingsWithoutLosingUserPreferences(t *testing.T) {
+	localDir := t.TempDir()
+	manager, err := NewManager(fstest.MapFS{
+		"music.json": {Data: []byte(`{"config_version":17}`)},
+	}, localDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{
+		"config_version": 16,
+		"volume": 0.42,
+		"loudness_normalization": true,
+		"enabled": true,
+		"command_enabled": false,
+		"command_prefix": "点歌呀",
+		"skip_command_enabled": false,
+		"skip_command": "下一首",
+		"queue_capacity": 80,
+		"request_cooldown_seconds": 30,
+		"queue_display_count": 8,
+		"playlist_playback_mode": "random",
+		"lx_api_endpoints": ["http://127.0.0.1:23331", "http://127.0.0.1:23332"],
+		"enabled_search_sources": ["kg", "tx", "mg"],
+		"require_fan_medal": true,
+		"fan_medal_level": 6,
+		"retired_platform_config": {"legacy": true}
+	}`
+	if err := os.WriteFile(filepath.Join(localDir, "music.json"), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := LoadMusicConfig(manager)
+	if err != nil {
+		t.Fatalf("LoadMusicConfig should migrate legacy settings: %v", err)
+	}
+	if got.ConfigVersion != CurrentMusicConfigVersion {
+		t.Fatalf("config version = %d, want %d", got.ConfigVersion, CurrentMusicConfigVersion)
+	}
+	if got.Volume != 0.42 || !got.LoudnessNormalization || got.CommandEnabled || got.CommandPrefix != "点歌呀" {
+		t.Fatalf("playback/command preferences were not preserved: %+v", got)
+	}
+	if got.SkipCommandEnabled || got.SkipCommand != "下一首" || got.QueueCapacity != 80 ||
+		got.RequestCooldownSeconds != 30 || got.QueueDisplayCount != 8 || got.PlaylistPlaybackMode != "random" {
+		t.Fatalf("queue/command preferences were not preserved: %+v", got)
+	}
+	if len(got.EnabledSearchSources) != 3 || got.EnabledSearchSources[0] != "kg" ||
+		got.EnabledSearchSources[1] != "tx" || got.EnabledSearchSources[2] != "mg" {
+		t.Fatalf("search source priority was not preserved: %#v", got.EnabledSearchSources)
+	}
+	if !got.RequireFanMedal || got.FanMedalLevel != 6 {
+		t.Fatalf("fan medal preferences were not preserved: %+v", got)
+	}
+
+	data, err := os.ReadFile(filepath.Join(localDir, "music.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved map[string]any
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := saved["retired_platform_config"]; exists {
+		t.Fatal("retired platform configuration should be removed during migration")
+	}
+	if _, exists := saved["lx_api_endpoints"]; exists {
+		t.Fatal("legacy LX API endpoints should be removed during migration")
+	}
+}
+
+func TestLoadMusicConfigV17RemovesLXAPIEndpointsWithoutLosingSettings(t *testing.T) {
+	localDir := t.TempDir()
+	manager, err := NewManager(fstest.MapFS{
+		"music.json": {Data: []byte(`{"config_version":17}`)},
+	}, localDir)
+	if err != nil { t.Fatal(err) }
+	legacy := `{
+		"config_version": 17,
+		"volume": 0.37,
+		"loudness_normalization": true,
+		"enabled": true,
+		"command_enabled": true,
+		"command_prefix": "点歌",
+		"skip_command_enabled": true,
+		"skip_command": "切歌",
+		"queue_capacity": 90,
+		"queue_display_count": 7,
+		"playlist_playback_mode": "loop",
+		"lx_api_endpoints": ["http://127.0.0.1:23330"],
+		"enabled_search_sources": ["mg", "kg", "tx"]
+	}`
+	if err := os.WriteFile(filepath.Join(localDir, "music.json"), []byte(legacy), 0o600); err != nil { t.Fatal(err) }
+	got, err := LoadMusicConfig(manager)
+	if err != nil { t.Fatal(err) }
+	if got.ConfigVersion != 18 || got.Volume != 0.37 || !got.LoudnessNormalization ||
+		got.QueueCapacity != 90 || got.QueueDisplayCount != 7 || got.PlaylistPlaybackMode != "loop" {
+		t.Fatalf("v17 preferences were not preserved during cleanup: %+v", got)
+	}
+	if len(got.EnabledSearchSources) != 3 || got.EnabledSearchSources[0] != "mg" || got.EnabledSearchSources[1] != "kg" || got.EnabledSearchSources[2] != "tx" {
+		t.Fatalf("search source order was not preserved: %#v", got.EnabledSearchSources)
+	}
+	data, err := os.ReadFile(filepath.Join(localDir, "music.json"))
+	if err != nil { t.Fatal(err) }
+	var saved map[string]any
+	if err := json.Unmarshal(data, &saved); err != nil { t.Fatal(err) }
+	if _, exists := saved["lx_api_endpoints"]; exists { t.Fatal("legacy LX API endpoints remain in migrated config") }
 }
 
 func TestMusicConfigV7MigrationPreservesSkipCommand(t *testing.T) {
@@ -140,29 +248,21 @@ func TestMusicConfigFanMedalLevelValidation(t *testing.T) {
 }
 
 
-func TestMusicConfigV11MigrationAddsLXConnectionDefaults(t *testing.T) {
+func TestMusicConfigV11MigrationAddsSearchSourceDefaults(t *testing.T) {
 	got, changed := MigrateMusicConfig(MusicConfig{
 		ConfigVersion: 11, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
 		SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100, QueueDisplayCount: 5,
 	})
 	if !changed { t.Fatal("expected v11 configuration migration") }
 	if err := got.Validate(); err != nil { t.Fatal(err) }
-	if len(got.LXAPIEndpoints) != 1 || got.LXAPIEndpoints[0] != "http://127.0.0.1:23330" {
-		t.Fatalf("unexpected 洛雪 API defaults: %#v", got.LXAPIEndpoints)
-	}
 	if len(got.EnabledSearchSources) != 5 || got.EnabledSearchSources[0] != "tx" {
 		t.Fatalf("unexpected search source priority: %#v", got.EnabledSearchSources)
 	}
 }
 
-func TestMusicConfigValidatesLXAPIEndpointsAndSearchSources(t *testing.T) {
+func TestMusicConfigValidatesSearchSources(t *testing.T) {
 	c := DefaultMusicConfig()
 	if err := c.Validate(); err != nil { t.Fatalf("defaults should validate: %v", err) }
-	c.LXAPIEndpoints = []string{"ftp://127.0.0.1:23330"}
-	if err := c.Validate(); err == nil { t.Fatal("expected invalid API scheme to be rejected") }
-	c = DefaultMusicConfig()
-	c.LXAPIEndpoints = []string{"http://127.0.0.1:23330", "http://127.0.0.1:23330/"}
-	if err := c.Validate(); err == nil { t.Fatal("expected duplicate API endpoints to be rejected") }
 	c = DefaultMusicConfig()
 	c.EnabledSearchSources = []string{"tx", "unknown"}
 	if err := c.Validate(); err == nil { t.Fatal("expected unknown search source to be rejected") }
@@ -174,29 +274,14 @@ func TestMusicConfigValidatesLXAPIEndpointsAndSearchSources(t *testing.T) {
 func TestMusicConfigMigrationPreservesExplicitEmptySelections(t *testing.T) {
 	got, changed := MigrateMusicConfig(MusicConfig{
 		ConfigVersion: 11, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
-		QueueCapacity: 100, LXAPIEndpoints: []string{}, EnabledSearchSources: []string{},
+		QueueCapacity: 100, EnabledSearchSources: []string{},
 	})
 	if !changed { t.Fatal("expected v11 configuration migration") }
-	if got.LXAPIEndpoints == nil || got.EnabledSearchSources == nil {
-		t.Fatalf("explicit empty selections should remain empty, got endpoints=%#v sources=%#v", got.LXAPIEndpoints, got.EnabledSearchSources)
-	}
-	if len(got.LXAPIEndpoints) != 0 || len(got.EnabledSearchSources) != 0 {
-		t.Fatalf("expected empty selections, got endpoints=%#v sources=%#v", got.LXAPIEndpoints, got.EnabledSearchSources)
+	if got.EnabledSearchSources == nil || len(got.EnabledSearchSources) != 0 {
+		t.Fatalf("explicit empty search source selection should remain empty, got %#v", got.EnabledSearchSources)
 	}
 }
 
-
-func TestMusicConfigV12MigrationClearsDefaultBackupEndpoint(t *testing.T) {
-	got, changed := MigrateMusicConfig(MusicConfig{ConfigVersion: 12, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌", SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100, QueueDisplayCount: 5, LXAPIEndpoints: []string{"http://127.0.0.1:23330", "http://192.168.1.3:23330"}})
-	if !changed { t.Fatal("expected v12 configuration migration") }
-	if len(got.LXAPIEndpoints) != 1 || got.LXAPIEndpoints[0] != "http://127.0.0.1:23330" { t.Fatalf("expected only primary 洛雪 API address, got %#v", got.LXAPIEndpoints) }
-}
-
-func TestMusicConfigV12MigrationPreservesEmptyEndpoints(t *testing.T) {
-	got, changed := MigrateMusicConfig(MusicConfig{ConfigVersion: 12, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌", QueueCapacity: 100, LXAPIEndpoints: []string{}})
-	if !changed { t.Fatal("expected v12 configuration migration") }
-	if got.LXAPIEndpoints == nil || len(got.LXAPIEndpoints) != 0 { t.Fatalf("explicitly empty API endpoints should remain empty, got %#v", got.LXAPIEndpoints) }
-}
 
 
 func TestMusicConfigRequestCooldownValidation(t *testing.T) {
@@ -219,4 +304,91 @@ func TestMusicConfigV13MigrationAddsRequestCooldownDefault(t *testing.T) {
 	if !changed { t.Fatal("expected v13 configuration migration") }
 	if err := got.Validate(); err != nil { t.Fatal(err) }
 	if got.RequestCooldownSeconds != 0 { t.Fatalf("expected cooldown disabled by default, got %d", got.RequestCooldownSeconds) }
+}
+
+
+func TestMusicConfigV14MigrationAddsPersistentVolumeDefault(t *testing.T) {
+	got, changed := MigrateMusicConfig(MusicConfig{
+		ConfigVersion: 14, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
+		SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100,
+	})
+	if !changed { t.Fatal("expected v14 configuration migration") }
+	if err := got.Validate(); err != nil { t.Fatal(err) }
+	if got.ConfigVersion != CurrentMusicConfigVersion || got.Volume != 1 {
+		t.Fatalf("v14 migration should default volume to 100%%, got version=%d volume=%v", got.ConfigVersion, got.Volume)
+	}
+}
+
+func TestMusicConfigVolumeValidation(t *testing.T) {
+	c := DefaultMusicConfig()
+	for _, volume := range []float64{0, 0.35, 1} {
+		c.Volume = volume
+		if err := c.Validate(); err != nil { t.Fatalf("valid volume %v rejected: %v", volume, err) }
+	}
+	for _, volume := range []float64{-0.01, 1.01, math.NaN(), math.Inf(1)} {
+		c.Volume = volume
+		if err := c.Validate(); err == nil { t.Errorf("invalid volume %v was accepted", volume) }
+	}
+}
+
+func TestMusicConfigVolumeSurvivesConfigReload(t *testing.T) {
+	localDir := t.TempDir()
+	defaults, err := json.Marshal(DefaultMusicConfig())
+	if err != nil { t.Fatal(err) }
+	manager, err := NewManager(fstest.MapFS{"music.json": {Data: defaults}}, localDir)
+	if err != nil { t.Fatal(err) }
+	want := DefaultMusicConfig()
+	want.Volume = 0.37
+	if err := SaveTyped(manager, "music.json", want, func(c MusicConfig) error { return c.Validate() }); err != nil { t.Fatal(err) }
+	reloaded, err := LoadMusicConfig(manager)
+	if err != nil { t.Fatal(err) }
+	if reloaded.Volume != want.Volume { t.Fatalf("reloaded volume = %v, want %v", reloaded.Volume, want.Volume) }
+}
+
+
+func TestMusicConfigV15MigrationPreservesPlaylistPlaybackMode(t *testing.T) {
+	for _, mode := range []string{"sequential", "loop", "random"} {
+		got, changed := MigrateMusicConfig(MusicConfig{
+			ConfigVersion: 15, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
+			SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100,
+			QueueDisplayCount: 5, PlaylistPlaybackMode: mode,
+		})
+		if !changed { t.Fatalf("mode %q: expected v15 migration", mode) }
+		if err := got.Validate(); err != nil { t.Fatalf("mode %q: %v", mode, err) }
+		if got.PlaylistPlaybackMode != mode { t.Fatalf("mode %q migrated as %q", mode, got.PlaylistPlaybackMode) }
+	}
+	got, changed := MigrateMusicConfig(MusicConfig{ConfigVersion: 15, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌"})
+	if !changed || got.PlaylistPlaybackMode != "sequential" {
+		t.Fatalf("missing legacy mode should default to sequential: %+v", got)
+	}
+}
+
+func TestMusicConfigRejectsUnsupportedPlaylistPlaybackMode(t *testing.T) {
+	value := DefaultMusicConfig()
+	value.PlaylistPlaybackMode = "unsupported"
+	if err := value.Validate(); err == nil { t.Fatal("unsupported playlist playback mode should be rejected") }
+}
+
+
+func TestMusicConfigV16MigrationAddsLoudnessNormalizationOffByDefault(t *testing.T) {
+	got, changed := MigrateMusicConfig(MusicConfig{
+		ConfigVersion: 16, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
+		SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100, Volume: 0.65,
+	})
+	if !changed { t.Fatal("expected v16 configuration migration") }
+	if err := got.Validate(); err != nil { t.Fatal(err) }
+	if got.ConfigVersion != CurrentMusicConfigVersion || got.LoudnessNormalization {
+		t.Fatalf("v16 migration should default normalization off, got version=%d enabled=%v", got.ConfigVersion, got.LoudnessNormalization)
+	}
+	if got.Volume != 0.65 { t.Fatalf("v16 migration lost saved volume: %v", got.Volume) }
+}
+
+func TestMusicConfigMigrationPreservesLoudnessNormalization(t *testing.T) {
+	got, changed := MigrateMusicConfig(MusicConfig{
+		ConfigVersion: 16, Enabled: true, CommandEnabled: true, CommandPrefix: "点歌",
+		SkipCommandEnabled: true, SkipCommand: "切歌", QueueCapacity: 100,
+		LoudnessNormalization: true,
+	})
+	if !changed { t.Fatal("expected v16 configuration migration") }
+	if !got.LoudnessNormalization { t.Fatal("explicit loudness normalization setting was not preserved") }
 }

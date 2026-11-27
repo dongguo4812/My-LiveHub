@@ -26,6 +26,6 @@ dev_mode:
   executes:
     - cmd: npm --prefix frontend run dev -- --host 127.0.0.1
       type: background
-    - cmd: go run . dev
+    - cmd: go run -tags lxproduction . dev
       type: primary
       exit_policy: shutdown

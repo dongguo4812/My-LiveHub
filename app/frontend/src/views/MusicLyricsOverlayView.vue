@@ -44,22 +44,21 @@ function resetLyricsStyle() {
 
 const playback = ref<PlaybackSnapshot | null>(null)
 const lyricPosition = ref(0)
-let lyricPositionAnchor = 0
-let lyricPositionAnchorAt = 0
-let lyricClockTimer: ReturnType<typeof setInterval> | undefined
 const syncedLyrics = ref<SyncedLyricLine[]>([])
 const lyricsStatus = ref<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle')
+const lyricsError = ref('')
 let lyricsTrackKey = ''
 let lyricsRequestID = 0
+let activeLyricsRequestID = ''
 let refreshTimer: ReturnType<typeof setInterval> | undefined
 let refreshing = false
 
 const activeLyric = computed(() => {
   if (!playback.value?.track) return { text: '等待播放歌曲', translation: '' }
   if (lyricsStatus.value === 'loading' || lyricsStatus.value === 'idle') return { text: '歌词加载中…', translation: '' }
-  if (lyricsStatus.value === 'error') return { text: '歌词获取失败，稍后重试', translation: '' }
+  if (lyricsStatus.value === 'error') return { text: '歌词获取失败', translation: lyricsError.value || '请检查音源歌词能力及网络连接' }
   if (lyricsStatus.value === 'empty' || syncedLyrics.value.length === 0) return { text: '暂无歌词', translation: '' }
-  return getActiveSyncedLyric(syncedLyrics.value, lyricPosition.value) ?? { text: '歌词加载中…', translation: '' }
+  return getActiveSyncedLyric(syncedLyrics.value, lyricPosition.value) ?? { text: '', translation: '' }
 })
 const trackTitle = computed(() => playback.value?.track
   ? `${playback.value.track.title} - ${playback.value.track.artist || '未知歌手'}`
@@ -73,30 +72,45 @@ const playbackLabel = computed(() => playback.value?.state === 'playing'
       : '等待播放')
 
 async function loadTrackLyrics(track: NonNullable<PlaybackSnapshot['track']>, key: string) {
+  if (activeLyricsRequestID) MusicService.CancelLyrics(activeLyricsRequestID)
   const requestID = ++lyricsRequestID
+  const requestToken = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `lyrics-${Date.now()}-${requestID}`
+  activeLyricsRequestID = requestToken
   lyricsStatus.value = 'loading'
+  lyricsError.value = ''
   try {
-    const lrc = await MusicService.GetLyrics(track)
+    const lrc = await MusicService.GetLyricsForRequest(track, requestToken)
     if (requestID !== lyricsRequestID || lyricsTrackKey !== key) return
+    activeLyricsRequestID = ''
     syncedLyrics.value = parseSyncedLyrics(lrc ?? '')
     lyricsStatus.value = syncedLyrics.value.length > 0 ? 'ready' : 'empty'
-  } catch {
-    if (requestID === lyricsRequestID && lyricsTrackKey === key) lyricsStatus.value = 'error'
+  } catch (reason) {
+    if (requestID === lyricsRequestID && lyricsTrackKey === key) {
+      activeLyricsRequestID = ''
+      lyricsError.value = reason instanceof Error ? reason.message : String(reason)
+      lyricsStatus.value = 'error'
+    }
   }
+}
+
+function retryTrackLyrics() {
+  const track = playback.value?.track
+  if (track) void loadTrackLyrics(track, lyricsTrackKey)
 }
 
 async function refreshPlayback() {
   if (refreshing) return
   refreshing = true
   try {
-    const next = await MusicService.GetPlaybackStatus()
+    const next = await MusicService.GetCachedPlaybackStatus()
     playback.value = next
-    lyricPositionAnchor = next.position_ms ?? 0
-    lyricPositionAnchorAt = Date.now()
-    lyricPosition.value = lyricPositionAnchor
+    const duration = next.duration_ms ?? 0
+    const position = Math.max(0, next.position_ms ?? 0)
+    lyricPosition.value = duration > 0 ? Math.min(duration, position) : position
     const track = next.track
     const key = track ? `${track.source_id}:${track.id}` : ''
     if (key !== lyricsTrackKey) {
+      if (activeLyricsRequestID) { MusicService.CancelLyrics(activeLyricsRequestID); activeLyricsRequestID = '' }
       lyricsTrackKey = key
       syncedLyrics.value = []
       if (track) void loadTrackLyrics(track, key)
@@ -110,6 +124,7 @@ async function refreshPlayback() {
     if (lyricsTrackKey) {
       lyricsTrackKey = ''
       lyricsRequestID++
+      if (activeLyricsRequestID) { MusicService.CancelLyrics(activeLyricsRequestID); activeLyricsRequestID = '' }
       syncedLyrics.value = []
       lyricsStatus.value = 'idle'
     }
@@ -125,16 +140,12 @@ async function closeWindow() {
 onMounted(() => {
   loadLyricsStyle()
   void refreshPlayback()
-  refreshTimer = setInterval(() => void refreshPlayback(), 500)
-  lyricClockTimer = setInterval(() => {
-    if (!playback.value) return
-    lyricPosition.value = lyricPositionAnchor + (playback.value.state === 'playing' ? Date.now() - lyricPositionAnchorAt : 0)
-  }, 30)
+  refreshTimer = setInterval(() => void refreshPlayback(), 100)
 })
 onUnmounted(() => {
   if (refreshTimer) clearInterval(refreshTimer)
-  if (lyricClockTimer) clearInterval(lyricClockTimer)
   lyricsRequestID++
+  if (activeLyricsRequestID) { MusicService.CancelLyrics(activeLyricsRequestID); activeLyricsRequestID = '' }
 })
 </script>
 
@@ -179,10 +190,11 @@ onUnmounted(() => {
     <section class="lyrics-content">
       <p class="original-lyric" :style="{ color: lyricsStyle.originalColor, fontSize: lyricsStyle.originalSize + 'px', textShadow: lyricsStyle.textShadow ? '0 2px 12px #0008' : 'none' }">{{ activeLyric.text }}</p>
       <p v-if="activeLyric.translation" class="translated-lyric" :style="{ color: lyricsStyle.translationColor, fontSize: lyricsStyle.translationSize + 'px', textShadow: lyricsStyle.textShadow ? '0 1px 8px #0007' : 'none' }">{{ activeLyric.translation }}</p>
+      <button v-if="lyricsStatus === 'error'" class="retry-lyrics" @click="retryTrackLyrics">重新获取歌词</button>
     </section>
     <footer class="lyrics-footer">
       <span>{{ playbackLabel }}</span>
-      <span v-if="playback?.duration_ms">{{ Math.floor((playback.position_ms ?? 0) / 1000 / 60) }}:{{ String(Math.floor((playback.position_ms ?? 0) / 1000) % 60).padStart(2, '0') }}</span>
+      <span v-if="playback?.duration_ms">{{ Math.floor(lyricPosition / 1000 / 60) }}:{{ String(Math.floor(lyricPosition / 1000) % 60).padStart(2, '0') }}</span>
     </footer>
   </main>
 </template>
@@ -212,5 +224,6 @@ onUnmounted(() => {
 .lyrics-content { display:flex; flex:1; flex-direction:column; justify-content:center; gap:7px; min-height:0; padding:4px 20px; }
 .original-lyric { margin:0; font-weight:650; line-height:1.25; overflow-wrap:anywhere; }
 .translated-lyric { margin:0; font-weight:450; line-height:1.3; overflow-wrap:anywhere; }
+.retry-lyrics { align-self:center; padding:4px 10px; border:1px solid #ffffff35; border-radius:6px; background:#ffffff14; color:#dce3f5; font-size:11px; cursor:pointer; }
 .lyrics-footer { display:flex; justify-content:space-between; color:#9ba7bf; font-size:10px; font-variant-numeric:tabular-nums; }
 </style>

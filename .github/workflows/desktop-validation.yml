@@ -5,7 +5,7 @@ on:
     branches:
       - dev
       - master
-      - 'feature/**'
+      - 'feat/**'
     tags:
       - 'v*'
   pull_request:
@@ -56,6 +56,55 @@ jobs:
           cache: true
           cache-dependency-path: app/go.sum
 
+      # Cache hit skips MSYS2 setup, upstream clone, and the CMake build.
+      - name: Restore production QuickJS runtime cache
+        id: quickjs-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: app/bin/lxqjs.dll
+          key: quickjs-ng-v0.18.0-ucrt64-${{ runner.os }}-${{ hashFiles('app/internal/music/lxruntime/native/**') }}-v1
+
+      - name: Set up MSYS2 UCRT64 toolchain for production QuickJS
+        if: steps.quickjs-cache.outputs.cache-hit != 'true'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          path-type: inherit
+          install: >-
+            git
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+
+      - name: Build pinned QuickJS-NG shared runtime for production tests
+        if: steps.quickjs-cache.outputs.cache-hit != 'true'
+        shell: msys2 {0}
+        run: |
+          WORKSPACE="$(cygpath -u "$GITHUB_WORKSPACE")"
+          TEMP_DIR="$(cygpath -u "$RUNNER_TEMP")"
+          git clone --depth 1 --branch v0.18.0 https://github.com/quickjs-ng/quickjs.git "$TEMP_DIR/quickjs-ng"
+          cmake -S "$WORKSPACE/app/internal/music/lxruntime/native" -B "$TEMP_DIR/lx-quickjs-production-build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DQUICKJS_NG_SOURCE_DIR="$TEMP_DIR/quickjs-ng"
+          cmake --build "$TEMP_DIR/lx-quickjs-production-build" --config Release
+          DLL="$(find "$TEMP_DIR/lx-quickjs-production-build" -type f -iname 'lxqjs.dll' -print -quit)"
+          test -n "$DLL"
+          mkdir -p "$WORKSPACE/app/bin"
+          cp "$DLL" "$WORKSPACE/app/bin/lxqjs.dll"
+
+      - name: Save production QuickJS runtime cache
+        if: steps.quickjs-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/bin/lxqjs.dll
+          key: quickjs-ng-v0.18.0-ucrt64-${{ runner.os }}-${{ hashFiles('app/internal/music/lxruntime/native/**') }}-v1
+
+      - name: Configure production QuickJS runtime
+        shell: pwsh
+        run: |
+          if (!(Test-Path "bin/lxqjs.dll")) { throw "Cached or built QuickJS runtime is missing: app/bin/lxqjs.dll" }
+          "CGO_ENABLED=0" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "MYLIVEHUB_QUICKJS_LIB=$env:GITHUB_WORKSPACE\app\bin\lxqjs.dll" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Verify Go modules
         shell: pwsh
         run: |
@@ -94,17 +143,188 @@ jobs:
         shell: pwsh
         run: wails3 generate bindings -ts
 
+      - name: Restore frontend node_modules cache
+        id: frontend-deps-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: app/frontend/node_modules
+          key: frontend-node26-${{ runner.os }}-${{ hashFiles('app/frontend/package-lock.json') }}-v1
+
       - name: Install frontend dependencies
+        if: steps.frontend-deps-cache.outputs.cache-hit != 'true'
         working-directory: app/frontend
         run: npm ci
+
+      - name: Save frontend node_modules cache
+        if: steps.frontend-deps-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/frontend/node_modules
+          key: frontend-node26-${{ runner.os }}-${{ hashFiles('app/frontend/package-lock.json') }}-v1
 
       - name: Build frontend
         working-directory: app/frontend
         run: npm run build
 
-      - name: Test Go
+      - name: Test all Go packages with the standard test runtime
         run: go test ./...
+
+      - name: Test production LX runtime and capability import paths
+        run: go test -v -timeout 10m -tags lxproduction ./internal/music/lxruntime ./internal/desktop -run '^TestProductionLX'
+
+      - name: Embed Windows application manifest and icon
+        shell: pwsh
+        run: |
+          wails3 generate syso -manifest build/windows/My-LiveHub.manifest -icon build/icon.ico -arch amd64 -out rsrc_windows_amd64.syso
+          if ($LASTEXITCODE -ne 0) { throw "Embedding Windows application manifest failed" }
 
       - name: Build Windows executable
         shell: pwsh
-        run: go build -ldflags "-H=windowsgui" -o bin/My-LiveHub.exe .
+        run: go build -tags lxproduction -ldflags "-H=windowsgui" -o bin/My-LiveHub.exe .
+
+  real-provider-integration:
+    name: Real provider and browser integration
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.0'
+          cache: true
+          cache-dependency-path: app/go.sum
+
+      # Reuse the exact production QuickJS DLL built/cached by the formal job.
+      - name: Restore production QuickJS runtime cache
+        id: quickjs-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: app/bin/lxqjs.dll
+          key: quickjs-ng-v0.18.0-ucrt64-${{ runner.os }}-${{ hashFiles('app/internal/music/lxruntime/native/**') }}-v1
+
+      - name: Set up MSYS2 UCRT64 toolchain for production QuickJS
+        if: steps.quickjs-cache.outputs.cache-hit != 'true'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          path-type: inherit
+          install: >-
+            git
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+
+      - name: Build pinned QuickJS-NG shared runtime for production tests
+        if: steps.quickjs-cache.outputs.cache-hit != 'true'
+        shell: msys2 {0}
+        run: |
+          WORKSPACE="$(cygpath -u "$GITHUB_WORKSPACE")"
+          TEMP_DIR="$(cygpath -u "$RUNNER_TEMP")"
+          git clone --depth 1 --branch v0.18.0 https://github.com/quickjs-ng/quickjs.git "$TEMP_DIR/quickjs-ng"
+          cmake -S "$WORKSPACE/app/internal/music/lxruntime/native" -B "$TEMP_DIR/lx-quickjs-production-build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DQUICKJS_NG_SOURCE_DIR="$TEMP_DIR/quickjs-ng"
+          cmake --build "$TEMP_DIR/lx-quickjs-production-build" --config Release
+          DLL="$(find "$TEMP_DIR/lx-quickjs-production-build" -type f -iname 'lxqjs.dll' -print -quit)"
+          test -n "$DLL"
+          mkdir -p "$WORKSPACE/app/bin"
+          cp "$DLL" "$WORKSPACE/app/bin/lxqjs.dll"
+
+      - name: Save production QuickJS runtime cache
+        if: steps.quickjs-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/bin/lxqjs.dll
+          key: quickjs-ng-v0.18.0-ucrt64-${{ runner.os }}-${{ hashFiles('app/internal/music/lxruntime/native/**') }}-v1
+
+      - name: Configure production QuickJS runtime
+        shell: pwsh
+        run: |
+          if (!(Test-Path "bin/lxqjs.dll")) { throw "Cached or built QuickJS runtime is missing: app/bin/lxqjs.dll" }
+          "CGO_ENABLED=0" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "MYLIVEHUB_QUICKJS_LIB=$env:GITHUB_WORKSPACE\\app\\bin\\lxqjs.dll" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: npm
+          cache-dependency-path: app/frontend/package-lock.json
+
+      - name: Restore frontend node_modules cache
+        id: frontend-deps-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: app/frontend/node_modules
+          key: frontend-node26-${{ runner.os }}-${{ hashFiles('app/frontend/package-lock.json') }}-v1
+
+      - name: Install frontend dependencies
+        if: steps.frontend-deps-cache.outputs.cache-hit != 'true'
+        working-directory: app/frontend
+        run: npm ci
+
+      - name: Save frontend node_modules cache
+        if: steps.frontend-deps-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/frontend/node_modules
+          key: frontend-node26-${{ runner.os }}-${{ hashFiles('app/frontend/package-lock.json') }}-v1
+
+      - name: Verify live QuickJS search across QQ, Kuwo, Kugou, Netease and Migu
+        shell: pwsh
+        env:
+          MYLIVEHUB_LX_BUILTIN_SEARCH_INTEGRATION: '1'
+          CGO_ENABLED: '0'
+          MYLIVEHUB_QUICKJS_LIB: ${{ github.workspace }}\app\bin\lxqjs.dll
+        run: go test -tags lxproduction -timeout 8m -count=1 -v -run 'TestProductionLXBuiltInSearchAllFiveProviders' ./internal/desktop
+
+      - name: Resolve real playback through selected Mo Lan aggregate source
+        shell: pwsh
+        env:
+          MYLIVEHUB_LX_UPLOADED_PLAYBACK_INTEGRATION: '1'
+          MYLIVEHUB_PLAYBACK_URL_FILE: ${{ runner.temp }}\my-livehub-playback-url.txt
+          MYLIVEHUB_PLAYBACK_PROVIDER: 'kg'
+          CGO_ENABLED: '0'
+          MYLIVEHUB_QUICKJS_LIB: ${{ github.workspace }}\app\bin\lxqjs.dll
+        run: go test -tags lxproduction -timeout 50m -count=1 -v -run '^TestProductionLXUploadedScriptsResolveRealPlaybackURL$' ./internal/desktop
+
+      - name: Verify synchronized lyrics parsing and active-line timing
+        shell: pwsh
+        working-directory: app/frontend
+        run: node --experimental-strip-types ../../.github/scripts/music-synced-lyrics-smoke.mjs
+      - name: Install Playwright
+        shell: pwsh
+        working-directory: app/frontend
+        run: |
+          npm install --no-save --package-lock=false playwright
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\ms-playwright
+          key: playwright-${{ runner.os }}-chromium-1255-v1
+
+      - name: Install Chromium and run real HTMLAudio playback and lyrics tests
+        shell: pwsh
+        working-directory: app/frontend
+        env:
+          MYLIVEHUB_PLAYBACK_URL_FILE: ${{ runner.temp }}\my-livehub-playback-url.txt
+        run: |
+          npx playwright install chromium
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (Test-Path $env:MYLIVEHUB_PLAYBACK_URL_FILE) {
+            node ../../.github/scripts/music-htmlaudio-browser-smoke.mjs
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } else {
+            Write-Host "SKIP real HTMLAudio playback: uploaded source media endpoint was unreachable; see the preceding QQ integration test for the explicit skip reason."
+          }
+          node ../../.github/scripts/music-loudness-worklet-smoke.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node ../../.github/scripts/music-lyrics-overlay-browser-smoke.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
