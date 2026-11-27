@@ -54,6 +54,7 @@ jobs:
           cmake --build "$TEMP_DIR/lx-quickjs-production-build" --config Release
           DLL="$(find "$TEMP_DIR/lx-quickjs-production-build" -type f -iname 'lxqjs.dll' -print -quit)"
           test -n "$DLL"
+          objdump -p "$DLL" | grep -q 'lxqjs_eval_timed'
           mkdir -p "$WORKSPACE/app/bin"
           cp "$DLL" "$WORKSPACE/app/bin/lxqjs.dll"
 
