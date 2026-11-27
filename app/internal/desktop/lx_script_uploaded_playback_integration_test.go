@@ -146,6 +146,8 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 						continue
 					}
 
+					t.Logf("playback candidate query=%q title=%q artist=%q track_id=%q native_songmid=%q", query, candidate.Title, candidate.Artist, candidate.ID, candidate.SourceData["songmid"])
+
 					if runtime.manager.HasExtensionAction(sourceID, "lyric") {
 						lyrics, lyricErr := service.GetLyrics(*candidate)
 						if lyricErr != nil || strings.TrimSpace(lyrics) == "" {
@@ -171,18 +173,18 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 						if resolveErr != nil {
 							if strings.Contains(strings.ToLower(resolveErr.Error()), "block ip") {
 								upstreamIPBlocked = true
-								failures = append(failures, sourceID+"/"+quality+" musicUrl: upstream explicitly blocked CI runner IP")
+								failures = append(failures, sourceID+" query("+query+")/"+quality+" musicUrl: upstream explicitly blocked CI runner IP")
 								// The same endpoint block applies to every quality variant.
 								break
 							}
 							otherPlaybackFailure = true
-							failures = append(failures, sourceID+"/"+quality+" musicUrl: "+resolveErr.Error())
+							failures = append(failures, sourceID+" query("+query+")/"+quality+" musicUrl: "+resolveErr.Error())
 							continue
 						}
 						parsed, parseErr := url.Parse(resource.URL)
 						if parseErr != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
 							otherPlaybackFailure = true
-							failures = append(failures, sourceID+"/"+quality+" musicUrl: invalid HTTP(S) URL")
+							failures = append(failures, sourceID+" query("+query+")/"+quality+" musicUrl: invalid HTTP(S) URL")
 							continue
 						}
 
@@ -203,7 +205,7 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 							} else {
 								otherPlaybackFailure = true
 							}
-							failures = append(failures, sourceID+"/"+quality+" media probe: "+requestErr.Error())
+							failures = append(failures, sourceID+" query("+query+")/"+quality+" media probe: "+requestErr.Error())
 							continue
 						}
 						firstBytes := make([]byte, 64)
@@ -213,7 +215,7 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 						probeCancel()
 						if (statusCode != http.StatusOK && statusCode != http.StatusPartialContent) || n == 0 {
 							otherPlaybackFailure = true
-							failures = append(failures, sourceID+"/"+quality+" media probe: status="+response.Status+" bytes="+fmt.Sprintf("%d", n)+" read_error="+errorTextForLXTest(readErr))
+							failures = append(failures, sourceID+" query("+query+")/"+quality+" media probe: status="+response.Status+" bytes="+fmt.Sprintf("%d", n)+" read_error="+errorTextForLXTest(readErr))
 							continue
 						}
 
