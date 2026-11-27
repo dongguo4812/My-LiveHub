@@ -62,6 +62,7 @@ func executeLXHTTPRequestWithPolicy(parent context.Context, descriptor lxRequest
 	if parent == nil {
 		parent = context.Background()
 	}
+	ctx := parent
 	if len(descriptor.URL) > lxMaxRequestURLBytes {
 		return nil, fmt.Errorf("lx.request: URL exceeds %d bytes", lxMaxRequestURLBytes)
 	}
