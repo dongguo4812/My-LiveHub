@@ -117,11 +117,13 @@
     };
     const primary = endpoints.kw || defaults.kw;
     let primaryError = null;
+    let primaryWasValidEmpty = false;
     try {
       const body = await json(append(primary, { musicId: id, httpsStatus: '1' }), headers);
       const data = body && body.data && typeof body.data === 'object' ? body.data : {};
       const lyric = lrcFromKuwo(data.lrclist || data.lrcList || data.list);
       if (lyric) return { lyric, tlyric: '' };
+      primaryWasValidEmpty = true;
       primaryError = new Error(str(body && body.msg) || 'Kuwo primary lyric API returned no lyric lines');
     } catch (error) {
       primaryError = error;
@@ -132,6 +134,10 @@
       const data = body && body.data && typeof body.data === 'object' ? body.data : {};
       const lyric = lrcFromKuwo(data.lrclist || data.lrcList || data.list);
       if (lyric) return { lyric, tlyric: '' };
+      // A successful response with no lyric lines is a valid "no lyrics"
+      // result. Only report failure when both endpoints failed at transport/
+      // protocol level rather than merely having no lyric content.
+      if (primaryWasValidEmpty) return { lyric: '', tlyric: '' };
       throw new Error(str(body && body.msg) || 'Kuwo fallback lyric API returned no lyric lines');
     } catch (fallbackError) {
       throw new Error('Kuwo lyric APIs failed: primary=' + str(primaryError && primaryError.message) + '; fallback=' + str(fallbackError && fallbackError.message));
