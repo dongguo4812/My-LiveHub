@@ -283,7 +283,6 @@ func (m *SourceManager) Start(ctx context.Context) error {
 		script.initStage = "initialize_script"
 		initCtx, cancel := context.WithTimeout(ctx, lxMaxRequestTimeout)
 		err = runtime.InitializeLXSourceWithCache(initCtx, script.info, script.source, m.client, script.obfuscationCache)
-		logLXTiming("script_initialize", initStarted, fmt.Sprintf("script=%q result=%q", script.info.Name, timingResult(err)))
 		timedOut := errors.Is(initCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
 		cancel()
 		if err != nil {
@@ -294,7 +293,6 @@ func (m *SourceManager) Start(ctx context.Context) error {
 		}
 		script.initStage = "read_capabilities"
 		sourcesText, err := runtime.Eval(ctx, `JSON.stringify((globalThis.__lxHostState && globalThis.__lxHostState.initInfo && globalThis.__lxHostState.initInfo.sources) || {})`, "lx-source-capabilities.js")
-		logLXTiming("capability_read", capabilityStarted, fmt.Sprintf("script=%q result=%q", script.info.Name, timingResult(err)))
 		if err != nil { _ = runtime.Close(); script.runtime = nil; if ctxErr := ctx.Err(); ctxErr != nil { return ctxErr }; script.initError = "读取 inited.sources 音源能力失败：" + err.Error(); continue }
 		var sourceCapabilities map[string]struct { Actions []string `json:"actions"` }
 		if err := json.Unmarshal([]byte(sourcesText), &sourceCapabilities); err != nil { _ = runtime.Close(); script.runtime = nil; script.initError = "解析 inited.sources 音源能力失败：" + err.Error(); continue }
@@ -309,7 +307,6 @@ func (m *SourceManager) Start(ctx context.Context) error {
 		script.supportedSources = supported; script.supportedActions = actions
 	}
 	m.started = true
-	logLXTiming("manager_start", managerStarted, fmt.Sprintf("runtimes=%d", len(m.scripts)))
 	return nil
 }
 
@@ -386,9 +383,7 @@ func (m *SourceManager) DispatchExtensionAction(ctx context.Context, source, act
 	ctx = actionCtx
 
 	m.dispatchMu.Lock()
-	logLXTiming("action_wait", managerWaitStarted, fmt.Sprintf("lock=manager_dispatch source=%q action=%q", source, action))
 	defer func() {
-		logLXTiming("action_execute", managerActionStarted, fmt.Sprintf("scope=manager_dispatch source=%q action=%q", source, action))
 		m.dispatchMu.Unlock()
 	}()
 	m.mu.Lock()
@@ -457,9 +452,7 @@ func (m *SourceManager) ResolvePlaybackURL(ctx context.Context, source string, i
 	ctx = actionCtx
 
 	m.dispatchMu.Lock()
-	logLXTiming("action_wait", managerWaitStarted, fmt.Sprintf("lock=manager_dispatch source=%q action=musicUrl", source))
 	defer func() {
-		logLXTiming("action_execute", managerActionStarted, fmt.Sprintf("scope=manager_dispatch source=%q action=musicUrl", source))
 		m.dispatchMu.Unlock()
 	}()
 
