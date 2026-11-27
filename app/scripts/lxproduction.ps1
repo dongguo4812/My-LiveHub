@@ -7,7 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $runtimeDirectory = Join-Path $PSScriptRoot '..\bin'
 $runtimePath = Join-Path $runtimeDirectory 'lxqjs.dll'
-$releaseTag = 'quickjs-ng-v0.18.0-lxabi1'
+$releaseTag = 'quickjs-ng-v0.18.0-lxabi2'
 $assetBase = "https://github.com/dongguo4812/My-LiveHub/releases/download/$releaseTag"
 $archivePath = Join-Path $runtimeDirectory 'lxqjs-windows-amd64.zip'
 $checksumPath = "$archivePath.sha256"
