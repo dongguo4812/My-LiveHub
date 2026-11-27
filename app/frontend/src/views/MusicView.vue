@@ -108,6 +108,12 @@ const activeLyricIndex = computed(() => {
   }
   return active
 })
+const activeLyricTime = computed(() => activeLyricIndex.value >= 0 ? syncedLyrics.value[activeLyricIndex.value]?.time ?? null : null)
+const displayedSyncedLyrics = computed(() => {
+  const index = activeLyricIndex.value
+  if (index < 0) return syncedLyrics.value
+  return [syncedLyrics.value[index], ...syncedLyrics.value.slice(index + 1), ...syncedLyrics.value.slice(0, index)]
+})
 const isSeeking = ref(false)
 const seekPreviewMs = ref(0)
 const playbackVolume = ref(100)
@@ -245,20 +251,10 @@ function retryPlaybackLyrics() {
   const track = playback.value?.track
   if (track) void loadPlaybackLyrics(track, lyricsTrackKey)
 }
-watch(activeLyricIndex, async index => {
-  if (index < 0) return
+watch(activeLyricIndex, async () => {
   await nextTick()
   const container = lyricsListRef.value
-  const activeLine = container?.querySelector<HTMLElement>('.lyrics-detail-line.is-active')
-  if (!container || !activeLine) return
-
-  // Scroll only the lyrics panel. scrollIntoView() also scrolls ancestor
-  // containers (including the page), which can unexpectedly jump the view.
-  const containerRect = container.getBoundingClientRect()
-  const lineRect = activeLine.getBoundingClientRect()
-  const lineTop = lineRect.top - containerRect.top + container.scrollTop
-  const targetTop = lineTop - (container.clientHeight - activeLine.offsetHeight) / 2
-  container.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' })
+  if (container) container.scrollTo({ top: 0, behavior: 'smooth' })
 })
 watch(() => playback.value?.track ? playback.value.track.source_id + ':' + playback.value.track.id : '', key => {
   if (key === lyricsTrackKey) return
@@ -580,10 +576,10 @@ onUnmounted(() => {
       <div v-else-if="lyricsStatus === 'empty'" class="lyrics-detail-placeholder">暂无歌词</div>
       <div v-else ref="lyricsListRef" class="lyrics-detail-list">
         <div
-          v-for="(line, index) in syncedLyrics"
-          :key="line.time + '-' + index"
+          v-for="line in displayedSyncedLyrics"
+          :key="line.time"
           class="lyrics-detail-line"
-          :class="{ 'is-active': index === activeLyricIndex }"
+          :class="{ 'is-active': line.time === activeLyricTime }"
         >
           <span class="lyrics-detail-original">{{ line.text }}</span>
           <span v-if="line.translation" class="lyrics-detail-translation">{{ line.translation }}</span>
