@@ -801,7 +801,8 @@ lx.on(lx.EVENT_NAMES.request, async ({source, action}) => {
 lx.send(lx.EVENT_NAMES.inited, {sources: {
   kw: {type:"music", actions:["musicUrl"]},
   tx: {type:"music", actions:["search"]},
-  mg: {type:"music", actions:["search","musicUrl"]}
+  mg: {type:"music", actions:["search","musicUrl"]},
+  local: {type:"music", actions:["musicUrl"]}
 }});
 `
 	added, err := runtime.ImportScript(context.Background(), "native search fallback test", source)
@@ -811,19 +812,23 @@ lx.send(lx.EVENT_NAMES.inited, {sources: {
 
 	result, err := runtime.testScript(context.Background(), added.ID)
 	if err != nil { t.Fatal(err) }
-	if len(result.Platforms) != 3 {
-		t.Fatalf("tested platforms = %#v; want kw, mg, and tx (explicitly unsupported)", result.Platforms)
+	if len(result.Platforms) != 4 {
+		t.Fatalf("tested platforms = %#v; want kw, local, mg, and tx (unsupported providers included)", result.Platforms)
 	}
 	got := map[string]bool{}
 	for _, item := range result.Platforms {
 		got[item.Platform] = true
 	}
-	if !got["kw"] || !got["mg"] || !got["tx"] {
-		t.Fatalf("tested platform set = %#v; want kw, mg, and tx", got)
+	if !got["kw"] || !got["local"] || !got["mg"] || !got["tx"] {
+		t.Fatalf("tested platform set = %#v; want kw, local, mg, and tx", got)
 	}
 	for _, item := range result.Platforms {
 		if item.Platform == "tx" && (item.Status != "unsupported" || !strings.Contains(item.Message, "未声明 musicUrl")) {
 			t.Fatalf("tx should have an explicit unsupported result: %#v", item)
+		}
+		if item.Platform == "local" && (item.Status != "unsupported" ||
+			item.Message != "搜索失败：local QuickJS 搜索Action不支持该音源" || item.Song != "") {
+			t.Fatalf("local must be explicitly excluded from online search: %#v", item)
 		}
 		if item.Platform == "kw" && (strings.TrimSpace(item.Song) == "" ||
 			strings.Contains(item.Message, "搜索失败") ||
