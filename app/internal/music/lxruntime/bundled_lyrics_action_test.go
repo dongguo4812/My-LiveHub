@@ -37,12 +37,18 @@ func TestProductionLXBundledLyricsActionsUseQuickJSForAllFivePlatforms(t *testin
  }))
  defer server.Close()
 
- manager, err := NewSourceManagerWithScripts(server.Client(), []LXSourceScript{BundledLyricsAction()})
+ runtime, err := New(Options{})
  if err != nil { t.Fatal(err) }
- defer manager.Close()
+ defer runtime.Close()
+ runtime.allowPrivateNetworkForTests = true
  ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
  defer cancel()
- if err := manager.Start(ctx); err != nil { t.Fatalf("initialize built-in lyrics: %v",err) }
+ source := BundledLyricsAction()
+ if err := runtime.InitializeLXSource(ctx,source.Info,source.Source,server.Client()); err != nil { t.Fatalf("initialize built-in lyrics: %v",err) }
+ capabilities, err := runtime.Eval(ctx,`JSON.stringify(globalThis.__lxHostState.initInfo.sources)`,"lyrics-capabilities-test.js")
+ if err != nil { t.Fatal(err) }
+ var declared map[string]struct{ Actions []string `json:"actions"` }
+ if err := json.Unmarshal([]byte(capabilities),&declared); err != nil { t.Fatal(err) }
 
  endpoints := map[string]string{
   "kw":server.URL+"/kw", "kgSearch":server.URL+"/kg-search", "kgDownload":server.URL+"/kg-download",
@@ -56,9 +62,11 @@ func TestProductionLXBundledLyricsActionsUseQuickJSForAllFivePlatforms(t *testin
   "mg":{"id":"mg-1","title":"MG","source_data":map[string]any{"lrc_url":server.URL+"/mg"}},
  }
  for _, source := range []string{"tx","kg","kw","wy","mg"} {
-  if !manager.HasExtensionAction(source,"lyric") { t.Fatalf("%s lyric action was not registered",source) }
+  registered := false
+  for _, action := range declared[source].Actions { if action=="lyric" { registered=true } }
+  if !registered { t.Fatalf("%s lyric action was not registered: %#v",source,declared[source]) }
   requestCtx, requestCancel := context.WithTimeout(context.Background(),5*time.Second)
-  value, dispatchErr := manager.DispatchExtensionAction(requestCtx,source,"lyric",map[string]any{
+  value, dispatchErr := runtime.dispatchLXRequest(requestCtx,source,"lyric",map[string]any{
    "musicInfo":tracks[source],"__testEndpoints":endpoints,
   })
   requestCancel()
@@ -74,7 +82,7 @@ func TestProductionLXBundledLyricsActionsUseQuickJSForAllFivePlatforms(t *testin
 
  emptyEndpoints := map[string]string{"kw":server.URL+"/empty"}
  emptyCtx, emptyCancel := context.WithTimeout(context.Background(),5*time.Second)
- empty, emptyErr := manager.DispatchExtensionAction(emptyCtx,"kw","lyric",map[string]any{
+ empty, emptyErr := runtime.dispatchLXRequest(emptyCtx,"kw","lyric",map[string]any{
   "musicInfo":map[string]any{"id":"kw-empty","songmid":"kw-empty"},"__testEndpoints":emptyEndpoints,
  })
  emptyCancel()
