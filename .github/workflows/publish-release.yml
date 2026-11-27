@@ -4,7 +4,7 @@ on:
   workflow_run:
     workflows:
       - Desktop validation
-      types:
+    types:
       - completed
 
 permissions:
