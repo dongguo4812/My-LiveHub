@@ -392,7 +392,7 @@ func (s *MusicService) logFirstSearchResult(startedAt time.Time, source string, 
 				float64(time.Since(startedAt))/float64(time.Millisecond), source, tracks, result, musicTimingErrorText(err))
 		} else {
 			log.Printf("[Music-Timing] stage=first_search_result request_duration_ms=%.3f source=%q tracks=%d result=%q error=%q",
-				float64(time.Since(startedAt))/float64(time.Millisecond), source, tracks, result, errorText(err))
+				float64(time.Since(startedAt))/float64(time.Millisecond), source, tracks, result, musicTimingErrorText(err))
 		}
 	})
 }
