@@ -68,7 +68,7 @@ func neteaseLyricSongID(track Track) string {
 func GetNeteaseMusicLyrics(ctx context.Context,client *http.Client,track Track)(string,error){
  id:=neteaseLyricSongID(track);if id==""{return "",errors.New("网易云歌词请求缺少 songmid")}
  path:="/api/song/lyric/v1";payload:=map[string]any{"id":id,"cp":false,"tv":0,"lv":0,"rv":0,"kv":0,"yv":0,"ytv":0,"yrv":0}
- plain,err:=json.Marshal(payload);if err!=nil{return "",err}
+ plain,err:=jsonBody(payload);if err!=nil{return "",err}
  sum:=md5.Sum([]byte("nobody"+path+"use"+string(plain)+"md5forencrypt"))
  text:=path+"-36cd479b6b5-"+string(plain)+"-36cd479b6b5-"+hex.EncodeToString(sum[:])
  block,err:=aes.NewCipher([]byte("e82ckenh8dichen8"));if err!=nil{return "",err}
