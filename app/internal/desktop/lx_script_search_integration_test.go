@@ -62,6 +62,12 @@ func TestProductionLXBuiltInSearchAllFiveProviders(t *testing.T) {
 			var attempts []string
 			candidateKeywords := []string{"稻香", "周杰伦", "Jay Chou"}
 			maxAttempts := 2
+			if provider.id == "tx" {
+				// QQ's public search gateway intermittently returns HTTP 500 even
+				// when the legacy endpoint is healthy. Give the live integration
+				// a few bounded attempts before reporting provider unavailability.
+				maxAttempts = 4
+			}
 			if provider.id == "mg" {
 				candidateKeywords = candidateKeywords[:2]
 				// Migu's primary and fallback endpoints occasionally time out
