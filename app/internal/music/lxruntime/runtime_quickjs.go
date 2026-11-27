@@ -98,7 +98,11 @@ func openQuickJSAPI() (*quickJSAPI, error) {
 	if err := bind(&api.evalTimed, "lxqjs_eval_timed"); err != nil {
 		if legacyErr := bind(&api.evalLegacy, "lxqjs_eval"); legacyErr != nil {
 			return nil, fmt.Errorf("resolve QuickJS eval symbols: timed API unavailable (%v), legacy API unavailable (%w)", err, legacyErr)
-		},
+		}
+	}
+	setNativeAllocator(api.alloc)
+	api.setCallbacks(
+		purego.NewCallback(lxqjsGoMD5),
 		purego.NewCallback(lxqjsGoRandomBytes),
 		purego.NewCallback(lxqjsGoBufferFrom),
 		purego.NewCallback(lxqjsGoBufferToString),
@@ -184,14 +188,13 @@ func (r *Runtime) loop(opts Options, ready chan<- error) {
 		sourcePtr := r.allocCString(cmd.source)
 		filenamePtr := r.allocCString(cmd.filename)
 		var evalError unsafe.Pointer
+		var compileMS, executeMS, jobsMS float64
 		var value unsafe.Pointer
 		if r.api.evalTimed != nil {
-			var compileMS, executeMS, jobsMS float64
 			value = r.api.evalTimed(state, sourcePtr, filenamePtr, &evalError, &compileMS, &executeMS, &jobsMS)
 		} else {
 			value = r.api.evalLegacy(state, sourcePtr, filenamePtr, &evalError)
 		}
-		log.Printf("[LX-Timing] stage=quickjs_eval_phases filename=%q compile_ms=%.3f execute_ms=%.3f promise_jobs_ms=%.3f timing_api=%s", cmd.filename, compileMS, executeMS, jobsMS, map[bool]string{true:"timed",false:"legacy"}[r.api.evalTimed != nil])
 		r.api.dealloc(sourcePtr)
 		r.api.dealloc(filenamePtr)
 		close(stopWatch)
