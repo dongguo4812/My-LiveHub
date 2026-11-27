@@ -441,7 +441,7 @@ onUnmounted(() => {
     <el-alert v-if="playback?.error" :title="playback.error" type="error" :closable="false" show-icon />
     <el-alert v-if="success" :title="success" type="success" :closable="true" show-icon @close="success = ''" />
 
-    <MusicNavigation />
+    <MusicNavigation :queue-count="queue?.items.length ?? 0" />
 
     <el-card v-if="activeTab === 'now-playing'" class="player-card" shadow="never">
       <template #header><div class="card-heading"><strong>正在播放</strong><div style="display:flex;align-items:center;gap:10px"><el-tag :type="playback?.resolution_status === 'resolving' ? 'warning' : playback?.state === 'playing' ? 'success' : playback?.state === 'error' ? 'danger' : 'info'">{{ playback?.resolution_status === 'resolving' ? '正在解析' : playback?.state === 'error' ? '播放失败' : playback?.state ?? '播放器未启动' }}</el-tag><el-button size="small" :disabled="!playback?.track" @click="openLyricsWindow">桌面歌词</el-button></div></div></template>
