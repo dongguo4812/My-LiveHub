@@ -91,6 +91,7 @@ type MusicService struct {
 	scriptRuntime lxScriptRuntime
 	musicStartedAt time.Time
 	firstSearchReady sync.Once
+	firstSearchCompleted sync.Once
 	firstPlaybackReady sync.Once
 	firstPlaybackStarted sync.Once
 	playbackAttemptStartedAt time.Time
@@ -377,6 +378,30 @@ func (s *MusicService) setLXRuntimeFailure(generation uint64, err error) {
 
 // waitForLXRuntime shares the single startup initialization across every first
 // search/play request; it never starts or recreates a runtime on demand.
+func (s *MusicService) logFirstSearchResult(startedAt time.Time, source string, tracks int, err error) {
+	if s == nil { return }
+	s.firstSearchCompleted.Do(func() {
+		s.mu.RLock()
+		moduleStartedAt := s.musicStartedAt
+		s.mu.RUnlock()
+		result := "ok"
+		if err != nil { result = "error" }
+		if !moduleStartedAt.IsZero() {
+			log.Printf("[Music-Timing] stage=first_search_result since_module_start_ms=%.3f request_duration_ms=%.3f source=%q tracks=%d result=%q error=%q",
+				float64(time.Since(moduleStartedAt))/float64(time.Millisecond),
+				float64(time.Since(startedAt))/float64(time.Millisecond), source, tracks, result, errorText(err))
+		} else {
+			log.Printf("[Music-Timing] stage=first_search_result request_duration_ms=%.3f source=%q tracks=%d result=%q error=%q",
+				float64(time.Since(startedAt))/float64(time.Millisecond), source, tracks, result, errorText(err))
+		}
+	})
+}
+
+func errorText(err error) string {
+	if err == nil { return "" }
+	return err.Error()
+}
+
 func (s *MusicService) logFirstLXReady(stage string, once *sync.Once, waitStartedAt time.Time) {
 	if s == nil || once == nil { return }
 	once.Do(func() {
@@ -930,10 +955,12 @@ func (s *MusicService) SearchSourcePage(keyword, source string, page int) (Music
 	if err != nil {
 		return MusicSearchResponse{}, err
 	}
-	return MusicSearchResponse{
+	response := MusicSearchResponse{
 		Tracks: result.Tracks, Page: result.Page, PageSize: result.PageSize,
 		Total: result.Total, MaxPage: result.MaxPage, Errors: map[string]string{},
-	}, nil
+	}
+	s.logFirstSearchResult(searchStartedAt, source, len(response.Tracks), nil)
+	return response, nil
 }
 
 // enabledSearchSourceIDs reads the independent platform selection from music.json.
@@ -983,6 +1010,7 @@ func (s *MusicService) searchPage(parent context.Context, keyword string, page i
 		PageSize: result.PageSize, Total: result.Total, MaxPage: result.MaxPage,
 	}
 	if response.Tracks == nil { response.Tracks = []music.Track{} }
+	s.logFirstSearchResult(searchStartedAt, strings.Join(sourceIDs, ","), len(response.Tracks), err)
 	return response, err
 }
 
