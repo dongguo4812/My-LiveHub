@@ -86,7 +86,7 @@ func executeLXHTTPRequestWithPolicy(parent context.Context, descriptor lxRequest
 		return nil, err
 	}
 	timeout := lxRequestTimeout(descriptor.Timeout)
-	ctx, cancel := context.WithTimeout(parent, timeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	// Acquire the global request budget before DNS resolution. Otherwise a
 	// burst of scripts can bypass the concurrency limit by fanning out DNS
@@ -97,6 +97,7 @@ func executeLXHTTPRequestWithPolicy(parent context.Context, descriptor lxRequest
 		logLXTiming("http_semaphore_wait", semaphoreStarted, fmt.Sprintf("request_id=%d host=%q", descriptor.ID, parsed.Host))
 		defer func() { <-lxRequestSemaphore }()
 	case <-ctx.Done():
+		logLXTiming("http_semaphore_wait", semaphoreStarted, fmt.Sprintf("request_id=%d host=%q result=%s", descriptor.ID, parsed.Host, timingResult(ctx.Err())))
 		return nil, ctx.Err()
 	}
 	validationStarted := time.Now()
