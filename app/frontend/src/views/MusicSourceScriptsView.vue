@@ -131,7 +131,7 @@ onMounted(() => { void refreshLXScripts() })
   <section class="music-page player-page">
     <header class="page-heading player-heading"><div><p class="eyebrow">MUSIC PLAYER</p><h2>JS 音源脚本管理</h2><p class="description">独立管理洛雪 JavaScript 音源脚本的导入、启停、检测和删除。</p></div><el-tag effect="plain">{{ lxScripts.length }} 个脚本</el-tag></header>
     <nav class="music-tabs player-tabs" aria-label="音乐页面导航">
-      <button @click="goMusicTab('now-playing')">正在播放</button><button @click="goMusicTab('search')">歌曲搜索</button><button @click="goMusicTab('visitor-requests')">观众点播</button><button @click="goMusicTab('settings')">音乐设置</button><button class="active" aria-current="page">JS 音源脚本管理</button>
+      <button @click="goMusicTab('now-playing')">正在播放</button><button @click="goMusicTab('search')">歌曲搜索</button><button @click="goMusicTab('visitor-requests')">观众点播</button><button @click="router.push('/music/playlists')">我的列表</button><button @click="goMusicTab('settings')">音乐设置</button><button class="active" aria-current="page">JS 音源脚本管理</button>
     </nav>
     <el-alert v-if="error" :title="error" type="error" :closable="true" show-icon @close="error = ''" />
     <el-alert v-if="success" :title="success" type="success" :closable="true" show-icon @close="success = ''" />
