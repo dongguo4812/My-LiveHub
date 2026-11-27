@@ -453,7 +453,12 @@
       const result = parseMigu(raw, pageNo, limit);
       if (result.tracks.length) return result;
       primaryError = new Error('主搜索接口未返回歌曲');
-    } catch (error) { primaryError = error; }
+    } catch (error) {
+      // Cancellation is control flow, not provider failure. Never start the
+      // fallback request after the caller has cancelled the active search.
+      if (/cancel/i.test(str(error && error.message || error))) throw error;
+      primaryError = error;
+    }
     const fallbackURL = appendQuery(endpoints.mgFallback || defaults.mgFallback, {
       ua: 'Android_migu', version: '5.0.1', text: keyword, pageNo: pageNo,
       pageSize: limit, searchSwitch: JSON.stringify({
