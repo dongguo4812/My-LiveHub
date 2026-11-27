@@ -535,7 +535,6 @@ onUnmounted(() => {
         <span class="progress-time">{{ formatDuration(playback?.duration_ms) }}</span>
       </div>
       <div class="volume-row"><span>音量</span><el-slider :model-value="playbackVolume" :min="0" :max="100" :step="1" style="max-width:220px" @input="handleVolumeChange" /><el-button size="small" @click="toggleMute">{{ playbackVolume === 0 ? "恢复声音" : "静音" }}</el-button></div>
-      <p class="hint">播放进度和音量由 My-LiveHub 内置 HTMLAudio 控制。</p>
       <div class="playback-order-row">
         <span>歌单播放模式</span>
         <el-radio-group :model-value="playlistPlaybackMode" size="small" @change="setPlaylistPlaybackMode">
