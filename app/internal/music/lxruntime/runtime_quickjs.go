@@ -188,7 +188,8 @@ func (r *Runtime) loop(opts Options, ready chan<- error) {
 		var evalError unsafe.Pointer
 		var value unsafe.Pointer
 		if r.api.evalTimed != nil {
-			value = r.api.evalTimed(state, sourcePtr, filenamePtr, &evalError, nil, nil, nil)
+			var compileMS, executeMS, jobsMS float64
+			value = r.api.evalTimed(state, sourcePtr, filenamePtr, &evalError, &compileMS, &executeMS, &jobsMS)
 		} else {
 			value = r.api.evalLegacy(state, sourcePtr, filenamePtr, &evalError)
 		}
