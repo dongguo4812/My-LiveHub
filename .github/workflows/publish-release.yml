@@ -55,10 +55,10 @@ jobs:
           WORKSPACE="$(cygpath -u "$GITHUB_WORKSPACE")"
           TEMP_DIR="$(cygpath -u "$RUNNER_TEMP")"
           git clone --depth 1 --branch v0.18.0 https://github.com/quickjs-ng/quickjs.git "$TEMP_DIR/quickjs-ng"
-          cmake -S "$WORKSPACE/app/internal/music/lxruntime/poc/native" -B "$TEMP_DIR/lx-quickjs-production-build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DQUICKJS_NG_SOURCE_DIR="$TEMP_DIR/quickjs-ng"
+          cmake -S "$WORKSPACE/app/internal/music/lxruntime/native" -B "$TEMP_DIR/lx-quickjs-production-build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DQUICKJS_NG_SOURCE_DIR="$TEMP_DIR/quickjs-ng"
           cmake --build "$TEMP_DIR/lx-quickjs-production-build" --config Release
-          mkdir -p "$WORKSPACE/app/internal/music/lxruntime/poc/native/lib"
-          cp "$TEMP_DIR/lx-quickjs-production-build/lib/libqjs.a" "$WORKSPACE/app/internal/music/lxruntime/poc/native/lib/libqjs.a"
+          mkdir -p "$WORKSPACE/app/internal/music/lxruntime/native/lib"
+          cp "$TEMP_DIR/lx-quickjs-production-build/lib/libqjs.a" "$WORKSPACE/app/internal/music/lxruntime/native/lib/libqjs.a"
           GITHUB_ENV_PATH="$(cygpath -u "$GITHUB_ENV")"
           printf 'CGO_ENABLED=1\nCC=gcc\n' >> "$GITHUB_ENV_PATH"
 
