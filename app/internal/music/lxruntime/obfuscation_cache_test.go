@@ -34,7 +34,7 @@ func TestPrepareLXObfuscationCacheSourceHitReplaysOnlyArrayRotations(t *testing.
 	if !hit || !cacheable {
 		t.Fatalf("cache hit result hit=%t cacheable=%t", hit, cacheable)
 	}
-	if !strings.Contains(prepared, "for(var __lxObfRotation=0;__lxObfRotation<266;__lxObfRotation++)") {
+	if !strings.Contains(prepared, "for(let __myLiveHubObfRotation=0;__myLiveHubObfRotation<266;__myLiveHubObfRotation++)") {
 		t.Fatalf("cache hit did not replace decoder/check loop with cached rotations: %s", prepared)
 	}
 	if strings.Contains(prepared, "while(!![])") || strings.Contains(prepared, "parseInt(value)") {
