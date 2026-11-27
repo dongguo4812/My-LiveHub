@@ -508,7 +508,6 @@ func filterAndSortDatedLogFiles(files []string, date string) []string {
 		leftRotation, rightRotation := 0, 0
 		if left[2] != "" { leftRotation, _ = strconv.Atoi(left[2]) }
 		if right[2] != "" { rightRotation, _ = strconv.Atoi(right[2]) }
-		// Older rotations are numbered higher and must be read first.
 		return leftRotation > rightRotation
 	})
 	return valid
