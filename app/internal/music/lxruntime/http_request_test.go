@@ -9,9 +9,11 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -243,5 +245,39 @@ func TestLXRequestJSONBodyRejectsOversizeBeforeDecode(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "request body exceeds") {
 		t.Fatalf("oversized JSON body should be rejected before decoding, got %v", err)
+	}
+}
+
+func TestRuntimeSafeHTTPClientReusesKeepAliveConnections(t *testing.T) {
+	var opened atomic.Int32
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "ok")
+	}))
+	server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew { opened.Add(1) }
+	}
+	server.Start()
+	defer server.Close()
+
+	baseClient := &http.Client{Transport: &http.Transport{}}
+	runtime := &Runtime{}
+	defer runtime.closeSafeHTTPClients()
+
+	firstClient, err := runtime.safeHTTPClient(baseClient, true)
+	if err != nil { t.Fatal(err) }
+	secondClient, err := runtime.safeHTTPClient(baseClient, true)
+	if err != nil { t.Fatal(err) }
+	if firstClient != secondClient {
+		t.Fatal("same Runtime/client/policy should reuse the cached safe HTTP client")
+	}
+
+	for id := uint64(1); id <= 2; id++ {
+		_, err := executeLXHTTPRequestWithSafeClient(context.Background(), lxRequestDescriptor{
+			ID: id, URL: server.URL, Method: http.MethodGet,
+		}, baseClient, true, firstClient)
+		if err != nil { t.Fatalf("request %d: %v", id, err) }
+	}
+	if got := opened.Load(); got != 1 {
+		t.Fatalf("server opened %d TCP connections for two sequential requests; want one reused keep-alive connection", got)
 	}
 }
