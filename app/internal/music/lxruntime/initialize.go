@@ -83,7 +83,7 @@ func (r *Runtime) InitializeLXSourceWithCache(ctx context.Context, info ScriptIn
 	}
 	cacheSource := source
 	profileObfuscation := os.Getenv(lxObfuscationProfileEnv) == "1"
-	evalSource, cacheHit, cacheable, profiled := prepareLXInitializationSource(source, cache, profileObfuscation)
+	evalSource, cacheHit, cacheable, _ := prepareLXInitializationSource(source, cache, profileObfuscation)
 	sourceEvalStarted := time.Now()
 	_, sourceEvalErr := r.EvalWithTimeout(ctx, evalSource, filename, maxInitializationEvalTimeout)
 	logLXTiming("initialize_source_eval", sourceEvalStarted, "script="+fmt.Sprintf("%q", filename)+" result="+timingResult(sourceEvalErr))
