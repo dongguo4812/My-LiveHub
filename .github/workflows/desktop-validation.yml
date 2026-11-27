@@ -62,7 +62,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: app/bin/lxqjs.dll
-          key: quickjs-ng-v0.18.0-ucrt64-${{ runner.os }}-${{ hashFiles('app/internal/music/lxruntime/poc/native/**') }}-v1
+          key: quickjs-ng-v0.18.0-ucrt64-${{ runner.os }}-${{ hashFiles('app/internal/music/lxruntime/native/**') }}-v1
 
       - name: Set up MSYS2 UCRT64 toolchain for production QuickJS
         if: steps.quickjs-cache.outputs.cache-hit != 'true'
@@ -84,7 +84,7 @@ jobs:
           WORKSPACE="$(cygpath -u "$GITHUB_WORKSPACE")"
           TEMP_DIR="$(cygpath -u "$RUNNER_TEMP")"
           git clone --depth 1 --branch v0.18.0 https://github.com/quickjs-ng/quickjs.git "$TEMP_DIR/quickjs-ng"
-          cmake -S "$WORKSPACE/app/internal/music/lxruntime/poc/native" -B "$TEMP_DIR/lx-quickjs-production-build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DQUICKJS_NG_SOURCE_DIR="$TEMP_DIR/quickjs-ng"
+          cmake -S "$WORKSPACE/app/internal/music/lxruntime/native" -B "$TEMP_DIR/lx-quickjs-production-build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DQUICKJS_NG_SOURCE_DIR="$TEMP_DIR/quickjs-ng"
           cmake --build "$TEMP_DIR/lx-quickjs-production-build" --config Release
           DLL="$(find "$TEMP_DIR/lx-quickjs-production-build" -type f -iname 'lxqjs.dll' -print -quit)"
           test -n "$DLL"
@@ -96,7 +96,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: app/bin/lxqjs.dll
-          key: quickjs-ng-v0.18.0-ucrt64-${{ runner.os }}-${{ hashFiles('app/internal/music/lxruntime/poc/native/**') }}-v1
+          key: quickjs-ng-v0.18.0-ucrt64-${{ runner.os }}-${{ hashFiles('app/internal/music/lxruntime/native/**') }}-v1
 
       - name: Configure production QuickJS runtime
         shell: pwsh
@@ -206,7 +206,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: app/bin/lxqjs.dll
-          key: quickjs-ng-v0.18.0-ucrt64-${{ runner.os }}-${{ hashFiles('app/internal/music/lxruntime/poc/native/**') }}-v1
+          key: quickjs-ng-v0.18.0-ucrt64-${{ runner.os }}-${{ hashFiles('app/internal/music/lxruntime/native/**') }}-v1
 
       - name: Set up MSYS2 UCRT64 toolchain for production QuickJS
         if: steps.quickjs-cache.outputs.cache-hit != 'true'
@@ -228,7 +228,7 @@ jobs:
           WORKSPACE="$(cygpath -u "$GITHUB_WORKSPACE")"
           TEMP_DIR="$(cygpath -u "$RUNNER_TEMP")"
           git clone --depth 1 --branch v0.18.0 https://github.com/quickjs-ng/quickjs.git "$TEMP_DIR/quickjs-ng"
-          cmake -S "$WORKSPACE/app/internal/music/lxruntime/poc/native" -B "$TEMP_DIR/lx-quickjs-production-build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DQUICKJS_NG_SOURCE_DIR="$TEMP_DIR/quickjs-ng"
+          cmake -S "$WORKSPACE/app/internal/music/lxruntime/native" -B "$TEMP_DIR/lx-quickjs-production-build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DQUICKJS_NG_SOURCE_DIR="$TEMP_DIR/quickjs-ng"
           cmake --build "$TEMP_DIR/lx-quickjs-production-build" --config Release
           DLL="$(find "$TEMP_DIR/lx-quickjs-production-build" -type f -iname 'lxqjs.dll' -print -quit)"
           test -n "$DLL"
@@ -240,7 +240,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: app/bin/lxqjs.dll
-          key: quickjs-ng-v0.18.0-ucrt64-${{ runner.os }}-${{ hashFiles('app/internal/music/lxruntime/poc/native/**') }}-v1
+          key: quickjs-ng-v0.18.0-ucrt64-${{ runner.os }}-${{ hashFiles('app/internal/music/lxruntime/native/**') }}-v1
 
       - name: Configure production QuickJS runtime
         shell: pwsh
