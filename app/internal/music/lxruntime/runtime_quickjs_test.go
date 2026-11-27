@@ -32,6 +32,20 @@ func newTestRuntime(t *testing.T, timeout time.Duration) *Runtime {
 	return rt
 }
 
+func TestQuickJSTimedEvalAPIIsAvailable(t *testing.T) {
+	rt := newTestRuntime(t, time.Second)
+	if rt.api == nil || rt.api.evalTimed == nil {
+		t.Fatal("QuickJS native runtime is missing lxqjs_eval_timed; rebuild or replace the outdated native DLL")
+	}
+	value, err := rt.Eval(context.Background(), "20 + 22", "timed-api-smoke.js")
+	if err != nil {
+		t.Fatalf("timed QuickJS evaluation failed: %v", err)
+	}
+	if value != "42" {
+		t.Fatalf("timed QuickJS evaluation result = %q, want 42", value)
+	}
+}
+
 func TestQuickJSEvalAndPromiseJobs(t *testing.T) {
 	rt := newTestRuntime(t, time.Second)
 	if _, err := rt.Eval(context.Background(), "Promise.resolve(42).then(v => globalThis.__promiseValue = v); 'queued'", "promise.js"); err != nil {
