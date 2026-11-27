@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -30,6 +31,7 @@ const (
 )
 
 var lxRequestSemaphore = make(chan struct{}, lxMaxConcurrentRequests)
+var lxTraceIPv4Pattern = regexp.MustCompile(`\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b`)
 
 type lxRequestDescriptor struct {
 	ID       uint64                     `json:"id"`
@@ -310,10 +312,15 @@ func traceLXHTTPRequestResponse(requestHost string, response *http.Response, bod
 		return
 	}
 	hosts := make(map[string]struct{})
+	ips := make(map[string]struct{})
+	keys := make(map[string]struct{})
 	var visit func(any)
 	visit = func(value any) {
 		switch item := value.(type) {
 		case string:
+			for _, ip := range lxTraceIPv4Pattern.FindAllString(item, -1) {
+				ips[ip] = struct{}{}
+			}
 			candidate := strings.TrimSpace(item)
 			if !strings.HasPrefix(strings.ToLower(candidate), "http://") && !strings.HasPrefix(strings.ToLower(candidate), "https://") {
 				return
@@ -327,7 +334,8 @@ func traceLXHTTPRequestResponse(requestHost string, response *http.Response, bod
 				visit(child)
 			}
 		case map[string]any:
-			for _, child := range item {
+			for key, child := range item {
+				keys[key] = struct{}{}
 				visit(child)
 			}
 		}
@@ -338,10 +346,17 @@ func traceLXHTTPRequestResponse(requestHost string, response *http.Response, bod
 		returnedHosts = append(returnedHosts, host)
 	}
 	sort.Strings(returnedHosts)
+	returnedIPs := make([]string, 0, len(ips))
+	for ip := range ips { returnedIPs = append(returnedIPs, ip) }
+	sort.Strings(returnedIPs)
+	responseKeys := make([]string, 0, len(keys))
+	for key := range keys { responseKeys = append(responseKeys, key) }
+	sort.Strings(responseKeys)
+	if len(responseKeys) > 24 { responseKeys = responseKeys[:24] }
 	finalHost := requestHost
 	if response != nil && response.Request != nil && response.Request.URL != nil && response.Request.URL.Hostname() != "" {
 		finalHost = response.Request.URL.Hostname()
 	}
-	fmt.Printf("[LX_HTTP_TRACE] request_host=%s final_host=%s status=%d bytes=%d returned_url_hosts=%s\n",
-		requestHost, finalHost, response.StatusCode, responseBytes, strings.Join(returnedHosts, ","))
+	fmt.Printf("[LX_HTTP_TRACE] request_host=%s final_host=%s status=%d bytes=%d returned_url_hosts=%s returned_ipv4s=%s response_keys=%s\n",
+		requestHost, finalHost, response.StatusCode, responseBytes, strings.Join(returnedHosts, ","), strings.Join(returnedIPs, ","), strings.Join(responseKeys, ","))
 }
