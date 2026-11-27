@@ -123,7 +123,6 @@ func detectUpdatePackageType(root string) string {
 	if len(matches) > 0 {
 		return "installer"
 	}
-	// Older portable releases did not contain a package marker.
 	return "portable"
 }
 
