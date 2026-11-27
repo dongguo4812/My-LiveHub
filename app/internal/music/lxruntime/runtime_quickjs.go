@@ -102,7 +102,7 @@ func openQuickJSAPI() (*quickJSAPI, error) {
 		if legacyErr := bind(&api.evalLegacy, "lxqjs_eval"); legacyErr != nil {
 			return nil, fmt.Errorf("resolve QuickJS eval symbols: timed API unavailable (%v), legacy API unavailable (%w)", err, legacyErr)
 		}
-		log.Printf("[LX-Timing] compatibility=legacy_eval reason=%q; compile/execute phase timings unavailable", err.Error())
+		log.Printf("[LX-Timing] compatibility=legacy_eval library=%q reason=%q; compile/execute phase timings unavailable; run app/scripts/lxproduction.ps1 to replace the outdated native DLL", path, err.Error())
 	}
 	setNativeAllocator(api.alloc)
 	api.setCallbacks(
