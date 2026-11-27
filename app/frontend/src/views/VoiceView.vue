@@ -214,18 +214,25 @@ onUnmounted(() => {
     </el-card>
 
     <el-card shadow="never">
-      <template #header><strong>播报控制与测试</strong></template>
+      <template #header>
+        <div class="card-heading">
+          <strong>播报控制与测试</strong>
+          <el-tag :type="voiceAudioUnlocked ? 'success' : 'info'" effect="plain">
+            {{ voiceAudioUnlocked ? '音频已启用' : '音频已停用' }}
+          </el-tag>
+        </div>
+      </template>
       <div class="audio-unlock">
-        <div><strong>音频输出</strong><p>启用偏好会保存。重启后自动尝试恢复；只有音频设备实际进入运行状态才显示已启用。</p></div>
+        <div><strong>音频输出</strong><p>启用偏好会保存，重启后自动尝试恢复。</p></div>
         <el-button
-          :type="config?.audio_output_enabled || voiceAudioUnlocked ? 'danger' : 'primary'"
+          type="primary"
           :disabled="!config"
-          @click="config?.audio_output_enabled || voiceAudioUnlocked ? disableAudioOutput() : enableAudioOutput()"
+          @click="voiceAudioUnlocked || config?.audio_output_enabled ? disableAudioOutput() : enableAudioOutput()"
         >
-          {{ config?.audio_output_enabled || voiceAudioUnlocked ? '停用音频输出' : '启用音频输出' }}
+          {{ voiceAudioUnlocked || config?.audio_output_enabled ? '停用音频输出' : '启用音频输出' }}
         </el-button>
       </div>
-      <el-alert v-if="config?.audio_output_enabled && !voiceAudioUnlocked" title="已记住启用偏好，但当前 WebView 尚未获得音频播放权限；请点击上方按钮恢复。" type="warning" :closable="false" show-icon />
+      <el-alert v-if="config?.audio_output_enabled && !voiceAudioUnlocked" title="已记住启用偏好，但当前 WebView 尚未获得音频播放权限；请点击按钮恢复。" type="warning" :closable="false" show-icon />
       <el-divider />
       <el-input v-model="testText" maxlength="500" show-word-limit placeholder="输入测试播报内容" @keyup.enter="testSpeech" />
       <div class="card-actions">
