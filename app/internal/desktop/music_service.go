@@ -1421,10 +1421,11 @@ func (s *MusicService) GetCachedPlaybackStatus() (music.PlaybackSnapshot, error)
 
 func (s *MusicService) attachCurrentQueueTrack(snapshot music.PlaybackSnapshot) music.PlaybackSnapshot {
 	current := s.queue.Snapshot().Current
-	s.mu.RLock()
-	resolving := s.playbackResolutionStatus == "resolving"
-	s.mu.RUnlock()
-	if current != nil && (resolving || snapshot.Track == nil || sameLXTrackIdentity(current.Track, *snapshot.Track)) {
+	// During URL resolution the queue already points at the requested next
+	// track, but HTMLAudio may still be playing the previous track. Keep the
+	// engine snapshot's track metadata until the new resource is actually
+	// loaded; otherwise the UI pairs the next song's title with old audio.
+	if current != nil && (snapshot.Track == nil || sameLXTrackIdentity(current.Track, *snapshot.Track)) {
 		track := current.Track
 		snapshot.Track = &track
 	}
