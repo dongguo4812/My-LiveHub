@@ -25,12 +25,13 @@ const mockBindings = {
   load(id) {
     if (id === mocks.music) return `
       export async function GetCachedPlaybackStatus() {
-        return { state: 'paused', position_ms: globalThis.__lyricsPosition ?? 1000, duration_ms: 10000,
+        return { state: globalThis.__lyricsPlaybackState ?? 'paused', position_ms: globalThis.__lyricsPosition ?? 1000, duration_ms: 10000,
           track: globalThis.__lyricsTrack ?? { id: 'tx_fixture', source_id: 'tx', title: '桌面歌词验收曲', artist: '回归测试' } }
       }
       export async function GetLyricsForRequest(track, requestID) {
         globalThis.__lyricsRequests ??= []
         globalThis.__lyricsRequests.push(requestID)
+        if (track.id === 'tx_fixture_empty') return ''
         if (track.id === 'tx_fixture_pending') {
           return await new Promise(resolve => { globalThis.__pendingLyricsResolve = resolve })
         }
@@ -82,6 +83,12 @@ try {
     'paused playback duplicated the active track lyric request')
   assert.equal(await page.evaluate(() => globalThis.__cancelledLyricsRequests?.length ?? 0), 0,
     'paused playback cancelled the active track lyric request')
+  await page.evaluate(() => { globalThis.__lyricsPlaybackState = 'playing' })
+  await page.waitForTimeout(350)
+  assert.equal(await page.evaluate(() => globalThis.__lyricsRequests?.length ?? 0), 1,
+    'resuming the same track duplicated its lyric request')
+  assert.equal(await page.evaluate(() => globalThis.__cancelledLyricsRequests?.length ?? 0), 0,
+    'resuming the same track cancelled its lyric request')
 
   await page.evaluate(() => { globalThis.__lyricsPosition = 2600 })
   await page.waitForFunction(() => document.querySelector('.original-lyric')?.textContent?.includes('第二句'), null, { timeout: 5000 })
@@ -113,6 +120,16 @@ try {
   await page.locator('.retry-lyrics').click()
   await page.waitForFunction(() => document.querySelector('.original-lyric')?.textContent?.includes('第一句'))
   await page.locator('.retry-lyrics').waitFor({ state: 'hidden' })
+
+  await page.evaluate(() => {
+    globalThis.__lyricsPlaybackState = 'paused'
+    globalThis.__lyricsTrack = { id: 'tx_fixture_empty', source_id: 'tx', title: '空歌词验收曲', artist: '回归测试' }
+  })
+  await page.waitForFunction(() => document.querySelector('.lyrics-track strong')?.textContent?.includes('空歌词验收曲'))
+  await page.waitForFunction(() => document.querySelector('.original-lyric')?.textContent?.includes('暂无歌词'))
+  assert.equal(await page.evaluate(() => globalThis.__lyricsRequests?.length ?? 0), 5,
+    'empty-lyrics track did not issue exactly one request')
+
   assert.deepEqual(errors, [], `desktop lyrics overlay browser errors: ${errors.join('; ')}`)
   console.log('Desktop lyrics overlay browser smoke passed: synchronized and translated lyrics render, track changes cancel in-flight requests, and transient failures can be retried.')
 } finally {
