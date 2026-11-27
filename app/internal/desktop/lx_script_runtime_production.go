@@ -138,7 +138,13 @@ func (r *productionMusicLXRuntime) testScript(ctx context.Context, id string) (L
 		if capabilityErr != nil { result.Status = "failed"; result.Message = "读取脚本平台能力失败：" + capabilityErr.Error() } else { selected.SourceActions = cloneLXSourceActions(capabilities.SourceActions) }
 	}
 	definition := lxruntime.LXSourceScript{Info:lxruntime.ScriptInfo{Name:selected.Name, Description:selected.Description, Version:selected.Version, Author:selected.Author, Homepage:selected.Homepage, RawScript:selected.Source}, Source:selected.Source, ExtensionActions:append([]string(nil), selected.ExtensionActions...)}
-	manager, err := lxruntime.NewSourceManagerWithScripts(nil, []lxruntime.LXSourceScript{definition})
+	// Match the production registry: imported scripts may override search for
+	// their declared providers, while the trusted built-in QuickJS adapter
+	// supplies search for providers that expose only musicUrl/playback actions.
+	// Without this adapter, every provider test falsely reports that search is
+	// not ready even though production search is registered independently.
+	definitions := []lxruntime.LXSourceScript{definition, lxruntime.BundledSearchAction()}
+	manager, err := lxruntime.NewSourceManagerWithScripts(nil, definitions)
 	if err != nil { return LXScriptTestResult{}, fmt.Errorf("create isolated test runtime: %w", err) }
 	defer manager.Close()
 	if err := manager.Start(ctx); err != nil { return LXScriptTestResult{}, fmt.Errorf("initialize isolated test runtime: %w", err) }
