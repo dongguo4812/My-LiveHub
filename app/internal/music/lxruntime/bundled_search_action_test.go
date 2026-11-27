@@ -153,13 +153,19 @@ func TestProductionLXBundledSearchActionsUseQuickJSHTTPForAllFivePlatforms(t *te
 
 func TestProductionLXBundledSearchActionPropagatesHTTPFailuresAndCancellation(t *testing.T) {
 	var slowStarted atomic.Int32
+	var slowCancelled atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/failure":
 			http.Error(w, "provider unavailable", http.StatusBadGateway)
 		case "/slow":
 			slowStarted.Add(1)
-			<-r.Context().Done()
+			select {
+			case <-r.Context().Done():
+				slowCancelled.Add(1)
+			case <-time.After(3 * time.Second):
+				http.Error(w, "request was not cancelled", http.StatusRequestTimeout)
+			}
 		default:
 			http.NotFound(w, r)
 		}
@@ -240,6 +246,13 @@ func TestProductionLXBundledSearchActionPropagatesHTTPFailuresAndCancellation(t 
 				}
 				if (sourceID == "tx" || sourceID == "mg") && slowStarted.Load() != before+1 {
 					t.Fatalf("%s cancellation started a fallback request; request count=%d, want %d", sourceID, slowStarted.Load()-before, 1)
+				}
+				cancelDeadline := time.Now().Add(2 * time.Second)
+				for slowCancelled.Load() < slowStarted.Load() && time.Now().Before(cancelDeadline) {
+					time.Sleep(5 * time.Millisecond)
+				}
+				if slowCancelled.Load() < slowStarted.Load() {
+					t.Fatalf("%s HTTP transport did not cancel its in-flight request", sourceID)
 				}
 			case <-time.After(2 * time.Second):
 				cancel()
