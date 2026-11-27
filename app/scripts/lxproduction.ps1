@@ -56,14 +56,15 @@ function Ensure-LXQuickJSRuntime {
 
     $env:PATH = "$ucrtBin;$([System.IO.Path]::GetDirectoryName($gcc));$env:PATH"
     $git = Get-Command git -ErrorAction SilentlyContinue
-    if ($null -eq $git) {
+    $gitPath = if ($null -ne $git) { $git.Source } elseif (Test-Path 'C:\msys64\usr\bin\git.exe') { 'C:\msys64\usr\bin\git.exe' } else { $null }
+    if (!$gitPath) {
         throw 'Git is required to fetch the pinned QuickJS-NG v0.18.0 source.'
     }
 
     if (!(Test-Path -LiteralPath (Join-Path $quickjsSourceDirectory 'CMakeLists.txt') -PathType Leaf)) {
         Remove-Item -LiteralPath $quickjsSourceDirectory -Recurse -Force -ErrorAction SilentlyContinue
         Write-Host 'Fetching pinned QuickJS-NG v0.18.0 source...' -ForegroundColor Cyan
-        & git clone --depth 1 --branch v0.18.0 https://github.com/quickjs-ng/quickjs.git $quickjsSourceDirectory
+        & $gitPath clone --depth 1 --branch v0.18.0 https://github.com/quickjs-ng/quickjs.git $quickjsSourceDirectory
         if ($LASTEXITCODE -ne 0) { throw 'Unable to fetch pinned QuickJS-NG v0.18.0 source.' }
     }
 
