@@ -273,7 +273,6 @@ func (m *SourceManager) Start(ctx context.Context) error {
 
 	// Only explicitly enabled scripts are supplied to this manager. Warm
 	// each one now and retain failures; playback must never initialize lazily.
-	managerStarted := time.Now()
 	for _, script := range m.scripts {
 		if err := ctx.Err(); err != nil { return err }
 		script.initAt = time.Now().UTC()
@@ -282,7 +281,6 @@ func (m *SourceManager) Start(ctx context.Context) error {
 		if err != nil { script.initError = "创建 QuickJS Runtime 失败：" + err.Error(); continue }
 		script.runtime = runtime
 		script.initStage = "initialize_script"
-		initStarted := time.Now()
 		initCtx, cancel := context.WithTimeout(ctx, lxMaxRequestTimeout)
 		err = runtime.InitializeLXSourceWithCache(initCtx, script.info, script.source, m.client, script.obfuscationCache)
 		logLXTiming("script_initialize", initStarted, fmt.Sprintf("script=%q result=%q", script.info.Name, timingResult(err)))
@@ -295,7 +293,6 @@ func (m *SourceManager) Start(ctx context.Context) error {
 			continue
 		}
 		script.initStage = "read_capabilities"
-		capabilityStarted := time.Now()
 		sourcesText, err := runtime.Eval(ctx, `JSON.stringify((globalThis.__lxHostState && globalThis.__lxHostState.initInfo && globalThis.__lxHostState.initInfo.sources) || {})`, "lx-source-capabilities.js")
 		logLXTiming("capability_read", capabilityStarted, fmt.Sprintf("script=%q result=%q", script.info.Name, timingResult(err)))
 		if err != nil { _ = runtime.Close(); script.runtime = nil; if ctxErr := ctx.Err(); ctxErr != nil { return ctxErr }; script.initError = "读取 inited.sources 音源能力失败：" + err.Error(); continue }
@@ -388,10 +385,8 @@ func (m *SourceManager) DispatchExtensionAction(ctx context.Context, source, act
 	}()
 	ctx = actionCtx
 
-	managerWaitStarted := time.Now()
 	m.dispatchMu.Lock()
 	logLXTiming("action_wait", managerWaitStarted, fmt.Sprintf("lock=manager_dispatch source=%q action=%q", source, action))
-	managerActionStarted := time.Now()
 	defer func() {
 		logLXTiming("action_execute", managerActionStarted, fmt.Sprintf("scope=manager_dispatch source=%q action=%q", source, action))
 		m.dispatchMu.Unlock()
@@ -461,10 +456,8 @@ func (m *SourceManager) ResolvePlaybackURL(ctx context.Context, source string, i
 	}()
 	ctx = actionCtx
 
-	managerWaitStarted := time.Now()
 	m.dispatchMu.Lock()
 	logLXTiming("action_wait", managerWaitStarted, fmt.Sprintf("lock=manager_dispatch source=%q action=musicUrl", source))
-	managerActionStarted := time.Now()
 	defer func() {
 		logLXTiming("action_execute", managerActionStarted, fmt.Sprintf("scope=manager_dispatch source=%q action=musicUrl", source))
 		m.dispatchMu.Unlock()
