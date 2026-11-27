@@ -289,6 +289,7 @@ jobs:
           MYLIVEHUB_LX_UPLOADED_PLAYBACK_INTEGRATION: '1'
           MYLIVEHUB_PLAYBACK_URL_FILE: ${{ runner.temp }}\my-livehub-playback-url.txt
           MYLIVEHUB_PLAYBACK_PROVIDER: 'tx'
+          MYLIVEHUB_LX_HTTP_TRACE: '1'
           CGO_ENABLED: '0'
           MYLIVEHUB_QUICKJS_LIB: ${{ github.workspace }}\app\bin\lxqjs.dll
         run: go test -tags lxproduction -timeout 50m -count=1 -v -run '^TestProductionLXUploadedScriptsResolveRealPlaybackURL$' ./internal/desktop
