@@ -554,6 +554,6 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 
 - 删除仅剩 MIT 许可证、已无 QRC 源码和生产消费者的 `app/internal/music/lxqrc/LICENSE`。
 - 将手动 QuickJS 专项工作流更名为 `.github/workflows/quickjs-runtime-diagnostics.yml`；保留真实 `fish/latest.js` 导入/启用、晴天播放 URL 和本地运行库引导诊断，删除已失效的 Go 原生歌词适配器测试步骤，替换为有效的 QuickJS lyric Action/取消/缓存/禁止 Go 回退测试。
-- 将正式原生 QuickJS 构建源目录从 `app/internal/music/lxruntime/poc/native` 移至 `app/internal/music/lxruntime/native`，并同步更新 Desktop validation 与手动诊断工作流的 CMake 路径和缓存键；`lxqjs.c`、头文件及正式动态库构建流程完整保留。
+- 将正式原生 QuickJS 构建源目录从 `app/internal/music/lxruntime/poc/native` 移至 `app/internal/music/lxruntime/native`，并同步更新 Desktop validation、手动诊断和发布工作流的 CMake 路径、发布产物路径及缓存键；`lxqjs.c`、头文件及正式动态库构建流程完整保留。
 - 兼容性复核保留旧存储快照恢复、社区音源脚本参数别名和仍被场景使用的同步歌词入口；这些不是旧 Go provider。QQ/咪咕备用 HTTP 接口和播放自动换源也属于现有 QuickJS/播放可靠性逻辑，不作为旧实现删除。
 - 清理代码提交 `db7ff372c03226fe7bfa02a014336e9641ce553c` 的 Desktop validation Run `45921430162` 成功：正式 Go 全量测试、生产 QuickJS 测试、五平台真实搜索、墨澜聚合音源真实播放、歌词同步、Chromium HTMLAudio 播放/歌词、前端构建和 Windows 可执行文件构建均通过。计划文档本次更新触发的最新 CI 仍需全部成功，才正式关闭本阶段。
