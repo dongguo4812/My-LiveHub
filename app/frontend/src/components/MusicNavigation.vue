@@ -1,18 +1,20 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
 
+const props = defineProps<{ queueCount?: number }>()
+const typeQueueCount = ref(0)
 type QueueSnapshot = Awaited<ReturnType<typeof MusicService.GetQueue>>
 const route = useRoute()
 const router = useRouter()
-const queueCount = ref(0)
+const displayedQueueCount = computed(() => props.queueCount ?? typeQueueCount.value)
 let refreshTimer: ReturnType<typeof setInterval> | undefined
 
 async function refreshQueueCount() {
   try {
     const queue: QueueSnapshot = await MusicService.GetQueue()
-    queueCount.value = queue.items?.length ?? 0
+    typeQueueCount.value = queue.items?.length ?? 0
   } catch {
     // Preserve the last known count when the desktop service is temporarily unavailable.
   }
@@ -37,6 +39,7 @@ function openTab(tab: string) {
 }
 
 onMounted(() => {
+  if (props.queueCount !== undefined) return
   void refreshQueueCount()
   refreshTimer = setInterval(() => void refreshQueueCount(), 1500)
 })
@@ -49,7 +52,7 @@ onUnmounted(() => {
   <nav class="music-tabs player-tabs" aria-label="音乐页面导航">
     <button :class="{ active: isActive('now-playing') }" :aria-current="isActive('now-playing') ? 'page' : undefined" @click="openTab('now-playing')">正在播放</button>
     <button :class="{ active: isActive('search') }" :aria-current="isActive('search') ? 'page' : undefined" @click="openTab('search')">歌曲搜索</button>
-    <button :class="{ active: isActive('visitor-requests') }" :aria-current="isActive('visitor-requests') ? 'page' : undefined" @click="openTab('visitor-requests')">观众点播 <span class="queue-count">{{ queueCount }}</span></button>
+    <button :class="{ active: isActive('visitor-requests') }" :aria-current="isActive('visitor-requests') ? 'page' : undefined" @click="openTab('visitor-requests')">观众点播 <span class="queue-count">{{ displayedQueueCount }}</span></button>
     <button :class="{ active: isActive('playlists') }" :aria-current="isActive('playlists') ? 'page' : undefined" @click="openTab('playlists')">我的列表</button>
     <button :class="{ active: isActive('settings') }" :aria-current="isActive('settings') ? 'page' : undefined" @click="openTab('settings')">音乐设置</button>
     <button :class="{ active: isActive('sources') }" :aria-current="isActive('sources') ? 'page' : undefined" @click="openTab('sources')">JS 音源脚本管理</button>
