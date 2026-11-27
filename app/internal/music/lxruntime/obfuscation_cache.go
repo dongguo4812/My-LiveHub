@@ -60,7 +60,7 @@ func prepareLXObfuscationCacheSource(source string, cache *LXObfuscationCache) (
 		cache.SourceSHA256 == digest &&
 		cache.RotationCount >= 0 &&
 		cache.RotationCount <= 1_000_000 {
-		replacement := "for(var __myLiveHubObfRotation=0;__myLiveHubObfRotation<" +
+		replacement := "for(let __myLiveHubObfRotation=0;__myLiveHubObfRotation<" +
 			strconv.Itoa(cache.RotationCount) + ";__myLiveHubObfRotation++){" +
 			arrayName + "['push'](" + arrayName + "['shift']());}}(" + invokedFunction + ","
 		return source[:start] + replacement + source[end[1]:], true, true
