@@ -16,10 +16,6 @@ import (
 
 const maxLXScriptSourceBytes = 2 << 20
 
-// prepareLXInitializationSource keeps diagnostic profiling from disabling the
-// persistent cache used by production imported scripts. Profiling remains
-// available to callers that do not supply a cache, and for unsupported cache
-// source shapes where no cache optimization can be applied.
 func prepareLXInitializationSource(source string, cache *LXObfuscationCache, profile bool) (evalSource string, cacheHit, cacheable, profiled bool) {
 	if profile && cache == nil {
 		evalSource, profiled = instrumentLXObfuscationProfile(source)
