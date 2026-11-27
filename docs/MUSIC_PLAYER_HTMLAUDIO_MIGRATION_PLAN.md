@@ -5,20 +5,20 @@
 > 最终架构：Go + QuickJS-NG + HTMLAudio + Vue/Wails WebView  
 > 核心架构约束：继续使用洛雪 JS 音源脚本；通过 QuickJS-NG 模拟洛雪 JS 运行时环境，兼容导入脚本所需的宿主 API/全局对象/请求行为，实现搜索、详情、播放 URL、歌词等能力；HTMLAudio 只负责最终音频播放。复用现有音乐业务层，不引入独立播放器进程。
 
-> **当前执行快照（2026-11-26，按当前分支代码、CI 和本项目对话中的用户验收结果更新）**
+> **当前执行快照（2026-11-27，按当前分支代码、CI 和用户验收结果更新）**
 > - 当前开发分支：`feat/lx-js-runtime-quickjs-poc`；本文件位于 `docs/MUSIC_PLAYER_HTMLAUDIO_MIGRATION_PLAN.md`，是本分支音乐播放器迁移进度的记录文件。
 > - A 阶段生产脚本导入、持久化、启停/删除、损坏脚本隔离及 QuickJS production runtime 生命周期已完成，CI Run #544 通过。
 > - B 阶段统一 action 调度与歌曲模型接线已完成：生产搜索/详情/歌词/封面 action、按脚本 `inited.sources` 路由、原生 `musicUrl` 声明校验、Track 映射、错误分类和多脚本隔离均已实现，CI Run #567 通过。
 > - C 阶段结构化 `PlaybackResource`、音质回退、TTL 缓存、资源身份校验、资源感知引擎端口及幂等媒体失败刷新已完成，CI Run 45142573201 通过。
 > - D 阶段生产 HTMLAudio PlaybackEngine、Wails 命令/事件桥、应用级单例 Audio、播放控制、错误回传、失效 URL 单次刷新及切歌取消已完成；CI Run 45602383401 通过，用户本地目标环境实播验收通过。
-> - E 阶段媒体传输适配、旧播放器播放引擎/外部播放器依赖替换、旧配置迁移和设置页收尾已完成；Desktop validation Run #2928 全部通过。这里的“旧播放引擎清理”不等于全面清理洛雪 JS/运行时兼容实现；**旧洛雪实现的全面清理按用户要求留到所有迁移与验收工作最后执行**。
+> - E 阶段媒体传输适配、旧播放器播放引擎/外部播放器依赖替换、旧配置迁移和设置页收尾已完成；Desktop validation Run #2928 全部通过。
 > - F 阶段歌词系统和播放队列/稳定性清单已完成：切歌取消旧歌词请求、歌词同步与窗口状态、播放队列优先级、观众点播抢占及结束后恢复、歌单播放模式持久化等已完成核查和验证；相关 CI 已通过。该状态不代表每个第三方音源在任何时刻都保证可用。
 > - G 阶段已完成多项代码和 CI 工作：MusicService/QuickJS 后台初始化及失败诊断、播放首次解析与 fallback 修复、响度标准化及音频重音/回声问题收尾、WebView2 宿主清单 `asInvoker` 统一嵌入等。Desktop validation Run #2863、#3109、#3110 等相关 CI 通过。
 > - WebView2 进程归属：已统一开发/CI/发布构建的 manifest，CI #3109/#3110 通过；**尚无 Windows 10 实机任务管理器验收**。Windows 10「进程」页按系统行为显示宿主应用组，不支持像新版 Windows 11 那样逐个展开显示 WebView2 子进程；不能把这一 UI 限制描述为代码已实现。
 > - G 阶段长时间播放验收：用户已确认目标 Windows 设备连续播放已达 N 小时，超过 2 小时门槛；不再重复安排该项。长时间播放期间的卡顿、无声、重音、回声和异常中断检查视为已完成。
 > - G 阶段剩余自动化工作：主进程及其自有 WebView2 子进程的 OS 级内存基线/增量采样、停止/切歌资源释放自动化核查，以及最终 CI 回归。用户无法进行额外手动实测，因此不再将其列为阻塞条件；CI 证据与目标设备实测必须分别标注。
 > - 歌曲搜索页音源选择器按启用状态/优先级排序、可用音源置底并默认选中首项的优化已完成，不再列为待办。
-> - **当前阶段：G 的自动化内存监测与资源释放核查已完成代码接入，最新 CI #3172 全部通过。A～F 已完成；长时间播放验收已由用户确认完成。目标设备运行期内存数值尚未从用户设备采集，但采样器会随应用启动后台运行，不要求用户额外执行手动测试。旧洛雪实现全面清理排在所有迁移阶段及最终验收之后，当前不启动。**
+> - **当前阶段：A～G 迁移与最终验收门均已完成；按用户 2026-11-27 的明确授权，正式进入旧实现清理。Go 五平台搜索/歌词适配器、原生歌词回退、QRC/KRC 专用解析及无剩余消费者的旧 JSON/HTTP helper 已删除；对应 Push CI Run #3427 与 PR CI Run #3428 全部通过。当前只保留 QuickJS 音源 Action、共享歌曲模型、SourceCatalog、队列/播放资源和必要的配置迁移测试。**
 
 ## 1. 项目目标与最终边界
 
@@ -105,7 +105,7 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 **本节是音乐模块改造唯一有效的开发顺序和验收依据。** 开发必须严格按 A→B→C→D→E→F→G 推进；本文其他章节只能记录架构约束、审计证据、代码状态和历史结果，不得另行定义阶段、改变先后顺序或增加平行路线。若其他章节与本节冲突，以本节为准。
 
 执行规则：
-- **A～F 阶段完成门均已通过。** 当前唯一执行阶段为 G：长时间播放验收已由用户确认完成；继续完成自动化进程内存采样、资源释放核查和 CI 验收。不得要求用户额外手动实测。旧洛雪 JS/运行时实现的全面清理必须留到 A～G 迁移与最终验收全部结束之后。
+- **A～G 阶段完成门均已通过。** 长时间播放验收已由用户确认完成，自动化进程内存采样与资源释放核查已接入并通过既有 CI。当前执行的是 A～G 之后的旧实现清理；用户已明确授权删除被 QuickJS 完全替代的 Go 搜索/歌词实现。清理的唯一完成门是旧实现清理完成且完整 Push/PR CI 全部成功。
 - 测试随功能开发同步编写；每项完成时集中运行该项测试及相关回归测试。CI 运行期间可继续不冲突的工作，但完成门必须取得对应 CI 结果。
 - CI 失败必须读取具体日志、修复根因并重跑；提交成功或 CI 启动不等于验收完成。
 - 不因单个边缘测试无限拆分开发；同类问题集中修复。第三方脚本许可只限制复制/分发对应脚本，不阻塞自建 fixture、兼容层和合法脚本导入流程。
@@ -507,43 +507,45 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 
 本节为 2026-11-23 的历史可行性审查记录；其当时的阶段判断已由本文顶部当前执行快照、第 4 节阶段状态及第 7 节进度记录更新。当前 A～F 已完成，G 部分完成；下一步为 G 的设备稳定性与性能验收。
 
-### 9.8 五平台搜索执行迁移与旧 Go 搜索清理确认（2026-11-26）
+### 9.8 五平台 QuickJS 搜索/歌词迁移与旧实现清理（2026-11-27）
 
-**当前状态：五平台 QuickJS 搜索迁移、Go 搜索回退切断和生产 CI 验收通过；旧 Go provider 文件保留，等待用户明确确认后才能删除。**
+**当前状态：旧 Go 搜索和歌词实现已从目标分支删除；搜索、歌词及真实播放继续由正式 QuickJS Runtime 与音源脚本 Action 执行。用户已明确授权本轮清理。**
 
-#### 已完成的搜索迁移验收
+#### QuickJS 迁移验收基线
 
-- 生产 SourceManager 合并内置搜索 Action；QQ（tx）、酷我（kw）、酷狗（kg）、网易云（wy）、咪咕（mg）均通过正式 QuickJS Runtime 和 lx.request 执行搜索。
-- Windows CI 真实联网验证第一页、第二页、歌曲标题/平台归属、平台原生 ID。最近一次成功记录：
-  - QQ：30/30，total=998，max_page=34。
-  - 酷我：30/30，total=3552，max_page=119。
-  - 酷狗：30/30，total=480，max_page=16。
-  - 网易云：20/20，total=303，max_page=11。
-  - 咪咕：52/37，total=128，max_page=5。
-- QQ 搜索请求参数已修正为客户端接口使用的 search_type/page_num/num_per_page；主请求异常时尝试旧版 CGI 备用路径，取消请求不会启动备用请求。
-- 已覆盖酷狗 V2 空页时的 V3 分页回退、咪咕主/备用接口的 7 秒单请求超时及 CI 瞬时超时重试。
-- QuickJS 生产 Action 的 HTTP 异常传播和请求取消已按五个平台测试；配置音源优先级保持原顺序；缺失 QuickJS Action 时显式失败，不得静默调用 Go 原生搜索。
-- Go 搜索执行层已与 MusicService 解耦：MusicService 不再创建/持有 LXSearchClient；音源目录和启用列表直接来自 SourceCatalog；scriptAwareSourceSearcher 不再包含 Go SourceSearcher fallback；自动切源、歌单搜索、播放资源解析、脚本测试和上传脚本集成测试均通过 QuickJS-only 路径。
-- 通用 doLXJSON/jsonBody/mapValue/sliceValue/stringValue/intValue 已抽离到 app/internal/music/lx_http_json.go，供歌词适配器与保留的 Go 搜索实现共享；source_catalog_test.go 已改为直接验证 SourceCatalog()。
-- 墨澜聚合音源真实播放解析、HTMLAudio 浏览器播放和歌词集成验证通过。
-- 最新完整 Desktop validation Push 与 PR CI 均通过：Push Run [45832564621](https://github.com/dongguo4812/My-LiveHub/actions/runs/45832564621)，PR Run [45832572760](https://github.com/dongguo4812/My-LiveHub/actions/runs/45832572760)，对应提交 8d0fd86e82310215977716b85bd726f7714bd48e。
+- QQ（tx）、酷我（kw）、酷狗（kg）、网易云（wy）、咪咕（mg）搜索均由正式 QuickJS Runtime 和受控 lx.request 执行。
+- 搜索分页、歌曲标题/平台归属、平台原生 ID、HTTP 异常传播和请求取消均有生产 Runtime 与真实平台测试。
+- QQ 搜索客户端参数、酷狗 V2/V3 分页、咪咕主/备用接口和超时处理已覆盖；取消请求不会启动备用请求。
+- 缺失 QuickJS Action 时明确失败（fail-closed），不再回退到 Go 原生搜索。
+- 歌词通过脚本声明的 lyric Action 获取；脚本异常、超时或取消均不启动 Go 原生歌词适配器。
+- 墨澜聚合音源真实播放解析、HTMLAudio 浏览器播放、歌词同步解析和活动行时间轴已通过集成验证。
 
-#### 旧 Go 搜索实现删除候选（未执行）
+#### 本轮已删除的旧实现
 
-| 候选 | 当前内容 | 当前引用状态 / 处理意见 |
+| 已删除路径 | 原用途 | 清理结果 |
 |---|---|---|
-| app/internal/music/search_lx.go | 五平台 Go HTTP 搜索客户端、端点、provider、分页/解析/排序/加密辅助 | MusicService 生产搜索链路已无依赖；文件保留，等待用户确认删除 |
-| app/internal/music/search_lx_test.go | 旧 Go 五平台 provider 的模拟 HTTP/端点/分页测试 | 仅对应旧 Go provider；文件保留，等待用户确认删除 |
-| app/internal/music/lx_http_json.go | 通用 HTTP/JSON helper | **必须保留**；歌词适配器仍使用，不属于搜索专用代码 |
-| app/internal/music/source_catalog_test.go | SourceCatalog 稳定目录测试 | 已直接测试 SourceCatalog()，保留 |
+| `app/internal/music/search_lx.go` | 五个平台 Go HTTP 搜索客户端、端点、provider、分页/解析/排序/加密辅助 | 删除；生产搜索已由 QuickJS Action 完全接管 |
+| `app/internal/music/search_lx_test.go` | 旧 Go provider 的模拟 HTTP、端点和分页测试 | 删除；保留 QuickJS 搜索与真实平台测试 |
+| `app/internal/music/lyrics_lx.go` | QQ/Kugou Go 歌词 HTTP 适配、QRC/KRC 解密和解析 | 删除 |
+| `app/internal/music/lyrics_lx_other.go` | Kuwo/NetEase/Migu Go 歌词 HTTP 适配和专用解密 | 删除 |
+| `app/internal/music/lyrics_lx_test.go` | 旧 Go QQ/Kugou 歌词测试 | 删除 |
+| `app/internal/music/lyrics_native_providers_regression_test.go` | 旧 Go Kuwo/NetEase/Migu 歌词适配回归测试 | 删除 |
+| `app/internal/music/lxqrc/decrypt.go`, `des.go`, `parser.go` | Go QRC 专用解密与解析 | 删除；QRC/KRC 专用 Go 解析不再属于生产路径 |
+| `app/internal/music/lx_http_json.go` | 旧 Go provider 共用的 doLXRaw/doLXJSON 和 JSON 数据转换 helper | 删除；确认旧 provider 移除后无剩余调用方 |
 
-#### 删除前必须完成的引用迁移
+#### 保留的必要实现
 
-1. app/internal/desktop/music_service.go：已移除 searcher *music.LXSearchClient 和 music.NewLXSearchClient(nil)；GetSources、enabledSearchSourceIDs 直接使用 music.SourceCatalog()。
-2. app/internal/desktop/lx_script_actions.go：已移除 scriptAwareSourceSearcher.base；QuickJS Action 缺失或失败时 fail-closed。
-3. app/internal/desktop/lx_script_actions_test.go：已移除 Go 搜索器测试依赖；保留五平台分发、优先级、无 Go 回退测试。
-4. app/internal/desktop/music_auto_switch.go、music_playlists.go、playback_resource.go、lx_script_runtime_service.go、lx_script_runtime_production.go 及对应测试：已移除旧 Go 搜索器字段/构造依赖，统一使用 QuickJS 搜索适配器或 SourceCatalog。
-5. app/internal/music/lx_http_json.go：保留共享 HTTP/JSON helper；歌词 QQ/酷狗路径仍依赖。
-6. 保留 app/internal/music/search_models.go、app/internal/music/source_catalog.go、app/internal/music/source_service.go、lxruntime/bundled_search_action.js、QuickJS 搜索测试、生产 Runtime 注册和五平台真实联网集成测试。
+- `app/internal/music/search_models.go`：保留共享 `TrackQuality`、`SearchPage` 和平台 ID，不包含 Go 搜索 provider。
+- `app/internal/music/source_catalog.go`、`source_service.go`：保留平台目录、统一歌曲模型和脚本搜索/播放 URL 编排。
+- `app/internal/music/lxruntime/`：保留正式 QuickJS Runtime、受控 HTTP、脚本 Action、生命周期和安全边界。
+- `app/internal/desktop/lx_script_actions.go`：保留 QuickJS search/detail/lyric/pic Action 调度；缺失 Action 时 fail-closed。
+- `MusicService.GetLyrics`、`GetLyricsWithContext`、`GetLyricsForRequest` 和取消/缓存接口继续保留，因为它们是 UI/业务入口；其实现现在只调用 QuickJS lyric Action，不包含 Go 平台适配回退。
+- `app/internal/config/music_test.go` 中关于旧 `lx_api_endpoints` 的测试继续保留，仅用于验证旧配置迁移时丢弃废弃字段；生产配置模型不再包含 `LXAPIEndpoints`。
 
-**用户确认门：本轮未获用户明确授权删除旧 Go provider 文件。分支中曾出现未确认删除 search_lx.go/search_lx_test.go 的提交，已恢复这两个文件；当前仍保留。必须取得用户明确确认后，才能删除 search_lx.go、search_lx_test.go 或其他旧 Go 搜索实现。删除后还要重新运行完整 Push/PR CI。**
+#### 本轮回归修复与 CI 证据
+
+- 删除 Go 歌词适配器后，生产 Runtime 集成测试原先仍调用 `getNativeProviderLyrics`。已修复为：当真实导入脚本声明 lyric Action 时通过 `GetLyricsWithContext` 调用 QuickJS；未声明时跳过该可选真实脚本歌词步骤，独立 QuickJS lyric fixture 仍验证歌词 Action。
+- 第一轮 CI 暴露该测试残留引用，已根据日志修复；未把 CI 失败视为完成。
+- 旧实现清理代码提交 `ad10f9c6ff6c2f52cd3a7f341bd4c0d5ce4daf5a` 的 Desktop validation Push Run #3427 和 PR Run #3428 均成功，覆盖正式 Go 全量测试、生产 QuickJS Runtime 专项测试、五平台真实搜索、墨澜聚合音源真实播放、歌词同步、Chromium HTMLAudio 播放/歌词测试、前端构建和 Windows 可执行文件构建。
+
+**清理完成判断：旧 Go 搜索/歌词 provider、回退路径和 QRC/KRC 专用 Go 实现已删除；必要共享模型与业务入口保留。任何后续清理提交仍必须等待对应 Push 与 PR CI 全部成功，提交或启动 CI 均不构成完成。**
