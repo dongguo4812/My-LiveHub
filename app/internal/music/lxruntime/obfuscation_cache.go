@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"regexp"
 	"strconv"
-	"strings"
 )
 
 // LXObfuscationCache stores the result needed to bypass a previously
