@@ -68,7 +68,7 @@ func TestProductionLXBundledLyricsActionsUseQuickJSForAllFivePlatforms(t *testin
   requestCtx, requestCancel := context.WithTimeout(context.Background(),5*time.Second)
   value, dispatchErr := runtime.dispatchLXRequest(requestCtx,source,"lyric",map[string]any{
    "musicInfo":tracks[source],"__testEndpoints":endpoints,
-  })
+  },server.Client())
   requestCancel()
   if dispatchErr != nil { t.Fatalf("%s lyric action failed: %v",source,dispatchErr) }
   raw, marshalErr := json.Marshal(value)
@@ -84,7 +84,7 @@ func TestProductionLXBundledLyricsActionsUseQuickJSForAllFivePlatforms(t *testin
  emptyCtx, emptyCancel := context.WithTimeout(context.Background(),5*time.Second)
  empty, emptyErr := runtime.dispatchLXRequest(emptyCtx,"kw","lyric",map[string]any{
   "musicInfo":map[string]any{"id":"kw-empty","songmid":"kw-empty"},"__testEndpoints":emptyEndpoints,
- })
+ },server.Client())
  emptyCancel()
  if emptyErr != nil { t.Fatalf("empty lyric response should be valid: %v",emptyErr) }
  emptyJSON,_ := json.Marshal(empty)
