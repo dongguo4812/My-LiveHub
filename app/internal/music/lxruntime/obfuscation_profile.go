@@ -45,18 +45,3 @@ func instrumentLXObfuscationProfile(source string) (string, bool) {
 	return source, true
 }
 
-func (r *Runtime) logLXObfuscationProfile(ctx context.Context, filename string) {
-	value, err := r.Eval(ctx, "JSON.stringify(globalThis.__myLiveHubLXObfProfile || null)", "lx-obfuscation-profile.js")
-	if err != nil {
-		log.Printf("[LX-Obfuscation] script=%q profile_read=error error=%q", filename, err.Error())
-		return
-	}
-	var profile lxObfuscationProfile
-	if value == "null" || json.Unmarshal([]byte(value), &profile) != nil {
-		log.Printf("[LX-Obfuscation] script=%q profile=unavailable", filename)
-		return
-	}
-	log.Printf("[LX-Obfuscation] script=%q loop_iterations=%d loop_decode_calls=%d total_decode_calls=%d loop_duration_ms=%.3f",
-		filename, profile.Iterations, profile.LoopDecodeCalls, profile.DecodeCalls, profile.LoopDurationMS)
-}
-
