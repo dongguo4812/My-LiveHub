@@ -186,6 +186,8 @@ func TestAdvanceAfterPlaybackEndPrioritizesMyLiveHubQueue(t *testing.T) {
 	value.Enabled = true
 	engine := &queueAdvanceTestEngine{}
 	service := NewMusicServiceWithDependencies(nil, value, engine)
+	// This queue test does not exercise the production LX runtime lifecycle.
+	service.scriptRuntime = nil
 	defer service.cancelPlaybackWatcher()
 
 	track := music.Track{ID: "tx_next", SourceID: "tx", LXSourceKey: "tx", Title: "待播歌曲", Artist: "测试歌手"}
@@ -251,6 +253,8 @@ func TestEnqueueStartsNextWhenQueueCurrentIsStale(t *testing.T) {
 	value := config.DefaultMusicConfig()
 	engine := &queueRecoveryTestEngine{state: music.PlaybackStopped}
 	service := NewMusicServiceWithDependencies(nil, value, engine)
+	// This queue test does not exercise the production LX runtime lifecycle.
+	service.scriptRuntime = nil
 	defer service.Shutdown()
 
 	priority := service.enabledSearchSourceIDs()
@@ -555,6 +559,8 @@ func TestPlayNextSkipsFailedTrackAndStartsNextQueuedTrack(t *testing.T) {
 	value.EnabledSearchSources = []string{"tx"}
 	engine := &failFirstLoadTestEngine{}
 	service := NewMusicServiceWithDependencies(nil, value, engine)
+	// This queue test does not exercise the production LX runtime lifecycle.
+	service.scriptRuntime = nil
 	defer service.cancelPlaybackWatcher()
 
 	first := music.Track{ID: "tx_first", SourceID: "tx", LXSourceKey: "tx", Title: "首首歌曲", Artist: "测试歌手"}
@@ -600,6 +606,8 @@ func TestConcurrentPlayNextLoadsCurrentQueueItemOnlyOnce(t *testing.T) {
 	value.EnabledSearchSources = []string{"tx"}
 	engine := &serializedPlaybackStartTestEngine{started: make(chan struct{}), release: make(chan struct{})}
 	service := NewMusicServiceWithDependencies(nil, value, engine)
+	// This queue test does not exercise the production LX runtime lifecycle.
+	service.scriptRuntime = nil
 	defer service.cancelPlaybackWatcher()
 
 	track := music.Track{ID: "tx_concurrent", SourceID: "tx", LXSourceKey: "tx", Title: "并发播放测试", Artist: "测试歌手"}
@@ -660,6 +668,8 @@ func TestMusicServiceStopCancelsInFlightLoadBeforeStoppingEngine(t *testing.T) {
 	value.EnabledSearchSources = []string{"tx"}
 	engine := &stopDuringPlaybackLoadTestEngine{loadStarted: make(chan struct{})}
 	service := NewMusicServiceWithDependencies(nil, value, engine)
+	// This queue test does not exercise the production LX runtime lifecycle.
+	service.scriptRuntime = nil
 	track := music.Track{ID: "tx_stop_race", SourceID: "tx", LXSourceKey: "tx", Title: "停止竞态测试", Artist: "测试歌手"}
 	if _, err := service.queue.Enqueue(track, "viewer"); err != nil { t.Fatal(err) }
 
