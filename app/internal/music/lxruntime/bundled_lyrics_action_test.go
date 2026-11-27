@@ -83,7 +83,7 @@ func TestProductionLXBundledLyricsActionsUseQuickJSForAllFivePlatforms(t *testin
   if !strings.Contains(result.Lyric,"[00:01.00]") { t.Errorf("%s lost LRC timeline: %#v",source,result) }
   if (source=="tx" || source=="wy") && result.Translation=="" { t.Errorf("%s lost translation: %#v",source,result) }
   if source=="kw" {
-   lines := strings.Split(result.Lyric,"\\n")
+   lines := strings.Split(result.Lyric,"\n")
    if len(lines)!=2 || lines[0]!="[00:01.00]KW original" || lines[1]!="[00:02.00]KW next" {
     t.Errorf("Kuwo lyric must be emitted as separate timestamped lines for the shared lyric parser, got %#v",lines)
    }
