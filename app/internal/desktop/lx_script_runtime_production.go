@@ -33,6 +33,7 @@ type storedLXScript struct {
 	Author           string   `json:"author,omitempty"`
 	Homepage         string   `json:"homepage,omitempty"`
 	Source           string   `json:"source"`
+	ObfuscationCache *lxruntime.LXObfuscationCache `json:"obfuscation_cache,omitempty"`
 	ExtensionActions []string `json:"extension_actions,omitempty"`
 	NativeActions []string `json:"native_actions,omitempty"`
 	SupportedSources []string `json:"supported_sources,omitempty"`
@@ -135,7 +136,7 @@ func (r *productionMusicLXRuntime) testScript(ctx context.Context, id string) (L
 	// snapshots can be stale after script upgrades; testing against them can
 	// report false missing-search/lyric failures for providers that now declare
 	// those actions in inited.sources.
-	capabilities, capabilityErr := lxruntime.DetectLXScriptCapabilities(ctx, lxruntime.ScriptInfo{Name:selected.Name, Description:selected.Description, Version:selected.Version, Author:selected.Author, Homepage:selected.Homepage, RawScript:selected.Source}, selected.Source, nil)
+	capabilities, capabilityErr := lxruntime.DetectLXScriptCapabilitiesWithCache(ctx, lxruntime.ScriptInfo{Name:selected.Name, Description:selected.Description, Version:selected.Version, Author:selected.Author, Homepage:selected.Homepage, RawScript:selected.Source}, selected.Source, nil, selected.ObfuscationCache)
 	if capabilityErr != nil {
 		result.Status = "failed"
 		result.Message = "读取脚本平台能力失败：" + capabilityErr.Error()
@@ -145,7 +146,7 @@ func (r *productionMusicLXRuntime) testScript(ctx context.Context, id string) (L
 		selected.SupportedSources = append([]string(nil), capabilities.SupportedSources...)
 		selected.SourceActions = cloneLXSourceActions(capabilities.SourceActions)
 	}
-	definition := lxruntime.LXSourceScript{Info:lxruntime.ScriptInfo{Name:selected.Name, Description:selected.Description, Version:selected.Version, Author:selected.Author, Homepage:selected.Homepage, RawScript:selected.Source}, Source:selected.Source, ExtensionActions:append([]string(nil), selected.ExtensionActions...)}
+	definition := lxruntime.LXSourceScript{Info:lxruntime.ScriptInfo{Name:selected.Name, Description:selected.Description, Version:selected.Version, Author:selected.Author, Homepage:selected.Homepage, RawScript:selected.Source}, Source:selected.Source, ExtensionActions:append([]string(nil), selected.ExtensionActions...), ObfuscationCache:selected.ObfuscationCache}
 	// Match the production registry: imported scripts may override search for
 	// their declared providers, while the trusted built-in QuickJS adapter
 	// supplies search for providers that expose only musicUrl/playback actions.
@@ -320,7 +321,7 @@ func (r *productionMusicLXRuntime) rebuildLocked(ctx context.Context) error {
 		}
 		probe, validationErr := lxruntime.NewSourceManagerWithScripts(nil, []lxruntime.LXSourceScript{{
 			Info: info, Source: script.Source,
-			ExtensionActions: append([]string(nil), script.ExtensionActions...),
+			ExtensionActions: append([]string(nil), script.ExtensionActions...), ObfuscationCache: script.ObfuscationCache,
 		}})
 		if validationErr != nil {
 			script.LastError = validationErr.Error()
@@ -336,7 +337,7 @@ func (r *productionMusicLXRuntime) rebuildLocked(ctx context.Context) error {
 		}
 		definitions = append(definitions, lxruntime.LXSourceScript{
 			Info: info, Source: script.Source,
-			ExtensionActions: append([]string(nil), script.ExtensionActions...),
+			ExtensionActions: append([]string(nil), script.ExtensionActions...), ObfuscationCache: script.ObfuscationCache,
 		})
 		enabledIndexes = append(enabledIndexes, i)
 		script.InitializationStatus = "initializing"
@@ -417,13 +418,14 @@ func (r *productionMusicLXRuntime) ImportScript(ctx context.Context, name, sourc
 	if err := lxruntime.ValidateLXScriptSource(source); err != nil { return LXScriptSummary{}, err }
 	info := parseImportedLXScriptInfo(name, source)
 	if ctx == nil { ctx = context.Background() }
-	capabilities, err := lxruntime.DetectLXScriptCapabilities(ctx, info, source, nil)
+	cache := &lxruntime.LXObfuscationCache{}
+	capabilities, err := lxruntime.DetectLXScriptCapabilitiesWithCache(ctx, info, source, nil, cache)
 	if err != nil { return LXScriptSummary{}, fmt.Errorf("无法识别脚本能力：%w", err) }
 	if len(capabilities.ExtensionActions) == 0 && len(capabilities.NativeActions) == 0 {
 		return LXScriptSummary{}, errors.New("脚本没有声明 My-LiveHub 支持的社区扩展 action 或洛雪原生 musicUrl action，无法导入")
 	}
 	probe, err := lxruntime.NewSourceManagerWithScripts(nil, []lxruntime.LXSourceScript{{
-		Info: info, Source: source, ExtensionActions: capabilities.ExtensionActions,
+		Info: info, Source: source, ExtensionActions: capabilities.ExtensionActions, ObfuscationCache: cache,
 	}})
 	if err != nil { return LXScriptSummary{}, fmt.Errorf("validate imported LX script: %w", err) }
 	_ = probe.Close()
@@ -453,7 +455,7 @@ func (r *productionMusicLXRuntime) ImportScript(ctx context.Context, name, sourc
 	}
 	r.scripts = append(r.scripts, storedLXScript{
 		ID: id, Name: info.Name, Description: info.Description, Version: info.Version,
-		Author: info.Author, Homepage: info.Homepage, Source: source,
+		Author: info.Author, Homepage: info.Homepage, Source: source, ObfuscationCache: cache,
 		ExtensionActions: append([]string(nil), capabilities.ExtensionActions...), NativeActions: append([]string(nil), capabilities.NativeActions...), SupportedSources: append([]string(nil), capabilities.SupportedSources...), SourceActions: cloneLXSourceActions(capabilities.SourceActions), Enabled: true,
 	})
 	if err := r.rebuildLocked(ctx); err != nil {
