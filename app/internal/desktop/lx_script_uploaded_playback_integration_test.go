@@ -410,7 +410,7 @@ func (e *playlistResolutionProbeEngine) loadCount() int { e.mu.Lock(); defer e.m
 func TestProductionLXPlaylistFirstAndRepeatedClickTiming(t *testing.T) {
 	if os.Getenv("MYLIVEHUB_LX_UPLOADED_PLAYBACK_INTEGRATION")!="1" { t.Skip("requires live selected 墨澜 aggregate-script integration CI") }
 	ctx,cancel:=context.WithTimeout(context.Background(),4*time.Minute); defer cancel()
-	const filename="回避聚合V0.0.1.js"
+	const filename="墨澜音乐源v2.3.8.js"
 	scriptPath:=filepath.Join("..","..","..","lx-js",filename)
 	source,err:=os.ReadFile(scriptPath); if err!=nil { t.Fatal(err) }
 	manager:=testLXConfigManager(t)
@@ -423,11 +423,19 @@ func TestProductionLXPlaylistFirstAndRepeatedClickTiming(t *testing.T) {
 	for _,id:=range imported.SupportedSources {
 		switch id { case "kg","kw","local","mg","tx","wy": enabled=append(enabled,id) }
 	}
-	if len(enabled)==0 { t.Fatalf("uploaded aggregate source has no supported playback providers: %#v",imported.SupportedSources) }
-	// Search providers in a stable order to find both tracks, but constrain
-	// playback to the provider selected for this timing experiment. Otherwise a
-	// transient outage triggers five-second fallbacks across every enabled
-	// provider and measures network retry policy instead of the first click.
+	if len(enabled)==0 { t.Fatalf("墨澜聚合音源 has no supported playback providers: %#v",imported.SupportedSources) }
+	// Keep the playlist timing test on the same exact provider selected by CI
+	// for the 墨澜 aggregate source. Do not silently fall back to another source
+	// or provider: that would measure a different script or network retry path.
+	if requestedProvider := strings.TrimSpace(os.Getenv("MYLIVEHUB_PLAYBACK_PROVIDER")); requestedProvider != "" {
+		filtered := enabled[:0]
+		for _, id := range enabled { if id == requestedProvider { filtered = append(filtered, id) } }
+		if len(filtered) == 0 { t.Fatalf("墨澜聚合音源 does not support requested provider %q; supported=%v", requestedProvider, enabled) }
+		enabled = filtered
+		t.Logf("playlist timing isolated to selected 墨澜 provider=%s", requestedProvider)
+	}
+	// Search only the selected provider for both tracks. A fallback to other
+	// providers would measure network retry policy instead of first-click latency.
 	searchOrder:=make([]string,0,len(enabled))
 	for _,preferred:=range []string{"kw","mg","tx","wy","kg","local"} {
 		for _,id:=range enabled { if id==preferred { searchOrder=append(searchOrder,id); break } }
