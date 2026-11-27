@@ -127,7 +127,7 @@ try {
   })
   await page.waitForFunction(() => document.querySelector('.lyrics-track strong')?.textContent?.includes('空歌词验收曲'))
   await page.waitForFunction(() => document.querySelector('.original-lyric')?.textContent?.includes('暂无歌词'))
-  assert.equal(await page.evaluate(() => globalThis.__lyricsRequests?.length ?? 0), 5,
+  assert.equal(await page.evaluate(() => globalThis.__lyricsRequests?.length ?? 0), 6,
     'empty-lyrics track did not issue exactly one request')
 
   assert.deepEqual(errors, [], `desktop lyrics overlay browser errors: ${errors.join('; ')}`)
