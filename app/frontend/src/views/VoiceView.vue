@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { Loading } from '@element-plus/icons-vue'
 import * as VoiceService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/voice/voiceservice.js'
 import { voiceAudioPlaying, voiceAudioUnlocked, unlockVoiceAudio } from '../services/voiceAudio'
 
@@ -131,9 +132,13 @@ onUnmounted(() => {
     <el-alert v-if="error" :title="error" type="error" :closable="true" show-icon @close="error = ''" />
     <el-alert v-if="success" :title="success" type="success" :closable="true" show-icon @close="success = ''" />
 
-    <el-card shadow="never" v-loading="loading">
+    <el-card shadow="never">
       <template #header><div class="card-heading"><strong>播报引擎</strong><el-tag type="success">Edge TTS</el-tag></div></template>
-      <div v-if="config" class="setting-list">
+      <div v-if="loading && !config" class="loading-state" role="status" aria-live="polite">
+        <el-icon class="is-loading"><Loading /></el-icon>
+        <span>正在加载语音设置…</span>
+      </div>
+      <div v-else-if="config" class="setting-list">
         <div class="setting-row">
           <div><strong>启用语音播报</strong><p>启用后，事件中心的新事件会进入语音播报队列。</p></div>
           <el-switch v-model="config.enabled" />
@@ -204,5 +209,5 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.voice-page{display:flex;flex-direction:column;gap:20px}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.setting-row p,.hint,.audio-unlock p{color:var(--el-text-color-secondary);font-size:13px}.card-heading{display:flex;align-items:center;justify-content:space-between}.setting-list{display:flex;flex-direction:column;gap:8px}.setting-row,.audio-unlock{display:flex;align-items:center;justify-content:space-between;gap:24px}.setting-row p,.audio-unlock p{margin:6px 0 0}.slider-row{display:grid;grid-template-columns:140px 1fr;align-items:center;gap:24px;margin:16px 0}.slider-row div{display:flex;justify-content:space-between;gap:12px}.slider-row span{color:var(--el-text-color-secondary);font-variant-numeric:tabular-nums}.card-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}.event-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.hint{margin:16px 0 0}.status-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:18px}.status-grid div{display:flex;flex-direction:column;gap:6px;padding:14px;border:1px solid var(--app-border);border-radius:9px;background:var(--app-bg-control)}.status-grid small{color:var(--el-text-color-secondary)}.status-grid strong{font-size:20px}.current-text{color:var(--el-text-color-secondary);font-size:13px;overflow-wrap:anywhere}@media(max-width:900px){.event-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.setting-row,.audio-unlock{align-items:flex-start;flex-direction:column}.slider-row{grid-template-columns:1fr;gap:4px}}
+.voice-page{display:flex;flex-direction:column;gap:20px}.loading-state{display:flex;align-items:center;justify-content:center;gap:10px;min-height:88px;color:var(--el-text-color-secondary);font-size:13px}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.page-heading h2{margin:0;font-size:25px}.eyebrow{margin:0 0 9px;color:var(--app-accent);font-size:11px;letter-spacing:.15em}.description,.setting-row p,.hint,.audio-unlock p{color:var(--el-text-color-secondary);font-size:13px}.card-heading{display:flex;align-items:center;justify-content:space-between}.setting-list{display:flex;flex-direction:column;gap:8px}.setting-row,.audio-unlock{display:flex;align-items:center;justify-content:space-between;gap:24px}.setting-row p,.audio-unlock p{margin:6px 0 0}.slider-row{display:grid;grid-template-columns:140px 1fr;align-items:center;gap:24px;margin:16px 0}.slider-row div{display:flex;justify-content:space-between;gap:12px}.slider-row span{color:var(--el-text-color-secondary);font-variant-numeric:tabular-nums}.card-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}.event-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.hint{margin:16px 0 0}.status-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:18px}.status-grid div{display:flex;flex-direction:column;gap:6px;padding:14px;border:1px solid var(--app-border);border-radius:9px;background:var(--app-bg-control)}.status-grid small{color:var(--el-text-color-secondary)}.status-grid strong{font-size:20px}.current-text{color:var(--el-text-color-secondary);font-size:13px;overflow-wrap:anywhere}@media(max-width:900px){.event-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.setting-row,.audio-unlock{align-items:flex-start;flex-direction:column}.slider-row{grid-template-columns:1fr;gap:4px}}
 </style>
