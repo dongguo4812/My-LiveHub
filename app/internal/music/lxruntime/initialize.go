@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -74,9 +73,7 @@ func (r *Runtime) InitializeLXSourceWithCache(ctx context.Context, info ScriptIn
 	if client == nil {
 		client = http.DefaultClient
 	}
-	hostStarted := time.Now()
 	hostErr := r.InstallLXHost(ctx, info)
-	logLXTiming("initialize_host_install", hostStarted, "result="+timingResult(hostErr))
 	if hostErr != nil {
 		return fmt.Errorf("LX initialization: install host: %w", hostErr)
 	}
@@ -87,18 +84,6 @@ func (r *Runtime) InitializeLXSourceWithCache(ctx context.Context, info ScriptIn
 	cacheSource := source
 	profileObfuscation := os.Getenv(lxObfuscationProfileEnv) == "1"
 	evalSource, cacheHit, cacheable, profiled := prepareLXInitializationSource(source, cache, profileObfuscation)
-	if profiled {
-		log.Printf("[LX-Obfuscation] script=%q profiling=enabled", filename)
-	} else if profileObfuscation && cache != nil && cacheable {
-		log.Printf("[LX-Obfuscation] script=%q profiling=skipped reason=cache_managed", filename)
-	}
-	if cacheHit {
-		log.Printf("[LX-Obfuscation] script=%q cache=hit sha256=%s rotations=%d", filename, cache.SourceSHA256, cache.RotationCount)
-	} else if cacheable {
-		log.Printf("[LX-Obfuscation] script=%q cache=miss sha256=%s", filename, lxSourceSHA256(source))
-	} else if profileObfuscation && !profiled {
-		log.Printf("[LX-Obfuscation] script=%q profiling=unsupported_source_shape", filename)
-	}
 	sourceEvalStarted := time.Now()
 	_, sourceEvalErr := r.EvalWithTimeout(ctx, evalSource, filename, maxInitializationEvalTimeout)
 	logLXTiming("initialize_source_eval", sourceEvalStarted, "script="+fmt.Sprintf("%q", filename)+" result="+timingResult(sourceEvalErr))
@@ -108,18 +93,12 @@ func (r *Runtime) InitializeLXSourceWithCache(ctx context.Context, info ScriptIn
 	if cache != nil && cacheable && !cacheHit {
 		rotationText, readErr := r.Eval(ctx, "String(globalThis."+lxObfuscationCacheGlobal+" || 0)", "lx-obfuscation-cache-read.js")
 		if readErr != nil {
-			log.Printf("[LX-Obfuscation] script=%q cache=store_skipped reason=%q", filename, readErr.Error())
 		} else if rotations, parseErr := strconv.Atoi(rotationText); parseErr != nil || rotations < 0 || rotations > 1_000_000 {
-			log.Printf("[LX-Obfuscation] script=%q cache=store_skipped invalid_rotation_count=%q", filename, rotationText)
 		} else {
 			cache.Version = lxObfuscationCacheVersion
 			cache.SourceSHA256 = lxSourceSHA256(cacheSource)
 			cache.RotationCount = rotations
-			log.Printf("[LX-Obfuscation] script=%q cache=stored sha256=%s rotations=%d", filename, cache.SourceSHA256, rotations)
 		}
-	}
-	if profileObfuscation {
-		r.logLXObfuscationProfile(ctx, filename)
 	}
 
 	const maxRequests = 256
@@ -137,7 +116,6 @@ func (r *Runtime) InitializeLXSourceWithCache(ctx context.Context, info ScriptIn
 		if timerPumpErr != nil {
 			return fmt.Errorf("LX initialization: pump timers: %w", timerPumpErr)
 		}
-		pollStarted := time.Now()
 		stateText, err := r.Eval(ctx, `
 JSON.stringify({
   initialized: !!globalThis.__lxHostState.initialized,
@@ -184,7 +162,6 @@ JSON.stringify({
 		if !state.Initialized && len(tasks.active) == 0 && state.NextTimerDelay < 0 {
 			return fmt.Errorf("LX initialization: source did not initialize (initialized=%t, requestHandler=%s, requests=%d)", state.Initialized, state.RequestHandler, processed)
 		}
-		waitStarted := time.Now()
 		result, waitErr := tasks.wait(ctx, state.NextTimerDelay)
 		logLXTiming("initialize_wait_timer_or_http", waitStarted, fmt.Sprintf("next_timer_ms=%d result=%q", state.NextTimerDelay, timingResult(waitErr)))
 		if waitErr != nil {
