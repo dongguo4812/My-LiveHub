@@ -3,13 +3,13 @@
     <header class="page-heading">
       <div>
         <h2>扩展管理</h2>
-        <p>管理后续接入的第三方扩展。内置功能请前往「功能模块」管理。</p>
+        <p>管理第三方扩展。</p>
       </div>
       <el-tag type="info" effect="plain">待开发</el-tag>
     </header>
     <el-empty description="扩展中心功能待开发">
       <template #default>
-        <p class="empty-hint">第三方扩展的发现、安装、更新与权限管理将在后续版本实现。LOL Hex 已迁移至「功能模块」，可在那里启动和停止。</p>
+        <p class="empty-hint">扩展的发现、安装、更新与权限管理将在后续版本实现。</p>
       </template>
     </el-empty>
   </section>
