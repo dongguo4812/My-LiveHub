@@ -131,11 +131,19 @@ func (r *productionMusicLXRuntime) testScript(ctx context.Context, id string) (L
 	r.mu.Unlock()
 	if selected == nil { return LXScriptTestResult{}, fmt.Errorf("LX script %q was not found", id) }
 	result := LXScriptTestResult{Status:"passed", TestedAt:time.Now().UTC(), Platforms:[]LXSourcePlatformTest{}}
-	// Older persisted scripts predate per-provider action snapshots. Re-run the
-	// real QuickJS initialization handshake once and persist the recovered map.
-	if len(selected.SourceActions) == 0 {
-		capabilities, capabilityErr := lxruntime.DetectLXScriptCapabilities(ctx, lxruntime.ScriptInfo{Name:selected.Name, Description:selected.Description, Version:selected.Version, Author:selected.Author, Homepage:selected.Homepage, RawScript:selected.Source}, selected.Source, nil)
-		if capabilityErr != nil { result.Status = "failed"; result.Message = "读取脚本平台能力失败：" + capabilityErr.Error() } else { selected.SourceActions = cloneLXSourceActions(capabilities.SourceActions) }
+	// Re-run the real QuickJS handshake for every test. Persisted action
+	// snapshots can be stale after script upgrades; testing against them can
+	// report false missing-search/lyric failures for providers that now declare
+	// those actions in inited.sources.
+	capabilities, capabilityErr := lxruntime.DetectLXScriptCapabilities(ctx, lxruntime.ScriptInfo{Name:selected.Name, Description:selected.Description, Version:selected.Version, Author:selected.Author, Homepage:selected.Homepage, RawScript:selected.Source}, selected.Source, nil)
+	if capabilityErr != nil {
+		result.Status = "failed"
+		result.Message = "读取脚本平台能力失败：" + capabilityErr.Error()
+	} else {
+		selected.ExtensionActions = append([]string(nil), capabilities.ExtensionActions...)
+		selected.NativeActions = append([]string(nil), capabilities.NativeActions...)
+		selected.SupportedSources = append([]string(nil), capabilities.SupportedSources...)
+		selected.SourceActions = cloneLXSourceActions(capabilities.SourceActions)
 	}
 	definition := lxruntime.LXSourceScript{Info:lxruntime.ScriptInfo{Name:selected.Name, Description:selected.Description, Version:selected.Version, Author:selected.Author, Homepage:selected.Homepage, RawScript:selected.Source}, Source:selected.Source, ExtensionActions:append([]string(nil), selected.ExtensionActions...)}
 	// Match the production registry: imported scripts may override search for
