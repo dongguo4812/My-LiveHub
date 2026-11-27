@@ -11,7 +11,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 )
 
 const maxLXScriptSourceBytes = 2 << 20
@@ -80,9 +79,7 @@ func (r *Runtime) InitializeLXSourceWithCache(ctx context.Context, info ScriptIn
 	cacheSource := source
 	profileObfuscation := os.Getenv(lxObfuscationProfileEnv) == "1"
 	evalSource, cacheHit, cacheable, _ := prepareLXInitializationSource(source, cache, profileObfuscation)
-	sourceEvalStarted := time.Now()
 	_, sourceEvalErr := r.EvalWithTimeout(ctx, evalSource, filename, maxInitializationEvalTimeout)
-	logLXTiming("initialize_source_eval", sourceEvalStarted, "script="+fmt.Sprintf("%q", filename)+" result="+timingResult(sourceEvalErr))
 	if sourceEvalErr != nil {
 		return fmt.Errorf("LX initialization: evaluate source: %w", sourceEvalErr)
 	}
@@ -106,9 +103,7 @@ func (r *Runtime) InitializeLXSourceWithCache(ctx context.Context, info ScriptIn
 			return err
 		}
 		// Separate evals are intentional: each Eval drains QuickJS Promise jobs.
-		timerPumpStarted := time.Now()
 		_, timerPumpErr := r.Eval(ctx, "globalThis.__lxRunDueTimers(); 'timers-pumped';", "lx-init-timers.js")
-		logLXTiming("initialize_timer_pump", timerPumpStarted, "result="+timingResult(timerPumpErr))
 		if timerPumpErr != nil {
 			return fmt.Errorf("LX initialization: pump timers: %w", timerPumpErr)
 		}
@@ -121,7 +116,6 @@ JSON.stringify({
   aborts: globalThis.__lxTakeAborts()
 })
 `, "lx-init-poll.js")
-		logLXTiming("initialize_host_poll", pollStarted, "result="+timingResult(err))
 		if err != nil {
 			return fmt.Errorf("LX initialization: poll host: %w", err)
 		}
@@ -159,7 +153,6 @@ JSON.stringify({
 			return fmt.Errorf("LX initialization: source did not initialize (initialized=%t, requestHandler=%s, requests=%d)", state.Initialized, state.RequestHandler, processed)
 		}
 		result, waitErr := tasks.wait(ctx, state.NextTimerDelay)
-		logLXTiming("initialize_wait_timer_or_http", waitStarted, fmt.Sprintf("next_timer_ms=%d result=%q", state.NextTimerDelay, timingResult(waitErr)))
 		if waitErr != nil {
 			return waitErr
 		}
