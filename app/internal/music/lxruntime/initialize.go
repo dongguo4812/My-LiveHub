@@ -94,16 +94,15 @@ func (r *Runtime) InitializeLXSourceWithCache(ctx context.Context, info ScriptIn
 	if cache != nil && cacheable && !cacheHit {
 		rotationText, readErr := r.Eval(ctx, "String(globalThis."+lxObfuscationCacheGlobal+" || 0)", "lx-obfuscation-cache-read.js")
 		if readErr != nil {
-			return fmt.Errorf("LX initialization: read obfuscation cache result: %w", readErr)
+			log.Printf("[LX-Obfuscation] script=%q cache=store_skipped reason=%q", filename, readErr.Error())
+		} else if rotations, parseErr := strconv.Atoi(rotationText); parseErr != nil || rotations < 0 || rotations > 1_000_000 {
+			log.Printf("[LX-Obfuscation] script=%q cache=store_skipped invalid_rotation_count=%q", filename, rotationText)
+		} else {
+			cache.Version = lxObfuscationCacheVersion
+			cache.SourceSHA256 = lxSourceSHA256(cacheSource)
+			cache.RotationCount = rotations
+			log.Printf("[LX-Obfuscation] script=%q cache=stored sha256=%s rotations=%d", filename, cache.SourceSHA256, rotations)
 		}
-		rotations, parseErr := strconv.Atoi(rotationText)
-		if parseErr != nil || rotations < 0 || rotations > 1_000_000 {
-			return fmt.Errorf("LX initialization: invalid obfuscation rotation count %q", rotationText)
-		}
-		cache.Version = lxObfuscationCacheVersion
-		cache.SourceSHA256 = lxSourceSHA256(cacheSource)
-		cache.RotationCount = rotations
-		log.Printf("[LX-Obfuscation] script=%q cache=stored sha256=%s rotations=%d", filename, cache.SourceSHA256, rotations)
 	}
 	if profileObfuscation {
 		r.logLXObfuscationProfile(ctx, filename)
