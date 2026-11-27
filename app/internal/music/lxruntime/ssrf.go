@@ -180,10 +180,10 @@ func validateLXPlaybackURL(ctx context.Context, target *url.URL) error {
 	semaphoreStarted := time.Now()
 	select {
 	case lxRequestSemaphore <- struct{}{}:
-		logLXTiming("playback_validation_semaphore_wait", semaphoreStarted, fmt.Sprintf("host=%q result=ok", target.Host))
+		logLXTiming("playback_validation_semaphore_wait", semaphoreStarted, fmt.Sprintf("host=%q result=ok", host))
 		defer func() { <-lxRequestSemaphore }()
 	case <-ctx.Done():
-		logLXTiming("playback_validation_semaphore_wait", semaphoreStarted, fmt.Sprintf("host=%q result=%s", target.Host, timingResult(ctx.Err())))
+		logLXTiming("playback_validation_semaphore_wait", semaphoreStarted, fmt.Sprintf("host=%q result=%s", host, timingResult(ctx.Err())))
 		return ctx.Err()
 	}
 	return validateLXDestinationWithPolicy(ctx, target, false)
