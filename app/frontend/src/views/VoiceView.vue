@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Loading } from '@element-plus/icons-vue'
 import * as VoiceService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/voice/voiceservice.js'
-import { voiceAudioPlaying, voiceAudioUnlocked, unlockVoiceAudio } from '../services/voiceAudio'
+import { enableVoiceAudioAndRemember, voiceAudioPlaying, voiceAudioUnlocked, unlockVoiceAudio } from '../services/voiceAudio'
 
 type VoiceConfig = Awaited<ReturnType<typeof VoiceService.GetConfig>>
 type VoiceStatus = Awaited<ReturnType<typeof VoiceService.GetStatus>>
@@ -73,6 +73,22 @@ async function saveConfig() {
     error.value = reason instanceof Error ? reason.message : String(reason)
   } finally {
     saving.value = false
+  }
+}
+
+async function enableAudioOutput() {
+  error.value = ''
+  success.value = ''
+  try {
+    const enabled = await enableVoiceAudioAndRemember()
+    if (!enabled) {
+      error.value = '浏览器尚未允许音频输出，请再次点击启用音频输出'
+      return
+    }
+    if (config.value) config.value.audio_output_enabled = true
+    success.value = '音频输出已启用，设置将在重启后自动尝试恢复'
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : String(reason)
   }
 }
 
@@ -184,11 +200,12 @@ onUnmounted(() => {
     <el-card shadow="never">
       <template #header><strong>播报控制与测试</strong></template>
       <div class="audio-unlock">
-        <div><strong>音频输出</strong><p>首次使用需要手动启用音频，启用后后台事件可自动播报。</p></div>
-        <el-button :type="voiceAudioUnlocked ? 'success' : 'primary'" @click="unlockVoiceAudio">
-          {{ voiceAudioUnlocked ? '音频已启用' : '启用音频输出' }}
+        <div><strong>音频输出</strong><p>启用偏好会保存。重启后自动尝试恢复；只有音频设备实际进入运行状态才显示已启用。</p></div>
+        <el-button :type="voiceAudioUnlocked ? 'success' : 'primary'" :disabled="voiceAudioUnlocked" @click="enableAudioOutput">
+          {{ voiceAudioUnlocked ? '音频已启用' : config?.audio_output_enabled ? '等待用户启用音频' : '启用音频输出' }}
         </el-button>
       </div>
+      <el-alert v-if="config?.audio_output_enabled && !voiceAudioUnlocked" title="已记住启用偏好，但当前 WebView 尚未获得音频播放权限；请点击上方按钮恢复。" type="warning" :closable="false" show-icon />
       <el-divider />
       <el-input v-model="testText" maxlength="500" show-word-limit placeholder="输入测试播报内容" @keyup.enter="testSpeech" />
       <div class="card-actions">
