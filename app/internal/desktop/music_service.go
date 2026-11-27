@@ -1350,24 +1350,24 @@ func (s *MusicService) getLyrics(ctx context.Context, track music.Track) (string
 	if cached, ok := s.cachedLyrics(track); ok { return cached, nil }
 	value, handled, extensionErr := s.dispatchLXExtension(ctx, firstNonEmpty(track.LXSourceKey, track.SourceID), "lyric", map[string]any{"musicInfo": track, "track": track})
 	if err := ctx.Err(); err != nil { return "", err }
-	if handled && extensionErr == nil {
-		lyrics, normalizeErr := normalizeLXScriptLyrics(value)
-		if normalizeErr == nil && strings.TrimSpace(lyrics) != "" {
-			s.cacheLyrics(track, lyrics)
-			return lyrics, nil
-		}
-		extensionErr = normalizeErr
-	}
-	// Cancellation is terminal: never start a native fallback after the UI has
-	// moved to another track or closed the lyrics window.
+	// Lyrics are owned exclusively by the active QuickJS source Action.
+	// Do not silently fall back to the retired Go provider adapters: doing so
+	// would make production behavior differ from the script runtime contract.
 	if errors.Is(extensionErr, context.Canceled) || ctx.Err() != nil {
 		if extensionErr != nil { return "", extensionErr }
 		return "", ctx.Err()
 	}
-	lyrics, nativeErr := s.getNativeProviderLyrics(ctx, track)
-	if nativeErr != nil && extensionErr != nil { return "", errors.Join(extensionErr, nativeErr) }
-	if nativeErr == nil && strings.TrimSpace(lyrics) != "" { s.cacheLyrics(track, lyrics) }
-	return lyrics, nativeErr
+	if !handled {
+		if extensionErr != nil { return "", extensionErr }
+		return "", fmt.Errorf("音源 %q 未提供 lyric Action", firstNonEmpty(track.LXSourceKey, track.SourceID))
+	}
+	if extensionErr != nil { return "", extensionErr }
+	lyrics, normalizeErr := normalizeLXScriptLyrics(value)
+	if normalizeErr != nil { return "", normalizeErr }
+	lyrics = strings.TrimSpace(lyrics)
+	if lyrics == "" { return "", nil }
+	s.cacheLyrics(track, lyrics)
+	return lyrics, nil
 }
 
 func lyricsCacheKey(track music.Track) string {
@@ -1392,30 +1392,6 @@ func (s *MusicService) cacheLyrics(track music.Track, lyrics string) {
 	}
 	s.lyricsCache[key] = strings.TrimSpace(lyrics)
 	s.lyricsMu.Unlock()
-}
-
-// getNativeProviderLyrics retrieves synchronized LRC independently of playback state.
-func (s *MusicService) getNativeProviderLyrics(parent context.Context, track music.Track) (string, error) {
-	source := firstNonEmpty(track.LXSourceKey, track.SourceID)
-	if cached, ok := s.cachedLyrics(track); ok { return cached, nil }
-	if parent == nil { parent = context.Background() }
-	ctx, cancel := context.WithTimeout(parent, 18*time.Second)
-	defer cancel()
-	client := &http.Client{Timeout: 18 * time.Second}
-	var lyrics string
-	var err error
-	switch source {
-	case "tx": lyrics, err = music.GetQQMusicLyrics(ctx, client, track)
-	case "kg": lyrics, err = music.GetKugouMusicLyrics(ctx, client, track)
-	case "kw": lyrics, err = music.GetKuwoMusicLyrics(ctx, client, track)
-	case "wy": lyrics, err = music.GetNeteaseMusicLyrics(ctx, client, track)
-	case "mg": lyrics, err = music.GetMiguMusicLyrics(ctx, client, track)
-	default: return "", fmt.Errorf("音源 %q 暂不支持独立歌词解析", source)
-	}
-	if err != nil { return "", fmt.Errorf("获取 %s 歌词失败：%w", source, err) }
-	lyrics = strings.TrimSpace(lyrics)
-	if lyrics == "" { return "", nil }
-	return lyrics, nil
 }
 
 func absFloat(value float64) float64 { if value < 0 { return -value }; return value }
