@@ -50,7 +50,6 @@ func MigrateMusicConfig(c MusicConfig) (MusicConfig, bool) {
 		return c, false
 	}
 	n := DefaultMusicConfig()
-	// Volume did not exist before v15; preserve the historical 100% default for older configs.
 	n.Volume = 1
 	if c.ConfigVersion >= 15 { n.Volume = c.Volume }
 	n.LoudnessNormalization = c.LoudnessNormalization
@@ -108,9 +107,6 @@ func (c MusicConfig) Validate() error {
 	return nil
 }
 
-// LoadMusicConfig drops fields from retired built-in platform configuration
-// before strict typed decoding. This lets installations upgrade without
-// requiring users to manually edit their existing music.json.
 func LoadMusicConfig(m *Manager) (MusicConfig, error) {
 	if m == nil {
 		return MusicConfig{}, fmt.Errorf("configuration manager is required")
