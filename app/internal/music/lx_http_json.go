@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 // doLXRaw is the shared bounded HTTP transport for the retained LX Go
@@ -17,7 +18,7 @@ func doLXRaw(ctx context.Context, client *http.Client, method, rawURL string, he
 		ctx = context.Background()
 	}
 	if client == nil {
-		client = &http.Client{}
+		client = &http.Client{Timeout: 18 * time.Second}
 	}
 	req, err := http.NewRequestWithContext(ctx, method, rawURL, body)
 	if err != nil {
