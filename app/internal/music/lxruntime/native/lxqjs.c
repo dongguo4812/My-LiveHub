@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 struct LXQJSState {
     JSRuntime *runtime;
@@ -79,41 +80,67 @@ static char *lxqjs_exception_text(JSContext *context) {
     return copy;
 }
 
-char *lxqjs_eval(LXQJSState *state, const char *source, const char *filename, char **error_out) {
+static double lxqjs_now_ms(void) {
+    struct timespec value;
+    timespec_get(&value, TIME_UTC);
+    return (double)value.tv_sec * 1000.0 + (double)value.tv_nsec / 1000000.0;
+}
+
+char *lxqjs_eval_timed(LXQJSState *state, const char *source, const char *filename,
+                       char **error_out, double *compile_ms, double *execute_ms,
+                       double *jobs_ms) {
     if (error_out != NULL) *error_out = NULL;
+    if (compile_ms != NULL) *compile_ms = 0;
+    if (execute_ms != NULL) *execute_ms = 0;
+    if (jobs_ms != NULL) *jobs_ms = 0;
     if (state == NULL || source == NULL) {
         lxqjs_set_error(error_out, "invalid QuickJS eval arguments");
         return NULL;
     }
 
-    JSValue result = JS_Eval(
+    double started = lxqjs_now_ms();
+    JSValue compiled = JS_Eval(
         state->context,
         source,
         strlen(source),
         filename != NULL ? filename : "lx-source.js",
-        JS_EVAL_TYPE_GLOBAL
+        JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_COMPILE_ONLY
     );
+    if (compile_ms != NULL) *compile_ms = lxqjs_now_ms() - started;
+    if (JS_IsException(compiled)) {
+        if (error_out != NULL) *error_out = lxqjs_exception_text(state->context);
+        JS_FreeValue(state->context, compiled);
+        return NULL;
+    }
+
+    started = lxqjs_now_ms();
+    JSValue result = JS_EvalFunction(state->context, compiled);
+    if (execute_ms != NULL) *execute_ms = lxqjs_now_ms() - started;
     if (JS_IsException(result)) {
         if (error_out != NULL) *error_out = lxqjs_exception_text(state->context);
         JS_FreeValue(state->context, result);
         return NULL;
     }
 
+    started = lxqjs_now_ms();
     unsigned int jobs = 0;
     while (JS_IsJobPending(state->runtime)) {
         JSContext *job_context = NULL;
         int job_result = JS_ExecutePendingJob(state->runtime, &job_context);
         if (job_result < 0) {
+            if (jobs_ms != NULL) *jobs_ms = lxqjs_now_ms() - started;
             if (error_out != NULL) *error_out = lxqjs_exception_text(job_context != NULL ? job_context : state->context);
             JS_FreeValue(state->context, result);
             return NULL;
         }
         if (++jobs > 1000) {
+            if (jobs_ms != NULL) *jobs_ms = lxqjs_now_ms() - started;
             lxqjs_set_error(error_out, "QuickJS pending-job limit exceeded");
             JS_FreeValue(state->context, result);
             return NULL;
         }
     }
+    if (jobs_ms != NULL) *jobs_ms = lxqjs_now_ms() - started;
 
     const char *text = JS_ToCString(state->context, result);
     char *copy = lxqjs_copy_string(text != NULL ? text : "undefined");
@@ -121,6 +148,10 @@ char *lxqjs_eval(LXQJSState *state, const char *source, const char *filename, ch
     JS_FreeValue(state->context, result);
     if (copy == NULL) lxqjs_set_error(error_out, "unable to allocate result string");
     return copy;
+}
+
+char *lxqjs_eval(LXQJSState *state, const char *source, const char *filename, char **error_out) {
+    return lxqjs_eval_timed(state, source, filename, error_out, NULL, NULL, NULL);
 }
 
 int lxqjs_compile(LXQJSState *state, const char *source, const char *filename, char **error_out) {
