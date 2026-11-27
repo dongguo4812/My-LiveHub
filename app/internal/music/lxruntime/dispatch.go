@@ -69,7 +69,7 @@ func (r *Runtime) dispatchLXRequest(ctx context.Context, source, action string, 
 	processed := 0
 	safeClient, err := r.safeHTTPClient(client, r.allowPrivateNetworkForTests)
 	if err != nil { return nil, fmt.Errorf("LX dispatch: configure shared HTTP client: %w", err) }
-	tasks := newLXHTTPTasksWithSafeClient(safeClient)
+	tasks := newLXHTTPTasksWithSafeClient(safeClient, r.allowPrivateNetworkForTests)
 	defer tasks.cancelAll()
 	for {
 		if err := ctx.Err(); err != nil {
