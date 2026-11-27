@@ -47,15 +47,37 @@
     if (!body || typeof body !== 'object') throw new Error('provider returned an empty response');
     return body;
   }
+  function kuwoTimestamp(value) {
+    const raw = str(value);
+    if (!raw) return '';
+    if (raw.includes(':')) {
+      const parts = raw.split(':');
+      const seconds = Number(parts.pop());
+      const minutes = Number(parts.pop() || 0);
+      if (!Number.isFinite(seconds) || !Number.isFinite(minutes)) return '';
+      const centiseconds = Math.round(seconds * 100);
+      const total = Math.max(0, Math.round(minutes * 6000) + centiseconds);
+      const mm = Math.floor(total / 6000);
+      const ss = Math.floor((total % 6000) / 100);
+      const cs = total % 100;
+      return String(mm).padStart(2, '0') + ':' + String(ss).padStart(2, '0') + '.' + String(cs).padStart(2, '0');
+    }
+    const seconds = Number(raw);
+    if (!Number.isFinite(seconds) || seconds < 0) return '';
+    const total = Math.round(seconds * 100);
+    const mm = Math.floor(total / 6000);
+    const ss = Math.floor((total % 6000) / 100);
+    const cs = total % 100;
+    return String(mm).padStart(2, '0') + ':' + String(ss).padStart(2, '0') + '.' + String(cs).padStart(2, '0');
+  }
   function lrcFromKuwo(items) {
     if (!Array.isArray(items)) return '';
     return items.map(item => {
-      const time = str(item.time || item.begin);
-      const lyric = str(item.lineLyric || item.lyric);
+      const time = kuwoTimestamp(pick(item, 'time', 'begin'));
+      const lyric = str(pick(item, 'lineLyric', 'lyric'));
       if (!time || !lyric) return '';
-      const normalized = time.includes(':') ? time : '00:' + time;
-      return '[' + normalized + ']' + lyric;
-    }).filter(Boolean).join('\n');
+      return '[' + time + ']' + lyric;
+    }).filter(Boolean).join('\\n');
   }
   function decodeBase64(value) {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -85,14 +107,35 @@
     return pick(info, ...keys) || pick(sourceData, ...keys);
   }
   async function lyricKuwo(info, endpoints) {
-    const id = str(nativeInfo(info, 'songmid', 'song_id', 'id'));
+    const id = str(nativeInfo(info, 'songmid', 'song_id', 'id')).replace(/^kw_/, '').replace(/^MUSIC_/, '');
     if (!id) throw new Error('Kuwo lyric requires songmid');
-    const body = await json(append(endpoints.kw || defaults.kw, { musicId: id }), {
-      'User-Agent': 'Mozilla/5.0',
-      Referer: 'https://www.kuwo.cn/'
-    });
-    const data = body.data || body;
-    return { lyric: lrcFromKuwo(data.lrclist || data.lrcList || data.list), tlyric: '' };
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+      'Accept': 'application/json, text/plain, */*',
+      'Accept-Language': 'zh-CN,zh;q=0.9',
+      'Referer': 'https://m.kuwo.cn/yinyue/' + encode(id)
+    };
+    const primary = endpoints.kw || defaults.kw;
+    let primaryError = null;
+    try {
+      const body = await json(append(primary, { musicId: id, httpsStatus: '1' }), headers);
+      const data = body && body.data && typeof body.data === 'object' ? body.data : {};
+      const lyric = lrcFromKuwo(data.lrclist || data.lrcList || data.list);
+      if (lyric) return { lyric, tlyric: '' };
+      primaryError = new Error(str(body && body.msg) || 'Kuwo primary lyric API returned no lyric lines');
+    } catch (error) {
+      primaryError = error;
+    }
+    try {
+      const fallback = endpoints.kwFallback || 'https://www.kuwo.cn/openapi/v1/www/lyric/getlyric';
+      const body = await json(append(fallback, { musicId: id, httpsStatus: '1' }), headers);
+      const data = body && body.data && typeof body.data === 'object' ? body.data : {};
+      const lyric = lrcFromKuwo(data.lrclist || data.lrcList || data.list);
+      if (lyric) return { lyric, tlyric: '' };
+      throw new Error(str(body && body.msg) || 'Kuwo fallback lyric API returned no lyric lines');
+    } catch (fallbackError) {
+      throw new Error('Kuwo lyric APIs failed: primary=' + str(primaryError && primaryError.message) + '; fallback=' + str(fallbackError && fallbackError.message));
+    }
   }
   async function lyricKugou(info, endpoints) {
     const hash = str(nativeInfo(info, 'hash', 'FileHash', 'filehash'));
