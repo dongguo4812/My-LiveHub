@@ -292,10 +292,8 @@ func (r *productionMusicLXRuntime) persistLocked() error {
 	data, err := json.MarshalIndent(r.scripts, "", "  ")
 	if err != nil { return fmt.Errorf("encode LX script store: %w", err) }
 	if err := r.config.WriteLocalJSON(lxScriptStoreFile, data, lxScriptStoreLimit); err != nil {
-		log.Printf("[LX-Obfuscation] store=persist_failed file=%q scripts=%d cached_scripts=%d error=%q", lxScriptStoreFile, len(r.scripts), countLXObfuscationCaches(r.scripts), err.Error())
 		return err
 	}
-	log.Printf("[LX-Obfuscation] store=persisted file=%q scripts=%d cached_scripts=%d", lxScriptStoreFile, len(r.scripts), countLXObfuscationCaches(r.scripts))
 	return nil
 }
 
