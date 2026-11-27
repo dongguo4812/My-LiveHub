@@ -841,7 +841,7 @@ lx.send(lx.EVENT_NAMES.inited, {sources: {
 	}
 
 	latest := runtime.ListScripts()[0].LastTest
-	if latest == nil || len(latest.Platforms) != 3 {
+	if latest == nil || len(latest.Platforms) != 4 {
 		t.Fatalf("latest test result was not persisted correctly: %#v", latest)
 	}
 }
