@@ -3048,7 +3048,7 @@ func TestXinglanInvalidPlaybackURLIsNotCached(t *testing.T) {
 
 // Test墨澜混淆启动循环的实际 QuickJS 迭代次数。计数器仅插入测试副本，
 // 不修改仓库内的上游音源文件；基线执行用于量化插桩前后的整体耗时差异。
-func TestMolanObfuscationBootstrapLoopDiagnostics(t *testing.T) {
+func TestProductionLXMolanObfuscationBootstrapLoopDiagnostics(t *testing.T) {
 	const scriptPath = "../../../../lx-js/墨澜音乐源v2.3.8.js"
 	source, err := os.ReadFile(filepath.Clean(scriptPath))
 	if err != nil {
