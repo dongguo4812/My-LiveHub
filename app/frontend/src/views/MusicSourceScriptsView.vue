@@ -1,13 +1,10 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
+import MusicNavigation from '../components/MusicNavigation.vue'
 import { useRouter } from 'vue-router'
 import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
 const router = useRouter()
 type LXScriptSummary = Awaited<ReturnType<typeof MusicService.ListLXScripts>>[number]
-type QueueSnapshot = Awaited<ReturnType<typeof MusicService.GetQueue>>
-const queue = ref<QueueSnapshot | null>(null)
-let queueTimer: ReturnType<typeof setInterval> | undefined
-async function refreshQueue() { try { queue.value = await MusicService.GetQueue() } catch { /* Keep the last known queue count. */ } }
 const lxScripts = ref<LXScriptSummary[]>([])
 const lxScriptName = ref('')
 const lxScriptSource = ref('')
@@ -129,15 +126,12 @@ async function deleteLXScript(script: LXScriptSummary) {
   finally { lxScriptBusy.value = false }
 }
 function goMusicTab(tab: string) { void router.push({ path: '/music', query: { tab } }) }
-onMounted(() => { void refreshLXScripts(); void refreshQueue(); queueTimer = setInterval(() => void refreshQueue(), 1500) })
-onUnmounted(() => { if (queueTimer) clearInterval(queueTimer) })
+onMounted(() => { void refreshLXScripts() })
 </script>
 <template>
   <section class="music-page player-page">
     <header class="page-heading player-heading"><div><p class="eyebrow">MUSIC PLAYER</p><h2>JS 音源脚本管理</h2><p class="description">独立管理洛雪 JavaScript 音源脚本的导入、启停、检测和删除。</p></div><el-tag effect="plain">{{ lxScripts.length }} 个脚本</el-tag></header>
-    <nav class="music-tabs player-tabs" aria-label="音乐页面导航">
-      <button @click="goMusicTab('now-playing')">正在播放</button><button @click="goMusicTab('search')">歌曲搜索</button><button @click="goMusicTab('visitor-requests')" >观众点播 <span>{{ queue?.items.length ?? 0 }}</span></button><button @click="router.push('/music/playlists')">我的列表</button><button @click="goMusicTab('settings')">音乐设置</button><button class="active" aria-current="page">JS 音源脚本管理</button>
-    </nav>
+    <MusicNavigation />
     <el-alert v-if="error" :title="error" type="error" :closable="true" show-icon @close="error = ''" />
     <el-alert v-if="success" :title="success" type="success" :closable="true" show-icon @close="success = ''" />
     <el-card class="player-card player-settings-card" shadow="never">
