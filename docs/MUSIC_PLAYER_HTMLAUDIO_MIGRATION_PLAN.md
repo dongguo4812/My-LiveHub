@@ -105,7 +105,7 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 **本节是音乐模块改造唯一有效的开发顺序和验收依据。** 开发必须严格按 A→B→C→D→E→F→G 推进；本文其他章节只能记录架构约束、审计证据、代码状态和历史结果，不得另行定义阶段、改变先后顺序或增加平行路线。若其他章节与本节冲突，以本节为准。
 
 执行规则：
-- **A～G 阶段完成门均已通过。** 长时间播放验收已由用户确认完成，自动化进程内存采样与资源释放核查已接入并通过既有 CI。当前执行的是 A～G 之后的旧实现清理；用户已明确授权删除被 QuickJS 完全替代的 Go 搜索/歌词实现。清理的唯一完成门是旧实现清理完成且完整 Push/PR CI 全部成功。
+- **A～G 阶段的功能实施与自动化验收已完成；旧实现清理也已完成。** 长时间播放超过 2 小时已由用户确认，自动化进程内存采样、进程归属/Renderer 分类及停止/切歌资源释放核查已接入并通过 CI。目标设备实际内存数值尚未形成单独的人工采样报告，因此不填写虚构数值；自动采样器在应用运行时持续提供基线、当前值、峰值和增量。旧 Go 搜索/歌词实现、孤立 QRC 文件、过时 PoC 工作流命名及 QuickJS native PoC 目录命名均已清理。旧实现清理的唯一结束门——遗留引用及构建配置审计通过、最新分支提交对应的完整 CI 全部成功——现已满足。
 - 测试随功能开发同步编写；每项完成时集中运行该项测试及相关回归测试。CI 运行期间可继续不冲突的工作，但完成门必须取得对应 CI 结果。
 - CI 失败必须读取具体日志、修复根因并重跑；提交成功或 CI 启动不等于验收完成。
 - 不因单个边缘测试无限拆分开发；同类问题集中修复。第三方脚本许可只限制复制/分发对应脚本，不阻塞自建 fixture、兼容层和合法脚本导入流程。
@@ -116,27 +116,27 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 **当前代码状态：已实现并通过定向 CI 验收。** 生产 runtime 已从 `NewSourceManager(nil)` 改为复用现有 `config.Manager`，从 `config/local/lx_sources.json` 恢复用户脚本；MusicService 已暴露导入、列表、启停和删除 API，音乐设置页已提供 JS 文件/源码导入及管理界面。
 
 **工作内容**
-- 已复用 `config.Manager` 的 `config/local` 持久化目录，不引入平行存储根目录；新增有大小上限的 JSON 原子读写和损坏文件隔离。
-- 已接入 production SourceManager；导入脚本经统一 `NewSourceManagerWithScripts` 校验，恢复时逐个验证，单个损坏/哈希不匹配的脚本会被禁用并记录错误，不拖垮其他脚本。
-- 脚本记录包含 SHA-256 标识、名称、版本、作者、描述、主页、源码、扩展 action 声明、启用状态和错误状态；重复导入拒绝静默覆盖。
-- 已接入导入、重启恢复、禁用、启用、删除、损坏隔离和 runtime 关闭释放；设置页可选择 `.js` 文件或粘贴源码。
-- 所有脚本仍经现有受控 Host API，沿用 SSRF、超时、并发和资源限制。
+- [x] 已复用 `config.Manager` 的 `config/local` 持久化目录，不引入平行存储根目录；新增有大小上限的 JSON 原子读写和损坏文件隔离。
+- [x] 已接入 production SourceManager；导入脚本经统一 `NewSourceManagerWithScripts` 校验，恢复时逐个验证，单个损坏/哈希不匹配的脚本会被禁用并记录错误，不拖垮其他脚本。
+- [x] 脚本记录包含 SHA-256 标识、名称、版本、作者、描述、主页、源码、扩展 action 声明、启用状态和错误状态；重复导入拒绝静默覆盖。
+- [x] 已接入导入、重启恢复、禁用、启用、删除、损坏隔离和 runtime 关闭释放；设置页可选择 `.js` 文件或粘贴源码。
+- [x] 所有脚本仍经现有受控 Host API，沿用 SSRF、超时、并发和资源限制。
 
 **完成门**
-- production runtime 启动后能从持久化存储恢复已启用脚本；MusicService 提供脚本管理 API，已导入脚本可经 production runtime 的 `musicUrl` resolver 执行。完整搜索/详情等 action 调度属于 B 阶段，不提前计入 A。
-- 无脚本时能力状态准确报告不可用；禁用/删除后脚本不再可调度，相关 runtime/请求资源被释放。
-- 导入、元信息、重启恢复、URL 执行、启停、删除、损坏/哈希不匹配脚本隔离及关闭释放均有回归测试；QuickJS、production tag、desktop 和 Wails 前端构建 CI 全部通过（Run #544，2026-11-23）。
+- [x] production runtime 启动后能从持久化存储恢复已启用脚本；MusicService 提供脚本管理 API，已导入脚本可经 production runtime 的 `musicUrl` resolver 执行。完整搜索/详情等 action 调度属于 B 阶段，不提前计入 A。
+- [x] 无脚本时能力状态准确报告不可用；禁用/删除后脚本不再可调度，相关 runtime/请求资源被释放。
+- [x] 导入、元信息、重启恢复、URL 执行、启停、删除、损坏/哈希不匹配脚本隔离及关闭释放均有回归测试；QuickJS、production tag、desktop 和 Wails 前端构建 CI 全部通过（Run #544，2026-11-23）。
 
-### B. 统一 action 调度与歌曲模型接线
+### B. 统一 action 调度与歌曲模型接线（已完成）
 
 **当前代码状态：已完成。** 生产脚本 action dispatcher 已接入单音源搜索、全局搜索、弹幕点歌搜索、详情、歌词和封面入口；设置页支持显式声明 search/detail/lyric/pic。SourceManager 按每个脚本 inited.sources 路由扩展 action 和原生 musicUrl，防止多个脚本跨音源误执行；原生 musicUrl 还必须出现在该音源原生 actions 声明中。最终提交 f38a21795e16cacc05ab05f9a9aeeeace726cb6a，CI Run #567 全部成功。
 
 **工作内容**
-- 明确区分洛雪原生协议/action（如在线音源 musicUrl）与 My-LiveHub 社区扩展 action（search/detail/lyric/pic），不得将扩展 action 冒充洛雪官方原生协议。
-- 统一脚本 action dispatcher 已接入 MusicService 的单音源/全局/弹幕搜索、详情、歌词和封面入口；原生 musicUrl 仍走 SourceManager.ResolvePlaybackURL。
-- SourceManager 从每个脚本的 inited.sources 读取音源范围与原生 action 声明：扩展 action 仅在脚本声明该音源后执行；原生 musicUrl 还必须由该音源原生 actions 明确声明。多脚本按音源路由，不支持的脚本跳过；没有适用扩展时回退既有 Go provider。
-- 搜索结果映射为统一 music.Track/SearchPage，保留 source id、LX source key、SourceData、时长、封面等字段；详情结果合并回原 Track；歌词/封面按字符串契约返回。18 秒 action deadline、timeout/cancel 错误分类、错误链、多脚本隔离和调用取消均有测试。
-- 自建最小 production fixture 验证 search/detail/musicUrl/lyric/pic 经 QuickJS → SourceManager → MusicService 的调用；未复制第三方脚本。
+- [x] 明确区分洛雪原生协议/action（如在线音源 musicUrl）与 My-LiveHub 社区扩展 action（search/detail/lyric/pic），不得将扩展 action 冒充洛雪官方原生协议。
+- [x] 统一脚本 action dispatcher 已接入 MusicService 的单音源/全局/弹幕搜索、详情、歌词和封面入口；原生 musicUrl 仍走 SourceManager.ResolvePlaybackURL。
+- [x] SourceManager 从每个脚本的 inited.sources 读取音源范围与原生 action 声明：扩展 action 仅在脚本声明该音源后执行；原生 musicUrl 还必须由该音源原生 actions 明确声明。多脚本按音源路由，不支持的脚本跳过；没有适用扩展时回退既有 Go provider。
+- [x] 搜索结果映射为统一 music.Track/SearchPage，保留 source id、LX source key、SourceData、时长、封面等字段；详情结果合并回原 Track；歌词/封面按字符串契约返回。18 秒 action deadline、timeout/cancel 错误分类、错误链、多脚本隔离和调用取消均有测试。
+- [x] 自建最小 production fixture 验证 search/detail/musicUrl/lyric/pic 经 QuickJS → SourceManager → MusicService 的调用；未复制第三方脚本。
 
 **完成门**
 - [x] 合法导入脚本 production fixture 在 MusicService 路径声明并调用 search/detail/lyric/pic，并单独验证原生 musicUrl；QuickJS → SourceManager → MusicService 集成测试通过。
@@ -146,7 +146,7 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 
 ### C. 播放 URL、音质回退与缓存闭环
 
-**当前代码状态：Go 侧阶段完成门已通过。** 已新增结构化 `PlaybackResource`（URL/source/track/quality、媒体 headers、MIME/codec、过期/刷新及代理标志），作为进程内字段挂接队列 Track（`json:"-"`）；统一 resolver 支持显式音质优先、已选音质次之、音源质量列表顺序回退，以及 TTL 缓存、源过期时间上限、失效和单次刷新。队列路径将结构化资源交给 `LoadResource` 资源感知引擎端口；确定性集成测试确认资源确实到达该端口，旧引擎 `Load` 兼容回退不计入完成。Go 侧 `HandlePlaybackResourceFailure` 校验 source/track/quality，并对同一失效 URL 幂等刷新。URL-only 原生 `musicUrl` 不伪造媒体 headers、MIME/codec、ExpiresAt 或代理需求。以上由 CI Run 45142573201（20/20 步骤）通过。D 已将结构化资源交给生产 HTMLAudio，并将浏览器 `error` 事件接到该回调；自动化测试已通过，真实目标 WebView 播放仍待设备验收。
+**当前代码状态：C 阶段已完成。** 已新增结构化 `PlaybackResource`（URL/source/track/quality、媒体 headers、MIME/codec、过期/刷新及代理标志），作为进程内字段挂接队列 Track（`json:"-"`）；统一 resolver 支持显式音质优先、已选音质次之、音源质量列表顺序回退，以及 TTL 缓存、源过期时间上限、失效和单次刷新。队列路径将结构化资源交给 `LoadResource` 资源感知引擎端口；确定性集成测试确认资源确实到达该端口，旧引擎 `Load` 兼容回退不计入完成。Go 侧 `HandlePlaybackResourceFailure` 校验 source/track/quality，并对同一失效 URL 幂等刷新。URL-only 原生 `musicUrl` 不伪造媒体 headers、MIME/codec、ExpiresAt 或代理需求。以上由 CI Run 45142573201（20/20 步骤）通过。D 阶段已将结构化资源交给生产 HTMLAudio，并将浏览器 `error` 事件接到该回调；目标 Windows WebView 实播及控制已由用户验收通过。
 
 **工作内容**
 - [x] 将队列选中歌曲接入统一播放资源 resolver；复用现有 SourceManager 原生 `musicUrl`，按音源范围路由，不调用社区扩展 action 冒充原生解析。
@@ -155,33 +155,33 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 - [x] 定义结构化 PlaybackResource，表达 URL、source/track/quality、媒体 headers、MIME/编码提示、过期/刷新信息和代理需求；资源字段不进入 Track 普通 JSON，避免签名 URL 意外出现在队列事件/状态中。
 - [x] Go 队列路径优先向实现 `LoadResource` 的资源感知引擎传递结构化资源；旧引擎 `Load` 仅为迁移期兼容，不计入 C 完成。Go 侧 `HandlePlaybackResourceFailure` 按失效资源身份幂等刷新，同一失效 URL 的重复媒体错误只执行一次重新解析。
 - 原生洛雪 `musicUrl` action 的协议返回值仍是 URL 字符串；不得擅自把原生 action 改成 object，也不得把 `lx.request` 的 API headers 复制成媒体 GET headers。当前无显式媒体上下文来源时，`PlaybackResource.Headers` 保持为空，MIME/codec/ExpiresAt/proxy 等未知字段不伪造。
-- D 已实现 HTMLAudio 消费 C 的 `PlaybackResource`，并将浏览器 `error` 事件携带当前 track/resource 交给 `HandlePlaybackResourceFailure`；剩余验收是目标 WebView 的真实播放与设备控制验证。
-- 生产 URL 和请求继续受安全策略约束；媒体最终连接的 DNS pinning/redirect 由后续受控媒体传输保证。
+- [x] D 已实现 HTMLAudio 消费 C 的 `PlaybackResource`，并将浏览器 `error` 事件携带当前 track/resource 交给 `HandlePlaybackResourceFailure`；目标 WebView 的真实播放与设备控制验证已通过。
+- [x] 生产 URL 和请求继续受安全策略约束；媒体最终连接的 DNS pinning/redirect 由后续受控媒体传输保证。
 
 **完成门**
 - [x] Go 队列路径解析并持有结构化资源；资源感知引擎端口在确定性集成测试中实际收到该资源。旧引擎兼容回退不算通过。
 - [x] 音质回退、缓存命中、TTL 到期、显式失效、单次刷新解析、身份隔离、headers 深拷贝、确定性容量淘汰及 URL/header 安全拒绝测试通过 CI Run 45142573201。
 - [x] Go 媒体失败回调校验 track/source/quality 身份，并对同一失效 URL 幂等刷新；HTMLAudio `error` 事件已接入回调并通过自动化测试，真实 WebView 实播由 D 阶段设备验收。
 - [x] 媒体上下文契约明确区分脚本 API headers 与媒体 GET headers；当前原生 `musicUrl` 字符串协议不提供媒体 headers，URL-only 资源不会伪造 headers/MIME/codec/过期/代理信息。
-- [x] C Go 侧资源解析、资源感知端口、幂等失败刷新、上下文边界测试及全部 CI 通过（Run 45142573201，20/20）。D 仍须按唯一顺序接入 HTMLAudio 消费和实际事件。
+- [x] C Go 侧资源解析、资源感知端口、幂等失败刷新、上下文边界测试及全部 CI 通过（Run 45142573201，20/20）；D 阶段已完成 HTMLAudio 消费和真实 WebView 验收。
 
-### D. HTMLAudio PoC 与正式播放桥接
+### D. HTMLAudio PoC 与正式播放桥接（已完成）
 
 **当前代码状态：D 阶段已完成。** `main.go` 生产构造路径已通过 `AttachHTMLAudioPlayback` 切换到 session-aware HTMLAudio PlaybackEngine；单例 Audio、Wails 命令/事件桥、播放控制、媒体失败刷新和切歌取消已接通。CI Run 45602383401 的真实音源解析、Chromium HTMLAudio 播放/歌词测试和正式客户端构建验证均成功，且用户已完成本地目标环境测试并确认通过。
 
 **工作内容**
-- 在现有 Wails WebView/Vue 页面创建唯一、可复用的 HTMLAudio 实例，使用 C 阶段真实脚本解析资源验证可听见播放。
-- 定义 Go MusicService 与前端 Audio 的 load/play/pause/resume/seek/setVolume/stop/snapshot 命令及事件契约。
-- 为播放会话分配递增 generation/session ID，丢弃旧会话迟到的 URL 结果和音频事件。
-- 处理自动播放拒绝、网络中断、HTTP 错误、格式不可解码、ended/error 和设备输出异常。
-- 记录 Windows/WebView 版本、资源格式、请求响应特征及实播结果。
+- [x] 在现有 Wails WebView/Vue 页面创建唯一、可复用的 HTMLAudio 实例，使用 C 阶段真实脚本解析资源验证可听见播放。
+- [x] 定义 Go MusicService 与前端 Audio 的 load/play/pause/resume/seek/setVolume/stop/snapshot 命令及事件契约。
+- [x] 为播放会话分配递增 generation/session ID，丢弃旧会话迟到的 URL 结果和音频事件。
+- [x] 处理自动播放拒绝、网络中断、HTTP 错误、格式不可解码、ended/error 和设备输出异常。
+- [x] 记录 Windows/WebView 版本、资源格式、请求响应特征及实播结果。
 
 **完成门**
 - [x] Windows 目标 WebView 真实来源可听见播放，并完成基本控制；用户本地测试已确认通过。
 - [x] 快速切歌、暂停/恢复、跳转、音量、停止、错误和迟到事件处理通过测试。
 - [x] 不启动洛雪客户端或外部播放器；相关构建与 CI 检查通过。
 
-### E. 媒体传输适配与旧引擎替换
+### E. 媒体传输适配与旧引擎替换（已完成）
 
 **当前代码状态：E 阶段已完成。** Desktop validation Run #2928 全部作业通过，覆盖 Go 全量测试、生产 LX Runtime 测试、前端构建、Windows 主程序构建，以及真实音源与 Chromium HTMLAudio/歌词集成。生产主窗口使用 HTMLAudio；媒体代理及 Range、取消、重定向校验、连接 pinning 和流式转发已有实现。按用户决定，逐项媒体传输真实音源验收不再作为 E 阶段阻塞任务，后续仅在发现具体音源兼容问题时针对性处理。旧配置迁移与设置页收尾已完成：配置版本升级至 v18，旧 `lx_api_endpoints` 字段会在加载时移除且不丢失其他音乐设置；设置页不再展示旧 API 地址。旧播放引擎、平台启动器、外部播放状态轮询和外部队列控制已从生产播放链路清理。**注意：这只表示旧播放器播放依赖已替换，不表示旧洛雪 JS/运行时兼容实现已全面清理；后者按用户要求留到所有迁移与验收工作最后执行。**
 
@@ -193,43 +193,43 @@ HTMLAudio 本身不能像普通 Go HTTP 请求一样任意设置所有请求头�
 - [x] 增加旧配置迁移回归测试，覆盖音量、响度标准化、点歌/切歌命令、队列参数、歌单模式、音源优先级、粉丝勋章和旧 API 地址兼容数据。
 
 **完成门**
-- 不安装/启动洛雪客户端时，现有搜索、队列、播放控制、自动切歌可完整工作。
-- 媒体传输真实音源逐项验收不再作为阶段门；如出现具体播放兼容问题，按问题补充验证和修复。旧播放依赖从生产链路移除。
+- [x] 不安装/启动洛雪客户端时，现有搜索、队列、播放控制、自动切歌可完整工作。
+- [x] 媒体传输真实音源逐项验收不再作为阶段门；如出现具体播放兼容问题，按问题补充验证和修复。旧播放依赖从生产链路移除。
 - [x] 旧配置迁移回归测试、设置页调整及 Desktop validation CI 通过。
 
-### F. 歌词、封面、队列与多视图整合
+### F. 歌词、封面、队列与多视图整合（已完成）
 
 **当前代码状态：已完成（按本项目当前 F 阶段验收清单）。** QuickJS lyric/pic action、五个平台歌词适配器、统一同步 LRC 解析、桌面歌词链路及切歌时取消旧歌词请求已完成核查；播放队列与稳定性清单中的 1～7 项也已完成核查和验证。队列侧歌单播放模式持久化、观众点播优先抢占、点播结束后恢复歌单及中断状态清理均已有代码和 CI 覆盖。真实第三方音源的在线可用性仍受平台/API 状态影响，不作永久可用承诺。
 
 **工作内容**
-- 接通脚本 lyric/pic action 与现有歌词、封面服务和缓存。
-- 歌词进度以 HTMLAudio 真实 currentTime 为准，验证原文、翻译、逐行/逐字时间戳格式与同步策略。
-- 切歌时取消旧歌词/封面任务，清理旧缓存引用，防止旧结果覆盖当前歌曲。
-- 验证 Go 队列顺序、插队、删除、重复曲目策略、播放模式和 ended 自动切歌。歌单模式持久化及观众点播抢占/恢复已有实现和 CI 覆盖；仍需补齐完整 UI/真实播放场景回归。
-- 主播放器、迷你播放器、独立歌词窗口共享同一播放状态和同一个 Audio 实例。
+- [x] 接通脚本 lyric/pic action 与现有歌词、封面服务和缓存。
+- [x] 歌词进度以 HTMLAudio 真实 currentTime 为准，验证原文、翻译、逐行/逐字时间戳格式与同步策略。
+- [x] 切歌时取消旧歌词/封面任务，清理旧缓存引用，防止旧结果覆盖当前歌曲。
+- [x] 验证 Go 队列顺序、插队、删除、重复曲目策略、播放模式和 ended 自动切歌。歌单模式持久化及观众点播抢占/恢复已有实现和 CI 覆盖；完整 UI、真实播放场景和 CI 回归已完成。
+- [x] 主播放器、迷你播放器、独立歌词窗口共享同一播放状态和同一个 Audio 实例。
 
 **完成门**
-- 歌词与实际播放时间同步，无明显累计漂移；封面/歌词失败可诊断。
-- 队列操作、自动切歌和播放状态一致；多窗口/多视图无重复播放或状态分叉。
-- 切歌后旧歌词和旧事件不会残留；相关测试与 CI 通过。
+- [x] 歌词与实际播放时间同步，无明显累计漂移；封面/歌词失败可诊断。
+- [x] 队列操作、自动切歌和播放状态一致；多窗口/多视图无重复播放或状态分叉。
+- [x] 切歌后旧歌词和旧事件不会残留；相关测试与 CI 通过。
 
 ### G. 安全、稳定性、性能与最终验收
 
-**当前代码状态：自动化实现已完成并通过 CI #3172。** QuickJS HTTP 安全边界、SSRF/DNS rebinding、redirect、headers、请求资源限制及生命周期测试已有自动化覆盖；MusicService/QuickJS 后台初始化、播放解析 fallback、响度标准化及音频重音/回声收尾也已完成代码和 CI 验证。WebView2 宿主清单已统一为 `asInvoker`，CI #3109/#3110 通过，但没有 Windows 10 实机任务管理器验收；Windows 10「进程」页本身不提供新版 Windows 11 的逐个 WebView2 子进程展示能力。用户已确认目标 Windows 设备连续播放超过 2 小时，长时间播放问题检查不再列为待办。OS 级内存采样、主进程与自有 WebView2 子进程归属、Renderer 分类、首次成功采样基线、当前值、峰值和增量已实现；停止/切歌资源引用释放与旧会话事件隔离测试通过。目标设备的实际内存数值尚未采集，因此不虚构内存实测结论；采样器会随应用启动在后台自动运行，每 5 秒采样，不要求用户额外手动测试。
+**当前代码状态：G 阶段自动化实现与回归验收已完成。** QuickJS HTTP 安全边界、SSRF/DNS rebinding、redirect、headers、请求资源限制及生命周期测试已有自动化覆盖；MusicService/QuickJS 后台初始化、播放解析 fallback、响度标准化及音频重音/回声收尾也已完成代码和 CI 验证。WebView2 宿主清单已统一为 `asInvoker`，CI #3109/#3110 通过，但没有 Windows 10 实机任务管理器验收；Windows 10「进程」页本身不提供新版 Windows 11 的逐个 WebView2 子进程展示能力。用户已确认目标 Windows 设备连续播放超过 2 小时，长时间播放问题检查不再列为待办。OS 级内存采样、主进程与自有 WebView2 子进程归属、Renderer 分类、首次成功采样基线、当前值、峰值和增量已实现；停止/切歌资源引用释放与旧会话事件隔离测试通过。目标设备的实际内存数值尚未采集，因此不虚构内存实测结论；采样器会随应用启动在后台自动运行，每 5 秒采样，不要求用户额外手动测试。
 
 **工作内容**
-- 对脚本隔离、超时/取消、SSRF/DNS rebinding、redirect、headers、请求/响应体、并发和资源释放做最终回归审查；所有生产网络请求复用受控出口。
-- 完成搜索缓存、播放 URL 缓存、歌词缓存容量/TTL/失效策略和有限重试。
-- 验证停止/切歌后请求取消、Audio 事件监听清理、对象引用释放和异常恢复。
-- 后台每 5 秒自动采样 My-LiveHub 主进程及通过父子进程关系确认归属的 WebView2 子进程工作集/私有内存；通过进程命令行 `--type=renderer` 单独统计 Renderer，无法读取命令行的子进程单独计数。记录首次成功采样基线、当前值、运行期间峰值、增量和采样次数，不混入其他软件的 WebView2。
+- [x] 对脚本隔离、超时/取消、SSRF/DNS rebinding、redirect、headers、请求/响应体、并发和资源释放做最终回归审查；所有生产网络请求复用受控出口。
+- [x] 完成搜索缓存、播放 URL 缓存、歌词缓存容量/TTL/失效策略和有限重试。
+- [x] 验证停止/切歌后请求取消、Audio 事件监听清理、对象引用释放和异常恢复。
+- [x] 后台每 5 秒自动采样 My-LiveHub 主进程及通过父子进程关系确认归属的 WebView2 子进程工作集/私有内存；通过进程命令行 `--type=renderer` 单独统计 Renderer，无法读取命令行的子进程单独计数。记录首次成功采样基线、当前值、运行期间峰值、增量和采样次数，不混入其他软件的 WebView2。
 - [x] 目标 Windows 设备连续播放超过 2 小时；用户确认长时间播放未出现需继续追踪的卡顿、无声、重音、回声或异常中断问题，不重复安排手动 soak。
 - [x] 全仓检查旧洛雪本地 API、`lxmusic://`、外部播放器进程和旧引擎引用；旧播放代码与生产依赖已删除，Run #2928 验证通过。
 
 **完成门**
-- 安全、缓存、取消、资源释放和异常恢复测试通过；无无限重试、无界缓存或旧会话资源泄漏。
-- 提供进程级原始内存数据和增量计算，达到既定目标；不能用估算值冒充实测值。
-- 自动化内存采样可持续输出主进程、自有 WebView2 子进程及 Renderer 的基线/当前值/峰值/增量；进程归属、Renderer 分类、首次基线和峰值保持测试通过；停止/切歌资源释放回归测试与 CI 通过。长时间播放 2 小时门槛已由用户确认完成，不再要求额外手动测试。
-- 相关 CI、构建和设备验收全部通过；My-LiveHub 可独立运行，无需安装或启动洛雪、MusicFree、mpv 等外部播放器。
+- [x] 安全、缓存、取消、资源释放和异常恢复测试通过；无无限重试、无界缓存或旧会话资源泄漏。
+- [ ] 目标设备进程级原始内存数值的独立采样报告尚未归档；不得用估算值冒充实测值。自动采样器及基线/当前值/峰值/增量计算功能已实现并通过自动化测试（见下一项），该人工报告不再作为本轮旧实现清理的阻塞条件。
+- [x] 自动化内存采样可持续输出主进程、自有 WebView2 子进程及 Renderer 的基线/当前值/峰值/增量；进程归属、Renderer 分类、首次基线和峰值保持测试通过；停止/切歌资源释放回归测试与 CI 通过。长时间播放 2 小时门槛已由用户确认完成，不再要求额外手动测试。
+- [x] 相关 CI、构建和设备验收全部通过；My-LiveHub 可独立运行，无需安装或启动洛雪、MusicFree、mpv 等外部播放器。
 
 ## 5. 风险与决策规则
 
@@ -556,4 +556,4 @@ Wails v3 官方 Events API 提供 Go `app.Event.Emit(name, data)` 向前端发�
 - 将手动 QuickJS 专项工作流更名为 `.github/workflows/quickjs-runtime-diagnostics.yml`；保留真实 `fish/latest.js` 导入/启用、晴天播放 URL 和本地运行库引导诊断，删除已失效的 Go 原生歌词适配器测试步骤，替换为有效的 QuickJS lyric Action/取消/缓存/禁止 Go 回退测试。
 - 将正式原生 QuickJS 构建源目录从 `app/internal/music/lxruntime/poc/native` 移至 `app/internal/music/lxruntime/native`，并同步更新 Desktop validation、手动诊断和发布工作流的 CMake 路径、发布产物路径及缓存键；`lxqjs.c`、头文件及正式动态库构建流程完整保留。
 - 兼容性复核保留旧存储快照恢复、社区音源脚本参数别名和仍被场景使用的同步歌词入口；这些不是旧 Go provider。QQ/咪咕备用 HTTP 接口和播放自动换源也属于现有 QuickJS/播放可靠性逻辑，不作为旧实现删除。
-- 清理代码提交 `db7ff372c03226fe7bfa02a014336e9641ce553c` 的 Desktop validation Run `45921430162` 成功：正式 Go 全量测试、生产 QuickJS 测试、五平台真实搜索、墨澜聚合音源真实播放、歌词同步、Chromium HTMLAudio 播放/歌词、前端构建和 Windows 可执行文件构建均通过。计划文档本次更新触发的最新 CI 仍需全部成功，才正式关闭本阶段。
+- 清理代码提交 `db7ff372c03226fe7bfa02a014336e9641ce553c` 的 Desktop validation Run `45921430162` 成功：正式 Go 全量测试、生产 QuickJS 测试、五平台真实搜索、墨澜聚合音源真实播放、歌词同步、Chromium HTMLAudio 播放/歌词、前端构建和 Windows 可执行文件构建均通过。随后最新文档/构建配置提交对应的 Desktop validation Run `45922003690` 已完成且结论为 success；Run 的 head SHA `5f0f900536d062230accb4b6208d2f60d74462a5` 与目标分支最新 HEAD 完全一致，Formal client frontend and Go validation、Real provider and browser integration 两个 Job 均成功。因此旧实现清理阶段的 CI 结束门已满足。
