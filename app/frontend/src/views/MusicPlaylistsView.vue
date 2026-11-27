@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { prepareHTMLAudioForLoudnessNormalization } from '../services/htmlAudio'
 import { computed, onMounted, ref, watch } from 'vue'
 import MusicNavigation from '../components/MusicNavigation.vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -95,7 +94,6 @@ async function importLXPlaylist(event: Event) {
 }
 async function playPlaylist(startTrackID = '') {
   if (!selectedPlaylist.value) return
-  prepareHTMLAudioForLoudnessNormalization()
   const playlist = selectedPlaylist.value
   const firstTrackID = playlist.tracks[0]?.id ?? ''
   const requestedTrackID = startTrackID || firstTrackID
