@@ -5,6 +5,7 @@ package lxruntime
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"net/http/httptrace"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -136,11 +138,11 @@ func executeLXHTTPRequestWithPolicy(parent context.Context, descriptor lxRequest
 		return nil, fmt.Errorf("lx.request: configure network policy: %w", err)
 	}
 	var traceMu sync.Mutex
-	var wroteRequestAt, firstByteAt time.Time
+	var wroteRequestAt, tlsStartedAt time.Time
 	trace := &httptrace.ClientTrace{
-		TLSHandshakeStart: func() { tlsStarted := time.Now(); traceMu.Lock(); wroteRequestAt = tlsStarted; traceMu.Unlock() },
+		TLSHandshakeStart: func() { traceMu.Lock(); tlsStartedAt = time.Now(); traceMu.Unlock() },
 		TLSHandshakeDone: func(_ tls.ConnectionState, err error) {
-			traceMu.Lock(); started := wroteRequestAt; traceMu.Unlock()
+			traceMu.Lock(); started := tlsStartedAt; traceMu.Unlock()
 			if !started.IsZero() { logLXTiming("http_tls_handshake", started, fmt.Sprintf("request_id=%d host=%q result=%s", descriptor.ID, parsed.Host, timingResult(err))) }
 		},
 		GotConn: func(info httptrace.GotConnInfo) {
@@ -151,7 +153,7 @@ func executeLXHTTPRequestWithPolicy(parent context.Context, descriptor lxRequest
 			logLXTiming("http_request_written", httpStarted, fmt.Sprintf("request_id=%d host=%q result=%s", descriptor.ID, parsed.Host, timingResult(info.Err)))
 		},
 		GotFirstResponseByte: func() {
-			traceMu.Lock(); firstByteAt = time.Now(); wrote := wroteRequestAt; traceMu.Unlock()
+			traceMu.Lock(); wrote := wroteRequestAt; traceMu.Unlock()
 			if !wrote.IsZero() { logLXTiming("http_ttfb", wrote, fmt.Sprintf("request_id=%d host=%q", descriptor.ID, parsed.Host)) }
 		},
 	}
