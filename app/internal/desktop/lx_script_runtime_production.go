@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"regexp"
 	"sort"
@@ -259,7 +260,11 @@ func (r *productionMusicLXRuntime) loadStoreLocked() error {
 		r.scripts = nil
 		return nil
 	}
-	if !exists { r.scripts = nil; return nil }
+	if !exists {
+		r.scripts = nil
+		log.Printf("[LX-Obfuscation] store=not_found file=%q", lxScriptStoreFile)
+		return nil
+	}
 	var scripts []storedLXScript
 	if err := json.Unmarshal(data, &scripts); err != nil {
 		_, quarantineErr := r.config.QuarantineLocalJSON(lxScriptStoreFile)
@@ -293,13 +298,29 @@ func (r *productionMusicLXRuntime) loadStoreLocked() error {
 		}
 	}
 	r.scripts = scripts
+	log.Printf("[LX-Obfuscation] store=loaded file=%q scripts=%d cached_scripts=%d", lxScriptStoreFile, len(r.scripts), countLXObfuscationCaches(r.scripts))
 	return nil
+}
+
+func countLXObfuscationCaches(scripts []storedLXScript) int {
+	count := 0
+	for i := range scripts {
+		if scripts[i].ObfuscationCache != nil && scripts[i].ObfuscationCache.SourceSHA256 != "" {
+			count++
+		}
+	}
+	return count
 }
 
 func (r *productionMusicLXRuntime) persistLocked() error {
 	data, err := json.MarshalIndent(r.scripts, "", "  ")
 	if err != nil { return fmt.Errorf("encode LX script store: %w", err) }
-	return r.config.WriteLocalJSON(lxScriptStoreFile, data, lxScriptStoreLimit)
+	if err := r.config.WriteLocalJSON(lxScriptStoreFile, data, lxScriptStoreLimit); err != nil {
+		log.Printf("[LX-Obfuscation] store=persist_failed file=%q scripts=%d cached_scripts=%d error=%q", lxScriptStoreFile, len(r.scripts), countLXObfuscationCaches(r.scripts), err.Error())
+		return err
+	}
+	log.Printf("[LX-Obfuscation] store=persisted file=%q scripts=%d cached_scripts=%d", lxScriptStoreFile, len(r.scripts), countLXObfuscationCaches(r.scripts))
+	return nil
 }
 
 func (r *productionMusicLXRuntime) rebuildLocked(ctx context.Context) error {
