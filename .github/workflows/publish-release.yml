@@ -4,10 +4,7 @@ on:
   workflow_run:
     workflows:
       - Desktop validation
-    branches:
-      - master
-      - 'v*'
-    types:
+      types:
       - completed
 
 permissions:
@@ -49,7 +46,7 @@ jobs:
             mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-ninja
 
-      - name: Build pinned QuickJS-NG production library
+      - name: Build pinned QuickJS-NG production DLL
         shell: msys2 {0}
         run: |
           WORKSPACE="$(cygpath -u "$GITHUB_WORKSPACE")"
@@ -57,10 +54,17 @@ jobs:
           git clone --depth 1 --branch v0.18.0 https://github.com/quickjs-ng/quickjs.git "$TEMP_DIR/quickjs-ng"
           cmake -S "$WORKSPACE/app/internal/music/lxruntime/native" -B "$TEMP_DIR/lx-quickjs-production-build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DQUICKJS_NG_SOURCE_DIR="$TEMP_DIR/quickjs-ng"
           cmake --build "$TEMP_DIR/lx-quickjs-production-build" --config Release
-          mkdir -p "$WORKSPACE/app/internal/music/lxruntime/native/lib"
-          cp "$TEMP_DIR/lx-quickjs-production-build/lib/libqjs.a" "$WORKSPACE/app/internal/music/lxruntime/native/lib/libqjs.a"
-          GITHUB_ENV_PATH="$(cygpath -u "$GITHUB_ENV")"
-          printf 'CGO_ENABLED=1\nCC=gcc\n' >> "$GITHUB_ENV_PATH"
+          DLL="$(find "$TEMP_DIR/lx-quickjs-production-build" -type f -iname 'lxqjs.dll' -print -quit)"
+          test -n "$DLL"
+          mkdir -p "$WORKSPACE/app/bin"
+          cp "$DLL" "$WORKSPACE/app/bin/lxqjs.dll"
+
+      - name: Configure production QuickJS runtime
+        shell: pwsh
+        run: |
+          if (!(Test-Path "bin/lxqjs.dll")) { throw "Production QuickJS runtime is missing: app/bin/lxqjs.dll" }
+          "CGO_ENABLED=0" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "MYLIVEHUB_QUICKJS_LIB=$env:GITHUB_WORKSPACE\app\bin\lxqjs.dll" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -144,6 +148,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path $package | Out-Null
           go build -tags lxproduction -ldflags "-H=windowsgui -X main.currentVersion=$version" -o "$package/My-LiveHub.exe" .
           if ($LASTEXITCODE -ne 0) { throw "My-LiveHub build failed" }
+          Copy-Item -Force bin/lxqjs.dll "$package/lxqjs.dll"
+          if (!(Test-Path "$package/lxqjs.dll")) { throw "Production QuickJS runtime was not packaged" }
 
           $moduleSource = "internal/desktop/lolhex/runtime"
           $moduleTarget = "$package/modules/lol_hex_display"
