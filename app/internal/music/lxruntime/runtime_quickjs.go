@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"net/http"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -44,6 +45,8 @@ type Runtime struct {
 	close sync.Once
 	dispatchMu sync.Mutex
 	initializeMu sync.Mutex
+	httpClientMu sync.Mutex
+	safeHTTPClients map[lxSafeHTTPClientKey]*http.Client
 	lifecycle context.Context
 	shutdown context.CancelFunc
 	allowPrivateNetworkForTests bool
@@ -262,6 +265,7 @@ func (r *Runtime) Close() error {
 	r.close.Do(func() {
 		if r.shutdown != nil { r.shutdown() }
 		select { case <-r.done: case r.commands <- command{close:true}: <-r.done }
+		r.closeSafeHTTPClients()
 	})
 	return nil
 }
