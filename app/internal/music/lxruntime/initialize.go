@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -55,11 +56,24 @@ func (r *Runtime) InitializeLXSource(ctx context.Context, info ScriptInfo, sourc
 	if filename == "" {
 		filename = "lx-source.js"
 	}
+	profileObfuscation := os.Getenv(lxObfuscationProfileEnv) == "1"
+	if profileObfuscation {
+		var instrumented bool
+		source, instrumented = instrumentLXObfuscationProfile(source)
+		if instrumented {
+			log.Printf("[LX-Obfuscation] script=%q profiling=enabled", filename)
+		} else {
+			log.Printf("[LX-Obfuscation] script=%q profiling=unsupported_source_shape", filename)
+		}
+	}
 	sourceEvalStarted := time.Now()
 	_, sourceEvalErr := r.EvalWithTimeout(ctx, source, filename, maxInitializationEvalTimeout)
 	logLXTiming("initialize_source_eval", sourceEvalStarted, "script="+fmt.Sprintf("%q", filename)+" result="+timingResult(sourceEvalErr))
 	if sourceEvalErr != nil {
 		return fmt.Errorf("LX initialization: evaluate source: %w", sourceEvalErr)
+	}
+	if profileObfuscation {
+		r.logLXObfuscationProfile(ctx, filename)
 	}
 
 	const maxRequests = 256
