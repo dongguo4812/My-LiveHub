@@ -48,7 +48,7 @@ func TestNormalizeLXScriptSearchResultMapsCommunityTrackShape(t *testing.T){
  track:=got.Tracks[0]
  if track.ID!="kw_native-1"||track.SourceID!="kw"||track.LXSourceKey!="kw"||track.Title!="Fixture Song"||track.Artist!="Fixture Artist"||track.DurationMS!=212000||track.CoverURL!="https://cdn.example.test/cover.jpg"{t.Fatalf("unexpected mapped track: %#v",track)}
 }
-func TestNormalizeLXScriptSearchResultPreservesNativeLyricIdentifiers(t *testing.T) {
+func TestNormalizeLXScriptSearchResultPreservesSourceActionMetadata(t *testing.T) {
 	got, err := normalizeLXScriptSearchResult("tx", "fixture", 1, []any{map[string]any{
 		"id":"song-1", "name":"Fixture Song", "singer":"Fixture Artist",
 		"songmid":"mid-123", "song_id":"12345", "lrc_url":"https://lyrics.example.test/a.lrc",
@@ -73,7 +73,7 @@ func TestGetLyricsDoesNotFallBackAfterLXActionFailure(t *testing.T) {
 	}
 }
 
-func TestNormalizeLXScriptSearchResultDerivesProviderLyricIDs(t *testing.T) {
+func TestNormalizeLXScriptSearchResultDerivesProviderIDsForScriptActions(t *testing.T) {
 	qq, err := normalizeLXScriptSearchResult("tx", "fixture", 1, []any{map[string]any{"id":"123456", "name":"QQ Song", "singer":"Artist"}})
 	if err != nil { t.Fatal(err) }
 	if got := qq.Tracks[0].SourceData["song_id"]; got != "123456" { t.Fatalf("QQ song_id=%q, want 123456", got) }
