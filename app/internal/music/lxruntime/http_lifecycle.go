@@ -7,14 +7,12 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
-	"time"
 )
 
 type lxHTTPCompletion struct {
 	id          uint64
 	response    *lxHTTPResponse
 	err         error
-	completedAt time.Time
 }
 
 // lxHTTPTasks runs network I/O away from the QuickJS owner thread. This lets
@@ -73,9 +71,8 @@ func (t *lxHTTPTasks) start(parent context.Context, requests []lxRequestDescript
 			} else {
 				response, err = executeLXHTTPRequestWithPolicy(requestCtx, request, t.client, t.allowPrivateNetwork)
 			}
-			completedAt := time.Now()
 			select {
-			case t.completed <- lxHTTPCompletion{id: request.ID, response: response, err: err, completedAt: completedAt}:
+			case t.completed <- lxHTTPCompletion{id: request.ID, response: response, err: err}:
 			case <-requestCtx.Done():
 				// An aborted request no longer needs to enqueue a completion.
 			}
@@ -94,9 +91,6 @@ func (t *lxHTTPTasks) abort(ids []uint64) {
 }
 
 func (t *lxHTTPTasks) finish(ctx context.Context, runtime *Runtime, result lxHTTPCompletion) error {
-	if !result.completedAt.IsZero() {
-		logLXTiming("http_callback_delivery_wait", result.completedAt, fmt.Sprintf("request_id=%d result=%s", result.id, timingResult(result.err)))
-	}
 	if cancel := t.active[result.id]; cancel != nil {
 		delete(t.active, result.id)
 		cancel()
