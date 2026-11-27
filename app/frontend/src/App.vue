@@ -62,6 +62,9 @@ onMounted(async () => {
   const voiceAudio = await import('./services/voiceAudio')
   voiceAudio.initializeVoiceAudio()
   voiceAudioInitialized = true
+  // Restore only when the user previously enabled audio output. The browser
+  // may reject this without a fresh gesture; the UI reflects the real state.
+  void voiceAudio.restoreVoiceAudioPreference()
   void refreshCoreStatus()
   refreshTimer = setInterval(() => void refreshCoreStatus(), 3000)
 })
