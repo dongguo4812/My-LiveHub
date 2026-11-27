@@ -64,7 +64,7 @@ func prepareLXObfuscationCacheSource(source string, cache *LXObfuscationCache) (
 		replacement := "for(var __myLiveHubObfRotation=0;__myLiveHubObfRotation<" +
 			strconv.Itoa(cache.RotationCount) + ";__myLiveHubObfRotation++){" +
 			arrayName + "['push'](" + arrayName + "['shift']());}}(" + invokedFunction + ","
-		return source[:start] + replacement + source[end[0]:end[1]*0+end[0]] + source[end[1]:], true, true
+		return source[:start] + replacement + source[end[1]:], true, true
 	}
 
 	// Count actual catch/rotation executions during the first successful eval.
