@@ -132,6 +132,9 @@ func (r *productionMusicLXRuntime) testScript(ctx context.Context, id string) (L
 	r.mu.Unlock()
 	if selected == nil { return LXScriptTestResult{}, fmt.Errorf("LX script %q was not found", id) }
 	result := LXScriptTestResult{Status:"passed", TestedAt:time.Now().UTC(), Platforms:[]LXSourcePlatformTest{}}
+	if selected.ObfuscationCache == nil {
+		selected.ObfuscationCache = &lxruntime.LXObfuscationCache{}
+	}
 	// Re-run the real QuickJS handshake for every test. Persisted action
 	// snapshots can be stale after script upgrades; testing against them can
 	// report false missing-search/lyric failures for providers that now declare
@@ -309,6 +312,9 @@ func (r *productionMusicLXRuntime) rebuildLocked(ctx context.Context) error {
 	for i := range r.scripts {
 		script := &r.scripts[i]
 		if !script.Enabled { continue }
+		if script.ObfuscationCache == nil {
+			script.ObfuscationCache = &lxruntime.LXObfuscationCache{}
+		}
 		digest := sha256.Sum256([]byte(script.Source))
 		if script.ID != hex.EncodeToString(digest[:]) {
 			script.LastError = "stored script hash does not match executable source"
