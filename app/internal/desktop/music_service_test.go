@@ -1588,3 +1588,48 @@ func TestMusicStartDoesNotRestartAlreadyRunningPlaybackEngine(t *testing.T) {
 	defer cancel()
 	if err := service.stop(ctx); err != nil { t.Fatal(err) }
 }
+
+func TestAttachCurrentQueueTrackKeepsActuallyPlayingTrackWhileResolving(t *testing.T) {
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), &nextTrackTestEngine{})
+	defer service.Shutdown()
+
+	_, err := service.queue.SetCurrentTrack(music.Track{
+		ID: "tx_next", SourceID: "tx", Title: "B歌曲", Artist: "歌手B",
+	}, searchPlayMarker)
+	if err != nil { t.Fatal(err) }
+
+	service.mu.Lock()
+	service.playbackResolutionStatus = "resolving"
+	service.mu.Unlock()
+
+	snapshot := music.PlaybackSnapshot{
+		State: music.PlaybackPlaying,
+		Track: &music.Track{ID: "tx_current", SourceID: "tx", Title: "A歌曲", Artist: "歌手A"},
+	}
+	got := service.attachCurrentQueueTrack(snapshot)
+	if got.Track == nil || got.Track.ID != "tx_current" || got.Track.Title != "A歌曲" {
+		t.Fatalf("track shown while B resolves = %#v, want the still-playing A track", got.Track)
+	}
+	if got.State != music.PlaybackPlaying {
+		t.Fatalf("playback state = %q, want playing", got.State)
+	}
+}
+
+func TestAttachCurrentQueueTrackUsesNewTrackAfterEngineSnapshotChanges(t *testing.T) {
+	service := NewMusicServiceWithDependencies(nil, config.DefaultMusicConfig(), &nextTrackTestEngine{})
+	defer service.Shutdown()
+
+	_, err := service.queue.SetCurrentTrack(music.Track{
+		ID: "tx_next", SourceID: "tx", Title: "B歌曲", Artist: "歌手B",
+	}, searchPlayMarker)
+	if err != nil { t.Fatal(err) }
+
+	snapshot := music.PlaybackSnapshot{
+		State: music.PlaybackPlaying,
+		Track: &music.Track{ID: "tx_next", SourceID: "tx", Title: "B歌曲", Artist: "歌手B"},
+	}
+	got := service.attachCurrentQueueTrack(snapshot)
+	if got.Track == nil || got.Track.ID != "tx_next" {
+		t.Fatalf("track after engine switches = %#v, want B track", got.Track)
+	}
+}
