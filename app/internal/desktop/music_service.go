@@ -1440,8 +1440,6 @@ func (s *MusicService) getLyrics(ctx context.Context, track music.Track) (string
 	value, handled, extensionErr := s.dispatchLXExtension(ctx, firstNonEmpty(track.LXSourceKey, track.SourceID), "lyric", map[string]any{"musicInfo": track, "track": track})
 	if err := ctx.Err(); err != nil { return "", err }
 	// Lyrics are owned exclusively by the active QuickJS source Action.
-	// Do not silently fall back to the retired Go provider adapters: doing so
-	// would make production behavior differ from the script runtime contract.
 	if errors.Is(extensionErr, context.Canceled) || ctx.Err() != nil {
 		if extensionErr != nil { return "", extensionErr }
 		return "", ctx.Err()
