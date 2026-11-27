@@ -229,7 +229,7 @@ func (r *productionMusicLXRuntime) testScript(ctx context.Context, id string) (L
 		}
 	}
 	r.mu.Lock(); defer r.mu.Unlock()
-	for i := range r.scripts { if r.scripts[i].ID == id { r.scripts[i].SourceActions = cloneLXSourceActions(selected.SourceActions); r.scripts[i].LastTest = cloneLXScriptTestResult(&result); if err := r.persistLocked(); err != nil { return result, fmt.Errorf("persist latest LX test result: %w", err) }; return result, nil } }
+	for i := range r.scripts { if r.scripts[i].ID == id { r.scripts[i].SourceActions = cloneLXSourceActions(selected.SourceActions); r.scripts[i].ObfuscationCache = selected.ObfuscationCache; r.scripts[i].LastTest = cloneLXScriptTestResult(&result); if err := r.persistLocked(); err != nil { return result, fmt.Errorf("persist latest LX test result: %w", err) }; return result, nil } }
 	return result, fmt.Errorf("LX script %q was deleted while its test was running", id)
 }
 func containsLXAction(actions []string, expected string) bool { for _, action := range actions { if action == expected { return true } }; return false }
