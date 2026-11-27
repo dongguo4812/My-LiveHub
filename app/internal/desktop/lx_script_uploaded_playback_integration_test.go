@@ -104,6 +104,7 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 			var success bool
 			var upstreamIPBlocked bool
 			var otherPlaybackFailure bool
+			var mediaEndpointUnavailable bool
 			var failures []string
 			for _, query := range []string{"稻香", "晴天"} {
 				if success {
@@ -197,7 +198,11 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 						}
 						if requestErr != nil {
 							probeCancel()
-							otherPlaybackFailure = true
+							if isLXMediaEndpointUnavailable(requestErr) {
+								mediaEndpointUnavailable = true
+							} else {
+								otherPlaybackFailure = true
+							}
 							failures = append(failures, sourceID+"/"+quality+" media probe: "+requestErr.Error())
 							continue
 						}
@@ -229,6 +234,9 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 				if upstreamIPBlocked { break }
 			}
 			if !success {
+				if mediaEndpointUnavailable && !otherPlaybackFailure {
+					t.Skipf("QQ search and musicUrl resolved, but the returned upstream media endpoint is unreachable from the CI runner; real audio bytes and HTMLAudio playback cannot be verified in this run: %s", strings.Join(failures, " | "))
+				}
 				if upstreamIPBlocked && !otherPlaybackFailure && strings.Contains(strings.ToLower(filename), "v8") {
 					t.Skipf("script imported and its actions were recognized, but the upstream v8 service explicitly blocks the GitHub CI runner IP; live playback cannot be verified from this network: %s", strings.Join(failures, " | "))
 				}
@@ -237,6 +245,19 @@ func TestProductionLXUploadedScriptsResolveRealPlaybackURL(t *testing.T) {
 		})
 	}
 	t.Run("playlist_first_and_repeated_click_timing", TestProductionLXPlaylistFirstAndRepeatedClickTiming)
+}
+
+
+// isLXMediaEndpointUnavailable distinguishes an unreachable upstream media
+// host from a broken musicUrl contract. The former is an external outage and
+// must be reported as a skipped live-media check, never as a passing playback.
+func isLXMediaEndpointUnavailable(err error) bool {
+	if err == nil { return false }
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "connectex:") ||
+		strings.Contains(message, "i/o timeout") ||
+		strings.Contains(message, "context deadline exceeded") ||
+		strings.Contains(message, "client.timeout exceeded")
 }
 
 func errorTextForLXTest(err error) string {
