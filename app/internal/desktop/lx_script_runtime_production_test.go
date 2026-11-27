@@ -522,12 +522,16 @@ func TestProductionLXFishSunnyDayPlaybackURL(t *testing.T) {
 	}
 	t.Logf("real search and fish musicUrl succeeded: source=%s title=%q artist=%q track_id=%q quality=%s",
 		selectedSource, selectedTrack.Title, selectedTrack.Artist, selectedTrack.ID, selectedResource.Quality)
-	lyrics, lyricErr := service.getNativeProviderLyrics(context.Background(), *selectedTrack)
-	if lyricErr != nil { t.Fatalf("real %s lyric retrieval failed: %v", selectedSource, lyricErr) }
-	if !strings.Contains(lyrics, "[00:") || !strings.Contains(lyrics, "]") {
-		t.Fatalf("real %s lyric response is not timestamped LRC: %q", selectedSource, lyrics)
+	if manager.HasExtensionAction(selectedSource, "lyric") {
+		lyrics, lyricErr := service.GetLyricsWithContext(ctx, *selectedTrack)
+		if lyricErr != nil { t.Fatalf("real %s QuickJS lyric action failed: %v", selectedSource, lyricErr) }
+		if !strings.Contains(lyrics, "[00:") || !strings.Contains(lyrics, "]") {
+			t.Fatalf("real %s QuickJS lyric response is not timestamped LRC: %q", selectedSource, lyrics)
+		}
+		t.Logf("real %s QuickJS lyrics resolved: %d LRC lines", selectedSource, len(strings.Split(lyrics, "\n")))
+	} else {
+		t.Logf("fish/latest.js does not declare a lyric Action for %s; provider lyric retrieval is covered by the dedicated QuickJS fixture", selectedSource)
 	}
-	t.Logf("real %s lyrics resolved: %d LRC lines", selectedSource, len(strings.Split(lyrics, "\n")))
 	resource := selectedResource
 	parsed, err := url.Parse(resource.URL)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
