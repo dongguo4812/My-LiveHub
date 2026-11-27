@@ -238,8 +238,8 @@ func TestProductionLXBundledSearchActionPropagatesHTTPFailuresAndCancellation(t 
 				if dispatchErr == nil || (dispatchErr != context.Canceled && !strings.Contains(dispatchErr.Error(), "context canceled")) {
 					t.Fatalf("%s cancellation was not propagated: %v", sourceID, dispatchErr)
 				}
-				if sourceID == "tx" && slowStarted.Load() != before+1 {
-					t.Fatalf("QQ cancellation started a legacy fallback request; request count=%d, want %d", slowStarted.Load()-before, 1)
+				if (sourceID == "tx" || sourceID == "mg") && slowStarted.Load() != before+1 {
+					t.Fatalf("%s cancellation started a fallback request; request count=%d, want %d", sourceID, slowStarted.Load()-before, 1)
 				}
 			case <-time.After(2 * time.Second):
 				cancel()
