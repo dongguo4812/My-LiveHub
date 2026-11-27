@@ -45,13 +45,14 @@ func newLXHTTPTasksWithPolicy(client *http.Client, allowPrivate bool) *lxHTTPTas
 	}
 }
 
-func newLXHTTPTasksWithSafeClient(client *http.Client) *lxHTTPTasks {
+func newLXHTTPTasksWithSafeClient(client *http.Client, allowPrivate bool) *lxHTTPTasks {
 	if client == nil { client = http.DefaultClient }
 	return &lxHTTPTasks{
 		client: client,
 		safeClient: client,
 		active: make(map[uint64]context.CancelFunc),
 		completed: make(chan lxHTTPCompletion, 256),
+		allowPrivateNetwork: allowPrivate,
 	}
 }
 
