@@ -177,7 +177,7 @@ func (s *MusicService) ReportHTMLAudioEvent(sessionID uint64, event string, posi
 			s.mu.RLock()
 			startedAt, attemptAt := s.musicStartedAt, s.playbackAttemptStartedAt
 			s.mu.RUnlock()
-			if !attemptAt.IsZero() {
+			if !attemptAt.IsZero() && !startedAt.IsZero() {
 				log.Printf("[Music-Timing] stage=first_playback_started since_module_start_ms=%.3f playback_request_ms=%.3f", float64(time.Since(startedAt))/float64(time.Millisecond), float64(time.Since(attemptAt))/float64(time.Millisecond))
 			}
 		})
@@ -389,7 +389,7 @@ func (s *MusicService) logFirstSearchResult(startedAt time.Time, source string, 
 		if !moduleStartedAt.IsZero() {
 			log.Printf("[Music-Timing] stage=first_search_result since_module_start_ms=%.3f request_duration_ms=%.3f source=%q tracks=%d result=%q error=%q",
 				float64(time.Since(moduleStartedAt))/float64(time.Millisecond),
-				float64(time.Since(startedAt))/float64(time.Millisecond), source, tracks, result, errorText(err))
+				float64(time.Since(startedAt))/float64(time.Millisecond), source, tracks, result, musicTimingErrorText(err))
 		} else {
 			log.Printf("[Music-Timing] stage=first_search_result request_duration_ms=%.3f source=%q tracks=%d result=%q error=%q",
 				float64(time.Since(startedAt))/float64(time.Millisecond), source, tracks, result, errorText(err))
@@ -397,7 +397,7 @@ func (s *MusicService) logFirstSearchResult(startedAt time.Time, source string, 
 	})
 }
 
-func errorText(err error) string {
+func musicTimingErrorText(err error) string {
 	if err == nil { return "" }
 	return err.Error()
 }
