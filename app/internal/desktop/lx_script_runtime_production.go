@@ -183,6 +183,14 @@ func (r *productionMusicLXRuntime) testScript(ctx context.Context, id string) (L
 			result.Platforms = append(result.Platforms, item)
 			continue
 		}
+		// 洛雪 local 是本地文件源，不属于在线音源搜索范围。
+		// 保留其能力声明，但不将它送入 QuickJS 在线搜索 Action。
+		if platform == "local" {
+			item.Status = "unsupported"
+			item.Message = "搜索失败：local QuickJS 搜索Action不支持该音源"
+			result.Platforms = append(result.Platforms, item)
+			continue
+		}
 		for _, source := range searcher.Sources() { if source.ID == platform { item.Name = source.Name; break } }
 		page, searchErr := unified.SearchSource(ctx, platform, "稻香 周杰伦", 1)
 		if searchErr != nil { item.Message = "搜索失败：" + searchErr.Error(); result.Platforms = append(result.Platforms, item); continue }
