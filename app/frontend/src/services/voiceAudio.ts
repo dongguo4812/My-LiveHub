@@ -125,6 +125,24 @@ export async function restoreVoiceAudioPreference() {
   }
 }
 
+// Turn audio output off, clear pending speech, and persist the disabled preference.
+export async function disableVoiceAudioAndForget() {
+  const config = await VoiceService.GetConfig()
+  config.audio_output_enabled = false
+  await VoiceService.SaveConfig(config)
+
+  stopVoiceAudio()
+  if (context?.state === 'running') {
+    try {
+      await context.suspend()
+    } catch {
+      // Keep the exported state tied to the actual AudioContext state.
+    }
+  }
+  voiceAudioUnlocked.value = context?.state === 'running'
+  return !voiceAudioUnlocked.value
+}
+
 export async function pauseVoiceAudio() {
   if (context?.state === 'running') await context.suspend()
   voiceAudioUnlocked.value = context?.state === 'running'
