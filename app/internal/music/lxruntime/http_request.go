@@ -12,6 +12,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
+	"sort"
 	"strings"
 	"time"
 )
@@ -151,6 +153,7 @@ func executeLXHTTPRequestWithPolicy(parent context.Context, descriptor lxRequest
 		}
 	}
 	statusMessage := strings.TrimPrefix(resp.Status, fmt.Sprintf("%d ", resp.StatusCode))
+	traceLXHTTPRequestResponse(parsed.Host, resp, parsedBody, len(raw))
 	return &lxHTTPResponse{
 		StatusCode: resp.StatusCode, StatusMessage: statusMessage,
 		Headers: headers, Bytes: len(raw), Raw: raw, Body: parsedBody,
@@ -296,4 +299,49 @@ func validHTTPToken(value string) bool {
 		}
 	}
 	return true
+}
+
+
+// traceLXHTTPRequestResponse emits host-only diagnostics for an explicitly
+// opted-in integration test. It never logs URL paths, query strings, headers,
+// cookies, request bodies, or response values.
+func traceLXHTTPRequestResponse(requestHost string, response *http.Response, body any, responseBytes int) {
+	if os.Getenv("MYLIVEHUB_LX_HTTP_TRACE") != "1" {
+		return
+	}
+	hosts := make(map[string]struct{})
+	var visit func(any)
+	visit = func(value any) {
+		switch item := value.(type) {
+		case string:
+			candidate := strings.TrimSpace(item)
+			if !strings.HasPrefix(strings.ToLower(candidate), "http://") && !strings.HasPrefix(strings.ToLower(candidate), "https://") {
+				return
+			}
+			parsed, err := url.Parse(candidate)
+			if err == nil && parsed.Hostname() != "" {
+				hosts[strings.ToLower(parsed.Hostname())] = struct{}{}
+			}
+		case []any:
+			for _, child := range item {
+				visit(child)
+			}
+		case map[string]any:
+			for _, child := range item {
+				visit(child)
+			}
+		}
+	}
+	visit(body)
+	returnedHosts := make([]string, 0, len(hosts))
+	for host := range hosts {
+		returnedHosts = append(returnedHosts, host)
+	}
+	sort.Strings(returnedHosts)
+	finalHost := requestHost
+	if response != nil && response.Request != nil && response.Request.URL != nil && response.Request.URL.Hostname() != "" {
+		finalHost = response.Request.URL.Hostname()
+	}
+	fmt.Printf("[LX_HTTP_TRACE] request_host=%s final_host=%s status=%d bytes=%d returned_url_hosts=%s\n",
+		requestHost, finalHost, response.StatusCode, responseBytes, strings.Join(returnedHosts, ","))
 }
