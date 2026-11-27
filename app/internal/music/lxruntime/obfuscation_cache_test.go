@@ -8,7 +8,7 @@ import (
 )
 
 func cacheableObfuscatedFixture() string {
-	return "(function(){var _0x5b6cec=[];while(!![]){try{const _0x3d2c58=parseInt(value);break;}catch(_0x4bc586){_0x5b6cec['push'](_0x5b6cec['shift']());}}}(a0_0x223d,);})();"
+	return "(function(){var _0x5b6cec=[];while(!![]){try{const _0x3d2c58=parseInt(value);if(_0x3d2c58===target)break;else _0x5b6cec['push'](_0x5b6cec['shift']());}catch(_0x4bc586){_0x5b6cec['push'](_0x5b6cec['shift']());}}}(a0_0x223d,);})();"
 }
 
 func TestPrepareLXObfuscationCacheSourceMissInstrumentsRotationCount(t *testing.T) {
@@ -20,8 +20,8 @@ func TestPrepareLXObfuscationCacheSourceMissInstrumentsRotationCount(t *testing.
 	if !strings.Contains(prepared, "globalThis."+lxObfuscationCacheGlobal+"=0;while(!![])") {
 		t.Fatalf("cache miss did not initialize rotation counter before loop: %s", prepared)
 	}
-	if !strings.Contains(prepared, "globalThis."+lxObfuscationCacheGlobal+"++;_0x5b6cec['push']") {
-		t.Fatalf("cache miss did not count each array rotation: %s", prepared)
+	if strings.Count(prepared, "globalThis."+lxObfuscationCacheGlobal+"++;_0x5b6cec['push']") != 2 {
+		t.Fatalf("cache miss must count both checksum and catch rotations: %s", prepared)
 	}
 }
 
