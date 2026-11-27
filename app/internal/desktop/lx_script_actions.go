@@ -103,7 +103,7 @@ func normalizeLXScriptSearchResult(source, keyword string, page int, value any) 
   if track.SourceData==nil{track.SourceData=map[string]string{}}
   for _,key:=range []string{"songmid","song_id","songId","songid","hash","filehash","FileHash","rid","album_id","media_mid","copyright_id","mrc_url","lrc_url","trc_url"}{if v:=scriptString(fields,key);v!=""{track.SourceData[key]=v}}
   // Preserve provider-native identifiers even when a community script only
-  // returns its conventional id field. Native lyric adapters need these
+  // returns its conventional id field. The active source script may need these
   // values after the search result has crossed the JS/Go boundary.
   if source=="tx" && track.SourceData["song_id"]=="" && track.SourceData["songmid"]=="" {
    id:=firstNonEmpty(track.SourceData["songId"],track.SourceData["songid"],nativeID)
