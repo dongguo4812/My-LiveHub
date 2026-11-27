@@ -2,6 +2,12 @@ name: Publish pinned QuickJS runtime
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - dev
+    paths:
+      - '.github/workflows/publish-quickjs-runtime.yml'
+      - 'app/internal/music/lxruntime/native/**'
 
 permissions:
   contents: write
@@ -9,7 +15,9 @@ permissions:
 jobs:
   publish-runtime:
     name: Build and publish QuickJS-NG runtime
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master'
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/dev')
     runs-on: windows-latest
     steps:
       - name: Checkout master
