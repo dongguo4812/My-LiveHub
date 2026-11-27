@@ -139,9 +139,6 @@ func (r *productionMusicLXRuntime) testScript(ctx context.Context, id string) (L
 		selected.ObfuscationCache = &cacheCopy
 	}
 	// Re-run the real QuickJS handshake for every test. Persisted action
-	// snapshots can be stale after script upgrades; testing against them can
-	// report false missing-search/lyric failures for providers that now declare
-	// those actions in inited.sources.
 	capabilities, capabilityErr := lxruntime.DetectLXScriptCapabilitiesWithCache(ctx, lxruntime.ScriptInfo{Name:selected.Name, Description:selected.Description, Version:selected.Version, Author:selected.Author, Homepage:selected.Homepage, RawScript:selected.Source}, selected.Source, nil, selected.ObfuscationCache)
 	if capabilityErr != nil {
 		result.Status = "failed"
@@ -169,7 +166,6 @@ func (r *productionMusicLXRuntime) testScript(ctx context.Context, id string) (L
 	unified := music.NewUnifiedSourceService(searcher, adapter)
 	// Include every platform declared by the script, even when it does not
 	// expose musicUrl. Keep the action map as a compatibility fallback for
-	// older stored scripts whose SupportedSources snapshot is empty.
 	platformSet := make(map[string]struct{}, len(selected.SupportedSources)+len(selected.SourceActions))
 	for _, platform := range selected.SupportedSources {
 		if strings.TrimSpace(platform) != "" { platformSet[platform] = struct{}{} }
@@ -271,9 +267,6 @@ func (r *productionMusicLXRuntime) loadStoreLocked() error {
 		return nil
 	}
 	if len(scripts) > 32 { return fmt.Errorf("LX script store contains %d entries; maximum is 32", len(scripts)) }
-	// Validate persisted source identities before resolving legacy multiple-enabled
-	// stores. Otherwise a tampered script could be hidden by the single-active
-	// normalization and lose its actionable hash-verification error.
 	for i := range scripts {
 		digest := sha256.Sum256([]byte(scripts[i].Source))
 		if scripts[i].ID != hex.EncodeToString(digest[:]) {
@@ -281,8 +274,6 @@ func (r *productionMusicLXRuntime) loadStoreLocked() error {
 			scripts[i].LastError = "stored script hash does not match executable source"
 		}
 	}
-	// Enforce the single-active-script invariant when restoring legacy stores.
-	// If older data contains multiple valid enabled scripts, the last enabled entry wins.
 	active := -1
 	for i := range scripts {
 		if scripts[i].Enabled { active = i }
