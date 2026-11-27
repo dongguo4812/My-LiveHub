@@ -104,7 +104,7 @@ const activeMusicLyric = computed(() => {
   return getActiveSyncedLyric(syncedLyrics.value, playback.value?.position_ms ?? 0) ?? { text: '', translation: '' }
 })
 const waveBars = Array.from({ length: 31 }, (_, index) => ({ height: 7 + Math.abs(Math.sin(index * 1.71) * 24), speed: 0.45 + (index % 7) * 0.13, delay: -(Math.random() * 1.8) }))
-const musicColors = ['#FF3B30', '#FF7A00', '#FFD000', '#39D353', '#00D6C9', '#00A6FF', '#4169FF', '#9B5CFF', '#FF4FA3', '#FF6B6B']
+const musicColors = ['#FF5C5C', '#FF963B', '#FFE14A', '#78E65A', '#45E0C1', '#43C8FF', '#82A8FF', '#B58BFF', '#FF79C6', '#FF8A70']
 let source: EventSource | undefined
 let clockTimer: ReturnType<typeof setInterval> | undefined
 let sceneRefreshTimer: ReturnType<typeof setInterval> | undefined
