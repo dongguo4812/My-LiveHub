@@ -5,8 +5,8 @@ package lxruntime
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"strings"
 	"strconv"
+	"strings"
 )
 
 // LXObfuscationCache stores the result needed to bypass a previously
