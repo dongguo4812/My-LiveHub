@@ -98,18 +98,15 @@ func lxSafeHTTPClientWithResolver(client *http.Client, allowPrivate bool, resolv
 			if err != nil {
 				return nil, err
 			}
-			connectStarted := time.Now()
 			var failures []string
 			for _, ip := range ips {
 				conn, dialErr := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
 				if dialErr == nil {
-					logLXTiming("http_connect", connectStarted, fmt.Sprintf("request_id=%d host=%q result=ok", lxTimingRequestID(ctx), host))
 					return conn, nil
 				}
 				failures = append(failures, dialErr.Error())
 			}
 			connectErr := fmt.Errorf("lx.request: connect failed: %s", strings.Join(failures, "; "))
-			logLXTiming("http_connect", connectStarted, fmt.Sprintf("request_id=%d host=%q result=%s", lxTimingRequestID(ctx), host, timingResult(connectErr)))
 			return nil, connectErr
 		}
 		clone.Transport = safeTransport
@@ -202,22 +199,6 @@ func validateLXDestinationWithPolicy(ctx context.Context, target *url.URL, allow
 }
 
 func validateLXPlaybackURL(ctx context.Context, target *url.URL) error {
-	if ctx == nil { ctx = context.Background() }
-	started := time.Now()
-	host := ""
-	if target != nil { host = target.Host }
-	defer func() {
-		logLXTiming("playback_url_validation", started, fmt.Sprintf("host=%q", host))
-	}()
-	semaphoreStarted := time.Now()
-	select {
-	case lxRequestSemaphore <- struct{}{}:
-		logLXTiming("playback_validation_semaphore_wait", semaphoreStarted, fmt.Sprintf("host=%q result=ok", host))
-		defer func() { <-lxRequestSemaphore }()
-	case <-ctx.Done():
-		logLXTiming("playback_validation_semaphore_wait", semaphoreStarted, fmt.Sprintf("host=%q result=%s", host, timingResult(ctx.Err())))
-		return ctx.Err()
-	}
 	return validateLXDestinationWithPolicy(ctx, target, false)
 }
 
@@ -268,14 +249,11 @@ func resolveLXHostWithResolver(ctx context.Context, host string, allowPrivate bo
 	if isNonCanonicalIPv4Host(host) {
 		return nil, fmt.Errorf("lx.request: non-canonical numeric IPv4 host is not allowed: %s", host)
 	}
-	dnsStarted := time.Now()
 	ips, err := resolver.LookupNetIP(ctx, "ip", host)
 	if err != nil {
 		wrapped := fmt.Errorf("lx.request: resolve destination: %w", err)
-		logLXTiming("http_dns_lookup", dnsStarted, fmt.Sprintf("request_id=%d host=%q result=%s", lxTimingRequestID(ctx), host, timingResult(wrapped)))
 		return nil, wrapped
 	}
-	logLXTiming("http_dns_lookup", dnsStarted, fmt.Sprintf("request_id=%d host=%q addresses=%d result=ok", lxTimingRequestID(ctx), host, len(ips)))
 	if len(ips) == 0 {
 		return nil, errors.New("lx.request: destination has no IP addresses")
 	}
