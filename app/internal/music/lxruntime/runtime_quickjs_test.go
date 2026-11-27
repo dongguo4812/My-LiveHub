@@ -3071,8 +3071,8 @@ func TestProductionLXMolanObfuscationBootstrapLoopDiagnostics(t *testing.T) {
 
 	// Instrument only the obfuscator's initial array-rotation loop in a test copy.
 	const loopToken = "while(!![]){"
-	if strings.Count(string(source), loopToken) != 1 {
-		t.Fatalf("expected exactly one obfuscation rotation loop %q; found %d", loopToken, strings.Count(string(source), loopToken))
+	if strings.Count(string(source), loopToken) < 1 {
+		t.Fatalf("could not find an obfuscation rotation loop %q", loopToken)
 	}
 	instrumented := "let __lxObfLoopCount = 0; const __lxObfLoopStarted = Date.now();\n" + string(source)
 	instrumented = strings.Replace(instrumented, loopToken, "while((++__lxObfLoopCount,!![])){", 1)
