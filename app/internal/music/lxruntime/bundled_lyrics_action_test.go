@@ -29,6 +29,11 @@ func TestProductionLXBundledLyricsActionsUseQuickJSForAllFivePlatforms(t *testin
    _ = json.NewEncoder(w).Encode(map[string]any{"lrc":map[string]any{"lyric":"[00:01.00]WY original"},"tlyric":map[string]any{"lyric":"[00:01.00]WY translation"}})
   case "/mg":
    _, _ = w.Write([]byte("[00:01.00]MG original\n[00:01.00]MG next"))
+  case "/kw-fallback":
+   _ = json.NewEncoder(w).Encode(map[string]any{"data":map[string]any{"lrclist":[]any{
+    map[string]any{"time":"0.5","lineLyric":"KW half second"},
+    map[string]any{"time":"73.45","lineLyric":"KW minute thirteen"},
+   }}})
   case "/empty":
    _ = json.NewEncoder(w).Encode(map[string]any{"data":map[string]any{"lrclist":[]any{}}})
   default:
@@ -51,7 +56,7 @@ func TestProductionLXBundledLyricsActionsUseQuickJSForAllFivePlatforms(t *testin
  if err := json.Unmarshal([]byte(capabilities),&declared); err != nil { t.Fatal(err) }
 
  endpoints := map[string]string{
-  "kw":server.URL+"/kw", "kgSearch":server.URL+"/kg-search", "kgDownload":server.URL+"/kg-download",
+  "kw":server.URL+"/kw", "kwFallback":server.URL+"/kw-fallback", "kgSearch":server.URL+"/kg-search", "kgDownload":server.URL+"/kg-download",
   "tx":server.URL+"/tx", "wy":server.URL+"/wy", "mg":server.URL+"/mg",
  }
  tracks := map[string]map[string]any{
@@ -80,7 +85,23 @@ func TestProductionLXBundledLyricsActionsUseQuickJSForAllFivePlatforms(t *testin
  }
  if kugouDownloads != 1 { t.Fatalf("Kugou lyric download requests=%d, want 1",kugouDownloads) }
 
- emptyEndpoints := map[string]string{"kw":server.URL+"/empty"}
+ // The mobile endpoint can return data:null/empty for valid songs. Verify the
+ // fallback endpoint and conversion from decimal seconds to LRC timestamps.
+ fallbackCtx, fallbackCancel := context.WithTimeout(context.Background(),5*time.Second)
+ fallback, fallbackErr := runtime.dispatchLXRequest(fallbackCtx,"kw","lyric",map[string]any{
+  "musicInfo":map[string]any{"id":"kw_kuwo-fallback","source_data":map[string]any{"songmid":"MUSIC_kuwo-fallback"}},
+  "__testEndpoints":map[string]string{"kw":server.URL+"/empty","kwFallback":server.URL+"/kw-fallback"},
+ },server.Client())
+ fallbackCancel()
+ if fallbackErr != nil { t.Fatalf("Kuwo fallback lyric request failed: %v",fallbackErr) }
+ fallbackJSON,_ := json.Marshal(fallback)
+ var fallbackResult struct { Lyric string `json:"lyric"` }
+ if err := json.Unmarshal(fallbackJSON,&fallbackResult); err != nil { t.Fatal(err) }
+ if !strings.Contains(fallbackResult.Lyric,"[00:00.50]KW half second") || !strings.Contains(fallbackResult.Lyric,"[01:13.45]KW minute thirteen") {
+  t.Fatalf("Kuwo decimal-second timestamps were not normalized: %q",fallbackResult.Lyric)
+ }
+
+ emptyEndpoints := map[string]string{"kw":server.URL+"/empty","kwFallback":server.URL+"/empty"}
  emptyCtx, emptyCancel := context.WithTimeout(context.Background(),5*time.Second)
  empty, emptyErr := runtime.dispatchLXRequest(emptyCtx,"kw","lyric",map[string]any{
   "musicInfo":map[string]any{"id":"kw-empty","songmid":"kw-empty"},"__testEndpoints":emptyEndpoints,
