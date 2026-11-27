@@ -22,6 +22,7 @@ type lxHTTPCompletion struct {
 // the cancellation function returned by lx.request().
 type lxHTTPTasks struct {
 	client    *http.Client
+	safeClient *http.Client
 	active    map[uint64]context.CancelFunc
 	completed chan lxHTTPCompletion
 	wg        sync.WaitGroup
@@ -44,6 +45,16 @@ func newLXHTTPTasksWithPolicy(client *http.Client, allowPrivate bool) *lxHTTPTas
 	}
 }
 
+func newLXHTTPTasksWithSafeClient(client *http.Client) *lxHTTPTasks {
+	if client == nil { client = http.DefaultClient }
+	return &lxHTTPTasks{
+		client: client,
+		safeClient: client,
+		active: make(map[uint64]context.CancelFunc),
+		completed: make(chan lxHTTPCompletion, 256),
+	}
+}
+
 func (t *lxHTTPTasks) start(parent context.Context, requests []lxRequestDescriptor) error {
 	for _, request := range requests {
 		if _, exists := t.active[request.ID]; exists {
@@ -54,7 +65,13 @@ func (t *lxHTTPTasks) start(parent context.Context, requests []lxRequestDescript
 		t.wg.Add(1)
 		go func(request lxRequestDescriptor, requestCtx context.Context) {
 			defer t.wg.Done()
-			response, err := executeLXHTTPRequestWithPolicy(requestCtx, request, t.client, t.allowPrivateNetwork)
+			var response *lxHTTPResponse
+			var err error
+			if t.safeClient != nil {
+				response, err = executeLXHTTPRequestWithSafeClient(requestCtx, request, t.client, t.allowPrivateNetwork, t.safeClient)
+			} else {
+				response, err = executeLXHTTPRequestWithPolicy(requestCtx, request, t.client, t.allowPrivateNetwork)
+			}
 			completedAt := time.Now()
 			select {
 			case t.completed <- lxHTTPCompletion{id: request.ID, response: response, err: err, completedAt: completedAt}:
