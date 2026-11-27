@@ -70,7 +70,7 @@ func prepareLXObfuscationCacheSource(source string, cache *LXObfuscationCache) (
 		// Keep one final checksum/decode pass. It verifies the cached array
 		// position and repopulates the decoder's per-runtime string memoization.
 		verifyOnce := "for(let __myLiveHubObfVerify=0;__myLiveHubObfVerify<1;__myLiveHubObfVerify++){"
-		return source[:start] + preRotate + verifyOnce + source[loopOpen[1]:end[1]], true, true
+		return source[:start] + preRotate + verifyOnce + source[loopOpen[1]:end[1]] + source[end[1]:], true, true
 	}
 
 	// Count actual catch/rotation executions during the first successful eval.
