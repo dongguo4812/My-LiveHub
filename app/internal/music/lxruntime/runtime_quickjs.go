@@ -96,8 +96,6 @@ func openQuickJSAPI() (*quickJSAPI, error) {
 		if err := bind(item.target, item.name); err != nil { return nil, fmt.Errorf("resolve QuickJS symbol %s: %w", item.name, err) }
 	}
 	if err := bind(&api.evalTimed, "lxqjs_eval_timed"); err != nil {
-		// Older bundled LX ABI 1 libraries expose lxqjs_eval but predate
-		// the timing extension. Keep them usable; timing fields remain zero.
 		if legacyErr := bind(&api.evalLegacy, "lxqjs_eval"); legacyErr != nil {
 			return nil, fmt.Errorf("resolve QuickJS eval symbols: timed API unavailable (%v), legacy API unavailable (%w)", err, legacyErr)
 		},
