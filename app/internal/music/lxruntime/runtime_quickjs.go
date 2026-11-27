@@ -57,7 +57,7 @@ type quickJSAPI struct {
 	newRuntime func(uintptr, uintptr, *unsafe.Pointer) unsafe.Pointer
 	freeRuntime func(unsafe.Pointer)
 	setInterrupted func(unsafe.Pointer, int32)
-	eval func(unsafe.Pointer, unsafe.Pointer, unsafe.Pointer, *unsafe.Pointer) unsafe.Pointer
+	eval func(unsafe.Pointer, unsafe.Pointer, unsafe.Pointer, *unsafe.Pointer, *float64, *float64, *float64) unsafe.Pointer
 	installCrypto func(unsafe.Pointer, *unsafe.Pointer) int32
 	freeString func(unsafe.Pointer)
 	alloc func(uintptr) unsafe.Pointer
@@ -87,7 +87,7 @@ func openQuickJSAPI() (*quickJSAPI, error) {
 	bind := func(target any, symbol string) error { return lib.bind(target, symbol) }
 	for _, item := range []struct{ target any; name string }{
 		{&api.newRuntime, "lxqjs_new"}, {&api.freeRuntime, "lxqjs_free"},
-		{&api.setInterrupted, "lxqjs_set_interrupted"}, {&api.eval, "lxqjs_eval"},
+		{&api.setInterrupted, "lxqjs_set_interrupted"}, {&api.eval, "lxqjs_eval_timed"},
 		{&api.installCrypto, "lxqjs_install_crypto"}, {&api.freeString, "lxqjs_string_free"},
 		{&api.alloc, "lxqjs_alloc"}, {&api.dealloc, "lxqjs_dealloc"},
 		{&api.setCallbacks, "lxqjs_set_host_callbacks"},
@@ -186,7 +186,9 @@ func (r *Runtime) loop(opts Options, ready chan<- error) {
 		sourcePtr := r.allocCString(cmd.source)
 		filenamePtr := r.allocCString(cmd.filename)
 		var evalError unsafe.Pointer
-		value := r.api.eval(state, sourcePtr, filenamePtr, &evalError)
+		var compileMS, executeMS, jobsMS float64
+		value := r.api.eval(state, sourcePtr, filenamePtr, &evalError, &compileMS, &executeMS, &jobsMS)
+		log.Printf("[LX-Timing] stage=quickjs_eval_phases filename=%q compile_ms=%.3f execute_ms=%.3f promise_jobs_ms=%.3f", cmd.filename, compileMS, executeMS, jobsMS)
 		r.api.dealloc(sourcePtr)
 		r.api.dealloc(filenamePtr)
 		close(stopWatch)
