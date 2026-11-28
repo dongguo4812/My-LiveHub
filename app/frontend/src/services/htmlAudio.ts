@@ -279,6 +279,7 @@ async function execute(command: Command) {
       break
     case 'volume':
       userVolume = Math.min(1, Math.max(0, command.volume ?? userVolume))
+      if (userVolume > 0) lastAudibleVolume = userVolume
       if (webAudioAttached && outputGain) outputGain.gain.value = userVolume
       else audio.volume = userVolume
       break
