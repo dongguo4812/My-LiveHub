@@ -1,9 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import MusicNavigation from '../components/MusicNavigation.vue'
-import { useRouter } from 'vue-router'
 import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
-const router = useRouter()
 type LXScriptSummary = Awaited<ReturnType<typeof MusicService.ListLXScripts>>[number]
 const lxScripts = ref<LXScriptSummary[]>([])
 const lxScriptName = ref('')
@@ -125,7 +123,6 @@ async function deleteLXScript(script: LXScriptSummary) {
   catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
   finally { lxScriptBusy.value = false }
 }
-function goMusicTab(tab: string) { void router.push({ path: '/music', query: { tab } }) }
 onMounted(() => { void refreshLXScripts() })
 </script>
 <template>

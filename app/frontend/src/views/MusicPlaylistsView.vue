@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import MusicNavigation from '../components/MusicNavigation.vue'
+import { formatTrackDuration } from '../utils/music'
 import { useRoute, useRouter } from 'vue-router'
 import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
 
@@ -29,10 +30,7 @@ const filteredPlaylistTracks = computed(() => {
 })
 const sourceNames: Record<string,string> = { tx:'QQ 音乐',kw:'酷我音乐',kg:'酷狗音乐',wy:'网易云音乐',mg:'咪咕音乐' }
 function sourceName(id: string) { return sourceNames[id] ?? id }
-function duration(value?: number) {
-  const seconds = Math.floor(Math.max(0, Number(value ?? 0)) / 1000)
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2,'0')}`
-}
+
 async function refreshPlaylists(preferredID = selectedPlaylistID.value) {
   try {
     playlists.value = await MusicService.ListPlaylists()
@@ -131,7 +129,6 @@ function openReplace(track: PlaylistTrack) {
   if (!selectedPlaylist.value) return
   void router.push({ path:'/music/replace', query:{ playlist:selectedPlaylist.value.id, track:track.id, source:track.source_id } })
 }
-function goMusicTab(tab: string) { void router.push({ path:'/music', query:{ tab } }) }
 onMounted(() => { void refreshPlaylists(String(route.query.id ?? '')) })
 </script>
 
@@ -172,7 +169,7 @@ onMounted(() => { void refreshPlaylists(String(route.query.id ?? '')) })
             <el-table-column type="index" label="#" width="54" />
             <el-table-column label="歌曲" min-width="190"><template #default="scope"><div class="song-cell"><strong>{{ scope.row.title }}</strong><small>{{ scope.row.artist || '未知歌手' }}<span v-if="scope.row.album"> · {{ scope.row.album }}</span></small></div></template></el-table-column>
             <el-table-column label="音源" width="112"><template #default="scope">{{ sourceName(scope.row.source_id) }}</template></el-table-column>
-            <el-table-column label="时长" width="82"><template #default="scope">{{ duration(scope.row.duration_ms) }}</template></el-table-column>
+            <el-table-column label="时长" width="82"><template #default="scope">{{ formatTrackDuration(scope.row.duration_ms) }}</template></el-table-column>
             <el-table-column label="操作" min-width="230" fixed="right"><template #default="scope"><div class="row-actions"><el-button link type="success" @click="playTrack(scope.row)">播放</el-button><el-button link type="primary" @click="openReplace(scope.row)">换源</el-button><el-button link @click="moveTrack(scope.row,-1)">上移</el-button><el-button link @click="moveTrack(scope.row,1)">下移</el-button><el-button link type="danger" @click="removeTrack(scope.row)">删除</el-button></div></template></el-table-column>
           </el-table>
           <el-empty v-if="!selectedPlaylist.tracks.length" description="歌单为空" :image-size="68" />

@@ -24,10 +24,7 @@ const visibleCandidates = computed(() => candidates.value.filter(item => item.so
 const activeSourceError = computed(() => errors.value[activeSource.value] ?? '')
 const selectedSourceName = computed(() => sources.find(item => item.id === activeSource.value)?.name ?? activeSource.value)
 function sourceName(id: string) { return sources.find(item => item.id === id)?.name ?? id }
-function duration(value?: number) {
-  const seconds = Math.floor(Math.max(0, Number(value ?? 0)) / 1000)
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2,'0')}`
-}
+
 async function loadOriginal() {
   const playlistID = String(route.query.playlist ?? '')
   const trackID = String(route.query.track ?? '')
@@ -113,7 +110,7 @@ onMounted(async () => { await loadOriginal(); if (original.value) await searchAl
       <el-alert v-if="activeSourceError" :title="`${selectedSourceName}搜索失败：${activeSourceError}`" type="warning" :closable="false" show-icon />
       <el-table v-if="visibleCandidates.length" :data="visibleCandidates"  :row-key="candidateKey" highlight-current-row @current-change="selectCandidate" style="width:100%;margin-top:12px">
         <el-table-column label="选择" width="62"><template #default="scope"><el-button size="small" :type="selectedCandidate?.id === scope.row.id && selectedCandidate?.source_id === scope.row.source_id ? 'primary' : 'default'" @click="selectCandidate(scope.row)">选择</el-button></template></el-table-column>
-        <el-table-column prop="title" label="歌曲" min-width="170" /><el-table-column prop="artist" label="歌手" min-width="130" /><el-table-column prop="album" label="专辑" min-width="130" /><el-table-column label="音质" min-width="130"><template #default="scope">{{ qualityNames(scope.row) }}</template></el-table-column><el-table-column label="时长" width="82"><template #default="scope">{{ duration(scope.row.duration_ms) }}</template></el-table-column>
+        <el-table-column prop="title" label="歌曲" min-width="170" /><el-table-column prop="artist" label="歌手" min-width="130" /><el-table-column prop="album" label="专辑" min-width="130" /><el-table-column label="音质" min-width="130"><template #default="scope">{{ qualityNames(scope.row) }}</template></el-table-column><el-table-column label="时长" width="82"><template #default="scope">{{ formatTrackDuration(scope.row.duration_ms) }}</template></el-table-column>
         <el-table-column label="操作" width="90"><template #default="scope"><el-button link type="success" @click="previewCandidate(scope.row)">试听</el-button></template></el-table-column>
       </el-table>
       <el-empty v-else-if="!searching" :description="activeSourceError ? '该平台暂时无法返回结果' : '该平台没有找到候选歌曲'" :image-size="68" />

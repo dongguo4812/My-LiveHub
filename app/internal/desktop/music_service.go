@@ -1396,7 +1396,6 @@ func (s *MusicService) cacheLyrics(track music.Track, lyrics string) {
 	s.lyricsMu.Unlock()
 }
 
-func absFloat(value float64) float64 { if value < 0 { return -value }; return value }
 
 // GetPlaybackStatus returns the current playback engine snapshot. In production this is the local HTMLAudio state.
 func (s *MusicService) GetPlaybackStatus() (music.PlaybackSnapshot, error) {
