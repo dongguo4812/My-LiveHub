@@ -144,37 +144,50 @@ function handleMusicCoverError(event: Event) {
 }
 let mouthSyncChannel: BroadcastChannel | null = null
 let mouthSyncPollTimer: ReturnType<typeof setInterval> | undefined
+let mouthSyncRequest: AbortController | null = null
+let lastMouthSyncBroadcastAt = 0
 let currentMouthOpen = 0
+function applyMouthOpen(value: number) {
+  currentMouthOpen = value
+  document.querySelectorAll<HTMLIFrameElement>('.live2d-output-frame').forEach(frame => {
+    (frame.contentWindow as Live2DWindow | null)?.live2dSetMouthOpen?.(value)
+  })
+}
 async function pollMouthSync() {
   if (!live2DDisplay.value?.enabled) {
-    currentMouthOpen = 0
-    document.querySelectorAll<HTMLIFrameElement>('.live2d-output-frame').forEach(frame => {
-      (frame.contentWindow as Live2DWindow | null)?.live2dSetMouthOpen?.(0)
-    })
+    if (currentMouthOpen !== 0) applyMouthOpen(0)
     return
   }
+  // BroadcastChannel is the real-time path. Keep HTTP only as a compatibility
+  // fallback for browser sources that cannot receive the channel messages.
+  if (mouthSyncChannel && Date.now() - lastMouthSyncBroadcastAt < 1000) return
+  if (mouthSyncRequest) return
+  const controller = new AbortController()
+  const requestStartedAt = Date.now()
+  mouthSyncRequest = controller
   try {
-    const response = await fetch('/api/live2d/mouth', { cache: 'no-store' })
-    if (!response.ok) return
+    const response = await fetch('/api/live2d/mouth', { cache: 'no-store', signal: controller.signal })
+    if (!response.ok || controller.signal.aborted) return
     const data = await response.json() as { value?: number }
+    // Do not let a delayed HTTP response overwrite a newer BroadcastChannel value.
+    if (controller.signal.aborted || lastMouthSyncBroadcastAt > requestStartedAt) return
     const value = Math.max(0, Math.min(1, Number(data.value) || 0))
     if (Math.abs(value - currentMouthOpen) < 0.005) return
-    currentMouthOpen = value
-    document.querySelectorAll<HTMLIFrameElement>('.live2d-output-frame').forEach(frame => {
-      (frame.contentWindow as Live2DWindow | null)?.live2dSetMouthOpen?.(currentMouthOpen)
-    })
-  } catch { /* Keep the last received mouth value while the local relay reconnects. */ }
+    applyMouthOpen(value)
+  } catch {
+    // Keep the last received mouth value while the local relay reconnects.
+  } finally {
+    if (mouthSyncRequest === controller) mouthSyncRequest = null
+  }
 }
 function handleMouthSyncMessage(event: MessageEvent) {
   if (event.data?.type !== 'live2d-mouth-open') return
+  lastMouthSyncBroadcastAt = Date.now()
   if (!live2DDisplay.value?.enabled) {
-    currentMouthOpen = 0
+    if (currentMouthOpen !== 0) applyMouthOpen(0)
     return
   }
-  currentMouthOpen = Math.max(0, Math.min(1, Number(event.data.value) || 0))
-  document.querySelectorAll<HTMLIFrameElement>('.live2d-output-frame').forEach(frame => {
-    (frame.contentWindow as Live2DWindow | null)?.live2dSetMouthOpen?.(currentMouthOpen)
-  })
+  applyMouthOpen(Math.max(0, Math.min(1, Number(event.data.value) || 0)))
 }
 
 const danmaku = computed(() => liveEvents.value.filter(item => item.type === 'danmaku').slice(-8).reverse())
@@ -507,7 +520,7 @@ onMounted(() => {
   void loadMusicDisplayConfig()
   void loadLive2DDisplay()
   live2DRefreshTimer = setInterval(() => { void loadLive2DDisplay() }, 3000)
-  mouthSyncPollTimer = setInterval(() => { void pollMouthSync() }, 33)
+  mouthSyncPollTimer = setInterval(() => { void pollMouthSync() }, 500)
   void pollMouthSync()
   window.addEventListener('message', handleLive2DMessage)
   sceneRefreshTimer = setInterval(() => { void loadScene() }, 1000)
@@ -537,6 +550,9 @@ onUnmounted(() => {
   mouthSyncChannel?.close()
   mouthSyncChannel = null
   if (mouthSyncPollTimer) clearInterval(mouthSyncPollTimer)
+  mouthSyncPollTimer = undefined
+  mouthSyncRequest?.abort()
+  mouthSyncRequest = null
   source?.close()
   requestNoticeSource?.close()
   if (clockTimer) clearInterval(clockTimer)
