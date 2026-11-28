@@ -305,7 +305,7 @@ func main() {
 		wailsLogLevel = slog.LevelDebug
 	}
 	wailsHandler := slog.NewTextHandler(applicationLogger.Output(), &slog.HandlerOptions{Level: wailsLogLevel})
-	wailsLogger := slog.New(newWorkerSetupDiagnosticHandler(wailsHandler, environment, monitorService))
+	wailsLogger := slog.New(newWorkerSetupDiagnosticHandler(wailsHandler, string(environment), monitorService))
 	updateService := desktop.NewUpdateService(currentVersion, applicationPath, func() { if wailsApp != nil { wailsApp.Quit() } })
 	app := application.New(application.Options{
 		Logger: wailsLogger,
