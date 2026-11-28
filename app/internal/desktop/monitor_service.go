@@ -119,6 +119,8 @@ type MonitorService struct {
 	memorySampleCount uint64
 	lastMemorySampleAt time.Time
 	memorySamplerStarted bool
+	devToolsPort int
+	devToolsCaptureActive bool
 }
 
 func NewMonitorService(logDir string, additionalLogDirs ...string) *MonitorService {
