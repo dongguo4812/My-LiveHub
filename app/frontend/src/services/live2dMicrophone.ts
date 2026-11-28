@@ -133,28 +133,9 @@ export async function startLive2DMicrophone() {
         nextStream.getTracks().forEach(track => track.stop())
         return
       }
-      // TEMPORARY ISOLATION TEST: create the AudioWorkletNode, but do not connect it.
       stream = nextStream
       const context = new AudioContext()
       audioContext = context
-      await context.resume()
-      if (runGeneration !== generation) {
-        cleanupAudio()
-        return
-      }
-      await context.audioWorklet.addModule('/live2d-runtime/mic-processor.js')
-      if (runGeneration !== generation) {
-        cleanupAudio()
-        return
-      }
-      workletNode = new AudioWorkletNode(context, 'livehub-mic-analyser')
-      cleanupAudio()
-      state.active = false
-      state.level = 0
-      state.mouthOpen = 0
-      state.error = '临时隔离测试：AudioWorkletNode 已创建，音频节点连接已跳过'
-      sendMouth(0)
-      return
       await context.audioWorklet.addModule('/live2d-runtime/mic-processor.js')
       if (runGeneration !== generation) {
         cleanupAudio()
