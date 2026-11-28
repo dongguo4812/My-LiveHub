@@ -130,10 +130,11 @@ func (s *MonitorService) CaptureWebView2MemoryTrace() (RendererMemoryTraceResult
 	}); err != nil {
 		return RendererMemoryTraceResult{}, fmt.Errorf("启动 Chromium 内存跟踪失败：%w", err)
 	}
+	events := make([]json.RawMessage, 0, 256)
 	dumpResponse, err := sendDevToolsCommand(conn, 3, "Tracing.requestMemoryDump", map[string]any{
 		"deterministic": false,
 		"levelOfDetail": "detailed",
-	})
+	}, &events)
 	if err != nil {
 		_, _ = sendDevToolsCommand(conn, 4, "Tracing.end", map[string]any{})
 		return RendererMemoryTraceResult{}, fmt.Errorf("请求 Chromium 内存快照失败：%w", err)
@@ -150,7 +151,6 @@ func (s *MonitorService) CaptureWebView2MemoryTrace() (RendererMemoryTraceResult
 	if err := writeDevToolsCommand(conn, 4, "Tracing.end", map[string]any{}); err != nil {
 		return RendererMemoryTraceResult{}, fmt.Errorf("结束 Chromium 内存跟踪失败：%w", err)
 	}
-	events := make([]json.RawMessage, 0, 256)
 	endAcknowledged, tracingComplete := false, false
 	deadline := time.Now().Add(20 * time.Second)
 	for !endAcknowledged || !tracingComplete {
@@ -218,7 +218,7 @@ func writeDevToolsCommand(conn *websocket.Conn, id int, method string, params an
 	return conn.WriteJSON(map[string]any{"id": id, "method": method, "params": params})
 }
 
-func sendDevToolsCommand(conn *websocket.Conn, id int, method string, params any) (json.RawMessage, error) {
+func sendDevToolsCommand(conn *websocket.Conn, id int, method string, params any, collected ...*[]json.RawMessage) (json.RawMessage, error) {
 	if err := writeDevToolsCommand(conn, id, method, params); err != nil {
 		return nil, err
 	}
@@ -228,6 +228,12 @@ func sendDevToolsCommand(conn *websocket.Conn, id int, method string, params any
 		var message devToolsMessage
 		if err := conn.ReadJSON(&message); err != nil {
 			return nil, err
+		}
+		if message.Method == "Tracing.dataCollected" && len(collected) > 0 && collected[0] != nil {
+			var batch traceDataCollected
+			if json.Unmarshal(message.Params, &batch) == nil {
+				*collected[0] = append(*collected[0], batch.Value...)
+			}
 		}
 		if message.ID != id {
 			continue
