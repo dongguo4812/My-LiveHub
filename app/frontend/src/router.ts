@@ -23,5 +23,5 @@ const routes=[
 {path:'/danmaku/overlay',component:() => import('./views/DanmakuOverlayView.vue'),meta:{title:'弹幕展示',standalone:true}},
 {path:'/music/lyrics-overlay',component:() => import('./views/MusicLyricsOverlayView.vue'),meta:{title:'桌面歌词',standalone:true}},
 {path:'/settings',component:() => import('./views/SettingsView.vue'),meta:{title:'系统设置',section:'系统管理'}},
-{path:'/logs',component:() => import('./views/LogsView.vue'),meta:{title:'日志诊断',section:'系统管理',description:'检索核心、平台适配器和扩展的运行日志。'}}]
+{path:'/logs',component:() => import('./views/LogsView.vue'),meta:{title:'日志诊断',section:'系统管理',description:'检索核心、平台适配器和业务模块的运行日志。'}}]
 export default createRouter({history:createWebHashHistory(),routes})
