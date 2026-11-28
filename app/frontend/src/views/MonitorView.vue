@@ -29,7 +29,7 @@ const video = ref<VideoSnapshot | null>(null)
 const hex = ref<HexStatus | null>(null)
 const metrics = ref<Metrics | null>(null)
 const webView2Instances = ref<WebView2Instance[]>([])
-const memoryTraceCapture = ref<MemoryTraceCapture | null>(null)
+const memoryTraceCaptures = ref<MemoryTraceCapture[]>([])
 const capturingMemoryTrace = ref(false)
 const memoryTraceError = ref('')
 const errors = ref<Record<string, string>>({})
@@ -79,7 +79,7 @@ async function captureMemoryTrace() {
   capturingMemoryTrace.value = true
   memoryTraceError.value = ''
   try {
-    memoryTraceCapture.value = await MonitorService.CaptureWebView2MemoryTrace()
+    memoryTraceCaptures.value.push(await MonitorService.CaptureWebView2MemoryTrace())
   } catch (error) {
     memoryTraceError.value = error instanceof Error ? error.message : String(error)
   } finally {
@@ -248,13 +248,13 @@ onUnmounted(() => {
           <el-tag size="small" type="warning">手动采集</el-tag>
         </div>
       </template>
-      <p class="hint" style="margin-top:0">通过 Chromium MemoryInfra 对所有 WebView2 进程请求一次详细内存快照，记录各 PID 的 V8、Blink、PartitionAlloc、GPU、媒体等内存分配器数据。采集期间会有短暂诊断开销，仅在开发环境启用。</p>
+      <p class="hint" style="margin-top:0">通过 Chromium MemoryInfra 对所有 WebView2 进程请求一次详细内存快照，尽可能记录各 PID 的 V8、Blink、PartitionAlloc、GPU、媒体等内存分配器数据。建议现在采集一次，保持当前运行状态 10 分钟后再采集一次，用两份快照对比具体是哪类分配器增长。采集期间会有短暂诊断开销，仅在开发环境启用。</p>
       <el-button type="primary" :loading="capturingMemoryTrace" @click="captureMemoryTrace">采集 Chromium 内存快照</el-button>
       <p v-if="memoryTraceError" class="error-text">{{ memoryTraceError }}</p>
-      <div v-if="memoryTraceCapture" class="trace-result">
-        <strong>快照已保存（{{ memoryTraceCapture.event_count }} 条事件）</strong>
-        <code>{{ memoryTraceCapture.path }}</code>
-        <span>采集时间：{{ new Date(memoryTraceCapture.captured_at).toLocaleString() }}</span>
+      <div v-for="(capture, index) in memoryTraceCaptures" :key="capture.dump_guid" class="trace-result">
+        <strong>第 {{ index + 1 }} 份快照已保存（{{ capture.event_count }} 条事件）</strong>
+        <code>{{ capture.path }}</code>
+        <span>采集时间：{{ new Date(capture.captured_at).toLocaleString() }}</span>
       </div>
     </el-card>
 
