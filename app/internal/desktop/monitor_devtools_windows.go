@@ -120,7 +120,8 @@ func (s *MonitorService) CaptureWebView2MemoryTrace() (RendererMemoryTraceResult
 	defer conn.Close()
 	conn.SetReadLimit(128 << 20)
 
-	if _, err := sendDevToolsCommand(conn, 1, "SystemInfo.getProcessInfo", map[string]any{}); err != nil {
+	processInfo, err := sendDevToolsCommand(conn, 1, "SystemInfo.getProcessInfo", map[string]any{})
+	if err != nil {
 		return RendererMemoryTraceResult{}, fmt.Errorf("读取 Chromium 进程清单失败：%w", err)
 	}
 	if _, err := sendDevToolsCommand(conn, 2, "Tracing.start", map[string]any{
@@ -191,6 +192,7 @@ func (s *MonitorService) CaptureWebView2MemoryTrace() (RendererMemoryTraceResult
 			"capturedAt": capturedAt.Format(time.RFC3339Nano),
 			"dumpGuid":   dump.DumpGUID,
 			"browser":    version,
+			"processInfo": json.RawMessage(processInfo),
 			"purpose":    "My-LiveHub WebView2 Renderer MemoryInfra snapshot",
 		},
 	}
