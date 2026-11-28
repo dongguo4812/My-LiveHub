@@ -77,10 +77,11 @@ window.setInterval(() => {
 // Once MediaElementAudioSourceNode is created, that media element cannot be
 // returned to native output. Disabling DSP therefore replaces the element,
 // rather than leaving a disconnected Web Audio node that would mute playback.
-async function switchAudioMode(enabled: boolean) {
+async function switchAudioModeInternal(enabled: boolean) {
+  if (disposed) return
   if (enabled && webAudioAttached) {
     if (!audioContext || audioContext.state === 'closed') {
-      await switchAudioMode(false)
+      await switchAudioModeInternal(false)
       throw new Error('audio context closed; switched back to native HTMLAudio')
     }
     if (audioContext.state === 'suspended') {
@@ -113,6 +114,7 @@ async function switchAudioMode(enabled: boolean) {
     audioContext = null
     webAudioAttached = false
     if (oldContext && oldContext.state !== 'closed') await oldContext.close()
+    if (disposed) return
     audio = createAudioElement()
     audio.volume = userVolume
     return
@@ -126,7 +128,17 @@ async function switchAudioMode(enabled: boolean) {
   let gainNode: GainNode | null = null
   try {
     await context.resume()
+    if (disposed) {
+      if (context.state !== 'closed') await context.close()
+      if (audioContext === context) audioContext = null
+      return
+    }
     await context.audioWorklet.addModule('/music-loudness-worklet.js')
+    if (disposed) {
+      if (context.state !== 'closed') await context.close()
+      if (audioContext === context) audioContext = null
+      return
+    }
     normalizer = new AudioWorkletNode(context, 'mylivehub-loudness-normalizer', {
       numberOfInputs: 1,
       numberOfOutputs: 1,
@@ -167,12 +179,39 @@ async function switchAudioMode(enabled: boolean) {
   }
 }
 
+let audioModeTransition: Promise<void> = Promise.resolve()
+
+// All callers share one transition chain. In particular, the source-preview
+// gesture and the Go playback command must never initialise two graphs for
+// the same HTMLAudioElement concurrently.
+function switchAudioMode(enabled: boolean): Promise<void> {
+  const transition = audioModeTransition.then(
+    () => switchAudioModeInternal(enabled),
+    () => switchAudioModeInternal(enabled),
+  )
+  audioModeTransition = transition.catch(() => {})
+  return transition
+}
+
 export function getHTMLAudioVolume(): number {
   return Math.round(userVolume * 100)
 }
 
 export async function prepareHTMLAudioForLoudnessNormalization() {
   await switchAudioMode(true)
+}
+
+function startAudioPlayback(sessionID: number, failureMode: 'error' | 'autoplayblocked') {
+  void audio.play().catch(reason => {
+    if (disposed || activeSession !== sessionID) return
+    if (reason instanceof DOMException && reason.name === 'AbortError') return
+    const message = reason instanceof Error ? reason.message : String(reason)
+    if (failureMode === 'autoplayblocked' || (reason instanceof DOMException && reason.name === 'NotAllowedError')) {
+      report('autoplayblocked', message)
+    } else {
+      report('error', message)
+    }
+  })
 }
 
 async function execute(command: Command) {
@@ -187,6 +226,7 @@ async function execute(command: Command) {
     } catch (error) {
       console.error('loudness normalization initialisation failed; keeping media audible through native playback', error)
     }
+    if (disposed) return
     if (command.loudness_normalization) normalizerNode?.port.postMessage({ type: 'reset' })
     activeSession = command.session_id
     userVolume = Math.min(1, Math.max(0, command.volume ?? userVolume))
@@ -196,18 +236,7 @@ async function execute(command: Command) {
     const requestedTime = Math.max(0, (command.position_ms ?? 0) / 1000)
     if (requestedTime > 0) audio.currentTime = requestedTime
     audio.load()
-    if (command.autoplay !== false) {
-      try {
-        await audio.play()
-      } catch (reason) {
-        const message = reason instanceof Error ? reason.message : String(reason)
-        if (reason instanceof DOMException && reason.name === 'NotAllowedError') {
-          report('autoplayblocked', message)
-        } else {
-          report('error', message)
-        }
-      }
-    }
+    if (command.autoplay !== false) startAudioPlayback(command.session_id, 'error')
     return
   }
   if (command.command === 'volume' && command.session_id === 0) {
@@ -219,11 +248,7 @@ async function execute(command: Command) {
   if (command.session_id !== activeSession) return
   switch (command.command) {
     case 'play':
-      try { await audio.play() }
-      catch (reason) {
-        const message = reason instanceof Error ? reason.message : String(reason)
-        report('autoplayblocked', message)
-      }
+      startAudioPlayback(activeSession, 'autoplayblocked')
       break
     case 'pause':
       audio.pause()
@@ -253,8 +278,12 @@ async function execute(command: Command) {
   }
 }
 
+let commandQueue: Promise<void> = Promise.resolve()
 const unsubscribe = Events.On('music:html-audio:command', event => {
-  void execute(event.data as Command)
+  const command = event.data as Command
+  commandQueue = commandQueue
+    .then(() => execute(command))
+    .catch(error => console.error('HTMLAudio command failed', error))
 })
 
 export function disposeHTMLAudioForShutdown() {
