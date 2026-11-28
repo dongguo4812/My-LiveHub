@@ -24,6 +24,15 @@ type RendererDOMDiagnosticsResult struct {
  Targets []RendererDOMTargetResult `json:"targets"`
 }
 
+type RendererHeapSnapshotResult struct {
+ Path string `json:"path"`
+ TargetID string `json:"target_id"`
+ Title string `json:"title"`
+ URL string `json:"url"`
+ SizeBytes int64 `json:"size_bytes"`
+ CapturedAt time.Time `json:"captured_at"`
+}
+
 type RendererMemoryTraceResult struct {
 	Path       string    `json:"path"`
 	EventCount int       `json:"event_count"`
@@ -32,6 +41,10 @@ type RendererMemoryTraceResult struct {
 }
 
 func (s *MonitorService) SetDevToolsPort(port int) {}
+
+func (s *MonitorService) CaptureWebView2HeapSnapshot(targetID string) (RendererHeapSnapshotResult, error) {
+ return RendererHeapSnapshotResult{}, fmt.Errorf("Chromium heap snapshots are currently supported on Windows development builds only")
+}
 
 func (s *MonitorService) CaptureWebView2DOMDiagnostics() (RendererDOMDiagnosticsResult, error) {
  return RendererDOMDiagnosticsResult{}, fmt.Errorf("Chromium DOM diagnostics are currently supported on Windows development builds only")
