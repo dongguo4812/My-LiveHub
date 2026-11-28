@@ -163,6 +163,7 @@ async function pollMouthSync() {
   if (mouthSyncChannel && Date.now() - lastMouthSyncBroadcastAt < 1000) return
   if (mouthSyncRequest) return
   const controller = new AbortController()
+  const requestTimeout = window.setTimeout(() => controller.abort(), 1500)
   const requestStartedAt = Date.now()
   mouthSyncRequest = controller
   try {
@@ -177,6 +178,7 @@ async function pollMouthSync() {
   } catch {
     // Keep the last received mouth value while the local relay reconnects.
   } finally {
+    window.clearTimeout(requestTimeout)
     if (mouthSyncRequest === controller) mouthSyncRequest = null
   }
 }
