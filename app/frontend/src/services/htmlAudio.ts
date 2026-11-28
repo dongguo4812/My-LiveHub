@@ -28,8 +28,29 @@ let mediaSource: MediaElementAudioSourceNode | null = null
 let normalizerNode: AudioWorkletNode | null = null
 let outputGain: GainNode | null = null
 let userVolume = 1
-let lastAudibleVolume = 1
+const lastAudibleVolumeStorageKey = 'mylivehub.music.lastAudibleVolume'
+
+function loadLastAudibleVolume(): number {
+  try {
+    const value = Number(window.localStorage.getItem(lastAudibleVolumeStorageKey))
+    return Number.isFinite(value) && value > 0 && value <= 1 ? value : 1
+  } catch {
+    return 1
+  }
+}
+
+let lastAudibleVolume = loadLastAudibleVolume()
 let webAudioAttached = false
+
+function rememberAudibleVolume(volume: number) {
+  if (volume <= 0) return
+  lastAudibleVolume = volume
+  try {
+    window.localStorage.setItem(lastAudibleVolumeStorageKey, String(volume))
+  } catch {
+    // Keep the in-memory value when persistent browser storage is unavailable.
+  }
+}
 
 function report(event: string, message = '', source: HTMLAudioElement = audio) {
   if (source !== audio || !activeSession) return
@@ -235,7 +256,7 @@ async function execute(command: Command) {
     if (command.loudness_normalization) normalizerNode?.port.postMessage({ type: 'reset' })
     activeSession = command.session_id
     userVolume = Math.min(1, Math.max(0, command.volume ?? userVolume))
-    if (userVolume > 0) lastAudibleVolume = userVolume
+    rememberAudibleVolume(userVolume)
     audio.volume = webAudioAttached ? 1 : userVolume
     if (outputGain) outputGain.gain.value = userVolume
     audio.src = command.resource.url
@@ -247,7 +268,7 @@ async function execute(command: Command) {
   }
   if (command.command === 'volume' && command.session_id === 0) {
     userVolume = Math.min(1, Math.max(0, command.volume ?? userVolume))
-    if (userVolume > 0) lastAudibleVolume = userVolume
+    rememberAudibleVolume(userVolume)
     if (webAudioAttached && outputGain) outputGain.gain.value = userVolume
     else audio.volume = userVolume
     return
@@ -279,7 +300,7 @@ async function execute(command: Command) {
       break
     case 'volume':
       userVolume = Math.min(1, Math.max(0, command.volume ?? userVolume))
-      if (userVolume > 0) lastAudibleVolume = userVolume
+      rememberAudibleVolume(userVolume)
       if (webAudioAttached && outputGain) outputGain.gain.value = userVolume
       else audio.volume = userVolume
       break
