@@ -108,6 +108,7 @@ const musicColors = ['#FF5C5C', '#FF963B', '#FFE14A', '#78E65A', '#45E0C1', '#43
 let source: EventSource | undefined
 let clockTimer: ReturnType<typeof setInterval> | undefined
 let sceneRefreshTimer: ReturnType<typeof setInterval> | undefined
+let sceneRefreshing = false
 let musicRefreshTimer: ReturnType<typeof setInterval> | undefined
 let musicQueueRefreshTimer: ReturnType<typeof setInterval> | undefined
 let videoQueueRefreshTimer: ReturnType<typeof setInterval> | undefined
@@ -356,19 +357,28 @@ async function loadRecentEvents() {
   } catch { /* The live stream remains available if history is unavailable. */ }
 }
 async function loadScene() {
+  if (sceneRefreshing) return
+  sceneRefreshing = true
   const id = encodeURIComponent(String(route.params.sceneID ?? ''))
   try {
     const response = await fetch('/api/scenes/' + id, { cache: 'no-store' })
     if (!response.ok) throw new Error('场景不存在或浏览器源服务不可用')
-    scene.value = await response.json() as Scene
-    prepareLolHexFrames(scene.value)
+    const nextScene = await response.json() as Scene
+    if (JSON.stringify(nextScene) !== JSON.stringify(scene.value)) {
+      scene.value = nextScene
+      prepareLolHexFrames(nextScene)
+      document.title = nextScene.name + ' - My-LiveHub'
+      document.documentElement.style.background = 'transparent'
+      document.body.style.background = 'transparent'
+      const root = document.getElementById('app')
+      if (root) root.style.background = 'transparent'
+    }
     error.value = ''
-    document.title = scene.value.name + ' - My-LiveHub'
-    document.documentElement.style.background = 'transparent'
-    document.body.style.background = 'transparent'
-    const root = document.getElementById('app')
-    if (root) root.style.background = 'transparent'
-  } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) }
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : String(cause)
+  } finally {
+    sceneRefreshing = false
+  }
 }
 // The display queue contains every current/pending track, regardless of whether
 // it came from an audience command, the host's playlist, or manual playback.
