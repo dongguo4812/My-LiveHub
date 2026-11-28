@@ -135,10 +135,10 @@ func (s *MonitorService) CaptureWebView2DOMDiagnostics() (RendererDOMDiagnostics
 	result.TargetCount = len(result.Targets)
 	if result.TargetCount == 0 { return result, fmt.Errorf("Chromium 没有发现可诊断的 page Target") }
 	if err := os.MkdirAll(logDir, 0o700); err != nil { return RendererDOMDiagnosticsResult{}, fmt.Errorf("创建诊断文件目录失败：%w", err) }
-	data, err := json.MarshalIndent(result, "", "  ")
-	if err != nil { return RendererDOMDiagnosticsResult{}, fmt.Errorf("序列化 DOM 诊断结果失败：%w", err) }
 	filename := "webview2-dom-" + result.CapturedAt.Format("20060102-150405") + ".json"
 	result.Path = filepath.Join(logDir, filename)
+	data, err := json.MarshalIndent(result, "", "  ")
+	if err != nil { return RendererDOMDiagnosticsResult{}, fmt.Errorf("序列化 DOM 诊断结果失败：%w", err) }
 	if err := os.WriteFile(result.Path, data, 0o600); err != nil { return RendererDOMDiagnosticsResult{}, fmt.Errorf("保存 DOM 诊断结果失败：%w", err) }
 	return result, nil
 }
