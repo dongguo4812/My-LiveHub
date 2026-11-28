@@ -17,6 +17,7 @@ type VideoSnapshot = Awaited<ReturnType<typeof VideoQueueService.GetSnapshot>>
 type HexStatus = Awaited<ReturnType<typeof LOLHexService.GetStatus>>
 type Metrics = Awaited<ReturnType<typeof MonitorService.GetSystemMetrics>>
 type MemoryTraceCapture = Awaited<ReturnType<typeof MonitorService.CaptureWebView2MemoryTrace>>
+type DOMDiagnosticsCapture = Awaited<ReturnType<typeof MonitorService.CaptureWebView2DOMDiagnostics>>
 type WebView2Instance = Awaited<ReturnType<typeof MonitorService.GetWebView2Instances>>[number]
 
 const core = ref<CoreStatus | null>(null)
@@ -32,6 +33,9 @@ const webView2Instances = ref<WebView2Instance[]>([])
 const memoryTraceCaptures = ref<MemoryTraceCapture[]>([])
 const capturingMemoryTrace = ref(false)
 const memoryTraceError = ref('')
+const domDiagnosticsCaptures = ref<DOMDiagnosticsCapture[]>([])
+const capturingDOMDiagnostics = ref(false)
+const domDiagnosticsError = ref('')
 const errors = ref<Record<string, string>>({})
 const refreshing = ref(false)
 const lastUpdated = ref<Date | null>(null)
@@ -84,6 +88,19 @@ async function captureMemoryTrace() {
     memoryTraceError.value = error instanceof Error ? error.message : String(error)
   } finally {
     capturingMemoryTrace.value = false
+  }
+}
+
+async function captureDOMDiagnostics() {
+  if (capturingDOMDiagnostics.value) return
+  capturingDOMDiagnostics.value = true
+  domDiagnosticsError.value = ''
+  try {
+    domDiagnosticsCaptures.value.push(await MonitorService.CaptureWebView2DOMDiagnostics())
+  } catch (error) {
+    domDiagnosticsError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    capturingDOMDiagnostics.value = false
   }
 }
 
@@ -244,7 +261,31 @@ onUnmounted(() => {
     <el-card shadow="never">
       <template #header>
         <div class="card-heading">
-          <strong>Renderer 原生内存快照</strong>
+              <el-card shadow="never">
+      <template #header>
+        <div class="card-heading">
+          <strong>Renderer 页面 DOM 诊断</strong>
+          <el-tag size="small" type="warning">手动采集</el-tag>
+        </div>
+      </template>
+      <p class="hint" style="margin-top:0">逐个枚举 Chromium page Target，读取 DOM 节点、Document 和 JS 事件监听器计数。每条记录包含 Target ID、页面标题和 URL；Target ID 不等于 Renderer PID。采集不会修改页面内容。</p>
+      <el-button type="primary" :loading="capturingDOMDiagnostics" @click="captureDOMDiagnostics">采集页面 DOM 计数</el-button>
+      <p v-if="domDiagnosticsError" class="error-text">{{ domDiagnosticsError }}</p>
+      <div v-for="(capture, index) in domDiagnosticsCaptures" :key="capture.captured_at + capture.path" class="trace-result">
+        <strong>第 {{ index + 1 }} 次 DOM 诊断（{{ capture.target_count }} 个页面 Target）</strong>
+        <code>{{ capture.path }}</code>
+        <el-table :data="capture.targets" size="small" row-key="target_id">
+          <el-table-column prop="title" label="页面" min-width="180" show-overflow-tooltip />
+          <el-table-column prop="target_id" label="Target ID" min-width="150" />
+          <el-table-column prop="documents" label="Document" width="95" />
+          <el-table-column prop="nodes" label="DOM 节点" width="100" />
+          <el-table-column prop="js_event_listeners" label="JS 监听器" width="110" />
+          <el-table-column prop="error" label="采集错误" min-width="180" show-overflow-tooltip />
+        </el-table>
+      </div>
+    </el-card>
+
+<strong>Renderer 原生内存快照</strong>
           <el-tag size="small" type="warning">手动采集</el-tag>
         </div>
       </template>
