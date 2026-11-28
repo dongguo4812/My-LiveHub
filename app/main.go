@@ -37,7 +37,6 @@ var assets embed.FS
 var embeddedDefaultConfig embed.FS
 
 func main() {
-	processStartedAt := time.Now()
 	// The updater invokes this lightweight mode to verify the version of the
 	// executable after replacement without starting Wails or touching user data.
 	if len(os.Args) == 3 && os.Args[1] == "--write-version" {
@@ -79,7 +78,6 @@ func main() {
 		}()
 	}
 	log.Printf("starting My-LiveHub (environment=%s, data=%s)", environment, dataDir)
-	log.Printf("[Music-Timing] stage=application_process_start_to_logger_ready duration_ms=%.3f", float64(time.Since(processStartedAt))/float64(time.Millisecond))
 
 	var defaultConfigFS fs.FS
 	if environment == config.EnvironmentDevelopment {
@@ -161,7 +159,6 @@ func main() {
 	bilibiliEvents := eventstream.NewBuffer(eventBus)
 	requestNoticeBroker := desktop.NewRequestNoticeBroker()
 	musicService := desktop.NewMusicServiceWithFanMedalChecker(configManager, musicConfig, fanMedalChecker, bilibiliEvents)
-	log.Printf("[Music-Timing] stage=application_process_start_to_music_service_constructed duration_ms=%.3f", float64(time.Since(processStartedAt))/float64(time.Millisecond))
 	musicLyricsWindowService := desktop.NewMusicLyricsWindowService(musicService)
 	bilibiliVideoResolver, err := bilibili.NewVideoResolver(bilibiliAuth, nil)
 	if err != nil { log.Fatalf("initialize Bilibili video resolver: %v", err) }
@@ -216,7 +213,6 @@ func main() {
 	if err := coreApp.Modules().Register("music", desktop.NewMusicModule(musicService)); err != nil {
 		log.Fatalf("register music module: %v", err)
 	}
-	log.Printf("[Music-Timing] stage=application_process_start_to_music_module_registered duration_ms=%.3f", float64(time.Since(processStartedAt))/float64(time.Millisecond))
 	if err := coreApp.Modules().Register("video", desktop.NewVideoModule(videoQueueService)); err != nil {
 		log.Fatalf("register video module: %v", err)
 	}
@@ -345,7 +341,6 @@ func main() {
 	})
 
 	wailsApp = app
-	log.Printf("[Music-Timing] stage=application_process_start_to_wails_app_constructed duration_ms=%.3f", float64(time.Since(processStartedAt))/float64(time.Millisecond))
 	monitorService.AttachWebView2Monitoring(app)
 	desktop.AttachHTMLAudioPlayback(musicService, app)
 	platformService.SetApplication(app, appConfig.Appearance.Theme == "light")
@@ -410,7 +405,6 @@ func main() {
 		logMainWindowState(reason + "_after_focus")
 	}
 	log.Printf("main-window diagnostic: created")
-	log.Printf("[Music-Timing] stage=application_process_start_to_main_window_created duration_ms=%.3f", float64(time.Since(processStartedAt))/float64(time.Millisecond))
 	// Restore auxiliary windows only after the main WebView runtime is ready.
 	// Creating the transparent overlay before app.Run() can initialise its
 	// WebView before the native event loop and break transparent composition.
