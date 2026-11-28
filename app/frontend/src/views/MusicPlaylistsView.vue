@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import MusicNavigation from '../components/MusicNavigation.vue'
-import { formatTrackDuration } from '../utils/music'
+import { formatTrackDuration, musicSourceName as sourceName } from '../utils/music'
 import { useRoute, useRouter } from 'vue-router'
 import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
 
@@ -28,8 +28,6 @@ const filteredPlaylistTracks = computed(() => {
     return terms.every(term => searchable.includes(term))
   })
 })
-const sourceNames: Record<string,string> = { tx:'QQ 音乐',kw:'酷我音乐',kg:'酷狗音乐',wy:'网易云音乐',mg:'咪咕音乐' }
-function sourceName(id: string) { return sourceNames[id] ?? id }
 
 async function refreshPlaylists(preferredID = selectedPlaylistID.value) {
   try {

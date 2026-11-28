@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { prepareHTMLAudioForLoudnessNormalization } from '../services/htmlAudio'
+import { formatTrackDuration } from '../utils/music'
 import { computed, onMounted, ref } from 'vue'
 import { Loading } from '@element-plus/icons-vue'
 import { useRoute, useRouter } from 'vue-router'

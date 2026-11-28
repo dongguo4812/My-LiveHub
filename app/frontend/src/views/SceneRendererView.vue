@@ -227,11 +227,6 @@ function superChatEvents(layer: Layer) {
   return liveEvents.value
     .filter(item => item.type === 'super_chat' && currentTime - item.timestamp <= duration)
 }
-const progress = computed(() => {
-  const duration = playback.value?.duration_ms || playback.value?.track?.duration_ms || 0
-  if (!duration) return 0
-  return Math.max(0, Math.min(100, (playback.value?.position_ms || 0) / duration * 100))
-})
 function formatTime(value: number) {
   const seconds = Math.max(0, Math.floor(value / 1000))
   return Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0')
