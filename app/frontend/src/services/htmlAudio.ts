@@ -28,6 +28,7 @@ let mediaSource: MediaElementAudioSourceNode | null = null
 let normalizerNode: AudioWorkletNode | null = null
 let outputGain: GainNode | null = null
 let userVolume = 1
+let lastAudibleVolume = 1
 let webAudioAttached = false
 
 function report(event: string, message = '', source: HTMLAudioElement = audio) {
@@ -197,6 +198,10 @@ export function getHTMLAudioVolume(): number {
   return Math.round(userVolume * 100)
 }
 
+export function getHTMLAudioLastAudibleVolume(): number {
+  return Math.round(lastAudibleVolume * 100)
+}
+
 export async function prepareHTMLAudioForLoudnessNormalization() {
   await switchAudioMode(true)
 }
@@ -230,6 +235,7 @@ async function execute(command: Command) {
     if (command.loudness_normalization) normalizerNode?.port.postMessage({ type: 'reset' })
     activeSession = command.session_id
     userVolume = Math.min(1, Math.max(0, command.volume ?? userVolume))
+    if (userVolume > 0) lastAudibleVolume = userVolume
     audio.volume = webAudioAttached ? 1 : userVolume
     if (outputGain) outputGain.gain.value = userVolume
     audio.src = command.resource.url
@@ -241,6 +247,7 @@ async function execute(command: Command) {
   }
   if (command.command === 'volume' && command.session_id === 0) {
     userVolume = Math.min(1, Math.max(0, command.volume ?? userVolume))
+    if (userVolume > 0) lastAudibleVolume = userVolume
     if (webAudioAttached && outputGain) outputGain.gain.value = userVolume
     else audio.volume = userVolume
     return
