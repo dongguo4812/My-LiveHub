@@ -4,12 +4,14 @@ package desktop
 
 import (
 	"fmt"
+	"time"
 )
 
 type RendererMemoryTraceResult struct {
 	Path       string `json:"path"`
 	EventCount int    `json:"event_count"`
 	DumpGUID   string `json:"dump_guid"`
+	CapturedAt time.Time `json:"captured_at"`
 }
 
 func (s *MonitorService) SetDevToolsPort(port int) {}
