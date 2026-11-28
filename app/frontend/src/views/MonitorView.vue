@@ -18,6 +18,7 @@ type HexStatus = Awaited<ReturnType<typeof LOLHexService.GetStatus>>
 type Metrics = Awaited<ReturnType<typeof MonitorService.GetSystemMetrics>>
 type MemoryTraceCapture = Awaited<ReturnType<typeof MonitorService.CaptureWebView2MemoryTrace>>
 type DOMDiagnosticsCapture = Awaited<ReturnType<typeof MonitorService.CaptureWebView2DOMDiagnostics>>
+type HeapSnapshotCapture = Awaited<ReturnType<typeof MonitorService.CaptureWebView2HeapSnapshot>>
 type WebView2Instance = Awaited<ReturnType<typeof MonitorService.GetWebView2Instances>>[number]
 
 const core = ref<CoreStatus | null>(null)
@@ -36,6 +37,9 @@ const memoryTraceError = ref('')
 const domDiagnosticsCaptures = ref<DOMDiagnosticsCapture[]>([])
 const capturingDOMDiagnostics = ref(false)
 const domDiagnosticsError = ref('')
+const heapSnapshotCaptures = ref<HeapSnapshotCapture[]>([])
+const capturingHeapTargetId = ref('')
+const heapSnapshotError = ref('')
 const errors = ref<Record<string, string>>({})
 const refreshing = ref(false)
 const lastUpdated = ref<Date | null>(null)
@@ -101,6 +105,19 @@ async function captureDOMDiagnostics() {
     domDiagnosticsError.value = error instanceof Error ? error.message : String(error)
   } finally {
     capturingDOMDiagnostics.value = false
+  }
+}
+
+async function captureHeapSnapshot(target: DOMDiagnosticsCapture['targets'][number]) {
+  if (capturingHeapTargetId.value) return
+  capturingHeapTargetId.value = target.target_id
+  heapSnapshotError.value = ''
+  try {
+    heapSnapshotCaptures.value.push(await MonitorService.CaptureWebView2HeapSnapshot(target.target_id))
+  } catch (error) {
+    heapSnapshotError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    capturingHeapTargetId.value = ''
   }
 }
 
@@ -277,6 +294,11 @@ onUnmounted(() => {
           <el-table-column prop="documents" label="Document" width="95" />
           <el-table-column prop="nodes" label="DOM 节点" width="100" />
           <el-table-column prop="js_event_listeners" label="JS 监听器" width="110" />
+          <el-table-column label="JS 堆快照" width="130">
+            <template #default="{ row }">
+              <el-button size="small" :loading="capturingHeapTargetId === row.target_id" :disabled="!!capturingHeapTargetId || !!row.error" @click="captureHeapSnapshot(row)">采集快照</el-button>
+            </template>
+          </el-table-column>
           <el-table-column prop="error" label="采集错误" min-width="180" show-overflow-tooltip />
         </el-table>
       </div>
@@ -299,6 +321,14 @@ onUnmounted(() => {
         <span>采集时间：{{ new Date(capture.captured_at).toLocaleString() }}</span>
       </div>
     </el-card>
+      <p v-if="heapSnapshotError" class="error-text">{{ heapSnapshotError }}</p>
+      <div v-for="(snapshot, index) in heapSnapshotCaptures" :key="snapshot.path" class="trace-result">
+        <strong>第 {{ index + 1 }} 份 JS 堆快照（{{ formatBytes(snapshot.size_bytes) }}）</strong>
+        <span>{{ snapshot.title }} · Target {{ snapshot.target_id }}</span>
+        <code>{{ snapshot.path }}</code>
+        <span>采集时间：{{ new Date(snapshot.captured_at).toLocaleString() }}</span>
+      </div>
+
 
   </section>
 </template>
