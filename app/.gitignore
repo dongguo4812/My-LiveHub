@@ -9,7 +9,6 @@
 /frontend/src/main.js
 /frontend/src/router.js
 /frontend/src/views/DashboardView.vue.js
-/frontend/src/views/PlaceholderView.vue.js
 
 # Per-workspace local configuration must never be committed
 /config/local/
@@ -19,18 +18,17 @@
 /cache/
 /logs/
 
-# LOL Hex extension runtime data and Python artifacts
-/extensions/lol_hex_display/data/
-/extensions/lol_hex_display/screenshots/
-/extensions/lol_hex_display/logs/
-/extensions/lol_hex_display/*.pid
-/extensions/lol_hex_display/__pycache__/
-/extensions/lol_hex_display/build/
-/extensions/lol_hex_display/dist/
-/extensions/lol_hex_display/*.spec
-/extensions/lol_hex_display/.venv/
+# Legacy LOL Hex extension directory is only retained as a migration source
+/extensions/lol_hex_display/
 
+# Current built-in LOL Hex runtime's local data and generated Python artifacts
 /internal/desktop/lolhex/runtime/__pycache__/
 /internal/desktop/lolhex/runtime/data/
 /internal/desktop/lolhex/runtime/screenshots/
 /internal/desktop/lolhex/runtime/logs/
+/internal/desktop/lolhex/runtime/*.pid
+/internal/desktop/lolhex/runtime/*.pid.tmp
+/internal/desktop/lolhex/runtime/build/
+/internal/desktop/lolhex/runtime/dist/
+/internal/desktop/lolhex/runtime/*.spec
+/internal/desktop/lolhex/runtime/.venv/
