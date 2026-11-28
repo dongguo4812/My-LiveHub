@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"log"
 	"log/slog"
+	"net"
 	"net/http/httputil"
 	"net/url"
 	"os"
@@ -306,7 +307,27 @@ func main() {
 	}
 	wailsLogger := slog.New(slog.NewTextHandler(applicationLogger.Output(), &slog.HandlerOptions{Level: wailsLogLevel}))
 	updateService := desktop.NewUpdateService(currentVersion, applicationPath, func() { if wailsApp != nil { wailsApp.Quit() } })
+	windowsOptions := application.WindowsOptions{}
+	if environment == config.EnvironmentDevelopment {
+		listener, listenErr := net.Listen("tcp", "127.0.0.1:0")
+		if listenErr != nil {
+			log.Printf("reserve loopback port for Chromium memory diagnostics: %v", listenErr)
+		} else {
+			port := listener.Addr().(*net.TCPAddr).Port
+			if closeErr := listener.Close(); closeErr != nil {
+				log.Printf("release reserved Chromium diagnostics port: %v", closeErr)
+			}
+			monitorService.SetDevToolsPort(port)
+			windowsOptions.AdditionalBrowserArgs = []string{
+				fmt.Sprintf("--remote-debugging-port=%d", port),
+				"--remote-debugging-address=127.0.0.1",
+				"--remote-allow-origins=http://localhost",
+			}
+			log.Printf("Chromium MemoryInfra diagnostics enabled on loopback port %d", port)
+		}
+	}
 	app := application.New(application.Options{
+		Windows: windowsOptions,
 		Logger: wailsLogger,
 		LogLevel: wailsLogLevel,
 		Name:        "My-LiveHub",
