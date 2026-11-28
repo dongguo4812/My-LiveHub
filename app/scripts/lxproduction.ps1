@@ -51,11 +51,11 @@ function Ensure-LXQuickJSRuntime {
         if ($asset.Count -ne 1) {
             throw "Latest official release $($release.tag_name) does not provide exactly one lxqjs.dll asset."
         }
-        $digestMatch = [regex]::Match([string]$asset[0].digest, '^sha256:([0-9a-fA-F]{64})')
-        if (!$digestMatch.Success -or $digestMatch.Length -ne 71) {
+        $digestText = [string]$asset[0].digest
+        if (![regex]::IsMatch($digestText, '\Asha256:[0-9a-fA-F]{64}\z')) {
             throw "Latest official release $($release.tag_name) does not provide lxqjs.dll with a valid SHA256 digest."
         }
-        $expected = $digestMatch.Groups[1].Value.ToLowerInvariant()
+        $expected = $digestText.Substring(7).ToLowerInvariant()
         Write-Host "Downloading lxqjs.dll from official release $($release.tag_name)..." -ForegroundColor Cyan
         Invoke-WebRequest -Uri $asset[0].browser_download_url -OutFile $downloadPath -UseBasicParsing
 
