@@ -16,6 +16,7 @@ type MusicPlayback = Awaited<ReturnType<typeof MusicService.GetPlaybackStatus>>
 type VideoSnapshot = Awaited<ReturnType<typeof VideoQueueService.GetSnapshot>>
 type HexStatus = Awaited<ReturnType<typeof LOLHexService.GetStatus>>
 type Metrics = Awaited<ReturnType<typeof MonitorService.GetSystemMetrics>>
+type MemoryTraceCapture = Awaited<ReturnType<typeof MonitorService.CaptureWebView2MemoryTrace>>
 type WebView2Instance = Awaited<ReturnType<typeof MonitorService.GetWebView2Instances>>[number]
 
 const core = ref<CoreStatus | null>(null)
@@ -28,6 +29,9 @@ const video = ref<VideoSnapshot | null>(null)
 const hex = ref<HexStatus | null>(null)
 const metrics = ref<Metrics | null>(null)
 const webView2Instances = ref<WebView2Instance[]>([])
+const memoryTraceCapture = ref<MemoryTraceCapture | null>(null)
+const capturingMemoryTrace = ref(false)
+const memoryTraceError = ref('')
 const errors = ref<Record<string, string>>({})
 const refreshing = ref(false)
 const lastUpdated = ref<Date | null>(null)
@@ -69,6 +73,19 @@ const formatDuration = (seconds?: number) => {
 }
 const moduleLabel = (id: string) => ({ 'platform-connections': '直播平台连接', voice: '语音播报', music: '音乐播放', video: '视频点播', live2d: 'Live2D', 'lol-hex-display': 'LOL Hex' } as Record<string, string>)[id] ?? id
 const statusType = (status: string) => status === 'running' || status === 'connected' ? 'success' : status === 'failed' ? 'danger' : status === 'starting' || status === 'connecting' ? 'warning' : 'info'
+
+async function captureMemoryTrace() {
+  if (capturingMemoryTrace.value) return
+  capturingMemoryTrace.value = true
+  memoryTraceError.value = ''
+  try {
+    memoryTraceCapture.value = await MonitorService.CaptureWebView2MemoryTrace()
+  } catch (error) {
+    memoryTraceError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    capturingMemoryTrace.value = false
+  }
+}
 
 async function refreshAll() {
   if (refreshing.value) return
@@ -224,11 +241,28 @@ onUnmounted(() => {
     </el-card>
 
 
+    <el-card shadow="never">
+      <template #header>
+        <div class="card-heading">
+          <strong>Renderer 原生内存快照</strong>
+          <el-tag size="small" type="warning">手动采集</el-tag>
+        </div>
+      </template>
+      <p class="hint" style="margin-top:0">通过 Chromium MemoryInfra 对所有 WebView2 进程请求一次详细内存快照，记录各 PID 的 V8、Blink、PartitionAlloc、GPU、媒体等内存分配器数据。采集期间会有短暂诊断开销，仅在开发环境启用。</p>
+      <el-button type="primary" :loading="capturingMemoryTrace" @click="captureMemoryTrace">采集 Chromium 内存快照</el-button>
+      <p v-if="memoryTraceError" class="error-text">{{ memoryTraceError }}</p>
+      <div v-if="memoryTraceCapture" class="trace-result">
+        <strong>快照已保存（{{ memoryTraceCapture.event_count }} 条事件）</strong>
+        <code>{{ memoryTraceCapture.path }}</code>
+        <span>采集时间：{{ new Date(memoryTraceCapture.captured_at).toLocaleString() }}</span>
+      </div>
+    </el-card>
+
   </section>
 </template>
 
 <style scoped>
-.monitor-page{display:flex;flex-direction:column;gap:18px}.page-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}.eyebrow{margin:0 0 8px;color:var(--el-color-primary);font-size:11px;letter-spacing:.15em}.page-heading h2{margin:0;font-size:25px}.muted,.hint{color:var(--el-text-color-secondary);font-size:13px}.muted{margin:8px 0 0}.refresh-meta{display:flex;align-items:flex-end;flex-direction:column;gap:7px;color:var(--el-text-color-secondary);font-size:12px}.summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.metric-card{min-width:0}.metric-card span,.system-grid span{display:block;color:var(--el-text-color-secondary);font-size:12px}.metric-card strong{display:block;margin:13px 0 6px;font-size:22px}.metric-card small{color:var(--el-text-color-secondary);font-size:11px}.content-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.card-heading{display:flex;align-items:center;justify-content:space-between}.now-playing{display:flex;flex-direction:column;gap:6px;min-height:58px}.now-playing span{color:var(--el-text-color-secondary);font-size:12px}.queue-meta{display:flex;justify-content:space-between;align-items:center;padding-top:12px;margin-top:12px;border-top:1px solid var(--el-border-color-lighter);font-size:13px}.hex-details{display:flex;flex-direction:column;gap:9px;font-size:13px}.error-text{color:var(--el-color-danger);font-size:12px}.system-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.system-grid strong{display:block;margin-top:7px;font-size:18px;font-variant-numeric:tabular-nums}.hint{margin:16px 0 0;font-size:12px}.refresh-meta span{white-space:nowrap}
+.monitor-page{display:flex;flex-direction:column;gap:18px}.page-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}.eyebrow{margin:0 0 8px;color:var(--el-color-primary);font-size:11px;letter-spacing:.15em}.page-heading h2{margin:0;font-size:25px}.muted,.hint{color:var(--el-text-color-secondary);font-size:13px}.muted{margin:8px 0 0}.refresh-meta{display:flex;align-items:flex-end;flex-direction:column;gap:7px;color:var(--el-text-color-secondary);font-size:12px}.summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.metric-card{min-width:0}.metric-card span,.system-grid span{display:block;color:var(--el-text-color-secondary);font-size:12px}.metric-card strong{display:block;margin:13px 0 6px;font-size:22px}.metric-card small{color:var(--el-text-color-secondary);font-size:11px}.content-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.card-heading{display:flex;align-items:center;justify-content:space-between}.now-playing{display:flex;flex-direction:column;gap:6px;min-height:58px}.now-playing span{color:var(--el-text-color-secondary);font-size:12px}.queue-meta{display:flex;justify-content:space-between;align-items:center;padding-top:12px;margin-top:12px;border-top:1px solid var(--el-border-color-lighter);font-size:13px}.hex-details{display:flex;flex-direction:column;gap:9px;font-size:13px}.error-text{color:var(--el-color-danger);font-size:12px}.system-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.system-grid strong{display:block;margin-top:7px;font-size:18px;font-variant-numeric:tabular-nums}.hint{margin:16px 0 0;font-size:12px} .refresh-meta span{white-space:nowrap}.trace-result{display:flex;flex-direction:column;gap:7px;margin-top:14px;font-size:12px}.trace-result code{overflow-wrap:anywhere;white-space:normal;color:var(--el-text-color-regular)}
 @media(max-width:1100px){.summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.content-grid{grid-template-columns:1fr}.system-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:700px){.page-heading{flex-direction:column}.refresh-meta{align-items:flex-start}.summary-grid{grid-template-columns:1fr 1fr}.system-grid{grid-template-columns:1fr 1fr}}
 </style>
