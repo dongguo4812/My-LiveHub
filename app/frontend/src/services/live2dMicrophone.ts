@@ -133,6 +133,14 @@ export async function startLive2DMicrophone() {
         nextStream.getTracks().forEach(track => track.stop())
         return
       }
+      // TEMPORARY ISOLATION TEST: keep microphone permission/capture, but skip AudioContext and AudioWorklet.
+      nextStream.getTracks().forEach(track => track.stop())
+      state.active = false
+      state.level = 0
+      state.mouthOpen = 0
+      state.error = '临时隔离测试：麦克风采集已执行，AudioContext / AudioWorklet 已跳过'
+      sendMouth(0)
+      return
       stream = nextStream
       const context = new AudioContext()
       audioContext = context
