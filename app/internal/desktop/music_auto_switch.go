@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 	"unicode"
@@ -71,8 +72,10 @@ func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original m
 			s.mu.RLock()
 			resolver := s.scriptRuntime
 			s.mu.RUnlock()
+			searchStartedAt := time.Now()
 			page, searchErr := music.NewUnifiedSourceService(scriptAwareSourceSearcher{service: s}, resolver).SearchSource(searchCtx, source, query, 1)
 			searchCancel()
+			log.Printf("[Music-Timing] stage=playback_fallback_search duration_ms=%.3f source=%q result=%t", float64(time.Since(searchStartedAt))/float64(time.Millisecond), source, searchErr == nil)
 			if searchErr != nil {
 				if errors.Is(searchErr, context.Canceled) || ctx.Err() != nil { return music.Track{}, context.Canceled }
 				failures = append(failures, source+": 搜索失败："+searchErr.Error())
@@ -91,8 +94,10 @@ func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original m
 			candidate.ResolvedQuality = ""
 			if err := ctx.Err(); err != nil { return music.Track{}, err }
 			resolveCtx, resolveCancel := context.WithTimeout(ctx, fallbackSourceResolveTimeout)
+			resolveStartedAt := time.Now()
 			resource, resolveErr := s.resolvePlaybackResource(resolveCtx, candidate)
 			resolveCancel()
+			log.Printf("[Music-Timing] stage=playback_resource_resolve duration_ms=%.3f source=%q result=%t", float64(time.Since(resolveStartedAt))/float64(time.Millisecond), source, resolveErr == nil)
 			if resolveErr != nil {
 				if ctx.Err() != nil { return music.Track{}, context.Canceled }
 				if errors.Is(resolveErr, context.DeadlineExceeded) {
@@ -119,11 +124,13 @@ func (s *MusicService) resolveAndStartLXTrack(parent context.Context, original m
 			}
 			// Do not hold MusicService.mu while calling the engine. Stop must be
 			// able to acquire the lock and cancel this in-flight Load operation.
+			loadStartedAt := time.Now()
 			if resource.URL != "" && resourceAware {
 				loadErr = resourceEngine.LoadResource(ctx, candidate, resource)
 			} else {
 				loadErr = engine.Load(ctx, candidate)
 			}
+			log.Printf("[Music-Timing] stage=playback_engine_load duration_ms=%.3f source=%q result=%t resource_aware=%t", float64(time.Since(loadStartedAt))/float64(time.Millisecond), source, loadErr == nil, resourceAware)
 			if loadErr != nil && resource.URL != "" && resourceAware {
 				// A resource-aware engine gets exactly one invalidation/re-resolution
 				// retry. Media adapters still own the final HTTP failure signal.

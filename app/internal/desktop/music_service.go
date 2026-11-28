@@ -924,11 +924,9 @@ func (s *MusicService) search(parent context.Context, keyword string) (MusicSear
 func (s *MusicService) searchPage(parent context.Context, keyword string, page int) (MusicSearchResponse, error) {
 	if s == nil { return MusicSearchResponse{}, errors.New("洛雪搜索 SDK 未初始化") }
 	if parent == nil { parent = context.Background() }
-	waitStartedAt := time.Now()
 	if err := s.waitForLXRuntime(parent); err != nil {
-			return MusicSearchResponse{}, err
+		return MusicSearchResponse{}, err
 	}
-	s.logFirstLXReady("first_search_runtime_ready", &s.firstSearchReady, waitStartedAt)
 	sourceIDs := s.enabledSearchSourceIDs()
 	if len(sourceIDs) == 0 {
 		return MusicSearchResponse{Tracks: []music.Track{}, Errors: map[string]string{}, Page: page, PageSize: 30, MaxPage: 1}, nil
