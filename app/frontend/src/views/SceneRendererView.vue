@@ -659,7 +659,6 @@ onUnmounted(() => {
       <section v-else-if="layer.type === 'music' && playback?.state === 'playing' && playback?.track" class="music-widget" :style="{ '--random-color': musicAccentColor, '--details-bg': playback.track.cover_url ? 'url(' + JSON.stringify(playback.track.cover_url) + ')' : 'none' }">
         <div class="music-main">
           <div class="music-cover-wrap">
-            <div class="music-cover-blur" :style="{ backgroundImage: playback.track.cover_url ? 'url(' + JSON.stringify(playback.track.cover_url) + ')' : 'none' }"></div>
             <div v-if="!musicCoverKey || musicCoverLoadedKey !== musicCoverKey" class="music-cover-fallback">♫</div>
             <img v-if="musicCoverKey" :key="musicCoverKey + ':' + musicCoverRetryCount" class="music-cover" :src="playback.track.cover_url" :data-cover-key="musicCoverKey" alt="" referrerpolicy="no-referrer" @load="handleMusicCoverLoad" @error="handleMusicCoverError" />
           </div>
@@ -778,7 +777,6 @@ body{color:#fff;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif}
 .music-lyrics.is-empty .music-lyric-original{color:var(--random-color);font-size:.8em;font-weight:500}
 .music-main{width:min(405px,100%);height:112px;flex:none;display:flex;gap:8px;min-width:0;position:relative}
 .music-cover-wrap{height:112px;width:112px;flex:0 0 112px;position:relative;overflow:hidden;border-radius:5px;background:rgba(102,76,60,.35)}
-.music-cover-blur{position:absolute;inset:-20px;background-position:center;background-size:cover;filter:blur(20px) brightness(.8);opacity:.55;transform:scale(1.2)}
 .music-cover{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1}
 .music-cover-fallback{position:absolute;inset:0;display:grid;place-items:center;font-size:38px;color:rgba(231,200,157,.65);background:linear-gradient(145deg,#765c49,#34271f)}
 .music-details{min-width:0;flex:1;display:flex;flex-direction:column;justify-content:center;gap:7px;overflow:hidden;position:relative;isolation:isolate;border-radius:5px;background:rgba(30,23,20,.25)}
