@@ -7,10 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $runtimeDirectory = Join-Path $PSScriptRoot '..\bin'
 $runtimePath = Join-Path $runtimeDirectory 'lxqjs.dll'
-$releaseTag = 'quickjs-ng-v0.18.0-lxabi2'
-$assetBase = "https://github.com/dongguo4812/My-LiveHub/releases/download/$releaseTag"
-$archivePath = Join-Path $runtimeDirectory 'lxqjs-windows-amd64.zip'
-$checksumPath = "$archivePath.sha256"
+$releaseApiUrl = 'https://api.github.com/repos/dongguo4812/My-LiveHub/releases/latest'
 
 Add-Type -TypeDefinition @'
 using System;
@@ -39,41 +36,40 @@ function Ensure-LXQuickJSRuntime {
         return
     }
     if (Test-Path -LiteralPath $runtimePath -PathType Leaf) {
-        Write-Host 'Existing QuickJS-NG DLL is outdated (missing lxqjs_eval_timed); replacing it with the pinned runtime.' -ForegroundColor Yellow
+        Write-Host 'Existing QuickJS-NG DLL is incompatible (missing lxqjs_eval_timed); replacing it with the latest official My-LiveHub release runtime.' -ForegroundColor Yellow
     }
 
-    Write-Host "Preparing pinned QuickJS-NG runtime $releaseTag..." -ForegroundColor Cyan
+    $downloadPath = Join-Path $runtimeDirectory ("lxqjs-" + [guid]::NewGuid().ToString('N') + '.dll')
     try {
-        Invoke-WebRequest -Uri "$assetBase/lxqjs-windows-amd64.zip" -OutFile $archivePath -UseBasicParsing
-        Invoke-WebRequest -Uri "$assetBase/lxqjs-windows-amd64.zip.sha256" -OutFile $checksumPath -UseBasicParsing
-    } catch {
-        throw "Unable to download the pinned QuickJS-NG runtime release asset $releaseTag. Details: $($_.Exception.Message)"
-    }
-
-    $expected = ((Get-Content -LiteralPath $checksumPath -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
-    $actual = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($expected -notmatch '^[0-9a-f]{64}$' -or $actual -ne $expected) {
-        Remove-Item -LiteralPath $archivePath, $checksumPath -Force -ErrorAction SilentlyContinue
-        throw 'QuickJS-NG runtime archive SHA256 verification failed.'
-    }
-
-    # Never reuse a fixed extraction directory: a previous app/dev process may
-    # still have its DLL loaded, which makes Windows refuse to delete that file.
-    $extractDirectory = Join-Path $runtimeDirectory ("quickjs-extract-" + [guid]::NewGuid().ToString('N'))
-    try {
-        Expand-Archive -LiteralPath $archivePath -DestinationPath $extractDirectory -Force
-        $dll = Get-ChildItem -LiteralPath $extractDirectory -Filter 'lxqjs.dll' -File -Recurse | Select-Object -First 1
-        if ($null -eq $dll) { throw 'Pinned QuickJS-NG package does not contain lxqjs.dll.' }
-        if (![LXQuickJSNativeExports]::HasExport($dll.FullName, 'lxqjs_eval_timed')) {
-            throw 'Pinned QuickJS-NG DLL is missing the required lxqjs_eval_timed export.'
+        Write-Host 'Resolving the latest official My-LiveHub release runtime...' -ForegroundColor Cyan
+        $release = Invoke-RestMethod -Uri $releaseApiUrl -Headers @{
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+            'User-Agent' = 'My-LiveHub-runtime-bootstrap'
         }
-        Copy-Item -LiteralPath $dll.FullName -Destination $runtimePath -Force
-    } finally {
-        # Cleanup is best-effort. A locked stale DLL must not block dev startup;
-        # the next invocation uses a fresh extraction directory as well.
-        Remove-Item -LiteralPath $extractDirectory -Recurse -Force -ErrorAction SilentlyContinue
+        $asset = @($release.assets | Where-Object { $_.name -eq 'lxqjs.dll' } | Select-Object -First 1)
+        if ($asset.Count -ne 1 -or $asset[0].digest -notmatch '^sha256:([0-9a-fA-F]{64})$') {
+            throw "Latest official release $($release.tag_name) does not provide lxqjs.dll with a SHA256 digest."
+        }
+
+        $expected = $Matches[1].ToLowerInvariant()
+        Write-Host "Downloading lxqjs.dll from official release $($release.tag_name)..." -ForegroundColor Cyan
+        Invoke-WebRequest -Uri $asset[0].browser_download_url -OutFile $downloadPath -UseBasicParsing
+
+        $actual = (Get-FileHash -LiteralPath $downloadPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actual -ne $expected) {
+            throw "Downloaded lxqjs.dll SHA256 verification failed for release $($release.tag_name)."
+        }
+        if (![LXQuickJSNativeExports]::HasExport($downloadPath, 'lxqjs_eval_timed')) {
+            throw "Downloaded lxqjs.dll from release $($release.tag_name) is missing the required lxqjs_eval_timed export."
+        }
+
+        Move-Item -LiteralPath $downloadPath -Destination $runtimePath -Force
+        Write-Host "QuickJS-NG runtime ready from release $($release.tag_name): $runtimePath" -ForegroundColor Green
+    } catch {
+        Remove-Item -LiteralPath $downloadPath -Force -ErrorAction SilentlyContinue
+        throw "Unable to prepare lxqjs.dll from the latest official My-LiveHub release. Details: $($_.Exception.Message)"
     }
-    Write-Host "QuickJS-NG runtime ready: $runtimePath" -ForegroundColor Green
 }
 
 function Ensure-WindowsApplicationManifest {
