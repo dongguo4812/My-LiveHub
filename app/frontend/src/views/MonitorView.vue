@@ -261,9 +261,6 @@ onUnmounted(() => {
     <el-card shadow="never">
       <template #header>
         <div class="card-heading">
-              <el-card shadow="never">
-      <template #header>
-        <div class="card-heading">
           <strong>Renderer 页面 DOM 诊断</strong>
           <el-tag size="small" type="warning">手动采集</el-tag>
         </div>
@@ -284,6 +281,10 @@ onUnmounted(() => {
         </el-table>
       </div>
     </el-card>
+    <el-card shadow="never">
+      <template #header>
+        <div class="card-heading">
+          
 
 <strong>Renderer 原生内存快照</strong>
           <el-tag size="small" type="warning">手动采集</el-tag>
