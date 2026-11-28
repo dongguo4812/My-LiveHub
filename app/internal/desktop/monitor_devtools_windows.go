@@ -55,6 +55,94 @@ func (s *MonitorService) SetDevToolsPort(port int) {
 // CaptureWebView2MemoryTrace asks Chromium MemoryInfra for one detailed global
 // memory dump. The resulting trace contains allocator breakdowns grouped by
 // native process ID, allowing the growing Renderer PID to be identified.
+
+type RendererDOMTargetResult struct {
+	TargetID string `json:"target_id"`
+	Title string `json:"title"`
+	URL string `json:"url"`
+	Type string `json:"type"`
+	Documents int `json:"documents"`
+	Nodes int `json:"nodes"`
+	JSEventListeners int `json:"js_event_listeners"`
+	Error string `json:"error,omitempty"`
+}
+
+type RendererDOMDiagnosticsResult struct {
+	Path string `json:"path"`
+	TargetCount int `json:"target_count"`
+	CapturedAt time.Time `json:"captured_at"`
+	Targets []RendererDOMTargetResult `json:"targets"`
+}
+
+type devToolsTarget struct {
+	ID string `json:"id"`
+	Type string `json:"type"`
+	Title string `json:"title"`
+	URL string `json:"url"`
+	WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
+}
+
+// CaptureWebView2DOMDiagnostics enumerates page targets and reads Chromium's
+// DOM counters independently for each page. Target IDs are recorded explicitly;
+// they are not assumed to map one-to-one to native Renderer PIDs.
+func (s *MonitorService) CaptureWebView2DOMDiagnostics() (RendererDOMDiagnosticsResult, error) {
+	if s == nil { return RendererDOMDiagnosticsResult{}, fmt.Errorf("监控服务不可用") }
+	s.mu.Lock()
+	port := s.devToolsPort
+	if port == 0 { s.mu.Unlock(); return RendererDOMDiagnosticsResult{}, fmt.Errorf("Chromium DOM 诊断仅在开发环境启用；请使用 task dev 启动") }
+	if s.devToolsCaptureActive { s.mu.Unlock(); return RendererDOMDiagnosticsResult{}, fmt.Errorf("已有一次 Chromium 诊断正在采集") }
+	s.devToolsCaptureActive = true
+	logDir := ""
+	if len(s.logDirs) > 0 { logDir = s.logDirs[0] }
+	s.mu.Unlock()
+	defer func(){ s.mu.Lock(); s.devToolsCaptureActive = false; s.mu.Unlock() }()
+	if logDir == "" { return RendererDOMDiagnosticsResult{}, fmt.Errorf("应用日志目录不可用") }
+
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+	client := &http.Client{Timeout: 5*time.Second}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/json/list", port), nil)
+	if err != nil { return RendererDOMDiagnosticsResult{}, err }
+	response, err := client.Do(request)
+	if err != nil { return RendererDOMDiagnosticsResult{}, fmt.Errorf("读取 Chromium 页面列表失败：%w", err) }
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK { return RendererDOMDiagnosticsResult{}, fmt.Errorf("Chromium 页面列表返回 HTTP %d", response.StatusCode) }
+	var targets []devToolsTarget
+	if err := json.NewDecoder(response.Body).Decode(&targets); err != nil { return RendererDOMDiagnosticsResult{}, fmt.Errorf("解析 Chromium 页面列表失败：%w", err) }
+
+	result := RendererDOMDiagnosticsResult{CapturedAt: time.Now(), Targets: make([]RendererDOMTargetResult, 0)}
+	for _, target := range targets {
+		if target.Type != "page" || target.WebSocketDebuggerURL == "" { continue }
+		item := RendererDOMTargetResult{TargetID: target.ID, Title: target.Title, URL: target.URL, Type: target.Type}
+		debugURL, parseErr := url.Parse(target.WebSocketDebuggerURL)
+		if parseErr != nil { item.Error = parseErr.Error(); result.Targets = append(result.Targets, item); continue }
+		debugURL.Host = fmt.Sprintf("127.0.0.1:%d", port)
+		headers := http.Header{}
+		headers.Set("Origin", "http://localhost")
+		conn, _, dialErr := (&websocket.Dialer{HandshakeTimeout: 4*time.Second}).DialContext(ctx, debugURL.String(), headers)
+		if dialErr != nil { item.Error = fmt.Sprintf("连接页面诊断通道失败：%v", dialErr); result.Targets = append(result.Targets, item); continue }
+		conn.SetReadLimit(4 << 20)
+		counterJSON, commandErr := sendDevToolsCommand(conn, 1, "Memory.getDOMCounters", map[string]any{})
+		_ = conn.Close()
+		if commandErr != nil { item.Error = commandErr.Error() } else {
+			var counters struct { Documents int `json:"documents"`; Nodes int `json:"nodes"`; JSEventListeners int `json:"jsEventListeners"` }
+			if err := json.Unmarshal(counterJSON, &counters); err != nil { item.Error = fmt.Sprintf("解析 DOM 计数失败：%v", err) } else {
+				item.Documents, item.Nodes, item.JSEventListeners = counters.Documents, counters.Nodes, counters.JSEventListeners
+			}
+		}
+		result.Targets = append(result.Targets, item)
+	}
+	result.TargetCount = len(result.Targets)
+	if result.TargetCount == 0 { return result, fmt.Errorf("Chromium 没有发现可诊断的 page Target") }
+	if err := os.MkdirAll(logDir, 0o700); err != nil { return RendererDOMDiagnosticsResult{}, fmt.Errorf("创建诊断文件目录失败：%w", err) }
+	data, err := json.MarshalIndent(result, "", "  ")
+	if err != nil { return RendererDOMDiagnosticsResult{}, fmt.Errorf("序列化 DOM 诊断结果失败：%w", err) }
+	filename := "webview2-dom-" + result.CapturedAt.Format("20060102-150405") + ".json"
+	result.Path = filepath.Join(logDir, filename)
+	if err := os.WriteFile(result.Path, data, 0o600); err != nil { return RendererDOMDiagnosticsResult{}, fmt.Errorf("保存 DOM 诊断结果失败：%w", err) }
+	return result, nil
+}
+
 func (s *MonitorService) CaptureWebView2MemoryTrace() (RendererMemoryTraceResult, error) {
 	if s == nil {
 		return RendererMemoryTraceResult{}, fmt.Errorf("监控服务不可用")
