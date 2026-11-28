@@ -11,7 +11,7 @@
 
 ## 开发环境
 
-需要 Windows 10/11 x64、Go 1.27.x、Node.js 26.x/npm、Wails v3.1.0、Task 及 WebView2 Runtime。
+需要 Windows、Go 1.27.x、Node.js 26.x/npm、Wails CLI v3.0.0 和 WebView2 Runtime。
 
 首次安装前端依赖：
 
@@ -19,28 +19,29 @@
 npm --prefix frontend install
 ```
 
-启动桌面开发环境（推荐）：
+启动桌面开发环境：
 
 ```powershell
-task dev
+wails3 dev -config ./build/config.yml
 ```
 
-`task dev` 会通过 `scripts/lxproduction.ps1` 准备 QuickJS-NG 运行时、生成 Windows 应用资源、执行端口预检并生成前端绑定，然后以 `dev` 环境参数启动 Wails。不要直接使用 `wails3 dev` 绕过这些准备步骤。默认配置从 `config/default/` 读取，本机覆盖配置从 `config/local/` 读取。
+开发启动配置会显式以 `dev` 模式运行 Go 应用。默认配置从 `config/default/` 读取，本机覆盖配置从 `config/local/` 读取。
 
 ## 测试与构建
 
 ```powershell
 # 前端构建
-task frontend:build
+npm --prefix frontend run build
 
 # Go 测试
-task test
+go test ./...
 
-# 准备 QuickJS-NG 运行时并构建 Windows 可执行文件
-task build
+# 构建 Windows 可执行文件
+go build -o bin/My-LiveHub.exe .
+
+# Wails 完整构建
+wails3 build
 ```
-
-生产构建应使用 `task build`，该任务会设置 `lxproduction` 构建标签并准备兼容的 QuickJS-NG 原生运行时。
 
 ## 配置路径
 

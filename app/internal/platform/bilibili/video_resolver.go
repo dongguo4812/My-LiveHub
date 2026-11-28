@@ -95,7 +95,7 @@ func (r *VideoResolver) Resolve(ctx context.Context, rawBVID string) (VideoPlayb
 	// qn=127 asks Bilibili for the highest quality available to this account.
 	// The API may downgrade it according to the video's encodings and account
 	// permissions; Data.Quality below records the quality actually returned.
-	// Keep the interleaved MP4/DURL request so mpv needs no external muxer.
+	// Keep the interleaved MP4/DURL request so the embedded web player can consume a single muxed stream.
 	params := url.Values{
 		"bvid":{bvid}, "cid":{strconv.FormatInt(cid,10)}, "qn":{"127"},
 		"fnval":{"1"}, "fnver":{"0"}, "fourk":{"1"}, "platform":{"web"},
