@@ -113,10 +113,6 @@ async function clearQueue() {
   try { await QueueService.ClearQueue(); await refresh(); success.value = '待播队列已清空' }
   catch (reason) { error.value = reason instanceof Error ? reason.message : String(reason) }
 }
-async function toggleEnabled(value: boolean) {
-  settings.value.video_requests_enabled = value
-  await saveSettings()
-}
 async function saveSettings() {
   saving.value = true; error.value = ''; success.value = ''
   try {

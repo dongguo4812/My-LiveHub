@@ -52,7 +52,7 @@ func (a scriptAwareSourceSearcher) Sources() []music.SourceSnapshot { return mus
 func (a scriptAwareSourceSearcher) SearchProvider(ctx context.Context, source, keyword string, page int) (music.SearchPage, error) {
  // LX production scripts use the native request payload names text/page/limit.
 	// Keep keyword/pageSize aliases as well for community scripts written
-	// against earlier My-LiveHub prototypes.
+	// against the earlier My-LiveHub search payload contract.
 	value, handled, err := a.service.dispatchLXExtension(ctx, source, "search", map[string]any{
 		"text": keyword, "page": page, "limit": 30,
 		"keyword": keyword, "pageSize": 30,

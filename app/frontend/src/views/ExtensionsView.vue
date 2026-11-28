@@ -3,7 +3,7 @@
     <header class="page-heading">
       <div>
         <h2>扩展管理</h2>
-        <p>管理第三方扩展。</p>
+        <p>扩展中心入口预留，当前版本尚未提供可管理的扩展。</p>
       </div>
       <el-tag type="info" effect="plain">待开发</el-tag>
     </header>

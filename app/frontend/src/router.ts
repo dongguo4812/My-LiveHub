@@ -11,7 +11,7 @@ const routes=[
 {path:'/lol-hex',component:() => import('./views/LOLHexManagerView.vue'),meta:{title:'LOL Hex',section:'功能模块',description:'管理海克斯识别、截图、OCR、LCU 和战绩条。'}},
 {path:'/layouts',component:() => import('./views/LayoutsView.vue'),meta:{title:'综合展示',section:'展示管理',description:'编辑多个独立展示布局，并管理对应 OBS 浏览器地址。'}},
 {path:'/scene/:sceneID',component:() => import('./views/SceneRendererView.vue'),meta:{title:'场景输出',standalone:true}},
-{path:'/extensions',component:() => import('./views/ExtensionsView.vue'),meta:{title:'扩展管理',section:'扩展中心',description:'管理官方与第三方扩展、权限和独立进程状态。'}},
+{path:'/extensions',component:() => import('./views/ExtensionsView.vue'),meta:{title:'扩展管理',section:'扩展中心',description:'扩展中心预留入口；发现、安装、更新和权限管理尚未实现。'}},
 {path:'/danmaku',component:() => import('./views/DanmakuView.vue'),meta:{title:'弹幕显示',section:'功能模块'}},
 {path:'/voice',component:() => import('./views/VoiceView.vue'),meta:{title:'语音播报',section:'功能模块'}},
 {path:'/music',component:() => import('./views/MusicView.vue'),meta:{title:'音乐播放',section:'功能模块'}},
@@ -23,5 +23,5 @@ const routes=[
 {path:'/danmaku/overlay',component:() => import('./views/DanmakuOverlayView.vue'),meta:{title:'弹幕展示',standalone:true}},
 {path:'/music/lyrics-overlay',component:() => import('./views/MusicLyricsOverlayView.vue'),meta:{title:'桌面歌词',standalone:true}},
 {path:'/settings',component:() => import('./views/SettingsView.vue'),meta:{title:'系统设置',section:'系统管理'}},
-{path:'/logs',component:() => import('./views/LogsView.vue'),meta:{title:'日志诊断',section:'系统管理',description:'检索核心、平台适配器和扩展的运行日志。'}}]
+{path:'/logs',component:() => import('./views/LogsView.vue'),meta:{title:'日志诊断',section:'系统管理',description:'检索核心、平台适配器和业务模块的运行日志。'}}]
 export default createRouter({history:createWebHashHistory(),routes})

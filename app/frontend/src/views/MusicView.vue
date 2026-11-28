@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { parseSyncedLyrics, type SyncedLyricLine } from '../utils/syncedLyrics'
+import { musicSourceName as sourceName } from '../utils/music'
 import { useRoute } from 'vue-router'
 import { Headset, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import '../styles/player-center.css'
@@ -144,10 +145,6 @@ function updatePlaybackClock() {
     : playbackPositionAnchor
   const duration = playback.value.duration_ms ?? 0
   displayedPositionMs.value = duration > 0 ? Math.min(duration, position) : Math.max(0, position)
-}
-function sourceName(id?: string) {
-  const names: Record<string, string> = { kw: '酷我音乐', kg: '酷狗音乐', tx: 'QQ 音乐', wy: '网易云音乐', mg: '咪咕音乐' }
-  return id ? (names[id] ?? id) : '来源未知'
 }
 function playbackSourceName(track?: Track | null) {
   return sourceName(track?.lx_source_key || track?.source_id)

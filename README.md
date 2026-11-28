@@ -2,7 +2,7 @@
 
 My-LiveHub 是面向 Windows 10/11 64 位系统的本地直播互动与媒体辅助平台。项目以 Go 为核心，使用 Wails v3 提供桌面宿主和前后端桥接，前端采用 Vue 3、TypeScript、Vite 与 Element Plus。它将直播平台接入、互动事件、业务模块、媒体播放和 OBS 浏览器展示整合在一个 Windows 桌面应用中。
 
-项目持续迭代中。本文介绍当前代码已经具备的主要能力、运行方式和开发入口；具体功能仍受平台权限、网络、外部软件、模块配置和运行状态影响。规划中的能力不会作为已交付功能描述。
+当前版本已完成开发。本文以 dev 分支当前实现和正式 Release 为依据，介绍已交付能力、运行方式和开发入口；具体功能仍受平台权限、网络、外部软件、模块配置和运行状态影响。规划中的能力不会作为已交付功能描述。
 
 ## 项目当前状态
 
@@ -64,7 +64,7 @@ My-LiveHub 是面向 Windows 10/11 64 位系统的本地直播互动与媒体辅
 - **Live2D**：模型展示及相关控制，需按模块要求准备模型资源。
 - **LOL Hex Display**：内置海克斯识别、战绩展示和相关综合展示组件。
 - **综合展示与布局**：管理展示布局及其组件，可通过 OBS 浏览器来源呈现。
-- **扩展管理**：管理应用支持的扩展及其运行状态。
+- **扩展中心**：当前保留管理入口页面；扩展发现、安装、更新、权限与独立进程管理尚未实现。
 - **日志与监控**：查看运行日志、诊断信息和系统运行状态。
 
 各模块的具体功能以客户端页面和当前实现为准。OBS Studio、Live2D 模型等属于按需准备的外部软件或资源，不会随应用自动安装。
@@ -159,7 +159,8 @@ Wails v3 使用 Microsoft Edge WebView2 Runtime 显示桌面界面：
 - 不要将个人配置、Cookie、访问令牌、密钥或其他凭据提交到 Git。
 - 分享配置文件或日志前，先移除账号标识、令牌、Cookie 和其他敏感信息。
 - 用户导入的音源脚本在受控 QuickJS Runtime 中执行；脚本网络请求由宿主网络能力管理。
-- 本地运行数据和音源脚本属于用户数据，升级应用时不要误删。
+- 本地运行数据和个人导入的音源脚本属于用户数据，升级应用时不要误删。
+- 仓库根目录 `lx-js/` 保存固定的第三方音源样本，仅用于 QuickJS 兼容性回归测试，不是用户运行数据。
 
 ## 开发环境
 
@@ -168,29 +169,22 @@ Wails v3 使用 Microsoft Edge WebView2 Runtime 显示桌面界面：
 - Windows 10/11 x64
 - Go 1.27.x
 - Node.js 26.x 与 npm
-- Wails CLI v3.0.0
+- Wails v3.1.0
 - Microsoft Edge WebView2 Runtime
 
-在 Windows PowerShell 中执行：
+在 Windows PowerShell 中执行（需要已安装 Go、Node.js、Wails v3 和 [Task](https://taskfile.dev/)）：
 
 ```powershell
-# 进入应用工程
 cd app
 
 # 首次安装前端依赖
-npm --prefix frontend install
+task frontend:install
 
-# 启动 Wails 桌面开发环境
-wails3 dev -config ./build/config.yml
-```
-
-开发启动配置会显式以 `dev` 模式运行。开发环境默认配置从 `app/config/default/` 读取，本机覆盖配置从 `app/config/local/` 读取。
-
-也可以在 `app/` 目录执行：
-
-```powershell
+# 启动开发环境（自动准备 QuickJS-NG 运行时、生成 Windows 资源并执行端口预检）
 task dev
 ```
+
+请优先使用 `task dev`，不要绕过项目脚本直接启动 `wails3 dev`。开发启动会显式传入 `dev` 环境参数，前端端口默认为 `8769`；默认配置从 `app/config/default/` 读取，本机覆盖配置从 `app/config/local/` 读取。
 
 ## 构建与测试
 
@@ -198,26 +192,16 @@ task dev
 
 ```powershell
 # 前端类型检查与生产构建
-npm --prefix frontend run build
+task frontend:build
 
 # Go 测试
-go test ./...
-
-# 构建 Windows 可执行文件
-go build -o bin/My-LiveHub.exe .
-
-# Wails 完整构建
-wails3 build
-```
-
-常用 Task 任务：
-
-```powershell
-task frontend:install
-task frontend:build
 task test
+
+# 准备 QuickJS-NG 运行时并构建 Windows 可执行文件
 task build
 ```
+
+项目构建通过 `app/Taskfile.yml` 和 `app/scripts/lxproduction.ps1` 统一准备 QuickJS-NG 运行时、Windows 应用资源及生产构建标签；日常开发和构建请使用上述 Task 入口，避免绕过必要的准备步骤。
 
 生产 QuickJS-NG 运行时验证需要匹配的原生运行时构建环境；普通 Go 测试不能单独替代生产构建标签下的运行时验证。
 
@@ -243,6 +227,7 @@ My-LiveHub/
 │   └── workflows/                  # CI 与 Release 工作流
 ├── docs/                           # 架构及专项设计文档
 │   └── ARCHITECTURE.md
+├── lx-js/                           # 固定音源样本，供 QuickJS 兼容性测试
 ├── app/                            # Windows 桌面应用工程
 │   ├── main.go                     # 应用入口
 │   ├── config/
@@ -269,7 +254,7 @@ My-LiveHub/
 
 - [总体架构](docs/ARCHITECTURE.md)：项目定位、模块边界、服务生命周期、音乐与 QuickJS 运行时架构。
 - [应用工程说明](app/README.md)：应用工程开发环境、构建和配置路径。
-- [第三方组件许可](app/THIRD_PARTY_NOTICES.md)：项目依赖的第三方组件及其许可证信息。
+- [第三方许可证文件](app/third_party/licenses/)；[Live2D Runtime 第三方声明](app/frontend/public/live2d-runtime/THIRD-PARTY-NOTICES.md)。
 
 ## 开发约定
 
@@ -277,4 +262,4 @@ My-LiveHub/
 - 修改前检查当前实现和调用关系，尽量保持修改范围清晰，并补充必要的回归测试。
 - 区分已实现功能、外部依赖能力和规划事项，不将设计意图描述为已交付行为。
 - 涉及平台、播放器或 OBS 的变更，应区分代码实现、自动化测试与真实环境验证。
-- 不提交本机配置、运行缓存、用户音源脚本或任何敏感凭据。
+- 不提交本机配置、运行缓存、个人导入音源脚本或任何敏感凭据；`lx-js/` 中的固定样本属于测试夹具。

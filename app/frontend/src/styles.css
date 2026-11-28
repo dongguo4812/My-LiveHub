@@ -82,7 +82,6 @@ button { font: inherit; }
 .system-status { display: flex; align-items: center; gap: 8px; color: var(--app-text-regular); font-size: 11px; }
 .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--app-warning); box-shadow: 0 0 8px #d6a85e55; }
 .system-status i { height: 13px; width: 1px; background: #343a49; margin: 0 5px; }
-.status-muted { color: var(--app-text-secondary); }
 .workspace { padding: 28px 32px; overflow: auto; }
 .footer { height: 30px; display: flex; align-items: center; justify-content: space-between; padding: 0 32px; border-top: 1px solid var(--app-border-subtle); color: var(--app-text-muted); font-size: 10px; }
 

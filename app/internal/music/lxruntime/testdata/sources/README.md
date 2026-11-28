@@ -17,6 +17,5 @@ These snapshots are test inputs, not trusted code. They are evaluated only by th
 - `huanyin.js`: real LX Host initialization; local platform URL mapping; deterministic Migu search/playback and search-result flow; metadata mismatch/cache behavior; negative responses; transport failures; timeout and request cancellation across three matching fallbacks.
 - Runtime/Host: Promise jobs, timers, HTTP cancellation, infinite-loop interruption, Buffer methods and encoding compatibility.
 
-See [SOURCE_PROTOCOL_MATRIX.md](../../SOURCE_PROTOCOL_MATRIX.md) for test-level coverage and explicit limitations.
 
 Passing these tests proves only the deterministic cases listed above. It does not prove full API parity, live network behavior, live service availability, account entitlement, VIP bypass, or guaranteed playback. The `lx.js` V7 `/rconfig` handshake and observed V8 update-advisory acceptance are covered; V8 source compatibility and post-handshake playback behavior remain unverified.
