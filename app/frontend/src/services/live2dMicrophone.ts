@@ -133,7 +133,7 @@ export async function startLive2DMicrophone() {
         nextStream.getTracks().forEach(track => track.stop())
         return
       }
-      // TEMPORARY ISOLATION TEST: initialize AudioContext, but skip AudioWorklet module/node creation.
+      // TEMPORARY ISOLATION TEST: load the AudioWorklet module, but skip AudioWorkletNode creation.
       stream = nextStream
       const context = new AudioContext()
       audioContext = context
@@ -142,11 +142,16 @@ export async function startLive2DMicrophone() {
         cleanupAudio()
         return
       }
+      await context.audioWorklet.addModule('/live2d-runtime/mic-processor.js')
+      if (runGeneration !== generation) {
+        cleanupAudio()
+        return
+      }
       cleanupAudio()
       state.active = false
       state.level = 0
       state.mouthOpen = 0
-      state.error = '临时隔离测试：AudioContext 已创建并恢复，AudioWorklet 已跳过'
+      state.error = '临时隔离测试：AudioWorklet 模块已加载，AudioWorkletNode 已跳过'
       sendMouth(0)
       return
       await context.audioWorklet.addModule('/live2d-runtime/mic-processor.js')
