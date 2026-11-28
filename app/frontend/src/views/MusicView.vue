@@ -6,7 +6,7 @@ import { useRoute } from 'vue-router'
 import { Headset, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import '../styles/player-center.css'
 import MusicNavigation from '../components/MusicNavigation.vue'
-import { getHTMLAudioVolume } from '../services/htmlAudio'
+import { getHTMLAudioLastAudibleVolume, getHTMLAudioVolume } from '../services/htmlAudio'
 import * as MusicService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musicservice.js'
 import * as MusicLyricsWindowService from '../../bindings/github.com/dongguo4812/My-LiveHub/app/internal/desktop/musiclyricswindowservice.js'
 
@@ -473,7 +473,7 @@ function toggleMute() {
 }
 onMounted(() => {
   playbackVolume.value = getHTMLAudioVolume()
-  if (playbackVolume.value > 0) lastAudibleVolume.value = playbackVolume.value
+  lastAudibleVolume.value = getHTMLAudioLastAudibleVolume()
   void loadConfig()
   void refreshPlayback()
   void refreshMusicStatus()
