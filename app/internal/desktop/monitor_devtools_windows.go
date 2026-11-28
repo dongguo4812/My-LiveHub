@@ -74,6 +74,16 @@ type RendererDOMDiagnosticsResult struct {
 	Targets []RendererDOMTargetResult `json:"targets"`
 }
 
+
+type RendererHeapSnapshotResult struct {
+	Path string `json:"path"`
+	TargetID string `json:"target_id"`
+	Title string `json:"title"`
+	URL string `json:"url"`
+	SizeBytes int64 `json:"size_bytes"`
+	CapturedAt time.Time `json:"captured_at"`
+}
+
 type devToolsTarget struct {
 	ID string `json:"id"`
 	Type string `json:"type"`
@@ -141,6 +151,83 @@ func (s *MonitorService) CaptureWebView2DOMDiagnostics() (RendererDOMDiagnostics
 	if err != nil { return RendererDOMDiagnosticsResult{}, fmt.Errorf("序列化 DOM 诊断结果失败：%w", err) }
 	if err := os.WriteFile(result.Path, data, 0o600); err != nil { return RendererDOMDiagnosticsResult{}, fmt.Errorf("保存 DOM 诊断结果失败：%w", err) }
 	return result, nil
+}
+
+
+func (s *MonitorService) CaptureWebView2HeapSnapshot(targetID string) (RendererHeapSnapshotResult, error) {
+	if s == nil { return RendererHeapSnapshotResult{}, fmt.Errorf("监控服务不可用") }
+	if targetID == "" { return RendererHeapSnapshotResult{}, fmt.Errorf("缺少页面 Target ID") }
+	s.mu.Lock()
+	port := s.devToolsPort
+	if port == 0 { s.mu.Unlock(); return RendererHeapSnapshotResult{}, fmt.Errorf("JS 堆快照仅在开发环境启用；请使用 task dev 启动") }
+	if s.devToolsCaptureActive { s.mu.Unlock(); return RendererHeapSnapshotResult{}, fmt.Errorf("已有一次 Chromium 诊断正在采集") }
+	s.devToolsCaptureActive = true
+	logDir := ""
+	if len(s.logDirs) > 0 { logDir = s.logDirs[0] }
+	s.mu.Unlock()
+	defer func(){ s.mu.Lock(); s.devToolsCaptureActive = false; s.mu.Unlock() }()
+	if logDir == "" { return RendererHeapSnapshotResult{}, fmt.Errorf("应用日志目录不可用") }
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	client := &http.Client{Timeout: 5*time.Second}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/json/list", port), nil)
+	if err != nil { return RendererHeapSnapshotResult{}, err }
+	response, err := client.Do(request)
+	if err != nil { return RendererHeapSnapshotResult{}, fmt.Errorf("读取 Chromium 页面列表失败：%w", err) }
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK { return RendererHeapSnapshotResult{}, fmt.Errorf("Chromium 页面列表返回 HTTP %d", response.StatusCode) }
+	var targets []devToolsTarget
+	if err := json.NewDecoder(response.Body).Decode(&targets); err != nil { return RendererHeapSnapshotResult{}, fmt.Errorf("解析 Chromium 页面列表失败：%w", err) }
+	var selected *devToolsTarget
+	for i := range targets { if targets[i].ID == targetID && targets[i].Type == "page" { selected = &targets[i]; break } }
+	if selected == nil { return RendererHeapSnapshotResult{}, fmt.Errorf("页面 Target 已不存在，请重新采集 DOM 计数") }
+
+	debugURL, err := url.Parse(selected.WebSocketDebuggerURL)
+	if err != nil { return RendererHeapSnapshotResult{}, err }
+	debugURL.Host = fmt.Sprintf("127.0.0.1:%d", port)
+	headers := http.Header{}
+	headers.Set("Origin", "http://localhost")
+	conn, _, err := (&websocket.Dialer{HandshakeTimeout: 5*time.Second}).DialContext(ctx, debugURL.String(), headers)
+	if err != nil { return RendererHeapSnapshotResult{}, fmt.Errorf("连接页面堆诊断通道失败：%w", err) }
+	defer conn.Close()
+	conn.SetReadLimit(8 << 20)
+	if _, err := sendDevToolsCommand(conn, 1, "HeapProfiler.enable", map[string]any{}); err != nil { return RendererHeapSnapshotResult{}, fmt.Errorf("启用 JS 堆分析器失败：%w", err) }
+
+	if err := os.MkdirAll(logDir, 0o700); err != nil { return RendererHeapSnapshotResult{}, fmt.Errorf("创建诊断文件目录失败：%w", err) }
+	capturedAt := time.Now()
+	path := filepath.Join(logDir, "webview2-heap-"+capturedAt.Format("20060102-150405")+".heapsnapshot")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil { return RendererHeapSnapshotResult{}, fmt.Errorf("创建 JS 堆快照文件失败：%w", err) }
+	keepFile := false
+	defer func(){ _ = file.Close(); if !keepFile { _ = os.Remove(path) } }()
+	if err := writeDevToolsCommand(conn, 2, "HeapProfiler.takeHeapSnapshot", map[string]any{"reportProgress": false, "captureNumericValue": true}); err != nil { return RendererHeapSnapshotResult{}, fmt.Errorf("启动 JS 堆快照失败：%w", err) }
+	var size int64
+	deadline := time.Now().Add(170*time.Second)
+	completed := false
+	for !completed {
+		if err := ctx.Err(); err != nil { return RendererHeapSnapshotResult{}, fmt.Errorf("JS 堆快照超时或已取消：%w", err) }
+		_ = conn.SetReadDeadline(deadline)
+		var message devToolsMessage
+		if err := conn.ReadJSON(&message); err != nil { return RendererHeapSnapshotResult{}, fmt.Errorf("接收 JS 堆快照数据失败：%w", err) }
+		if message.Method == "HeapProfiler.addHeapSnapshotChunk" {
+			var chunk struct { Chunk string `json:"chunk"` }
+			if err := json.Unmarshal(message.Params, &chunk); err != nil { return RendererHeapSnapshotResult{}, fmt.Errorf("解析 JS 堆快照分块失败：%w", err) }
+			n, err := file.WriteString(chunk.Chunk)
+			if err != nil { return RendererHeapSnapshotResult{}, fmt.Errorf("写入 JS 堆快照失败：%w", err) }
+			size += int64(n)
+			if size > 512<<20 { return RendererHeapSnapshotResult{}, fmt.Errorf("JS 堆快照超过 512 MB 安全上限，已中止") }
+		}
+		if message.ID == 2 {
+			if message.Error != nil { return RendererHeapSnapshotResult{}, fmt.Errorf("Chromium 生成 JS 堆快照失败：%s", message.Error.Message) }
+			completed = true
+		}
+	}
+	if size == 0 { return RendererHeapSnapshotResult{}, fmt.Errorf("Chromium 未返回 JS 堆快照数据") }
+	if err := file.Sync(); err != nil { return RendererHeapSnapshotResult{}, fmt.Errorf("刷新 JS 堆快照文件失败：%w", err) }
+	if err := file.Close(); err != nil { return RendererHeapSnapshotResult{}, fmt.Errorf("关闭 JS 堆快照文件失败：%w", err) }
+	keepFile = true
+	return RendererHeapSnapshotResult{Path:path, TargetID:selected.ID, Title:selected.Title, URL:selected.URL, SizeBytes:size, CapturedAt:capturedAt}, nil
 }
 
 func (s *MonitorService) CaptureWebView2MemoryTrace() (RendererMemoryTraceResult, error) {
