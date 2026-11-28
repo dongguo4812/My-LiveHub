@@ -2,12 +2,12 @@ package desktop
 
 import (
 	"context"
-			"errors"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
 	"strings"
-		"sync"
+	"sync"
 	"sync/atomic"
 	"time"
 	"unicode"
@@ -317,7 +317,6 @@ func (s *MusicService) initializeLXRuntime(ctx context.Context, generation uint6
 			s.lxRuntimeDone = nil
 		}
 		s.mu.Unlock()
-		s.mu.RLock()
 	}()
 	if err := s.scriptRuntime.Start(ctx); err != nil {
 		if ctx.Err() == nil { s.setLXRuntimeFailure(generation, err) }
